@@ -1,0 +1,451 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_incendie.am,v 1.3 2020/11/03 17:43:35 pc2dpdy Exp $        $Revision: 1.3 $        $Date: 2020/11/03 17:43:35 $
+-----------------------------------------------------------------------
+*  ESCOTA  *  PROJET PASTRE
+-----------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-----------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMC_inc.am
+-----------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*
+*   Gere les donnees specifiques au type incendie
+*   et les champs correspondants dans la fenetre de saisie FMC
+*
+-----------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  JPL	03/09/12 : Creation  1.1
+*  JPL	06/09/19 : Gestion du champ nature de l'incendie (DEM 1352)  1.2
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+-----------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzaec_ax.h"
+
+INCLUDE	"GESIHM/inc/xzae211sp.h"
+INCLUDE	"GESIHM/inc/xzae212sp.h"
+
+INCLUDE	"ITMA_COM.h"
+INCLUDE	"ITMA_TDO.h"
+INCLUDE	"ITMA_TMC.h"
+
+
+/*A Définition des constantes */
+
+DEFINE	CM_MODULE		"MTMC"		' Nom du module
+
+VAR	FORMAT TDO_Libelle_Predefini	tm_types_nature, tm_types_nature_valide
+
+
+
+/*A Définition des variables globales */
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche / masque dans la fenetre FMC les champs specifiques a une fiche Incendie
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_incendie (va_fenetre, va_type_fmc, va_visible)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : id de la boite de dialogue ou afficher les champs
+*  va_type_fmc        : type de la fmc
+*  va_visible         : indicateur de visibilite demandee
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------------------- */
+VAR tl_controles
+VAR vl_indice
+VAR vl_fenetre
+VAR vl_droits
+
+
+/*A Traitements en cas d'erreur :
+ *   informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+ON ERROR
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN
+}
+
+vl_fenetre = va_fenetre
+
+IF (va_visible) {
+	ITMA_TMC_incendie_init (vl_fenetre)
+}
+
+
+/*A rendre visibles ou masquer les champs associes au type fmc */
+
+/* Modif SAGA : la visibilite depend du droit de propriete */
+vl_droits = SYSTEM_VAR@ (vg_datex_propriete)
+
+/* Champs non visibles sans droit de propriete */
+tl_controles = {
+	"BT_feu_maitrise",
+	"BO_nature"
+}
+FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+	DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice],
+	                     va_visible AND (vl_droits = XDC_VRAI))
+NEXT vl_indice
+
+	RETURN (vl_fenetre)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialiser certaines données et champs specifiques aux FMC du type specifie
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_incendie_init (va_fenetre)
+
+/*B Initialisations a effectuer a chaque ouverture de la fenetre FMC au moins */
+DB_CTRL_XPOS@ (va_fenetre, "BT_feu_maitrise", DB_CTRL_GET_XPOS@ (va_fenetre, "BO_nature"))
+DB_CTRL_YPOS@ (va_fenetre, "BT_feu_maitrise", DB_CTRL_GET_YPOS@ (va_fenetre, "BO_nature") + 50)
+
+DB_CTRL_TITLE@ (va_fenetre, "BT_feu_maitrise", "Incendie maîtrisé")
+
+
+COM37_Lit_Libelles_Predefinis (XDC_LIB_TYPE_NATURE_INCENDIE, tm_types_nature, tm_types_nature_valide)
+DB_CTRL_STRINGS@ (va_fenetre, "BO_nature", ARRAY_COLUMN@ (tm_types_nature, TDO_TEXTE_LIBELLE))
+DB_CTRL_VALUE@ (va_fenetre, "BO_nature", 0)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Ecrit en base les informations specifiques a une fiche incendie
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_incendie_sauve (FORMAT COM_Identifiant_FMC ta_num_evt,
+                                  FORMAT TMC_incendie va_tampon,
+                                  va_mode, va_horodate, va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_num_evt		: numero et cle d'evenement
+* va_tampon		: valeurs des controles
+* va_mode		: prevision, traiter, clos
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_OK en cas d'execution correcte, code d'erreur sinon
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*
+--------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+VAR	vl_poste_oper
+
+ON ERROR
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+    RETURN (COM_NOK)
+}
+
+	IF (SYSTEM_VAR@(vg_surcharge)=TRUE) {
+		vl_poste_oper=SYSTEM_VAR@(vg_numero_poste_surcharge)
+	} ELSE {
+		vl_poste_oper=SYSTEM_VAR@(vg_numero_poste)
+	}
+
+
+	/*A preparation des parametres de la procedure stockee*/
+	vl_parametres = COM15_Parametres_Requete ( {
+		{ FALSE,	SYB#INT4_,		ta_num_evt.numero },
+		{ FALSE,	SYB#INT1_,		ta_num_evt.cle },
+		{ FALSE,	SYB#DATETIME_,		va_horodate },
+		{ FALSE,	SYB#INT1_,		va_tampon.feu_maitrise },
+		{ FALSE,	SYB#INT1_,		va_tampon.nature },
+		{ FALSE,	SYB#INT2_,		vl_poste_oper },
+		{ FALSE,	SYB#INT1_,		va_mode },
+		{ FALSE, 	SYB#CHAR_, 		SYSTEM_VAR@(vg_nom_site) }
+	} )
+
+	IF COM05_SQL_Procedure (XZAE212_Ecrire_Fiche_Incendie,
+	                           vl_parametres, vl_resultats, CM_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@ ("Erreur lors de l'écriture en base des données incendie")
+		RETURN (COM_NOK)
+	}
+	ELSE IF (vl_resultats.status <> XZAEC_FMC_PAS_ENR) AND
+		(vl_resultats.status <> XZAEC_FMC_CLOSE_PAS_ENR) AND
+		(vl_resultats.status <> COM_OK)
+	{
+		INFO_MESSAGE@ ("Erreur lors de l'écriture en base des données incendie")
+	}
+	ELSE va_tampon.horodate_maitrise = va_horodate
+
+	RETURN (vl_resultats.status)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Charge de la base les informations specifiques a une fiche Incendie
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_incendie_charge (va_fenetre, FORMAT COM_Identifiant_FMC ta_num_evt, va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_num_evt            : numero et cle d'evenement
+* va_fenetre            : id de la boite de dialogue fiche main courante
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	FORMAT TMC_incendie	vl_tampon
+VAR	tl_retour
+
+tl_retour[0]=va_fenetre
+tl_retour[1]={ }
+
+ON ERROR
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+    RETURN (tl_retour)
+}
+
+	vl_parametres = COM15_Parametres_Requete ( {
+		{ FALSE,	SYB#DATETIME_,		va_horodate },
+		{ FALSE,	SYB#INT4_,		ta_num_evt.numero },
+		{ FALSE,	SYB#INT1_,		ta_num_evt.cle },
+		{ TRUE,		SYB#INT1_,		NULL },
+		{ TRUE,		SYB#DATETIME_,		NULL },
+		{ TRUE,		SYB#INT1_,		NULL }
+	} )
+
+	IF COM05_SQL_Procedure (XZAE211_Lire_Fiche_Incendie,
+				  vl_parametres, vl_resultats, CM_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@ ("Erreur lors de la lecture des données incendie")
+		RETURN (tl_retour)
+	}
+
+	vl_tampon=vl_resultats.return_parameters
+	vl_tampon.horodate_maitrise = COM18_Date_SGBD_Formatee (vl_tampon.horodate_maitrise)
+
+	/*A Afficher les valeurs des donnees textuelles */
+	ITMA_TMC_incendie_affiche (va_fenetre, vl_tampon)
+
+	tl_retour[0]=va_fenetre
+	tl_retour[1]=vl_tampon
+
+	RETURN (tl_retour)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche les donnees specifiques d'une fiche Incendie
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_incendie_affiche (va_fenetre, FORMAT TMC_incendie va_incendie)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*  va_incendie        : Données de la fiche Incendie
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur ouverture fiche Incendie
+*
+* FONCTION
+*  Value les champs de saisie spécifiques aux FMC de classe Incendie
+*
+--------------------------------------------------------------------------------- */
+
+VAR	i
+
+	/*A Afficher la nature de l'incendie */
+	i = COM45_IndexEnColonne (tm_types_nature, TDO_CODE_LIBELLE, va_incendie.nature)
+	IF i < 0 {
+		i = 0
+	}
+	DB_CTRL_VALUE@ (va_fenetre, "BO_nature", i)
+
+
+	/*A Afficher l'indicateur de feu maitrise */
+	IF va_incendie.feu_maitrise = XDC_VRAI {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_feu_maitrise", TRUE)
+	} ELSE {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_feu_maitrise", FALSE)
+	}
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit les donnees specifiques d'une fiche Incendie saisies dans la fenetre
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_incendie_saisie (va_fenetre, FORMAT TMC_incendie va_incendie)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_incendie        : Donnees de la fiche Incendie
+*
+*
+* CODE RETOUR         : XDC_NOK si une valeur saisie est incorrecte, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Incendie
+*
+* FONCTION
+*  Remplit la fiche avec les donnees des champs de saisie specifiques.
+*
+--------------------------------------------------------------------------------- */
+
+VAR	i
+
+	/*A lire à l'écran la nature de l'incendie sélectionnée */
+	i = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_nature")
+	IF i < 0 {
+		i = 0
+	}
+	va_incendie.nature = tm_types_nature[i].code
+
+
+	/*A lire à l'écran l'indicateur de maîtrise de l'incendie */
+	IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BT_feu_maitrise") = TRUE) {
+		va_incendie.feu_maitrise = XDC_VRAI
+	} ELSE {
+		va_incendie.feu_maitrise = XDC_FAUX
+	}
+
+	RETURN (XDC_OK)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Effectue les controles de validite des donnees specifiques d'une fiche Incendie
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_incendie_controle (FORMAT TMC_fmc va_fiche, FORMAT TMC_incendie va_incendie)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fiche           : Donnees generiques de la Fmc ;
+*  va_incendie        : Donnees specifiques a la Fmc Incendie
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_NOK si les donnees sont incorrectes, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Incendie
+*
+* FONCTION
+*
+--------------------------------------------------------------------------------- */
+
+	RETURN (XDC_OK)
+ENDMACRO

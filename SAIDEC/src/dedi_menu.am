@@ -1,0 +1,925 @@
+/*E*/
+/* Fichier : $Id: dedi_menu.am,v 1.12 1999/02/26 11:56:11 gaborit Exp $	      Release : $Revision: 1.12 $        Date : $Date: 1999/02/26 11:56:11 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTMT * FICHIER dedi_menu.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* menu principal editeur de regles
+*
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	25 nov 1994	: Creation						V1.1
+* Thomas	17 nov 1995	: ajout macro dedi_aide (1.5)
+* Thomas	17 nov 1995	: suppresion des entrees "recuperer/mettre en reference" (1.7)
+* Thomas	20 nov 1995	: modif de l'entree elt PMV probabilite (1.8)
+* Thomas	19 dec 1995	: recuperation des erreurs AxWords (1.9)
+* Guilhou	14 jan 1997 	: temps de parcours 1.11
+* Niepceron 15 jan 1999	: intergestionnaire 1.12 dem/1725
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+include "errors_.am"
+
+DEFINE	MENU_FILE	"menu_dedi.h"	'fichier de menu
+
+/*position des differents champs dans le fichier de menu*/
+DEFINE	POS_NOM		0
+DEFINE 	POS_MACRO		1
+DEFINE	POS_PROFONDEUR	2
+DEFINE	POS_RACCOURCI	3
+DEFINE 	POS_ICONE		4
+
+/* numero attribue au menu de la fenetre d'aide en ligne */
+DEFINE	DEDI_MENU_AIDE_ID	299
+
+
+
+/*variables du menu*/
+VAR  vm_bouton_num,vm_bouton_date
+VAR  vm_cascade_num,vm_cascade_date
+VAR  vm_menu_items
+VAR vm_submenu_num
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer le menu principal
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_menu ()
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_num_profil       : numero du profil de l'operateur.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTAP
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR vl_nom_macro	
+	VAR vl_msg,vl_ret
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+/*	SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD))*/
+    RETURN
+}
+
+/*A initialiser le module de traitement des classes d'evt */
+dedi_pmv_ligne()
+dedi_evt()
+
+/*A initialiser l'application*/
+PEND_FOR_NEW_TASK@("dedi_init")
+
+/*A initialiser le module de traitement des variables*/
+dedi_var()
+
+/*A
+ * Charger la fenetre "menu principal" et construire le menu
+ * ---------------------------------------------------------
+ */
+vl_fenetre = DB_LOAD@ ("dedi_menu")
+DB_MENU_BAR@(vl_fenetre, Construire_Menu(vl_fenetre))
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, -35)
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = dedi_canal_fin
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+    ON ERROR {
+	ERROR_BOX@
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement */
+	CASE OF vl_exit_value
+		/*A
+		* choix d'un item dans la barre de menu
+		* on le recupere et on traite suivant le cas*/
+		CASE "menu_bar_"
+			vl_nom_macro=DB_MENU_BAR_WORD@(vl_fenetre)
+
+				/*A suivant la macro choisie*/
+				CASE OF vl_nom_macro
+					/*A evts a ne pas inclure dans message tfm*/
+					CASE "tfm_evenements"
+						NEW_TASK@("dedi_ec1")
+
+					/*A mise en evidence des msg TFM travaux*/
+					CASE "tfm_travaux"
+						NEW_TASK@("dedi_ec1b")
+
+					CASE "tfm_objectifs"
+						NEW_TASK@("dedi_ec2","dedi_menu")
+
+					/*A conditions d'utilisation des objectifs tfm*/
+					CASE "tfm_conditions"
+						NEW_TASK@("dedi_ec2","dedi_menu")
+
+					/*A formulation nature groupe nominal*/
+					CASE "tfm_naturegn"
+						NEW_TASK@("dedi_ec5_nature",0)
+
+					/*A formulation nature groupe verbal*/
+					CASE "tfm_naturegv"
+						NEW_TASK@("dedi_ec5_nature",1)
+
+					/*A formulation fin*/
+					CASE "tfm_fin"
+						NEW_TASK@("dedi_ec5_fin")
+
+					/*A formulation cause*/
+					CASE "tfm_cause"
+						NEW_TASK@("dedi_ec5_cause")
+
+					/*A formulation autoroutes*/
+					CASE "tfm_autoroutes"
+						NEW_TASK@("dedi_ec5_autoroute")
+
+					/*A formulation chaussee glissante*/
+					CASE "tfm_chaussee"
+						NEW_TASK@("dedi_ec5_chaussee")
+
+					/*A formulation conseil*/
+					CASE "tfm_conseil"
+						NEW_TASK@("dedi_ec5_conseil")
+
+					/*A formulation duree*/
+					CASE "tfm_duree"
+						NEW_TASK@("dedi_ec5_duree")
+
+					/*A formulation gravite*/
+					CASE "tfm_gravite"
+						NEW_TASK@("dedi_ec5_gravite")
+
+					/*A formulation guidage*/
+					CASE "tfm_guidage"
+						NEW_TASK@("dedi_ec5_guidage")
+
+					/*A formulation heure de debut*/
+					CASE "tfm_debut"
+						NEW_TASK@("dedi_ec5_debut")
+
+					/*A formulation localisation*/
+					CASE "tfm_local"
+						NEW_TASK@("dedi_ec5_local")
+
+					/*A formulation longueur de bouchon*/
+					CASE "tfm_bouchon"
+						NEW_TASK@("dedi_ec5_bouchon")
+
+					/*A neutralisations de voies */
+					CASE "tfm_neutralisees"
+						NEW_TASK@("dedi_ec5_neutralisees")
+
+					/*A formulation periode*/
+					CASE "tfm_periode"
+						NEW_TASK@("dedi_ec5_periode")
+
+					/*A formulation retour*/
+					CASE "tfm_retour"
+						NEW_TASK@("dedi_ec5_retour")
+
+					/*A formulation secours*/
+					CASE "tfm_secours"
+						NEW_TASK@("dedi_ec5_secours")
+
+					/*A formulation vehicules*/
+					CASE "tfm_vehicules"
+						NEW_TASK@("dedi_ec5_vehicules")
+
+					/*A formulation victimes*/
+					CASE "tfm_victimes"
+						NEW_TASK@("dedi_ec5_victimes")
+
+					/*A formulation visibilite*/
+					CASE "tfm_visibilite"
+						NEW_TASK@("dedi_ec5_visibilite")
+
+					/*A formulation voies bloquees*/
+					CASE "tfm_bloquees"
+						NEW_TASK@("dedi_ec5_bloquees")
+
+					/*A message tfm de tdp perturbe*/
+					CASE "tfm_tdp_perturbe"
+						NEW_TASK@("dedi_ec5_tdp_perturbe")
+
+					/*A message tfm de tdp normal*/
+					CASE "tfm_tdp_normal"
+						NEW_TASK@("dedi_ec5_tdp_normal")
+
+					/*A entete message tfm des partenaire*/
+					CASE "tfm_entete"
+						NEW_TASK@("dedi_ec5_entete")
+
+					/*A interlocuteurs PC*/
+					CASE "interl_PC"
+						NEW_TASK@("dedi_ec7","PC")
+						NEW_TASK@("dedi_ec43","dedi_ec7","PC")
+						NEW_TASK@("dedi_ec13","dedi_ec7","PC",TRUE)
+						NEW_TASK@("dedi_ec13","dedi_ec7","PC")
+
+					/*A cas d'appel PC*/
+					CASE "interl_casPC"
+						NEW_TASK@("dedi_ec13","dedi_menu","PC")
+
+					/*A appels differes PC*/
+					CASE "interl_differePC"
+						NEW_TASK@("dedi_ec13","dedi_menu","PC",TRUE)
+
+					/*A interlocuteurs CI*/
+					CASE "interl_CI"
+						NEW_TASK@("dedi_ec7","CI")
+						NEW_TASK@("dedi_ec43","dedi_ec7","CI")
+						NEW_TASK@("dedi_ec13","dedi_ec7","CI",TRUE)
+						NEW_TASK@("dedi_ec13","dedi_ec7","CI")
+
+					/*A cas d'appel CI*/
+					CASE "interl_casCI"
+						NEW_TASK@("dedi_ec13","dedi_menu","CI")
+
+					/*A appels differes CI*/
+					CASE "interl_differeCI"
+						NEW_TASK@("dedi_ec13","dedi_menu","CI",TRUE)
+
+					/*A strategie de designation des sorties*/
+					CASE "strategie_sortie"
+						NEW_TASK@("dedi_ec36")
+
+					/*A textes relatifs aux travaux d'un fax*/
+					CASE "fax_travaux"
+						NEW_TASK@("dedi_ec21")
+
+					/*A structure d'un fax*/
+					CASE "fax_structure"
+						NEW_TASK@("dedi_ec25")
+
+					/*A intitules des rubriques d'un fax*/
+					CASE "fax_intitules"
+						NEW_TASK@("dedi_ec22")
+
+					/*A rubrique objet*/
+					CASE "fax_objet"
+						NEW_TASK@("dedi_ec22_objet")
+
+					/*A rubrique sens*/
+					CASE "fax_sens"
+						NEW_TASK@("dedi_ec23_sens")
+
+					/*A rubrique pmv*/
+					CASE "fax_pmv"
+						NEW_TASK@("dedi_ec23_pmv")
+
+					/*A rubrique affichage en gare*/
+					CASE "fax_gare"
+						NEW_TASK@("dedi_ec23_affichage")
+
+					/*A rubrique remarques*/
+					CASE "fax_remarques"
+						NEW_TASK@("dedi_ec23_remarques")
+
+					/*A rubrique consequences*/
+					CASE "fax_consequences"
+						NEW_TASK@("dedi_ec23_consequences")
+
+					/*A rubrique voies bloquees*/
+					CASE "fax_bloquees"
+						NEW_TASK@("dedi_ec23_bloque")
+
+					/*A rubrique section*/
+					CASE "fax_section"
+						NEW_TASK@("dedi_ec23_section")
+
+					/*A rubrique autoroute*/
+					CASE "fax_autoroute"
+						NEW_TASK@("dedi_ec23_autoroute")
+
+					/*A rubrique circulation*/
+					CASE "fax_circulation"
+						NEW_TASK@("dedi_ec23_circulation")
+
+					/*A rubrique heure de debut*/
+					CASE "fax_debut"
+						NEW_TASK@("dedi_ec23_debut")
+
+					/*A rubrique heure de fin*/
+					CASE "fax_fin"
+						NEW_TASK@("dedi_ec23_fin")
+
+					/*A rubrique matieres dangereuses*/
+					CASE "fax_matieres"
+						NEW_TASK@("dedi_ec23_matiere")
+
+					/*A rubrique pr*/
+					CASE "fax_pr"
+						NEW_TASK@("dedi_ec23_pr")
+
+					/*A rubrique gravite*/
+					CASE "fax_gravite"
+						NEW_TASK@("dedi_ec23_gravite")
+
+					/*A rubrique voies neutralisees*/
+					CASE "fax_neutralisees"
+						NEW_TASK@("dedi_ec23_neutral")
+
+					CASE "fax_vehicules"
+						NEW_TASK@("dedi_ec23_nbveh")
+
+
+				 	/*A fax special police*/
+					CASE "fax_police"
+						NEW_TASK@("dedi_ec23_police")
+
+					/*A fax special depanneur arrete*/
+					CASE "fax_depanneur_arrete"
+						NEW_TASK@("dedi_ec23_depanneur",0)
+
+					/*A fax special depanneur panne*/
+					CASE "fax_depanneur_panne"
+						NEW_TASK@("dedi_ec23_depanneur",1)
+
+					/*A fax special depanneur feu*/
+					CASE "fax_depanneur_feu"
+						NEW_TASK@("dedi_ec23_depanneur",2)
+
+					/*A fax special depanneur accident*/
+					CASE "fax_depanneur_accident"
+						NEW_TASK@("dedi_ec23_depanneur",3)
+
+					/*
+					* PMV
+					*/
+
+					/*A definition des objectifs pmv*/
+					CASE "pmv_objectifs"
+						NEW_TASK@("dedi_ec27")
+
+					/*A definition des perturbations pmv*/
+					CASE "pmv_perturbations"
+						NEW_TASK@("dedi_ec29","dedi_menu")
+
+					/*A relation objectifs/perturbations*/
+					CASE "pmv_objectifsPerturbations"
+						NEW_TASK@("dedi_ec29")
+
+					/*A definition de l'element conseil*/
+					CASE "pmv_formulConseil"
+						NEW_TASK@("dedi_ec27")
+
+					/*A relation objectifs/pmv*/
+					CASE "pmv_objectifsPmv"
+						NEW_TASK@("dedi_ec27")
+
+					/*A choix du texte sur bandeau*/
+					CASE "pmv_bandeau"
+						NEW_TASK@("dedi_ec27")
+
+					/*A messages PMV predefinis*/
+					CASE "pmv_predefini"
+						NEW_TASK@("dedi_ec33")
+
+					/*A bandeau pour les messages PMV predefinis*/
+					CASE "pmv_bandeau_predefini"
+						NEW_TASK@("dedi_ec33_bandeau")
+
+					/*A formulation cause d'un evenement*/
+					CASE "pmv_formulCause"
+						NEW_TASK@("dedi_ec35_cause")
+
+					/*A formulation nature d'un evenement*/
+					CASE "pmv_formulNature"
+						NEW_TASK@("dedi_ec35_38",0)
+						NEW_TASK@("dedi_ec29")
+
+					/*A formulation nature delestage et deviation*/
+					CASE "pmv_formulNatureDel"
+						NEW_TASK@("dedi_ec35_nature")
+
+					/*A formulation localisation d'un evenement*/
+					CASE "pmv_formulLocalisation"
+						NEW_TASK@("dedi_ec35_local")
+
+					/*A formulation probabilite d'un evenement*/
+					CASE "pmv_formulProba"
+						NEW_TASK@("dedi_ec35_38",0)
+						NEW_TASK@("dedi_ec29")
+
+					/*A formulation direction d'un evenement*/
+					CASE "pmv_formulDirection"
+						NEW_TASK@("dedi_ec35_direction")
+
+					/*A formulation longueur de bouchon*/
+					CASE "pmv_formulBouchon"
+						NEW_TASK@("dedi_ec35_longbouchon")
+
+					/*A formulation duree d'un evenement*/
+					CASE "pmv_formulDuree"
+						NEW_TASK@("dedi_ec35_duree")
+
+					/*A texte d'alternat*/
+					CASE "pmv_alternat"
+						NEW_TASK@("dedi_ec37")
+
+					/*A choix du pictogramme*/
+					CASE "pmv_picto"
+						NEW_TASK@("dedi_ec35_38",1)
+						NEW_TASK@("dedi_ec29")
+
+					/*A msg pmv de tdp non lie a un evenement*/
+					CASE "pmv_tdp"
+						NEW_TASK@("dedi_ec80")
+
+					/*A pr de zone de competence tunnel*/
+					CASE "tunnel_pr"
+						NEW_TASK@("dedi_ec40")
+
+					/*A pr de zone de competence nav*/
+					CASE "nav_pr"
+						NEW_TASK@("dedi_ec41")
+
+					/*A evt/modes de fonctionnement pour la nav*/
+					CASE "nav_relations"
+						NEW_TASK@("dedi_ec42")
+
+					/*A priorite des actions PC*/
+					CASE "actions_pc"
+						NEW_TASK@("dedi_ec43","dedi_menu","PC")
+
+					/*A priorite des actions CI*/
+					CASE "actions_ci"
+						NEW_TASK@("dedi_ec43","dedi_menu","CI")
+
+					/*A Export intergestionnaires*/
+					CASE "export"
+						NEW_TASK@("dedi_ec44")
+
+					/*A generation des regles tfm */
+					CASE "gen_tfm"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_GENERE)
+						NEW_TASK@("dedi_make_bdc",DEDI_GENERE_TFM)
+
+					/*A generation des regles interlocuteurs */
+					CASE "gen_interl"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_GENERE)
+						NEW_TASK@("dedi_make_bdc",DEDI_GENERE_INTERLOCUTEURS)
+
+					/*A generation des regles fax */
+					CASE "gen_fax"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_GENERE)
+						NEW_TASK@("dedi_make_bdc",DEDI_GENERE_FAX)
+
+					/*A generation des regles pmv */
+					CASE "gen_pmv"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_GENERE)
+						NEW_TASK@("dedi_make_bdc",DEDI_GENERE_PMV)
+
+					/*A generation des regles nav */
+					CASE "gen_nav"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_GENERE)
+						NEW_TASK@("dedi_make_bdc",DEDI_GENERE_NAV)
+
+					/*A generation des regles priorite */
+					CASE "gen_priorite"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_GENERE)
+						NEW_TASK@("dedi_make_bdc",DEDI_GENERE_PRIORITE)
+
+					/*A generation des regles export intergestionnaire*/
+					CASE "gen_export"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_GENERE)
+						NEW_TASK@("dedi_make_bdc",DEDI_GENERE_EXPORT)
+
+					/*A generation de toute la base de connaissance */
+					CASE "gen_tout"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_GENERE)
+						NEW_TASK@("dedi_make_bdc",DEDI_GENERE_TOUT)
+
+					/*A impression des regles tfm */
+					CASE "imprim_tfm"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_IMPRIM)
+						NEW_TASK@("dedi_make_bdc", DEDI_GENERE_TFM)
+
+					/*A impression des regles interlocuteurs */
+					CASE "imprim_interl"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_IMPRIM)
+						NEW_TASK@("dedi_make_bdc",DEDI_GENERE_INTERLOCUTEURS)
+
+					/*A impression des regles fax */
+					CASE "imprim_fax"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_IMPRIM)
+						NEW_TASK@("dedi_make_bdc", DEDI_GENERE_FAX)
+
+					/*A impression des regles pmv */
+					CASE "imprim_pmv"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_IMPRIM)
+						NEW_TASK@("dedi_make_bdc", DEDI_GENERE_PMV)
+
+					/*A impression des regles nav */
+					CASE "imprim_nav"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_IMPRIM)
+						NEW_TASK@("dedi_make_bdc", DEDI_GENERE_NAV)
+
+					/*A impression des regles priorite */
+					CASE "imprim_priorite"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_IMPRIM)
+						NEW_TASK@("dedi_make_bdc", DEDI_GENERE_PRIORITE)
+
+					/*A impression des export */
+					CASE "imprim_export"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_IMPRIM)
+						NEW_TASK@("dedi_make_bdc", DEDI_GENERE_EXPORT)
+
+					/*A impression de toute la base de connaissance */
+					CASE "imprim_tout"
+						SET_SYSTEM_VAR@(vg_mode,DEDI_MODE_IMPRIM)
+						NEW_TASK@("dedi_make_bdc",DEDI_GENERE_TOUT)
+
+					/*A quitter*/
+					CASE "quitter"
+						DB_SEND_POKE@(dedi_canal_fin)
+						/*SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD))*/
+						RETURN
+
+					/*A recuperation de la version de reference*/
+					/*CASE "get_ref"
+						MACRO_WINS_BUSY@()
+						SHELL_COMMAND@("dedi_getref.sh")*/
+
+					/*A mise en version de reference*/
+					/*CASE "make_ref"
+						MACRO_WINS_BUSY@()
+						SHELL_COMMAND@("dedi_makeref.sh")*/
+
+					/*A aide en ligne*/	
+					CASE "aide"
+						NEW_TASK@("dedi_mu_affiche")
+
+				ENDCASE
+
+		/*A on recoit un poke*/
+		CASE "poke_"
+			/*A suivant le poke*/
+			CASE OF DB_GET_POKE@(vl_fenetre)
+				/*A poke de fin*/
+				CASE dedi_canal_fin
+					/*A bye*/
+					RETURN
+			ENDCASE
+	ENDCASE
+WEND
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* construit le menu principal
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION Construire_Menu (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fenetre		: fenetre principale
+* va_num_profil       : numero du profil de l'operateur.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   
+*
+* FONCTION
+* insere des items dans la barre de menu principal en fonction du numero 
+* de profil de l'operateur
+---------------------------------------------------------------------------- */
+
+	VAR vl_id_menu
+	VAR tl_items
+	VAR vl_indice
+	VAR tl_menu_array
+	VAR tl_familles
+
+	/*A
+	* initialisation des compteurs*/
+	vm_bouton_num=0
+	vm_cascade_num=-1
+	vm_submenu_num=0
+	vm_menu_items=NULL
+	vl_id_menu=21
+
+	/*A
+	* lecture des items du menu dans le fichier .h associe*/
+	tl_menu_array=READ_ASCII_FILE@(AX_PATH++MENU_FILE)
+
+	/*A
+	* pour chaque element, on cree un item a la bonne place dans le menu*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_menu_array)-1)
+		/*A
+		* je transforme chaque ligne en un tableau*/
+		tl_items=ARRAY_FROM_STRING@(tl_menu_array[vl_indice],";")
+
+		/*A
+		* si c'est un element a inserer au premier niveau*/
+		IF (tl_items[POS_PROFONDEUR]=1)	
+		{
+			/*A
+			*reinitialise la position des sous-menus*/
+			vm_submenu_num=0
+
+			/*A
+			* insertion de l'item et de la macro associe*/
+			add_cascade(tl_items[POS_NOM],tl_items[POS_RACCOURCI])
+		}
+		/*A
+		* sinon si c'est un element a inserer au deuxieme niveau*/
+		ELSE IF (tl_items[POS_PROFONDEUR]=2)
+		{
+			/*A
+			* insertion de l'item et de la macro associe*/
+			add_bouton(tl_items[POS_NOM], tl_items[POS_MACRO],
+			  tl_items[POS_RACCOURCI])
+
+			/*A
+			* si c'est l'heure*/
+			IF (tl_items[POS_NOM]="Heure")
+			{
+				vm_menu_items[vm_cascade_num,1,vm_bouton_num-1, 0] = 
+									DATE_FORMAT@(CURRENT_TIME@(),305)
+				vm_menu_items[vm_cascade_num,1,vm_bouton_num-1, 5] = NULL
+				vm_menu_items[vm_cascade_num,1,vm_bouton_num-1, 1] = 
+									DATE_FORMAT@(CURRENT_TIME@(),305)
+				vm_menu_items[vm_cascade_num,1,vm_bouton_num-1, 3] = -1
+				vm_menu_items[vm_cascade_num,1,vm_bouton_num-1, 4] = -1
+				vm_menu_items[vm_cascade_num,1,vm_bouton_num-1, 7] = 1
+
+				vm_cascade_date=vm_cascade_num
+				vm_bouton_date=vm_bouton_num-1
+			}
+			/*A
+			*si l'element a une icone, je l'insere aussi*/
+			IF (tl_items[POS_ICONE]<>NULL)
+				add_icone(tl_items[POS_NOM],
+						tl_items[POS_ICONE],tl_items[POS_MACRO])
+		}
+		/*A 
+		* sinon si c'est un element a inserer au troisieme niveau*/
+		ELSE IF (tl_items[POS_PROFONDEUR]=3)
+		{
+			add_sousmenu(tl_items[POS_NOM], tl_items[POS_MACRO],
+			  tl_items[POS_RACCOURCI])
+
+			/*A
+			*si l'element a une icone, je l'insere aussi*/
+			IF (tl_items[POS_ICONE]<>NULL)
+				add_sousicone(tl_items[POS_NOM],
+							tl_items[POS_ICONE],tl_items[POS_MACRO])
+		}
+	NEXT vl_indice
+
+	/*A
+	* assigne a la barre de menu créée un identificateur*/
+	SET_SELECTIONS@(vl_id_menu,vm_menu_items)
+	RETURN (vl_id_menu)
+ENDFUNCTION
+
+
+
+
+
+/*les fonctions suivantes permettent d'inserer divers items dans la barre de menu principal*/
+macro add_cascade(va_titre, va_mnemonic)
+	vm_cascade_num = vm_cascade_num + 1
+	vm_menu_items[vm_cascade_num, 0] = va_titre
+	vm_menu_items[vm_cascade_num, 8] = va_mnemonic
+	vm_bouton_num = 0
+endmacro
+
+
+macro add_bouton(va_titre, va_nom_macro, va_mnemonic)
+	vm_menu_items[vm_cascade_num, 1, vm_bouton_num, 0] = va_titre
+	vm_menu_items[vm_cascade_num, 1, vm_bouton_num, 1] = va_nom_macro
+	vm_menu_items[vm_cascade_num, 1, vm_bouton_num, 2] = va_mnemonic
+	vm_bouton_num = vm_bouton_num + 1
+endmacro
+
+macro add_icone(va_titre,va_nom_icone, va_nom_macro)
+	vm_menu_items[vm_cascade_num, 1, vm_bouton_num-1, 0] = va_titre
+	vm_menu_items[vm_cascade_num, 1, vm_bouton_num-1, 5] = va_nom_icone
+	vm_menu_items[vm_cascade_num, 1, vm_bouton_num-1, 1] = va_nom_macro
+	vm_menu_items[vm_cascade_num, 1, vm_bouton_num-1, 3] = 0
+	vm_menu_items[vm_cascade_num, 1, vm_bouton_num-1, 4] = -1
+	vm_menu_items[vm_cascade_num, 1, vm_bouton_num-1, 7] = 1
+endmacro
+
+
+macro add_sousmenu(va_titre,va_nom_macro,va_mnemonic)
+	VAR vl_tab
+	vl_tab=va_titre,va_nom_macro,va_mnemonic,NULL,NULL,NULL,NULL,NULL
+	vm_menu_items[vm_cascade_num,1,vm_bouton_num-1,1,vm_submenu_num] = vl_tab
+	vm_submenu_num=vm_submenu_num+1
+endmacro
+
+
+macro add_sousicone(va_titre,va_nom_icone, va_nom_macro)
+	VAR vl_tab
+	vl_tab=va_titre,va_nom_macro,NULL,0,-1,va_nom_icone,NULL,1
+	vm_menu_items[vm_cascade_num,1,vm_bouton_num-1,vm_submenu_num,0]=vl_tab
+endmacro
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Affiche le texte d'aide associe a une boite de dialogue.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_aide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*	va_fenetre : identifiant de la fenetre contenant le bouton d'aide.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* VALEUR RETOURNEE    : Aucune.
+*
+* CONDITION D'UTILISATION	: Toute macro.
+*
+* FONCTION
+*	on affiche dans une fenetre AxWords le fichier du repertoire d'aide qui porte
+*	le meme nom que la fenetre contenant le bouton d'aide
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_module
+VAR	vl_fichier_aide
+VAR	vl_menu
+
+/*!	AxWords se plante si on lui demande d'ouvrir un document deja ouvert.
+*	de plus, la macro WP_DOC_IS_OPEN ne marche pas, 
+*	on met donc en place une recuperation d'erreur Applix	*/
+ON ERROR 
+{
+	IF ERROR_NUMBER@()=ERR#ERR_FEalreadyOpen_
+	{
+		INFO_MESSAGE@("L'aide est deja ouverte pour cette boite de dialogue.")
+           WP_EXIT@()
+		RETURN
+	}
+}
+
+	/*A
+	** on determine le nom du fichier d'aide	*/
+	vl_module = va_fenetre[30]
+	vl_fichier_aide = AIDE_PATH ++ vl_module ++ ".aw"
+
+	/*A
+	** si le fichier d'aide n'existe pas, on sort	*/
+	IF NOT FILE_EXISTS@(vl_fichier_aide)
+	{
+		INFO_MESSAGE@("L'aide n'est pas disponible pour cette boite de dialogue.")
+		RETURN
+	}
+
+	/*A
+	**  on precise la barre de menu a utiliser	*/
+	vl_menu = READ_DATA_FILE@(DEDI_MENU_AIDE)
+	SET_SELECTIONS@(DEDI_MENU_AIDE_ID, vl_menu)
+
+	/*A
+	** on ouvre une fenetre ApplixWord	*/
+	WP_NEW_WINDOW@(DEDI_MENU_AIDE_ID, FALSE, TRUE, 10000, 5500, "Aide en ligne")
+
+	/*A
+	** on charge le document	*/
+	WP_LOAD_FILE@(vl_fichier_aide)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Affiche le manuel utilisateur de dedi.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_mu_affiche()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* VALEUR RETOURNEE    : Aucune.
+*
+* CONDITION D'UTILISATION : 
+*
+* FONCTION
+*	on affiche dans une fenetre AxWords le manuel utilisateur de dedi
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_fichier_aide
+VAR	vl_menu
+
+/*!	AxWords se plante si on lui demande d'ouvrir un document deja ouvert.
+*	de plus, la macro WP_DOC_IS_OPEN ne marche pas, 
+*	on met donc en place une recuperation d'erreur Applix	*/
+ON ERROR 
+{
+	IF ERROR_NUMBER@()=ERR#ERR_FEalreadyOpen_
+	{
+		INFO_MESSAGE@("L'aide en ligne est deja ouverte.")
+           WP_EXIT@()
+		RETURN
+	}
+}
+
+	/*A
+	**  on precise le fichier a ouvrir	*/
+	vl_fichier_aide = AIDE_PATH ++ DEDI_MU ++ ".aw"
+
+	/*A
+	**  on precise la barre de menu a utiliser	*/
+	vl_menu = READ_DATA_FILE@(DEDI_MENU_AIDE)
+	SET_SELECTIONS@(DEDI_MENU_AIDE_ID, vl_menu)
+
+	/*A
+	** on ouvre une fenetre ApplixWord	*/
+	WP_NEW_WINDOW@(DEDI_MENU_AIDE_ID, FALSE, TRUE, 10000, 12000, "Manuel utilisateur")
+
+	/*A
+	** on charge le document	*/
+	WP_LOAD_FILE@(vl_fichier_aide)
+
+ENDMACRO
+
+

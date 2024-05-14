@@ -1,0 +1,171 @@
+/*E*/
+/* Fichier : $Id: dedi_make_export.am,v 1.2 1999/03/19 17:12:47 gesconf Exp $	      Release : $Revision: 1.2 $        Date : $Date: 1999/03/19 17:12:47 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_make_interlocuteur.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* genere les fichiers ASCII de la politique de choix des export
+* (format RTie ou format Texte, en fonction de vg_mode)   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* PN		15 Jan 1999	: Creation						V1.1
+* PN		10 Mar 1999	: Correction						V1.2
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+define DEDI_CAR_SEPAR_DEF	"&"
+
+/* la liste des export definis dans BASEDD */
+VAR tm_export_BASEDD
+
+/* la liste des export utilises dans BDC */
+VAR tm_export_BDC
+VAR vm_export_bdc
+VAR tm_evts
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* genere les regles de choix des export
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_make_export()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+* dedi
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR tl_commentaire
+VAR syntaxe_correcte
+
+	trace_chaine("")
+	trace_chaine("POLITIQUE DES EXPORTS INTERGESTIONNAIRES")
+	trace_chaine("")
+
+	/* Init des correspondances type fmc - classe */
+
+	tm_evts=READ_ASCII_FILE@(AX_PATH++IE_FILE_TYPES_FMC)
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_evts)-1)
+		tm_evts[vl_indice]= ARRAY_FROM_STRING@(tm_evts[vl_indice], DEDI_CAR_SEPAR)
+	NEXT vl_indice
+	/*A
+	**  on initialise tm_export_BASEDD et tm_export_BDC
+	*/
+	tm_export_BDC = NULL
+	vm_export_bdc = 0
+
+	/*A
+	**  on exploite le fichier des export PC 
+	*/
+	trace_chaine("Export intergestionnaires ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_EXPORT_INTERGEST)
+
+	/*B on applique int_moyens() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		trace_point()
+		genere_export(tl_data[vl_indice], vl_indice, IE_MODELE_EXPORT_INTERGEST)
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        POLITIQUE EXPORT INTERGESTIONNAIRES :" 
+	tl_commentaire[1] = "*        evenements et operations a exporter"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_EXPORT_INTERGEST, IE_SUFFIXE_RL, tl_commentaire)
+
+
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* prepare la generation du fichier de definition des export PC (CI)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION genere_export(va_data, va_indice, va_modele)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_data :		"competence|fax|tel|astreinte associee|id"
+*	va_indice
+*	va_modele
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION :
+* 
+* FONCTION :	genere un fichier app_int_pc.tie (app_int_ci.tie)
+*
+---------------------------------------------------------------------------- */
+VAR tl_arg
+VAR vl_i
+
+	/*A on isole les arguments */
+	tl_arg = ARRAY_FROM_STRING@(va_data, DEDI_CAR_SEPAR)
+	/* transforme le type fmc en classe fmc */
+	if tl_arg[0]>0
+		tl_arg[0]="ObjExists(\"" ++ tm_evts[tl_arg[0]-1][1] ++ "\", en_cours.evt) and "
+
+	else
+		tl_arg[0]=" "
+
+	tl_arg[1]=tl_arg[1]+1
+	/*A sens non precisé */
+	if tl_arg[4]>0
+		tl_arg[4]="and localisation.(en_cours.localisation).sens=" ++ tl_arg[4]
+	else
+		tl_arg[4]=" "
+	/* niveau de trafic non precisé */
+	if tl_arg[7]>0
+		tl_arg[7]=" and info_std.(en_cours.info).trafic=" ++ tl_arg[7]
+	else
+		tl_arg[7]=" "
+	
+	if tl_arg[5]=0 and tl_arg[6]=0
+	{
+	tl_arg[5]=""
+	tl_arg[6]=""
+	}
+	else
+	{
+	tl_arg[5]=" and info_std.(en_cours.info).duree >= "++tl_arg[5]
+	tl_arg[6]=" and info_std.(en_cours.info).duree < "++tl_arg[6]
+	}
+	tl_arg[2]=tl_arg[2]
+	tl_arg[3]=tl_arg[3]
+	/*A on applique le modele AW */
+	dedi_genere(va_modele, va_indice, tl_arg)
+
+
+ENDFUNCTION
+
+
+
+

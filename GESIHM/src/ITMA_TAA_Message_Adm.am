@@ -1,0 +1,222 @@
+/*E*/
+/* Fichier : $Id: ITMA_TAA_Message_Adm.am,v 1.6 1999/01/21 10:44:25 gaborit Exp $      Release : $Revision: 1.6 $       Date : $Date: 1999/01/21 10:44:25 $
+---------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTAA * FICHIER ITMA_TAA_Message_Adm.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Gère la liste des messages administrateurs systeme
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou    30 Dec 1994 : Creation                                       V1.1
+* Lecrivain  20 Fev 1995 : Affichage du 1er message (et non en picto !)   V1.3
+* Lecrivain  25 Avr 1995 : Changement table en liste (scroll horizontal)  V1.4
+* Niepceron	21 Jan 1999	: decalage vers le bas de la fenetre pour demasquer  les icones (1727) 1.6
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAV.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+
+
+DEFINE	C_MODULE		"MTAA"				' Nom du module
+
+
+DEFINE	C_TAILLE_MAX	300					' Taille maximale de la liste
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Afficher le texte 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TAA_Message_Adm (va_texte)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Aucun
+*
+* CONDITION D'UTILISATION
+*   
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR tl_data
+	VAR tl_messages, vl_taille
+	VAR vl_fenetre_deplacee
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Liste des avertissements administrateurs"
+ * -------------------------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TAA")
+
+DB_DISPLAY_ONLY@ (vl_fenetre,TRUE)
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 105)
+
+DB_WIDTH@(vl_fenetre,500)
+DB_HEIGHT@(vl_fenetre,264)
+DB_CTRL_WIDTH@(vl_fenetre,"BL_Messages",60)
+DB_CTRL_HEIGHT@(vl_fenetre,"BL_Messages",7)
+DB_CTRL_GRAYED@(vl_fenetre,"BP_reduire",TRUE)
+
+DB_VAR_SIZE@ (vl_fenetre, 0, 0, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+vl_fenetre_deplacee=XDC_FAUX
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+tl_messages_acceptes[1]= COM_CANAL_MTAA
+tl_messages_acceptes[2]= COM_CANAL_MTAA_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+
+/*A
+ * Afficher le premier message
+ * ---------------------------
+ */
+
+tl_messages = NULL
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_Messages", tl_messages)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Messages", 0)
+DELAY@ (0.2)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+		ERROR_BOX@
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A Boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A Afficher la fenetre */
+	DB_DISPLAY_ONLY@ (vl_fenetre,FALSE)
+	DB_DISPLAY@ (vl_fenetre)
+	DB_DISPLAY_ONLY@ (vl_fenetre,TRUE)
+
+	/*A Attente d'un evenement*/
+	vl_exit_value = DB_EXIT_CTRL@ (vl_fenetre)
+
+	/*A Suivant l'evenement */
+	CASE OF vl_exit_value
+		CASE "BP_reduire"
+			/*A reduire la taille de la fenetre */
+			DB_WIDTH@(vl_fenetre,500)
+			DB_HEIGHT@(vl_fenetre,264)
+			DB_CTRL_WIDTH@(vl_fenetre,"BL_Messages",60)
+			DB_CTRL_HEIGHT@(vl_fenetre,"BL_Messages",7)
+
+			DB_CTRL_GRAYED@(vl_fenetre,"BP_agrandir",FALSE)
+			DB_CTRL_GRAYED@(vl_fenetre,"BP_reduire",TRUE)
+			vl_fenetre_deplacee=XDC_VRAI
+
+		CASE "BP_agrandir"
+			/*A agrandir la taille de la fenetre */
+			DB_WIDTH@(vl_fenetre,COM_LARGEUR_MAX)
+			DB_HEIGHT@(vl_fenetre, COM_HAUTEUR_MAX)
+			DB_CTRL_WIDTH@(vl_fenetre,"BL_Messages",170)
+			DB_CTRL_HEIGHT@(vl_fenetre,"BL_Messages",45)
+
+			DB_CTRL_GRAYED@(vl_fenetre,"BP_agrandir",TRUE)
+			DB_CTRL_GRAYED@(vl_fenetre,"BP_reduire",FALSE)
+			vl_fenetre_deplacee=XDC_FAUX
+
+		CASE "BP_vider"
+			tl_messages = NULL
+			DB_CTRL_STRINGS@ (vl_fenetre, "BL_Messages", NULL)
+			DB_CTRL_VALUE@ (vl_fenetre, "BL_Messages", -1)
+
+
+		/*A Reception d'un poke */
+		CASE "poke_"
+			CASE OF  DB_GET_POKE@ (vl_fenetre)
+				/*A Poke de fin */
+				CASE COM_CANAL_MTAA_FIN
+				CASE COM_CANAL_FIN
+					RETURN
+
+
+				/*A Nouveau message a afficher */
+				CASE COM_CANAL_MTAA
+					tl_data = DB_GET_POKE_DATA@ (vl_fenetre)
+
+					/*A Si la liste a atteint sa taille maximale, la purger */
+					/*A des 50 premiers messages                            */
+					vl_taille = ARRAY_SIZE@ (tl_messages)
+					IF vl_taille = C_TAILLE_MAX {
+						tl_messages = SUBARRAY@ (tl_messages, 50, 250)
+						vl_taille = vl_taille - 50
+					}
+
+					/*A Ajouter a la liste le message recu et l'afficher */
+                           		IF IS_ARRAY@ (tl_data)
+                                  		tl_data = tl_data[0]
+					tl_messages[vl_taille] = tl_data
+					DB_CTRL_STRINGS@ (vl_fenetre, "BL_Messages", tl_messages)
+					DB_CTRL_VALUE@ (vl_fenetre, "BL_Messages", vl_taille)
+
+						
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO

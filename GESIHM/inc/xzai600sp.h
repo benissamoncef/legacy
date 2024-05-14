@@ -1,0 +1,1 @@
+DEFINE	XZAI600_Tracer_Message_SAE	"XZAI600"

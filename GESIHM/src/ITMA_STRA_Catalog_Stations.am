@@ -1,0 +1,567 @@
+/*E*/
+/* Fichier : $Id: ITMA_STRA_Catalog_Stations.am,v 1.2 1999/03/19 17:02:13 gesconf Exp $      Release : $Revision: 1.2 $        Date : $Date: 1999/03/19 17:02:13 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_STRA * FICHIER ITMA_STRA_Catalog_Stations.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Module permettant de choisir les donnees DATEX -> SAE
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Niepceron 20 Nov 1998	: Creation                                         V1.1
+* Niepceron  02 Mar 1999	: Ajout d'un sleep entre arret et relance de tacts.x V1.2
+						preselection du tableau de droite dem/1733
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xdf_ax.h"
+
+INCLUDE	"../inc/xzas55sp.h"
+INCLUDE	"../inc/xzas56sp.h"
+INCLUDE	"../inc/xzas57sp.h"
+
+
+
+
+
+DEFINE	C_MODULE	"MSTRA"					' Nom du module
+
+
+
+
+VAR	tg_stations
+VAR	tm_stations_select
+VAR	vm_nb_lignes_station
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_STRA_Catalog_Stations ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION :
+*
+---------------------------------------------------------------------------- */
+
+VAR     vl_fenetre				' Nom de la fenetre du module
+VAR     vl_objet_selecte			' L'objet courant de la fenetre
+VAR     vl_les_messages_acceptes		' Pour reception de signaux
+VAR     vl_la_fenetre_est_active
+VAR     vl_installer_traitement_erreur
+VAR     vl_select					' Selections
+VAR     vl_ligne					' Ligne selectee
+VAR     i, j, k
+
+VAR	tl_autoroutes
+VAR	tl_stations
+VAR	vl_indice, vl_indice_courant
+VAR	vl_auto
+VAR	tl_data, tl_data_select
+VAR	tl_titres, tl_titres2
+VAR	vl_deja_selectionne
+VAR	vl_nb_stations_selectionnees
+VAR	vl_i, vl_j
+VAR	tl_ajout_station
+VAR	FORMAT SQL_Procedure_Params@ vl_parametres
+VAR	FORMAT SQL_Procedure_Result@ vl_resultats
+VAR	vl_sens_station
+VAR  vl_F, vl_taille, vl_taille2, vl_chemin
+VAR vl_msg
+VAR  vl_presel
+
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Choix des Stations"
+ * ------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_STRA_Catalog_Stations")
+/*DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)*/
+
+DB_XPOS@(vl_fenetre, 0)
+DB_YPOS@(vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_STRA_Catalog_Stations")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+
+/*A
+* initialiser la liste des autoroutes
+*/
+tl_autoroutes=SYSTEM_VAR@("vg_les_autoroutes")
+
+/*liste des stations*/
+vl_F = NULL
+vl_chemin = SYSTEM_VAR@( vg_repertoire_migrazur ) ++ "/fichiers/stra"  /*COM_SOUS_REP_STRA*/
+
+vl_F = READ_ASCII_FILE@(vl_chemin ++ "/cat_eqt_strada.txt")
+vl_taille = ARRAY_SIZE@(vl_F) -1
+vl_indice=0
+for i = 1 to vl_taille
+	   if (SUBSTRING@(vl_F[i],1,1) <> "#" )
+		{
+        tg_stations[vl_indice] = ARRAY_FROM_STRING@(vl_F[i],"\t")
+		vl_indice=vl_indice+1
+		}
+
+next i
+
+vl_indice=0
+
+FOR vl_indice=0 TO (ARRAY_SIZE@(tg_stations)-1)
+        tl_data[vl_indice][0]=tg_stations[vl_indice][5]
+        tl_data[vl_indice][1]=tg_stations[vl_indice][1]
+	   tl_data[vl_indice][2]= " sens "++tg_stations[vl_indice][2]
+NEXT vl_indice
+
+
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+tl_titres[0,0]="Emetteur"
+tl_titres[0,1]=100
+tl_titres[1,0]="Nom"
+tl_titres[1,1]=160
+tl_titres[2,0]="Sens"
+tl_titres[2,1]=100
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_stations",tl_data,tl_titres,NULL)
+vl_presel[0]=0
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_stations",vl_presel)
+vl_indice=NULL
+
+
+/* Initialisation de la table contenant la liste des stations selectionnees */
+/* ------------------------------------------------------------------------ */
+tl_titres2[0,0]="Emetteur"
+tl_titres2[0,1]=100
+tl_titres2[1,0]="Nom"
+tl_titres2[1,1]=160
+tl_titres2[2,0]="Sens"
+tl_titres2[2,1]=100
+
+tl_data_select = null
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_stations_valid",TRUE)
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_stations_valid", null,tl_titres2,NULL)
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_stations_valid",NULL)
+
+
+tm_stations_select = null
+
+/* remplissage du tableau des stations selectionnees */
+/* ------------------------------------------------- */
+
+STRA_Lit_Fichier()
+/* On reforme le tableau de donnees a afficher et on l'affiche */
+tl_data_select = null
+vl_indice_courant = null
+
+FOR vl_j=0 TO (ARRAY_SIZE@(tm_stations_select)-1)
+			
+	vl_indice_courant = tm_stations_select[vl_j]
+	tl_data_select[vl_j][0]=tg_stations[vl_indice_courant][5]
+	tl_data_select[vl_j][1]=tg_stations[vl_indice_courant][1]
+	tl_data_select[vl_j][2] =  " sens " ++ tg_stations[vl_indice_courant][2]
+		
+NEXT vl_j
+
+DB_TABLE_SET_DATA@(vl_fenetre, "TA_stations_valid", tl_data_select, tl_titres2, NULL)
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_stations_valid",vl_presel)
+
+
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+vl_indice = null
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_annuler"
+	vl_la_fenetre_est_active = FALSE
+
+
+
+	/* bouton validation station */
+	/* ------------------------- */
+    CASE "BP_droit"
+
+
+		/*indice de la station*/
+		vl_indice=null
+		vl_indice=DB_CTRL_GET_VALUE@( vl_fenetre, "TA_stations")
+		IF(IS_ARRAY@(vl_indice))
+			vl_indice=vl_indice[0]
+
+		/* determination du sens de la station */		
+		vl_sens_station = tg_stations[vl_indice][2]
+
+		IF ( vl_sens_station <> 1 and vl_sens_station <> 2)
+			ERROR@( 501, "Pour STRADA seuls les sens 1 et 2 sont valables !")
+
+		
+
+
+		/* Flag qui permet de dire si la station est deja selectionnee */
+		/* Si le flag est a 0 => la station n'a pas ete selectionnee */
+		vl_deja_selectionne = 0
+
+
+		/* La station a-t-elle deja ete selectionnee ? */
+		/* ------------------------------------------- */
+		vl_nb_stations_selectionnees = ARRAY_SIZE@(tm_stations_select)
+
+
+		IF (vl_nb_stations_selectionnees = 0)
+		{
+			tm_stations_select[0] = vl_indice
+           }
+           ELSE
+		{
+			/* On parcourt le tableau des stations selectionnees */
+			/* pour savoir si elle a deja ete selectionnee */
+
+
+
+			FOR vl_i = 0 TO vl_nb_stations_selectionnees-1
+				IF (tm_stations_select[vl_i]=vl_indice)
+				{
+					INFO_MESSAGE@("station dejà sélectionnée !!")
+					vl_deja_selectionne = 1
+				}
+
+			NEXT vl_i
+
+			IF (vl_deja_selectionne = 0)
+			{
+				tl_ajout_station[0] = vl_indice
+				tm_stations_select = ARRAY_APPEND@( tm_stations_select, tl_ajout_station)
+			}
+
+
+		}
+
+
+		/* On reforme le tableau de donnees a afficher et on l'affiche */
+		tl_data_select = null
+
+		FOR vl_j=0 TO (ARRAY_SIZE@(tm_stations_select)-1)
+			
+			vl_indice_courant = tm_stations_select[vl_j]
+			tl_data_select[vl_j][0]=tg_stations[vl_indice_courant][5]		
+                tl_data_select[vl_j][1]=tg_stations[vl_indice_courant][1]
+			tl_data_select[vl_j][2] =  " sens " ++ tg_stations[vl_indice_courant][2]
+		
+		NEXT vl_j
+
+		DB_TABLE_SET_DATA@(vl_fenetre, "TA_stations_valid", tl_data_select, tl_titres2, NULL)
+		DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_stations_valid", NULL)
+
+
+
+
+	/* bouton deselection d'une station de la liste */
+	/* -------------------------------------------- */
+     CASE "BP_gauche"
+
+		vl_indice = null
+		vl_indice = Db_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_stations_valid")
+		vl_indice=vl_indice[0]
+
+
+		IF (vl_indice++""=NULL)
+			ERROR@(501,"Sélectionnez d'abord une station dans la liste des stations selectionnees !!")
+
+
+		tm_stations_select = ARRAY_DELETE@( tm_stations_select,vl_indice)
+
+		/* On reforme tableau de donnees a afficher et on l'affiche */
+
+		tl_data_select = null
+
+		FOR vl_j=0 TO (ARRAY_SIZE@(tm_stations_select)-1)
+			
+			vl_indice_courant = tm_stations_select[vl_j]
+			tl_data_select[vl_j][0] = tg_stations[vl_indice_courant][5]
+			tl_data_select[vl_j][1] = tg_stations[vl_indice_courant][1]
+			tl_data_select[vl_j][2] = " sens " ++ tg_stations[vl_indice_courant][2]
+                        
+		NEXT vl_j
+
+		DB_TABLE_CLEAR_DATA@(vl_fenetre, "TA_stations_valid", 0, -1)
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_stations_valid", tl_data_select, 0)
+		DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_stations_valid", NULL)
+
+
+
+    
+    /*A
+     * Sur choix "Valider", construire le nouveau fichier contenant 
+	* les stations
+     * --------------------------------------------------------------------
+     */
+
+    CASE "BP_valider"
+
+		STRA_Cree_Fichier()
+		/* Envoi de la demande d'export du catalog */
+           vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_EXPCATC, ""
+           DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+
+		vl_la_fenetre_est_active = FALSE
+    	
+	
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit le fichier contenant la liste des stations et met a jour le
+*  tableau global au module tm_stations_select
+* -------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+* ------------------------------------------------------------------------------ */
+
+MACRO STRA_Lit_Fichier()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte ;
+*                     : COM_NOK si aucune selection n'a ete effectuee.
+*
+* CONDITION D'UTILISATION
+*   STRA_Lit_Fichier()
+*
+*
+* -------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR	tl_ligne
+VAR	tl_liste_inter
+VAR	j,i,k,l
+VAR	vl_num_station_courante
+VAR	vl_sens_station_courante
+VAR	vl_indice	
+VAR	tl_liste_station
+VAR  vl_F, vl_taille, vl_taille2, vl_chemin
+
+
+
+/*liste des stations*/
+vl_F = NULL
+vl_chemin = SYSTEM_VAR@( vg_repertoire_migrazur ) ++ "/fichiers/stra"  /*COM_SOUS_REP_STRA*/
+
+vl_F = READ_ASCII_FILE@(vl_chemin ++ "/eqt_strada.txt")
+vl_taille = ARRAY_SIZE@(vl_F) -1
+vl_indice=0
+for i = 0 to vl_taille
+	   if (SUBSTRING@(vl_F[i],1,1) <> "#" )
+		{
+        tl_liste_station[vl_indice] = ARRAY_FROM_STRING@(vl_F[i],"\t")
+		vl_indice=vl_indice+1
+		}
+
+next i
+vl_indice=0
+
+vm_nb_lignes_station=ARRAY_SIZE@(tl_liste_station)
+
+/* Remplissage de tm_stations_select avec les indices corrects */
+FOR k=0 to vm_nb_lignes_station-1
+
+	vl_num_station_courante = tl_liste_station[k][1]
+	vl_sens_station_courante = tl_liste_station[k][2]
+
+	/* recherche de l'indice correspondant a la station */
+	FOR l=0 TO ARRAY_SIZE@(tg_stations)-1
+
+		IF (tg_stations[l][1]=vl_num_station_courante and tg_stations[l][2]=vl_sens_station_courante )
+			vl_indice=l
+
+	NEXT l
+
+	tm_stations_select[k]=vl_indice
+
+NEXT k
+ 
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Produit le fichier des stations selectionnees
+* -----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO STRA_Cree_Fichier ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte ;
+*                     : COM_NOK si aucune selection n'a ete effectuee.
+*
+* CONDITION D'UTILISATION
+*   STRA_Cree_Fichier()
+*
+*
+* -------------------------------------------------------------------------- */
+VAR     vl_indice
+VAR		i
+VAR	vl_indice_courant
+VAR  vl_F, vl_taille, vl_taille2, vl_chemin, vl_fichier
+VAR  vl_cmde, tl_args, vl_msg, vl_text
+
+
+/* Formation du tableau composant le fichier */
+/* ----------------------------------------- */
+FOR i=0 TO ARRAY_SIZE@(tm_stations_select)-1
+{
+	vl_indice_courant = tm_stations_select[i]
+	vl_fichier[i]=tg_stations[vl_indice_courant][0] ++ "\t" ++ tg_stations[vl_indice_courant][1] ++ "\t" ++ tg_stations[vl_indice_courant][2] ++ "\t" ++ tg_stations[vl_indice_courant][3] ++ "\t" ++ tg_stations[vl_indice_courant][4] ++ "\t" ++ tg_stations[vl_indice_courant][5]
+	
+
+}
+
+NEXT i
+
+vl_chemin = SYSTEM_VAR@( vg_repertoire_migrazur ) ++ "/fichiers/stra"  /*COM_SOUS_REP_STRA*/
+
+WRITE_ASCII_FILE@ (vl_chemin ++ "/eqt_strada.txt", vl_fichier)
+
+       /* Envoyer la demande d'arret de tacts.x  */
+       tl_args = "SPCI", "tacts.x"
+       vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_ARRET_SYNOP,
+                 ARRAY_TO_STRING@ (tl_args, MTAR_CAR_SEPAR)
+       DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+
+    vl_cmde="sleep 2 ; rcp " ++ vl_chemin ++ "/eqt_strada.txt SPCI:" ++ vl_chemin ++ "/eqt_strada.txt"
+        vl_text = SHELL_COMMAND@( vl_cmde )
+        if ( vl_text[0] <> NULL ) { INFO_MESSAGE@(vl_text[0]) }
+
+
+       /* Envoyer la demande de lancement de tacts.x  */
+       tl_args = "SPCI", "tacts.x"
+       vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_RELANCER_SYNOP,
+                  ARRAY_TO_STRING@ (tl_args, MTAR_CAR_SEPAR)
+       DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+

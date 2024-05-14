@@ -1,0 +1,1 @@
+DEFINE	XZAC94_Lire_Commande_BAF		"XZAC94"

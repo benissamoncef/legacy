@@ -1,0 +1,242 @@
+/*E*/
+/* Fichier : $Id: ITMA_TLV_Lier_Fiche_Evenement.am,v 1.7 1994/12/22 11:54:39 guilhou Exp $      Release : $Revision: 1.7 $      Date : $Date: 1994/12/22 11:54:39 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLV * FICHIER ITMA_TLV_Lier_Fiche_Evenement.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Lier une fiche main courante
+*
+*   Cf. DCG 2.4.50
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	26 Sep 1994	: Creation						V1.1
+* Guilhou  20 dec 1994	: test sur fiche operateur			V1.7
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TLV.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+
+
+DEFINE	C_MODULE	"MTLV"			' Nom du module
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Permet de lier une fiche main courante a une autre
+* ou a une action ou pour positionner l'operation ou l'evenement
+* sur une courbe
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLV_Lier_Fiche_Evenement (va_appelant,va_vag)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_appelant	: macro appelante
+* va_vag: nom de la vag a mettre a jour (si appelant est MSCO)
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MSCO, MTPM, ....
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR tl_retour,tl_poke_data
+	VAR vl_numero_fiche,vl_libelle_fiche,vl_type_fiche
+	VAR tl_message
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Lier ..."
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TLV")
+
+DB_XPOS@ (vl_fenetre, 518)
+DB_YPOS@ (vl_fenetre, 120)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TLV_Lier_Fiche_Evenement")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+tl_messages_acceptes[1] = COM_CANAL_MTLV
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A init*/
+vl_numero_fiche=NULL
+SET_SYSTEM_VAR@(vg_mode_liste_fmc,TLVC_LIEN)
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		/*A
+		* choix du bouton Quitter*/
+		CASE "BP_quitter"
+			/*A
+ 			*reinitialise le mode de listage des fiches evenements*/
+			SET_SYSTEM_VAR@(vg_mode_liste_fmc,TLVC_TRAITER)
+
+			/*A 
+			* Bye*/		
+			tl_retour[0]= COM_QUITTE
+			tl_retour[1]= NULL
+			tl_retour[2]= NULL
+
+			RETURN (tl_retour)
+
+
+		/*A
+		* choix du bouton Valider*/
+		CASE "BP_valider"
+			/*A 
+			* si aucune fiche n'a ete liee, ne pas quitter*/
+			IF (vl_numero_fiche<>NULL)
+			{
+				/*A
+				* reinitialise le mode de listage des fiches*/
+				SET_SYSTEM_VAR@(vg_mode_liste_fmc,TLVC_TRAITER)
+
+				/*A
+				* si la macro appelante est MSCO */
+				IF (SUBSTRING@(va_appelant,6,3)="SCO")
+				{
+					/*positionner la vag va_arg1 passe en argument et quitter*/
+					/* A ECRIRE*/
+					/* ????????????????????????????????????????????*/
+					RETURN
+				}
+				/*A
+				* sinon */
+				ELSE 
+				{
+					/*retourne VALIDE, numero de la fiche et libelle*/
+					tl_retour[0]=COM_VALIDE
+					tl_retour[1]=vl_numero_fiche
+					tl_retour[2]=vl_libelle_fiche
+					RETURN (tl_retour)
+				}
+			}
+
+		/*A
+		on recoit un poke*/
+		CASE "poke_"
+			/*A
+			* suivant le poke*/
+			CASE OF DB_GET_POKE@(vl_fenetre)
+				/*A
+				* poke de fin*/
+				CASE COM_CANAL_FIN
+					/*A
+					* bye*/
+					RETURN (COM_NOK)
+
+				/*A
+				* poke qui contient le libelle de la fiche choisie*/
+				CASE COM_CANAL_MTLV
+					/*A
+					* recuperer les donnees du poke et les afficher*/
+					tl_poke_data=DB_GET_POKE_DATA@(vl_fenetre)
+					tl_message=ARRAY_FROM_STRING@(tl_poke_data,MTAR_CAR_SEPAR)
+					vl_numero_fiche[0]=tl_message[0]
+					vl_numero_fiche[1]=tl_message[1]
+					vl_libelle_fiche=tl_message[2]
+					vl_type_fiche=tl_message[3]
+
+					/*A si la fiche est de type operateur*/
+					IF (vl_type_fiche=4)
+					{
+						/*A si c'est ma fiche operateur*/
+						IF (vl_numero_fiche[0]=
+									SYSTEM_VAR@(vg_num_fiche_operateur))
+							AND
+							(vl_numero_fiche[1]=
+									SYSTEM_VAR@(vg_cle_fiche_operateur))
+						{
+							/*A affiche un warning*/
+							INFO_MESSAGE@("Attention: l'événement cause choisi est votre fiche opérateur")
+							DB_CTRL_TITLE@(vl_fenetre,"LI_libelle",
+												vl_libelle_fiche)
+						}			
+						ELSE
+							INFO_MESSAGE@("Seule votre fiche opérateur peut être l'événement cause")
+					}			
+					ELSE					
+						DB_CTRL_TITLE@(vl_fenetre,"LI_libelle",
+												vl_libelle_fiche)
+			ENDCASE
+		
+	ENDCASE
+WEND
+ENDMACRO
+

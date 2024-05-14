@@ -1,0 +1,941 @@
+/*E*/
+/* Fichier : $Id: ITMA_TEI_Equipements_Indispo.am,v 1.21 1998/04/28 13:31:40 verdier Exp $      Release : $Revision: 1.21 $        Date : $Date: 1998/04/28 13:31:40 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TEI * FICHIER ITMA_TEI_Equipements_Indispo.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Liste des equipements indisponibles.
+*
+*   Cf. DCG 2.4.24
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	30 Aug 1994 : Creation					V1.1
+* Lecrivain	10 Oct 1994 : Primitive construisant la localisation   V1.6
+* Guilhou		14 oct 1994	: inclusion _ax.h		V1.7
+* Lecrivain	17 Oct 1994 : Traiter un "poke_" en verrouillage IHM   V1.8
+* Lecrivain	27 Dec 1994 : Redimensionnement de la fenetre          V1.10
+* Guilhou	06 jan 1995 : ajout equipements inhibes		V1.11
+*                                 modif traitement liste des indispo
+*                                 mise a jour des horodates
+* Lecrivain	27 Mar 1995 : Designation differente de l'equipement      V1.15
+* Torregrossa	25 Oct 1995 : Modif test sur chaine pour version 4.1      V1.17
+* Guilhou	09 Sep 1996 : ne rien faire sur PC simplifie (RADT) 	V1.18
+* Guilhou       26 mai 1997     : acces que si famille exploitation 1.19
+* Niepceron	24 jun 1997 : acces si pas poste peage 1.20 (dem/1429 suite)
+* Guilhou	28 avr 1998 : interface XZAN25 (dem/1652) 1.21
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TFS.h"
+
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../inc/xzat03sp.h"
+INCLUDE "../inc/xzat04sp.h"
+INCLUDE "../inc/xzan25sp.h"
+
+
+
+DEFINE	C_MODULE	"MTEI"			' Nom du module
+
+DEFINE	C_FICHIER_FERIES	"fichiers/syn/feries.syn"
+DEFINE	C_DEBUT_BUREAU		"08:00"
+DEFINE	C_FIN_BUREAU		"17.00"
+
+
+DEFINE	C_CAT_MAINTENANCE		9
+DEFINE	C_TYP_TELECOM			22
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE  C_ERR_IHM		1
+
+DEFINE  C_LIB_CHOISIR_EQUIP	"Choisir d'abord un équipement"
+DEFINE	C_LIB_APPEL		"Il faut appeler l'astreinte."
+DEFINE	C_LIB_APPEL_REPORTE	"Il faut appeler l'astreinte a partir de 7 heures."
+
+
+DEFINE	C_PIX_ASTREINTE	"fichiers/pix_astreinte.ag"
+
+/*A
+ * Valeurs affichees dans les champs d'etat
+ * ----------------------------------------
+ */
+
+DEFINE	C_ETAT_DESACTIVE	"Indéfini"
+DEFINE	C_ETAT_CRITIQUE		"Critique"
+DEFINE	C_ETAT_MAJEURE		"Indisponible"
+DEFINE	C_ETAT_MINEURE		"Marginal"
+DEFINE	C_ETAT_RETABLI		"Disponible"
+
+DEFINE	C_POS_MINEURE		0
+DEFINE	C_POS_MAJEURE		1
+DEFINE	C_POS_CRITIQUE		2
+
+DEFINE	C_PRESENT			"XXXXXX"
+DEFINE	C_ABSENT			""
+
+DEFINE	C_VAL_DESACTIVE	C_PRESENT
+DEFINE	C_VAL_NON_DESACTIVE	C_ABSENT
+
+DEFINE	C_VAL_INHIBE		C_PRESENT
+DEFINE	C_VAL_NON_INHIBE	C_ABSENT
+
+DEFINE	C_U1	"    U1"
+DEFINE	C_U2	"    U2"
+DEFINE	C_U3	"    U3"
+DEFINE	C_U4	"    U4"
+
+
+
+/*A
+ * Nom de l'image digitalisee soulignant un changement d'etat
+ * ----------------------------------------------------------
+ */
+
+DEFINE	C_PICTO_MODIFIE		"pix_designer"
+DEFINE	C_PICTO_NON_MODIFIE	NULL
+
+DEFINE	C_PICTO_OK			"\\i(pix_ok)"
+DEFINE	C_PICTO_NOK			"\\i(pix_croix_rouge_16_16)"
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+DEFINE	TEI_RANG_ETAT	6			' Rang colonne pour decoupage
+
+FORMAT	TEI_Equipement
+	numero,					' Identifiant de l'equipement
+	type,					' Type de l'equipement (25 car)
+	designation,				' Nom ou Autoroute/PR/sens
+	date,					' Horodate changt. etat (16 car)
+	urgence,
+	etat,					' Dernier etat connu (12 car)
+	desactive,
+	inhibe,
+	hors_service
+
+
+/*A
+ * Description du format des donnees conservees entre deux appels
+ * --------------------------------------------------------------
+ */
+
+FORMAT	TEI_Equip_Indispo
+	num_equip,				' Identifiant de l'equipement
+	type,					' Type de l'equipement (25 car)
+	designation,
+	date,
+	urgence,
+	etat,
+	num_type				' Type equipement (numerique)
+
+
+/*A
+ * Format des donnees d'astreintes lues en base de donnees
+ * -------------------------------------------------------
+ */
+
+FORMAT	TLS_Donnees_Astreintes
+	num_competence,
+	type_astreinte,
+	autoroute,
+	PR_debut,
+	PR_fin,
+	nom_interlocuteur,
+	num_fiche_annuaire
+
+
+VAR     	vm_nb_indispo				' Nb equip. actuellement indispo
+VAR     	vm_l_types_equip			' Numeros de type des equip.
+VAR     	vm_l_picto				' Noms des pictogrammes
+VAR		vm_astreinte				' heures d'astreinte ou non
+VAR		tm_urgences				' tableau des urgences
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Affichage de la liste des equipements indisponibles.
+*  Modification de cette liste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TEI_Equipements_Indispo (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option "Consulter -> les indisponibilites" dans MTMS
+*
+* FONCTION
+*   Permet a l'operateur de connaitre la liste des equipements indisponibles
+*   et d'editer cette liste.
+*   Lit en base de donnees puis affiche la liste des equipements indisponibles;
+*   saisit les modifications apportees par l'operateur et les valide par une
+*   mise a jour de la base de donnees.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_indispo			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_l_select				' Liste des equipements selectes
+    VAR     vl_equip				' Equipement choisi
+    VAR FORMAT TEI_Equipement vl_info		' Contenu de la table affichee
+    VAR     vl_inhibe				' Vrai si equip. choisi inhibe
+
+    VAR     vl_status
+	VAR vl_indice,vl_index
+	VAR tl_eqtIndispo,tl_typeIndispo
+	VAR vl_jour,vl_date
+	VAR tl_feries
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (COM_NOK)
+}
+
+/*sur PC simplifie*/
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  return
+
+if COM04_Operateur_A_Le_Droit_De(XDC_FAM_HISTO_PEAGE) 
+{
+     COM01_Trace(0," Appel par un utilisateur non autorisé")
+  RETURN(COM_OK)
+}
+
+/*A
+ * Charger la fenetre "Indisponibilites"
+ * -------------------------------------
+ */
+
+vl_fenetre_indispo = DB_LOAD@ ("ITMA_TEI")
+DB_WINDOW_REMAIN@ (vl_fenetre_indispo, TRUE)
+
+DB_XPOS@ (vl_fenetre_indispo, 0)
+DB_YPOS@ (vl_fenetre_indispo, 93)
+COM27_Agrandir_Fenetre (vl_fenetre_indispo, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre_indispo, "ITMA_TEI_Equipements_Indispo")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_indispo, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre_indispo, "TA_Equip_Indispo", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_indispo, "TA_Equip_Indispo", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_indispo, "TA_Equip_Indispo", FALSE)
+
+/*A
+ * Initialiser les donnees a visualiser (liste des equipements)
+ * ------------------------------------------------------------
+ */
+
+MACRO_WINS_BUSY@()
+IF (FILE_EXISTS@(SYSTEM_VAR@(vg_repertoire_migrazur)++
+						C_FICHIER_FERIES))
+	tl_feries=READ_ASCII_FILE@(SYSTEM_VAR@(vg_repertoire_migrazur)++
+						C_FICHIER_FERIES)
+
+/*A quel jour ? */
+vl_jour=DATE_FORMAT@(CURRENT_TIME@(),3000)
+vl_date=DATE_FORMAT@(CURRENT_TIME@(),300)
+
+/*si samedi ou dimanche*/
+IF (vl_jour="samedi" OR vl_jour="dimanche")
+	vm_astreinte=TRUE
+/* jour ferie*/
+ELSE IF (ARRAY_INDEX@(tl_feries,DATE_FORMAT@(CURRENT_TIME@(),12))<>-1)
+	vm_astreinte=TRUE
+/* heures de bureau*/
+ELSE IF (vl_date<<C_DEBUT_BUREAU) OR (vl_date>>C_FIN_BUREAU)
+	vm_astreinte=TRUE
+ELSE
+	vm_astreinte=FALSE
+
+IF TEI_Init_Liste_Equipements (vl_fenetre_indispo) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_indispo)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_indispo)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_indispo)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+	CASE "BP_appel"
+		MACRO_WINS_BUSY@()
+
+		vl_l_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_indispo,
+						   "TA_Equip_Indispo")
+		IF ARRAY_SIZE@ (vl_l_select) = 0
+		    ERROR@ (C_ERR_IHM, C_LIB_CHOISIR_EQUIP)
+		vl_equip = vl_l_select[0]
+
+		vl_info = DB_TABLE_GET_ROWS@ (vl_fenetre_indispo, "TA_Equip_Indispo",
+					  vl_equip, 1)
+		vl_info=vl_info[0]
+
+		TEI_Recherche_astreinte(vl_fenetre_indispo,vl_info)
+	
+
+
+    /*A
+     * Sur choix "Quitter", memoriser dans l'environnement
+     * les informations sur les equipements indisponibles
+     * ---------------------------------------------------
+     */
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+	/*A
+	 * ne conserver que les equipements indisponibles
+	 * et les colonnes a reafficher, plus les numeros de types
+	 * -------------------------------------------------------
+	 */
+
+	tl_eqtIndispo=null
+
+	IF (vm_nb_indispo > 0) 
+	 {
+		vl_index=0
+	    vl_info = DB_TABLE_GET_DATA@ (vl_fenetre_indispo,"TA_Equip_Indispo")
+	    vl_info = SUBARRAY@ (vl_info, 0, vm_nb_indispo)
+	    vm_l_types_equip = SUBARRAY@ (vm_l_types_equip, 0, vm_nb_indispo)
+
+		/*A extrait les equip. indisponibles ou (disponibles et inhibes)
+			ou (disponibles et desactive) */
+		FOR vl_indice=0 TO (ARRAY_SIZE@(vl_info)-1)
+			IF ( (vl_info[vl_indice].etat<>C_ETAT_RETABLI) OR
+				(vl_info[vl_indice].desactive<>C_VAL_NON_DESACTIVE) OR
+				(vl_info[vl_indice].inhibe<>C_VAL_NON_INHIBE))
+			 {
+				tl_eqtIndispo[vl_index]=vl_info[vl_indice]
+				tl_typeIndispo[vl_index]=vm_l_types_equip[vl_indice]
+				vl_index=vl_index+1
+			}
+		NEXT vl_indice
+
+		IF (tl_eqtIndispo<>null)
+		 {
+	  	 	 tl_eqtIndispo=SUBARRAY@(ARRAY_TRANSPOSE@(tl_eqtIndispo),0,
+											 TEI_RANG_ETAT)
+	  		  tl_eqtIndispo[TEI_RANG_ETAT] = tl_typeIndispo
+	  		  tl_eqtIndispo = ARRAY_TRANSPOSE@ (tl_eqtIndispo)
+		}
+	}
+	SET_SYSTEM_VAR@ (vg_liste_eqt_indispo, tl_eqtIndispo)
+
+
+	/*A sur selection d'un element dans la liste*/
+	CASE "TA_Equip_Indispo"
+		vl_l_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_indispo,
+						   "TA_Equip_Indispo")
+		IF ARRAY_SIZE@ (vl_l_select) = 0
+		    ERROR@ (C_ERR_IHM, C_LIB_CHOISIR_EQUIP)
+		vl_equip = vl_l_select[0]
+
+		vl_info = DB_TABLE_GET_ROWS@ (vl_fenetre_indispo, "TA_Equip_Indispo",
+					  vl_equip, 1)
+		vl_info=vl_info[0]
+
+		IF (vl_info.urgence=C_U1) and (vm_astreinte=TRUE)
+		{
+			/*il faut appeler l'astreinte*/
+			DB_CTRL_DISPLAY@(vl_fenetre_indispo,"BP_appel",TRUE)
+			INFO_MESSAGE@(C_LIB_APPEL)
+		}
+		ELSE IF (vl_info.urgence=C_U3) and (vm_astreinte=TRUE)
+		{
+			vl_date=DATE_FORMAT@(CURRENT_TIME@(),500)
+			IF (vl_date>2200) OR (vl_date<0700)
+			{
+				/*appel maintenance reporte*/
+				DB_CTRL_DISPLAY@(vl_fenetre_indispo,"BP_appel",FALSE)
+				INFO_MESSAGE@(C_LIB_APPEL_REPORTE)
+			}
+			ELSE
+			{
+				/*appel maintenance*/
+				DB_CTRL_DISPLAY@(vl_fenetre_indispo,"BP_appel",TRUE)
+				INFO_MESSAGE@(C_LIB_APPEL)
+			}
+		}
+		ELSE
+		{
+			/*griser boutons appel*/
+			DB_CTRL_DISPLAY@(vl_fenetre_indispo,"BP_appel",FALSE)
+		}
+
+	
+    /*A
+     * Sur choix "Changer Inhibition", verifier qu'un equipement est choisi
+     * --------------------------------------------------------------------
+     */
+
+    CASE "BP_Changer_Inhib"
+	vl_l_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_indispo,
+						   "TA_Equip_Indispo")
+	IF ARRAY_SIZE@ (vl_l_select) = 0
+	    ERROR@ (C_ERR_IHM, C_LIB_CHOISIR_EQUIP)
+	vl_equip = vl_l_select[0]
+	vl_info = DB_TABLE_GET_ROWS@ (vl_fenetre_indispo, "TA_Equip_Indispo",
+					  vl_equip, 1)
+	vl_inhibe = (vl_info[0].inhibe = C_VAL_INHIBE)
+	vl_status = TEI_Changer_Inhibition (vm_l_types_equip[vl_equip],
+					      vl_info[0].numero, NOT vl_inhibe)
+
+	/*A
+	 * et si l'action se deroule correctement, le visualiser
+	 * -----------------------------------------------------
+	 */
+
+	IF vl_status = COM_OK {
+	    IF vl_inhibe
+		vl_info[0].inhibe = C_VAL_NON_INHIBE
+	    ELSE vl_info[0].inhibe = C_VAL_INHIBE
+		vl_info[0].date=COM09_Date_Courante()
+	    DB_TABLE_SET_NEW_DATA@ (vl_fenetre_indispo, "TA_Equip_Indispo",
+				       vl_info, vl_equip)
+	}
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des equipements indisponibles et leur etat.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TEI_Init_Liste_Equipements (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TEI_Equipements_Indispo
+*
+* FONCTION
+*   Lit dans l'environnement la liste des equipements indisponibles lors de la
+*   derniere visualisation.
+*   Lit en base de donnees la liste des equipements indisponibles actuellement.
+*   Initialise les valeurs de la table des equipements en ajoutant a la liste
+*   courante les equipements qui figuraient dans la precedente en indiquant
+*   que leur nouvel etat est "disponible".
+*
+---------------------------------------------------------------------------- */
+
+    VAR	FORMAT TEI_Equipement vl_t_equip	' Table equipements indispo.
+    VAR FORMAT COM_Donnees_Equipements	vl_data
+    VAR FORMAT TEI_Equip_Indispo	vl_ex_indispo
+
+    VAR FORMAT TDO_Type_Equipement  vl_les_types_equip  ' Liste types equip.
+    VAR vl_l_types_equip				' Numeros de types
+
+    VAR     vl_t_titres					' Titres colonnes table
+
+    VAR FORMAT COM_Localisation vl_localisation
+    VAR     vl_type
+    VAR     vl_nb_equip
+    VAR     i, j,vl_indice
+	VAR tl_picto1,tl_picto2,tl_picto3,tl_picto4,tl_picto
+	VAR tl_equip1,tl_equip2,tl_equip3,tl_equip4,tl_equip
+	VAR tl_type1,tl_type2,tl_type3,tl_type4,tl_type
+	
+
+/*A
+ * Lire dans l'environnement la liste des types d'equipements
+ * ----------------------------------------------------------
+ */
+
+vl_les_types_equip = SYSTEM_VAR@ (vg_les_types_equipement)
+vl_l_types_equip = ARRAY_COLUMN@ (vl_les_types_equip, TDO_NUMERO_TYPE_EQUIP)
+
+
+/*A
+ * Lire en base les donnees des equipements actuellement indisponibles
+ * -------------------------------------------------------------------
+ */
+
+IF ITMA_COM_Lire_Equipements (NULL, SYSTEM_VAR@ (vg_site),
+				XDC_EQT_MINEUR + XDC_EQT_MAJEUR +
+				   XDC_EQT_CRITIQUE + XDC_EQT_DESACTIVE+
+					XDC_EQT_INHIBE,
+				0,
+				XDC_EQT_HS,
+				0,
+				vl_data, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Memoriser le nombre d'equipements actuellement indisponibles
+ * ------------------------------------------------------------
+ */
+
+vm_nb_indispo = ARRAY_SIZE@ (vl_data)
+
+
+FOR i = 0  TO vm_nb_indispo - 1
+    vm_l_types_equip[i] = vl_data[i].type
+
+    vl_t_equip[i].numero = vl_data[i].numero
+    vl_t_equip[i].date = COM18_Date_SGBD_Formatee (vl_data[i].date)
+    vl_type = ARRAY_INDEX@ (vl_l_types_equip, vl_data[i].type)
+    IF vl_type >= 0
+        vl_t_equip[i].type = vl_les_types_equip[vl_type].nom
+       vl_t_equip[i].type = vl_t_equip[i].type
+
+    IF vl_data[i].autoroute = NULL
+	vl_t_equip[i].designation = vl_data[i].nom
+    ELSE {
+	vl_localisation = vl_data[i].autoroute, vl_data[i].PR, vl_data[i].sens
+	vl_t_equip[i].designation = COM10_Localisation (vl_localisation)
+    }
+
+    IF (vl_data[i].dispo \ XDC_EQT_DESACTIVE) MOD 2 <> 0 {
+	vl_t_equip[i].desactive = C_VAL_DESACTIVE
+	vl_t_equip[i].etat = C_ETAT_DESACTIVE
+    } ELSE {
+	vl_t_equip[i].desactive = C_VAL_NON_DESACTIVE
+	IF (vl_data[i].dispo \ XDC_EQT_CRITIQUE) MOD 2 <> 0
+	    vl_t_equip[i].etat = C_ETAT_CRITIQUE
+	ELSE IF (vl_data[i].dispo \ XDC_EQT_MAJEUR) MOD 2 <> 0
+	    vl_t_equip[i].etat = C_ETAT_MAJEURE
+	ELSE IF (vl_data[i].dispo \ XDC_EQT_MINEUR) MOD 2 <> 0
+	    vl_t_equip[i].etat = C_ETAT_MINEURE
+	ELSE vl_t_equip[i].etat = C_ETAT_RETABLI
+
+	IF (vl_t_equip[i].etat=C_ETAT_CRITIQUE)
+	{
+		vl_t_equip[i].hors_service=C_PRESENT
+		vl_t_equip[i].urgence=C_U1
+	}
+	ELSE IF (vl_t_equip[i].etat=C_ETAT_MAJEURE) 
+	{
+		vl_t_equip[i].hors_service=C_PRESENT
+		vl_t_equip[i].urgence=C_U3
+	}
+	ELSE IF (vl_t_equip[i].etat=C_ETAT_MINEURE) 
+	{
+		vl_t_equip[i].hors_service=C_ABSENT
+		IF (vm_astreinte=TRUE)
+			vl_t_equip[i].urgence=C_U4
+		ELSE
+			vl_t_equip[i].urgence=C_U2
+	}
+	ELSE
+	{
+		vl_t_equip[i].hors_service=C_ABSENT
+	}	
+    }
+
+    IF (vl_data[i].dispo \ XDC_EQT_INHIBE) MOD 2 <> 0
+	vl_t_equip[i].inhibe = C_VAL_INHIBE
+    ELSE vl_t_equip[i].inhibe = C_VAL_NON_INHIBE
+
+    vm_l_picto[i] = C_PICTO_MODIFIE, NULL
+NEXT i
+
+/*A
+ * Lire dans l'environnement les equipements PRECEDEMMENT indisponibles
+ * --------------------------------------------------------------------
+ */
+
+vl_ex_indispo = SYSTEM_VAR@ (vg_liste_eqt_indispo)
+vl_nb_equip = vm_nb_indispo
+IF (vl_ex_indispo<>null)
+{
+	FOR i = 0  TO ARRAY_SIZE@ (vl_ex_indispo) - 1
+
+    /*A
+     * Pour chacun, determiner s'il est ENCORE indisponible (ie dans la liste)
+     * -----------------------------------------------------------------------
+     */
+
+    j = 0
+    WHILE j < vm_nb_indispo  AND
+	     (vl_t_equip[j].numero <> vl_ex_indispo[i].num_equip  OR
+	      vm_l_types_equip[j] <> vl_ex_indispo[i].num_type)
+	j = j + 1
+    WEND
+
+    /*A
+     * s'il n'est plus dans la liste, l'y ajouter avec etat "Retabli"
+     * --------------------------------------------------------------
+     */
+
+     IF j = vm_nb_indispo {
+	vm_l_types_equip[vl_nb_equip] = vl_ex_indispo[i].num_type
+	vl_t_equip[vl_nb_equip].numero = vl_ex_indispo[i].num_equip
+	vl_t_equip[vl_nb_equip].type = vl_ex_indispo[i].type
+	vl_t_equip[vl_nb_equip].designation = vl_ex_indispo[i].designation
+	vl_t_equip[vl_nb_equip].etat = C_ETAT_RETABLI
+  	vl_t_equip[vl_nb_equip].desactive = C_VAL_NON_DESACTIVE
+ 	vl_t_equip[vl_nb_equip].inhibe = C_VAL_NON_INHIBE
+     vl_t_equip[vl_nb_equip].date=vl_ex_indispo[i].date
+
+	vm_l_picto[vl_nb_equip] = C_PICTO_MODIFIE, NULL
+	vl_nb_equip = vl_nb_equip + 1
+     }
+
+    /*A
+     * sinon comparer son etat et le precedent ; souligner un changement
+     * -----------------------------------------------------------------
+     */
+
+     ELSE IF vl_t_equip[j].etat = vl_ex_indispo[i].etat
+	vm_l_picto[j] = C_PICTO_NON_MODIFIE, NULL
+	NEXT i
+}
+
+/*A
+ * Definir les titres des colonnes de la table
+ * -------------------------------------------
+ */
+
+vl_t_titres[0] = "Numéro",       0	' Titre colonne et taille en pixels
+vl_t_titres[1] = "Type",         255
+vl_t_titres[2] = "Désignation",  237
+vl_t_titres[3] = "Date",         106
+vl_t_titres[4] = "Urgence",       68
+vl_t_titres[5] = "Etat",         75
+vl_t_titres[6] = "Désactivé",    68
+vl_t_titres[7] = "Inhibé",       68
+vl_t_titres[8] = "HS", 		68
+
+
+/*A tri sur les niveaux d'urgences*/
+FOR vl_indice=0 TO (ARRAY_SIZE@(vl_t_equip)-1)
+	/*urgence 1*/
+	IF (vl_t_equip[vl_indice].urgence=C_U1)
+	{
+		tl_picto1[ARRAY_SIZE@(tl_picto1)]=vm_l_picto[vl_indice]
+		tl_type1[ARRAY_SIZE@(tl_type1)]=vm_l_types_equip[vl_indice]
+		tl_equip1[ARRAY_SIZE@(tl_equip1)]=vl_t_equip[vl_indice]
+	}
+	/*urgence 2*/
+	ELSE IF (vl_t_equip[vl_indice].urgence=C_U2)
+	{
+		tl_picto2[ARRAY_SIZE@(tl_picto2)]=vm_l_picto[vl_indice]
+		tl_type2[ARRAY_SIZE@(tl_type2)]=vm_l_types_equip[vl_indice]
+		tl_equip2[ARRAY_SIZE@(tl_equip2)]=vl_t_equip[vl_indice]
+	}
+	/*urgence 3*/
+	ELSE IF (vl_t_equip[vl_indice].urgence=C_U3)
+	{
+		tl_picto3[ARRAY_SIZE@(tl_picto3)]=vm_l_picto[vl_indice]
+		tl_type3[ARRAY_SIZE@(tl_type3)]=vm_l_types_equip[vl_indice]
+		tl_equip3[ARRAY_SIZE@(tl_equip3)]=vl_t_equip[vl_indice]
+	}
+	/*urgence 4*/
+	ELSE IF (vl_t_equip[vl_indice].urgence=C_U4)
+	{
+		tl_picto4[ARRAY_SIZE@(tl_picto4)]=vm_l_picto[vl_indice]
+		tl_type4[ARRAY_SIZE@(tl_type4)]=vm_l_types_equip[vl_indice]
+		tl_equip4[ARRAY_SIZE@(tl_equip4)]=vl_t_equip[vl_indice]
+	}
+	/*pas d'urgence*/
+	ELSE
+	{
+		tl_picto[ARRAY_SIZE@(tl_picto)]=vm_l_picto[vl_indice]
+		tl_type[ARRAY_SIZE@(tl_type)]=vm_l_types_equip[vl_indice]
+		tl_equip[ARRAY_SIZE@(tl_equip)]=vl_t_equip[vl_indice]
+	}
+NEXT vl_indice
+
+
+vl_t_equip=tl_equip1
+vl_t_equip=ARRAY_APPEND@(vl_t_equip,tl_equip3)
+vl_t_equip=ARRAY_APPEND@(vl_t_equip,tl_equip2)
+vl_t_equip=ARRAY_APPEND@(vl_t_equip,tl_equip4)
+vl_t_equip=ARRAY_APPEND@(vl_t_equip,tl_equip)
+
+
+vm_l_picto=tl_picto1
+vm_l_picto=ARRAY_APPEND@(vm_l_picto,tl_picto3)
+vm_l_picto=ARRAY_APPEND@(vm_l_picto,tl_picto2)
+vm_l_picto=ARRAY_APPEND@(vm_l_picto,tl_picto4)
+vm_l_picto=ARRAY_APPEND@(vm_l_picto,tl_picto)
+
+
+vm_l_types_equip=tl_type1
+vm_l_types_equip=ARRAY_APPEND@(vm_l_types_equip,tl_type3)
+vm_l_types_equip=ARRAY_APPEND@(vm_l_types_equip,tl_type2)
+vm_l_types_equip=ARRAY_APPEND@(vm_l_types_equip,tl_type4)
+vm_l_types_equip=ARRAY_APPEND@(vm_l_types_equip,tl_type)
+
+/*A
+ * Valuer la table a afficher
+ * --------------------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)
+DB_DISPLAY@ (va_fenetre)
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+DB_TABLE_SET_DATA@(va_fenetre, "TA_Equip_Indispo",
+		      vl_t_equip, vl_t_titres, vm_l_picto)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"TA_Equip_Indispo",TRUE)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Change l'etat inhibe / non inhibe d'un equipement.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TEI_Changer_Inhibition (va_type_equip, va_num_equip, va_inhiber)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_type_equip     : Identifiant du type de l'equipement ;
+*   va_num_equip      : Identifiant de l'equipement a inhiber ou desinhiber ;
+*   va_inhiber        : Indicateur d'inhibition / levee d'inhibition.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TEI_Equipements_Indispo
+*
+* FONCTION
+*   Execute la requete voulue soit pour inhiber, soit pour lever l'inhibition
+*   de l'equipement dont l'identifiant est indique en argument.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = COM_Identifiant_Type_Equip
+vl_parametres[0].data = va_type_equip
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Equipement
+vl_parametres[1].data = va_num_equip
+vl_parametres[1].output = FALSE
+
+IF va_inhiber {
+    IF COM05_SQL_Procedure (XZAT03_InhiberEqt,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+} ELSE {
+    IF COM05_SQL_Procedure (XZAT04_Lever_Inhibition,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+  Recherche et affiche l'astreinte telecom.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TEI_Recherche_Astreinte (va_fenetre,FORMAT TEI_Equipement va_equip)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TLS_Donnees_Astreintes vl_data
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     vl_idem_precedente
+    VAR     i
+
+
+vl_parametres[0].type = SYB#DATETIME_
+vl_parametres[0].data = COM09_Date_Courante(FALSE)
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFS_Numero_Type_Astreinte
+vl_parametres[1].data = C_TYP_TELECOM
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT4_
+vl_parametres[2].data = SYSTEM_VAR@(vg_site)
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Identifiant_Autoroute
+vl_parametres[3].data = null
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = COM_Identifiant_PR
+vl_parametres[4].data = null
+vl_parametres[4].output = FALSE
+
+IF COM05_SQL_Procedure (XZAN25_Liste_Astreintes,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+/*recupere la premiere astreinte de la liste*/
+vl_data = vl_resultats.select_results[0][0]
+
+/* 
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+    vm_l_num_comp[i] = vl_data[i].num_competence
+    vm_l_num_interlo[i] = vl_data[i].num_fiche_annuaire
+
+    IF i = 0
+	vl_idem_precedente = FALSE
+    ELSE vl_idem_precedente = (vm_l_num_comp[i] = vm_l_num_comp[i - 1])
+
+    IF vl_idem_precedente {
+	vm_t_astreintes[i].type_astreinte = NULL
+	vm_t_astreintes[i].interlocuteur = NULL
+    } ELSE {
+	vm_t_astreintes[i].type_astreinte = vl_data[i].type_astreinte
+	vm_t_astreintes[i].interlocuteur = vl_data[i].nom_interlocuteur
+    }
+    IF vl_data[i].autoroute <> NULL
+	vm_t_astreintes[i].zone_geo = COM12_Libelle_Zone_Competence
+					 (vl_data[i].autoroute,
+					  vl_data[i].PR_debut,
+					  vl_data[i].PR_fin)
+NEXT i
+*/
+
+
+PEND_FOR_NEW_TASK@("ITMA_TFS_Fiche_Astreinte","ITMA_TEI_Equipements_Indispo",
+			vl_data.num_competence,
+			COM09_Date_Courante(FALSE),
+			vl_data.num_fiche_annuaire)
+			
+RETURN (COM_OK)
+
+ENDMACRO
+
+

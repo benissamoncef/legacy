@@ -1,0 +1,101 @@
+
+include	"dbase_.am"
+
+include	"XDMICG/inc/xdc_ax.h"
+include	"XDMICG/inc/xzic_ax.h"
+
+include	"GESIHM/inc/ITMA_COM.h"
+include	"GESIHM/inc/ITMA_TDO.h"
+include	"GESIHM/inc/ITMA_TAR.h"
+include	"GESIHM/inc/ITMA_TMC.h"
+
+
+/*redefinition des constantes de xzdd.h*/
+/*toute modif dans xzdd.h doit etre repercute ici*/
+define	XZDDC_PA_AVEC_TFM       1
+define	XZDDC_PA_SANS_TFM       0
+define	XZDDC_MODE_TEST         0
+define 	XZDDC_MODE_OPERATIONNEL 1
+
+
+define 	C_MODULE	"MTMC"
+
+
+
+/*X*/
+/*------------------------------------------------------
+* SERVICE RENDU : 
+* lance le calcul du plan d'actions
+*
+------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_lancer_plan_actions(FORMAT TMC_fmc va_fiche,va_mode,va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_mode:0 avec TFM, 1 sans TFM
+*
+* ARGUMENTS EN SORTIE :
+* aucun
+*
+* CODE RETOUR : 
+* aucun
+*
+*
+*
+---------------------------------------------------------*/
+VAR tl_args
+VAR vl_msg
+
+	/*B Demander le calcul du Plan d'actions */
+	/* Construire les paramètres d'appel de la fonction relais */
+	IF (va_horodate=null)
+		tl_args[0]=COM09_Date_Courante(TRUE)
+	ELSE
+		tl_args[0]=va_horodate
+	tl_args[1]=SYSTEM_VAR@(vg_numero_poste)
+
+	tl_args[2]=SYSTEM_VAR@(vg_poste)
+	tl_args[3]=va_fiche.numero
+	tl_args[4]=va_fiche.cle
+	tl_args[5]=va_fiche.type
+
+	/*si pas de message trafic fm*/
+	IF (va_mode=1) 
+	{
+		tl_args[6]=XZDDC_PA_SANS_TFM
+		vl_msg="Calcul du plan d'actions"
+	}
+	/*sinon avec trafic FM*/
+	ELSE
+	{
+		tl_args[6]=XZDDC_PA_AVEC_TFM
+		vl_msg="Calcul du plan d'actions avec message RVA"
+	}
+
+	/*si on est au CI*/
+	if (SYSTEM_VAR@(vg_site)<>XDC_CI)
+	{
+		tl_args[6]=XZDDC_PA_SANS_TFM
+		vl_msg="Calcul du plan d'actions"
+	}
+	else
+	{
+		tl_args[6]=XZDDC_PA_AVEC_TFM
+		vl_msg="Calcul du plan d'actions avec message RVA"
+	}
+
+	/* mode formation*/
+	IF (va_mode=2)
+	  tl_args[7]=XZDDC_MODE_TEST
+	ELSE
+	  tl_args[7]=XZDDC_MODE_OPERATIONNEL
+
+	NEW_TASK@("ITMA_TIR_EXEC",MTAR_FCT_XZDD02,COM_CANAL_MTMC,tl_args)
+
+	/*message pour l'operateur*/
+	NEW_TASK@("ITMA_COM_Message", vl_msg)
+ENDMACRO
+

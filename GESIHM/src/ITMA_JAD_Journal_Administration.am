@@ -1,0 +1,184 @@
+/*E*/
+/* Fichier : %W%      Release : %I%        Date : %G%
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TBN * FICHIER ITMA_JAD_Journal_Administration.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Afficher le journal d'administration
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Claudel    06 Oct 2017 : Creation				V1.1
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+/*
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TFL.h"
+INCLUDE    "../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../inc/xzat01sp.h"
+INCLUDE "../inc/xzaa07sp.h"
+*/
+
+
+DEFINE C_MODULE	"MJAD"		' Nom du module
+DEFINE PATH_JOURNAL	"SDCI1:/produits/migrazur/appliSD/fichiers/adm/nsup_jouradm"
+DEFINE PATH_LECTURE	"/tmp/nsup_jouradm_tmp"
+DEFINE	PATH_SORTED	"/tmp/nsup_jouradm"
+
+DEFINE C_LIB	1	/* colonne du tableau correspondant au libelle d'une machine */
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* afficher et recueiller les notes d'un operateur
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_JAD_Journal_Administration()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR tl_strings
+	VAR vl_cr
+	VAR vl_installer_traitement_erreur
+	VAR vl_bloc_ouvert
+	VAR vl_exit_value
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Lier ..."
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_JAD")
+
+DB_XPOS@ (vl_fenetre, 0)
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+	DB_YPOS@ (vl_fenetre, 93)
+else
+	DB_YPOS@ (vl_fenetre, 104)
+
+
+/*COM02_Attacher_Aide (vl_fenetre, "ITMA_JAD_Journal_Administration")
+*/
+/*COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)*/
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*A
+ * afficher le contenu 
+ */
+MACRO_WINS_BUSY@()
+
+/*A
+ * 
+ */
+
+/*A
+* Recuperation du fichier nsup_jouradm du serveur de donnees actif SDCI1
+* remote copy du fichier bloc note sur la machine choisie
+*/
+vl_cr=SHELL_COMMAND@("rcp "++PATH_JOURNAL++
+				" "++PATH_LECTURE)
+	/*A
+	* On garde que les lignes commencant par une tabulation
+	* puis on trie le fichier selon l'horodate
+	* (commande recuperee dans xzsp.c fonction XZSP_07ConsultJournalAdmin)
+	*/
+	vl_cr=SHELL_COMMAND@("sed '/^[\t]/!d' "++PATH_LECTURE++" | nl | sort -k2,2 -k3,3 | sed 's/^[ 0-9]*[\t]*[\t]//'> "++PATH_SORTED)
+	/* si tout s'est bien passe */
+
+tl_strings=""
+		tl_strings=READ_ASCII_FILE@(PATH_SORTED)
+		DB_CTRL_STRINGS@(vl_fenetre,"BL_bloc",tl_strings)
+	
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * RAS
+ * -----------------------------------------------------
+ */
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+vl_bloc_ouvert=0
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		/*A
+		* appui sur le bouton quitter*/
+		CASE "BP_quitter"
+			/*A Bye*/
+			RETURN (COM_QUITTE)
+
+	ENDCASE
+WEND
+ENDMACRO
+

@@ -1,0 +1,1 @@
+DEFINE	XZAT11_Eqt_A_Reactiver	"XZAT;11"

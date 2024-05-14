@@ -1,0 +1,1 @@
+DEFINE	XZAP18_Lire_Prop_Tel		"XZAP18"

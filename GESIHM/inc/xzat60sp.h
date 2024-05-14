@@ -1,0 +1,1 @@
+DEFINE	XZAT60_Liste_Neutres_PMV	"XZAT60"

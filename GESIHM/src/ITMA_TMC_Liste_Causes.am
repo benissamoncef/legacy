@@ -1,0 +1,195 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_Liste_Causes.am,v 1.8 2020/11/03 17:40:28 pc2dpdy Exp $      Release : $Revision: 1.8 $        Date : $Date: 2020/11/03 17:40:28 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLT * FICHIER COM_Liste_Causes.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* affiche la liste des fiches mc a traiter dans une liste dans la fiche 
+* main courante ouverte.
+*
+*   Cf. DCG 2.4.49
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	15 dec 1994	: Creation
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+INCLUDE	"../inc/ITMA_TLV.h"
+INCLUDE	"../inc/xzae17sp.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTMC"			' Nom du module
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	TLT_Evenement
+	numero,					' Numero evenement
+	enrichisseur,				' Poste enrichisseur (3 car)
+	type,					' Type evenement (25 car)
+	date_debut,				' Date debut (16 car)
+	localisation,				' Localisation event. (28 car)
+	FORMAT COM_Intitule_FMC info_evt	' Informations evenement
+
+
+
+/*A
+ * Description du format des donnees lues en base
+ * ----------------------------------------------
+ */
+
+FORMAT	TLT_Donnees_Evenement
+	cle_evt,				' Cle evenement
+	num_evt,				' Numero d'evenement
+	type,					' Numero de type evenement
+	autoroute,
+	PR,
+	sens_circul,
+	date,
+	enrichir,				' Vrai si l'oper. peut enrichir
+	reveil					' Vrai s'il y a des reveils
+
+
+
+VAR FORMAT TLT_Evenement vm_t_evt		' Table des evenements affichee
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation de la liste des fiches Main Courante a traiter pour le poste
+*  operateur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO COM_Liste_Causes (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fenetre		: id de la fenetre fiche main courante
+* va_xpos,va_ypos	: coordonnnees ou afficher la liste
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation par MTMT.
+*
+* FONCTION
+*   Lit en base de donnees puis affiche la liste des fiches Main Courante
+*   a traiter associee au poste operateur.
+---------------------------------------------------------------------------- */
+    VAR FORMAT TLT_Donnees_Evenement	vl_data
+    VAR FORMAT TDO_District		vl_les_districts
+    VAR					vl_numeros_districts
+    VAR FORMAT TDO_Type_FMC		vl_les_types_FMC
+    VAR					vl_numeros_FMC
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR FORMAT COM_Intitule_FMC vl_FMC
+    VAR     vl_type, vl_district
+    VAR     i, j
+
+
+/*A
+ * Lire en base de donnees la nouvelle liste d'evenements pour le poste local
+ * --------------------------------------------------------------------------
+ */
+
+vl_parametres[0].type = COM_Identifiant_Poste_Oper	' Numero du poste local
+IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+	vl_parametres[0].data = SYSTEM_VAR@ (vg_numero_poste_surcharge)
+ELSe
+	vl_parametres[0].data = SYSTEM_VAR@ (vg_numero_poste)
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#CHAR_                               ' Site local
+vl_parametres[1].data = SYSTEM_VAR@(vg_nom_site)
+vl_parametres[1].output = FALSE
+
+IF COM05_SQL_Procedure (XZAE17_Liste_Evt_Traiter,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+
+/*A
+ * Effacer les structures de donnees (pour reinitialisation)
+ * ---------------------------------------------------------
+ */
+
+vm_t_evt = NULL
+
+
+
+
+/*A
+ * Lire dans l'environnement les listes des types FMC et des districts
+ * -------------------------------------------------------------------
+ */
+
+vl_les_districts = SYSTEM_VAR@ (vg_les_districts)
+vl_numeros_districts = ARRAY_COLUMN@ (vl_les_districts, TDO_NUMERO_DISTRICT)
+vl_les_types_FMC = SYSTEM_VAR@ (vg_les_types_FMC)
+vl_numeros_FMC = ARRAY_COLUMN@ (vl_les_types_FMC, TDO_NUMERO_FMC)
+
+
+/*A
+ * Pour chaque nouvel element MC,
+ * ------------------------------
+ */
+vl_data = vl_resultats.select_results[0]
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+    vl_FMC.IdFMC.numero = vl_data[i].num_evt
+    vl_FMC.IdFMC.cle = vl_data[i].cle_evt
+    vl_FMC.Numtype = vl_data[i].type
+    vl_FMC.localisation.NumAuto = vl_data[i].autoroute
+    vl_FMC.localisation.PR = vl_data[i].PR
+    vl_FMC.localisation.sens_circulation = vl_data[i].sens_circul
+    vl_FMC.date = COM18_Date_SGBD_Formatee (vl_data[i].date)
+
+    vm_t_evt[i].info_evt = vl_FMC
+
+    vm_t_evt[i].numero = vl_data[i].num_evt
+    vm_t_evt[i].date_debut = vl_FMC.date
+    vm_t_evt[i].localisation = COM10_Localisation (vl_FMC.localisation)
+
+    vl_district = ARRAY_INDEX@ (vl_numeros_districts, vl_data[i].cle_evt)
+
+    IF vl_district >= 0
+	vm_t_evt[i].enrichisseur = vl_les_districts[vl_district].code
+
+    vl_type = ARRAY_INDEX@ (vl_numeros_FMC, vl_data[i].type)
+    IF vl_type >= 0
+	vm_t_evt[i].type = vl_les_types_FMC[vl_type].abbrev
+
+
+
+ NEXT i
+
+
+RETURN (vm_t_evt)
+
+ENDMACRO
+
+

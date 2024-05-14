@@ -1,0 +1,1225 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_Localisation.am,v 1.18 2010/09/28 11:48:10 gesconf Exp $     Release : $Revision: 1.18 $        Date : $Date: 2010/09/28 11:48:10 $
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET PASTRE
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTMC * FICHIER ITMA_TMC_Localisation.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Gere une boite de dialogue permettant de saisir ou modifier
+* la localisation d'un evenement
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JPL	22/01/2007 : Creation nouvelle fenêtre dédiée localisation v1.1
+* JPL	06/02/2007 : Finalisation de la première version (DEM613) v1.4
+* JPL	08/02/2007 : Restriction au district local (DEM614) v1.5
+* JPL	12/02/2007 : Contrôle local. hors site; filtre pts car selon type FMC v1.6
+* JPL	13/02/2007 : Filtre pts car. et sens pour tête de bouchon (DEM614) v1.7
+* JPL	19/04/2007 : Libellé "2 sens" pour Météo, Inondation et Trait. chaussées (DEM 638) v1.8
+* JPL	24/04/2007 : Restriction localisation pour Vehicule en Marche Arriere (DEM 643) v1.9
+* JPL	26/04/2007 : Restriction loc. pour Trait.Chaussees, Chaussee glissante (DEM 644,646) v1.10
+* JPL	27/04/2007 : Restriction loc. pour Echangeur deconseille (DEM 645) v1.11
+* JPL	31/05/2007 : Gestion des ITPC pour Basculement pour Travaux (DEM 647) v1.12
+* JPL	20/06/2007 : Restriction aux ITPC du district de vg_itpc_district (DEM 647) v1.13
+* JPL	21/06/2007 : Autoriser la saisie directe du Pr ou choix ITPC (DEM 647) v1.14
+* JPL	21/06/2007 : Gestion des cantons pour les Fmc Travaux (DEM 657) v1.15
+* JPL	03/07/2007 : Formatage des Pr affiches (suite a DEM 657) v1.16
+* JPL	31/08/2007 : Autoriser un Basculement pour Travaux sur une autoroute sans ITPC (DEM 697) v1.17
+* JPL	18/08/2010 : Gestion des Fmc "Zone de Stockage" (DEM 942) v1.18
+---------------------------------------------------------------------------- */
+
+INCLUDE		"dbase_.am"
+
+INCLUDE		"XDMICG/inc/xdc_ax.h"
+INCLUDE		"XDMICG/inc/xzaec_ax.h"
+
+INCLUDE		"GESIHM/inc/ITMA_COM.h"
+INCLUDE		"GESIHM/inc/ITMA_TDO.h"
+INCLUDE		"GESIHM/inc/ITMA_TMC.h"
+
+
+DEFINE	C_MODULE	"MTMC"                              ' Nom du module
+
+
+VAR	FORMAT TDO_Autoroute		tm_autoroutes
+VAR	FORMAT TDO_Sens_Circulation	tm_sens, tm_sens_echangeur
+
+VAR	FORMAT TDO_Point_Car		tm_pt_car
+VAR	FORMAT TDO_Aire			tm_aires
+VAR	FORMAT TDO_Echangeur		tm_echangeurs
+VAR	FORMAT TDO_Gare			tm_gares
+VAR	FORMAT TDO_Lit_Arret		tm_lits_arret
+
+VAR	FORMAT TDO_ITPC			tm_ITPC
+VAR	FORMAT TDO_Canton		tm_cantons
+
+VAR	lm_pr_autoroute                                  ' Liste de choix de Pr
+
+VAR	vm_i_autoroute                                   ' Choix actuel autoroute
+VAR	vm_i_sens                                        ' Choix actuel sens
+VAR	vm_type_ptcar                                    ' Choix actuel type pt car.
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Gère la boîte de dialogue de description de localisation d'un événement
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Localisation (FORMAT TMC_fmc va_fiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fiche          : Fiche main courante en cours de traitement.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun.
+*
+*
+* CODE RETOUR         :
+*   Valeurs de localisation saisies, ou NULL is invalides.
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*   Charge et visualise la fenetre de saisie de la localisation.
+*   Retourne les valeurs de localisation saisies ou modifiées.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_fenetre
+VAR	vl_la_fenetre_est_active
+VAR	vl_objet_selecte
+
+VAR	FORMAT COM_Localisation vl_loc
+
+VAR	tl_liste
+VAR	vl_i_sens, vl_i_auto, vl_i_type_loc, vl_i_ptcar
+VAR	vl_indice
+
+
+/*A
+ * Traitements en cas d'erreur :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * ---------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN (NULL)
+}
+
+
+/*A
+ * Obtenir les données réseau pour le district local
+ * puis les filtrer selon le type de fiche main courante
+ * -----------------------------------------------------
+ */
+
+tm_autoroutes	= SYSTEM_VAR@ (vg_autoroutes_district)
+
+tm_pt_car	= SYSTEM_VAR@ (vg_les_points_car)
+tm_aires	= SYSTEM_VAR@ (vg_aires_district)
+tm_echangeurs	= SYSTEM_VAR@ (vg_echangeurs_district)
+tm_gares	= SYSTEM_VAR@ (vg_gares_district)
+tm_lits_arret	= SYSTEM_VAR@ (vg_lits_arret_district)
+
+tm_sens_echangeur = SYSTEM_VAR@ (vg_les_sens_circulation)
+
+tm_sens[0] = { XDC_SENS_INCONNU, XDC_LIB_SENS_NON_PREC }
+tm_sens[1] = { XDC_SENS_NORD, XDC_LIB_SENS_NORD }
+tm_sens[2] = { XDC_SENS_SUD, XDC_LIB_SENS_SUD }
+
+IF (va_fiche.type = XZAEC_FMC_Travaux)  OR  (va_fiche.type = XZAEC_FMC_ZoneStockage) {
+	/* liste des cantons qui seront proposés pour choix du Pr */
+	tm_cantons = SYSTEM_VAR@ (vg_cantons_district)
+
+	/*B Transformer les valeurs de Pr en km et les formater */
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tm_cantons) - 1
+		tm_cantons[vl_indice].pr_debut = COM31_Libelle_PR (tm_cantons[vl_indice].pr_debut)
+	NEXT vl_indice
+} ELSE IF va_fiche.type = XZAEC_FMC_BasculTravaux {
+	/* liste des ITPC qui seront proposés pour choix du Pr */
+	tm_ITPC = SYSTEM_VAR@ (vg_itpc_district)
+
+	/*B Transformer les valeurs de Pr en km et les formater */
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tm_ITPC) - 1
+		tm_ITPC[vl_indice].pr = COM31_Libelle_PR (tm_ITPC[vl_indice].pr)
+	NEXT vl_indice
+}
+
+Filtrer_Points_Caract (tm_pt_car, va_fiche.type)
+Filtrer_Sens_Circulation (tm_sens_echangeur, tm_sens, va_fiche.type)
+Filtrer_Aires (tm_aires, va_fiche.type)
+
+
+/*A
+ * Si la fiche comporte déjà des éléments de localisation alors
+ * vérifier que ceux-ci sont dans les données du site local
+ * ------------------------------------------------------------
+ */
+
+vl_i_auto = COM45_IndexEnColonne (tm_autoroutes, TDO_NUMERO_AUTOROUTE,
+                                     va_fiche.autoroute)
+
+CASE OF va_fiche.point_car
+CASE XDC_POINT_CARACT_AIRE
+	tl_liste = ARRAY_COLUMN@ (tm_aires, TDO_NUMERO_AIRE)
+CASE XDC_POINT_CARACT_ECHANGEUR
+	tl_liste = ARRAY_COLUMN@ (tm_echangeurs, TDO_NUMERO_ECH)
+CASE XDC_POINT_CARACT_PEAGE
+	tl_liste = ARRAY_COLUMN@ (tm_gares, TDO_NUMERO_GARE)
+CASE XDC_POINT_CARACT_LIT_ARRET
+	tl_liste = ARRAY_COLUMN@ (tm_lits_arret, TDO_NUMERO_LIT)
+DEFAULT /* pleine voie */
+	tl_liste = NULL
+ENDCASE
+
+vl_i_ptcar = ARRAY_INDEX@ (tl_liste, va_fiche.nom_point_car)
+
+IF (va_fiche.autoroute <> NULL  AND  vl_i_auto < 0) OR
+   (va_fiche.nom_point_car <> NULL  AND  vl_i_ptcar < 0) {
+	INFO_MESSAGE@ ("Localisation inconnue !")
+	RETURN (NULL)
+}
+
+
+/*A
+ * Charger la fenetre décrivant une localisation
+ * et la positionner par rapport à la fiche MC
+ * ---------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TMC_Localisation")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 440)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_sur", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_sens", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_autoroute", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_liste_ptcar", TRUE)
+
+
+/*A
+ * Afficher les valeurs de localisation de la fiche
+ * ------------------------------------------------
+ */
+
+TMC_Afficher_Localisation (vl_fenetre, va_fiche)
+vm_type_ptcar = va_fiche.point_car
+
+
+/*A
+ * Visualiser la fenêtre de saisie jusque validation ou abandon
+ * ------------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY@ (vl_fenetre)
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+	CASE OF vl_objet_selecte
+
+	CASE "BO_sur"
+		/*B Sur choix d'un type de point caractéristique, en afficher la liste */
+		TMC_LOC_Choix_Type_Point_Car (vl_fenetre, va_fiche.type)
+
+	CASE "BO_sens"
+		/*B Sur choix d'un sens de circulation, */
+		vl_i_sens = DB_CTRL_GET_VALUE@ (vl_fenetre, "BO_sens")
+
+		/*A si le choix a changé alors mémoriser le choix actuel */
+		IF (vl_i_sens <> vm_i_sens) {
+			vm_i_sens = vl_i_sens
+
+			/*A et pour des Travaux, un Stockage ou un Basculement pour travaux */
+			/*A  sur section courante proposer les Pr de l'autoroute */
+			IF vm_type_ptcar = NULL AND
+			   (va_fiche.type = XZAEC_FMC_Travaux OR
+			    va_fiche.type = XZAEC_FMC_ZoneStockage OR
+			    va_fiche.type = XZAEC_FMC_BasculTravaux)
+			{
+				TMC_LOC_Liste_Pr (vl_fenetre, va_fiche.type)
+			}
+		}
+
+
+	CASE "BO_autoroute"
+		/*A Sur sélection d'une autoroute, */
+		vl_i_auto = DB_CTRL_GET_VALUE@ (vl_fenetre, "BO_autoroute")
+
+		/*A si le choix a changé alors mémoriser le choix actuel */
+		IF (vl_i_auto <> vm_i_autoroute) {
+			vm_i_autoroute = vl_i_auto
+
+			/*A et pour des Travaux, un Stockage ou un Basculement pour travaux */
+			/*A  sur section courante proposer les Pr de l'autoroute */
+			IF vm_type_ptcar = NULL AND
+			   (va_fiche.type = XZAEC_FMC_Travaux OR
+			    va_fiche.type = XZAEC_FMC_ZoneStockage OR
+			    va_fiche.type = XZAEC_FMC_BasculTravaux)
+			{
+				TMC_LOC_Liste_Pr (vl_fenetre, va_fiche.type)
+			}
+		}
+
+
+	CASE "BL_liste_ptcar"
+		vl_i_ptcar = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_liste_ptcar")
+		IF vm_type_ptcar = XDC_POINT_CARACT_ECHANGEUR {
+			/*B Sur sélection d'un échangeur, proposer les sens de circulation */
+			/*B sur ses bretelles d'accès, sauf pour un événement sur échangeur */
+			IF (va_fiche.type <> XZAEC_FMC_FermetureEch) AND
+			    (va_fiche.type <> XZAEC_FMC_EchDeconseille)
+			{
+				tl_liste = TMC_LOC_Sens_Bretelles (vl_i_ptcar)
+				DB_CTRL_STRINGS@ (vl_fenetre, "BO_sens",
+				                     ARRAY_COLUMN@ (tl_liste, TDO_NOM_SENS))
+				vm_i_sens = 0
+				DB_CTRL_VALUE@ (vl_fenetre, "BO_sens", vm_i_sens)
+			}
+		} ELSE IF (vm_type_ptcar <> XDC_POINT_CARACT_AIRE)  AND
+		          (vm_type_ptcar <> XDC_POINT_CARACT_PEAGE)  AND
+		          (vm_type_ptcar <> XDC_POINT_CARACT_LIT_ARRET)
+		{
+			DB_CTRL_VALUE@ (vl_fenetre, "BS_pr", lm_pr_autoroute[vl_i_ptcar])
+		}
+
+
+	CASE "BP_quitter"
+		/*B Sur abandon, retourner une localisation NULLe */
+		vl_loc = NULL
+		vl_la_fenetre_est_active = FALSE
+
+
+	CASE "BP_valider"
+		/*B Sur validation, contrôler les valeurs saisies */
+		/* et les retourner si elles sont complètes       */
+		IF TMC_Localisation_Saisie (vl_fenetre, vl_loc) = COM_OK {
+			vl_la_fenetre_est_active = FALSE
+		}
+
+	ENDCASE
+WEND
+
+RETURN (vl_loc)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Selon le type de la fiche main courante traitée, restreint
+*  les types de points caractéristiques proposés pour localisation.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO Filtrer_Points_Caract (FORMAT TDO_Point_Car ta_ptcar, va_type_fmc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*   ta_ptcar       : table des types de points caracteristiques.
+*   va_type_fmc    : identifiant du type de la fiche main courante.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_ptcar          : table filtree des types de points caracteristiques.
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Initialisation de la saisie de localisation.
+*
+* FONCTION
+*   Supprime des choix invalides dans la liste des types proposés.
+*
+---------------------------------------------------------------------------- */
+
+VAR	cl_voie, cl_aire, cl_ech, cl_gare, cl_lit
+VAR	vl_c
+
+cl_voie	= XDC_POINT_CARACT_AUCUN
+cl_aire	= XDC_POINT_CARACT_AIRE
+cl_ech	= XDC_POINT_CARACT_ECHANGEUR
+cl_gare	= XDC_POINT_CARACT_PEAGE
+cl_lit	= XDC_POINT_CARACT_LIT_ARRET
+
+vl_c = TDO_NUMERO_POINT_CAR
+
+
+CASE OF va_type_fmc
+
+/*B Une aire fermée ou un incident sous-concessionnaire */
+CASE XZAEC_FMC_AireFermee, XZAEC_FMC_IncSsConces
+	/*B ne peuvent être localisés que sur une aire */
+	ta_ptcar = COM44_ValeursEnColonne (ta_ptcar, vl_c, { cl_aire }, TRUE)
+
+/*B Un délestage ou une déviation, */
+/*B   une fermeture échangeur ou échangeur déconseillé */
+CASE XZAEC_FMC_Delestage, XZAEC_FMC_Deviation
+CASE XZAEC_FMC_FermetureEch, XZAEC_FMC_EchDeconseille
+	/*B ne peuvent être localisés que sur un échangeur */
+	ta_ptcar = COM44_ValeursEnColonne (ta_ptcar, vl_c, { cl_ech }, TRUE)
+
+/*B Un basculement */
+/*B ou une frontière fermée */
+CASE XZAEC_FMC_Basculement, XZAEC_FMC_BasculTravaux
+CASE XZAEC_FMC_FrontiereFermee
+	/*B ne peuvent être localisés que sur section courante */
+	ta_ptcar = COM44_ValeursEnColonne (ta_ptcar, vl_c, { cl_voie }, TRUE)
+
+/*B Un bouchon, un véhicule lent ou à contresens, */
+/*B un convoi, une manifestation */
+/*B ou un événement hors réseau */
+CASE XZAEC_FMC_QueueBouchon, XZAEC_FMC_TeteBouchon
+CASE XZAEC_FMC_Contresens, XZAEC_FMC_VehMarcheArr
+CASE XZAEC_FMC_Cirque, XZAEC_FMC_ConvoiExc, XZAEC_FMC_ConvoiMil, XZAEC_FMC_VehLent
+CASE XZAEC_FMC_Escargot, XZAEC_FMC_GreveESCOTA, XZAEC_FMC_Manifestation
+CASE XZAEC_FMC_EvtHorsReseau
+	/*B ne peuvent être sur une aire ni sur un lit d'arrêt */
+	ta_ptcar = COM44_ValeursEnColonne (ta_ptcar, vl_c, { cl_aire, cl_lit }, FALSE)
+
+/*B Un hold-up */
+/*B ou un événement sur chaussée */
+CASE XZAEC_FMC_HoldUpVol
+CASE XZAEC_FMC_PietonChaussee
+CASE XZAEC_FMC_Salage
+CASE XZAEC_FMC_ChausseeGliss
+CASE XZAEC_FMC_TraitChaussees
+	/*B ne peuvent être sur un lit d'arrêt */
+	ta_ptcar = COM44_ValeursEnColonne (ta_ptcar, vl_c, { cl_lit }, FALSE)
+ENDCASE
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Selon le type de la fiche main courante traitée, restreint (ou étend !)
+*  les valeurs de sens de circulation proposées pour localisation.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO Filtrer_Sens_Circulation (FORMAT TDO_Sens_Circulation ta_sens_echangeur,
+                                   FORMAT TDO_Sens_Circulation ta_sens, va_type_fmc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*   ta_sens_echangeur : table des sens de circulation y compris bretelles ;
+*   ta_sens           : table des valeurs generales des sens (sans bretelles) ;
+*   va_type_fmc       : identifiant du type de la fiche main courante.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_sens_echangeur : table complete des sens, eventuellement filtree ;
+*   ta_sens           : table des valeurs de sens a proposer pour la localisation.
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Initialisation de la saisie de localisation.
+*
+* FONCTION
+*   Supprime des choix invalides dans les listes de sens proposés,
+*   ou reconstruit la liste des sens proposés pour saisie de la localisation.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_idx
+
+/*A
+ * Changer le libellé 'Inconnu' en 'Non précisé' ou '2 sens'
+ * ---------------------------------------------------------
+ */
+
+vl_idx = COM45_IndexEnColonne (ta_sens_echangeur, TDO_NUMERO_SENS, XDC_SENS_INCONNU)
+ta_sens_echangeur[vl_idx].nom = XDC_LIB_SENS_NON_PREC
+
+
+CASE OF va_type_fmc
+
+/*B Pour un basculement, */
+/*B      un délestage ou une déviation, */
+/*B      un événement hors réseau, */
+/*B   ou un bouchon */
+CASE XZAEC_FMC_Basculement, XZAEC_FMC_BasculTravaux
+CASE XZAEC_FMC_Delestage, XZAEC_FMC_Deviation
+CASE XZAEC_FMC_EvtHorsReseau
+CASE XZAEC_FMC_QueueBouchon, XZAEC_FMC_TeteBouchon
+	/*B le sens de circulation est obligatoire (pas de choix 'Inconnu') */
+	ta_sens_echangeur = COM44_ValeursEnColonne (ta_sens_echangeur, TDO_NUMERO_SENS,
+	                                               { XDC_SENS_INCONNU }, FALSE)
+	ta_sens = COM44_ValeursEnColonne (ta_sens, TDO_NUMERO_SENS,
+	                                     { XDC_SENS_INCONNU }, FALSE)
+
+/*B Pour les FMC Météo, Inondation et Traitement Chaussées, */
+/*B Changer le libellé de sens non précisé en '2 sens' */
+CASE XZAEC_FMC_Meteo, XZAEC_FMC_Inondation, XZAEC_FMC_TraitChaussees
+	vl_idx = COM45_IndexEnColonne (ta_sens_echangeur, TDO_NUMERO_SENS, XDC_SENS_INCONNU)
+	ta_sens_echangeur[vl_idx].nom = XDC_LIB_2_SENS
+
+	vl_idx = COM45_IndexEnColonne (ta_sens, TDO_NUMERO_SENS, XDC_SENS_INCONNU)
+	ta_sens[vl_idx].nom = XDC_LIB_2_SENS
+
+/*B Pour des travaux ou une zone de stockage */
+CASE XZAEC_FMC_Travaux
+CASE XZAEC_FMC_ZoneStockage
+	/*B proposer tous les sens (sauf inconnu) pour tous types de localisation */
+	ta_sens_echangeur = COM44_ValeursEnColonne (ta_sens_echangeur, TDO_NUMERO_SENS,
+	                                               { XDC_SENS_INCONNU }, FALSE)
+	ta_sens = ta_sens_echangeur
+ENDCASE
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Selon le type de la fiche main courante traitée, restreint
+*  les points caractéristiques de type Aire proposés pour localisation.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO Filtrer_Aires (FORMAT TDO_Aire ta_aires, va_type_fmc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*   ta_aires       : table des aires.
+*   va_type_fmc    : identifiant du type de la fiche main courante.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*   ta_aires          : table des aires eventuellement filtree.
+*
+* CONDITION D'UTILISATION
+*   Initialisation de la saisie de localisation.
+*
+* FONCTION
+*   Supprime des choix invalides dans la liste des aires proposées.
+*
+---------------------------------------------------------------------------- */
+
+VAR	tl_aires_ss_conc
+VAR	i, j
+
+/*B
+ * Pour une FMC de type 'Incident sous-concessionnaire',
+ * proposer uniquement les aires ayant un sous-concessionnaire
+ * -----------------------------------------------------------
+ */
+
+IF va_type_fmc = XZAEC_FMC_IncSsConces {
+	j = 0
+	FOR i = 0 TO ARRAY_SIZE@ (ta_aires) - 1
+		IF ta_aires[i].sousconcessionnaire <> NULL {
+			tl_aires_ss_conc[j] = ta_aires[i]
+			j = j + 1
+		}
+	NEXT i
+	ta_aires = tl_aires_ss_conc
+}
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Construire la liste des valeurs à proposer pour le choix du Pr 
+*  (celles des Cantons, ITPC ...) selon le type d'événement en fonction
+*  de l'autoroute et éventuellement du sens de circulation sélectionnés,
+*  et afficher ces valeurs en liste des points caractéristiques.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMC_LOC_Liste_Pr (va_fenetre, va_type_fmc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*   va_fenetre     : identifiant de la fenetre de dialogue.
+*   va_type_fmc    : type d'evenement.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR : Aucun
+*
+*
+* CONDITION D'UTILISATION
+*   A l'initialisation et sur choix de localisation en section courante,
+*   d'une autoroute ou d'un sens de circulation.
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_pr, vl_diff_pr
+VAR	vl_sens
+VAR	tl_ITPC
+VAR	vl_indice, vl_idx_pr
+
+CASE OF va_type_fmc
+CASE XZAEC_FMC_BasculTravaux
+	/*A Pour un basculement pour travaux, extraire les Pr des ITPC de l'autoroute*/
+	tl_ITPC = COM44_ValeursEnColonne (tm_ITPC, TDO_ITPC_AUTOROUTE,
+	                                  {tm_autoroutes[vm_i_autoroute].numero}, TRUE)
+	lm_pr_autoroute = ARRAY_COLUMN@ (tl_ITPC, TDO_ITPC_PR)
+
+CASE XZAEC_FMC_Travaux
+CASE XZAEC_FMC_ZoneStockage
+	/*A Pour des travaux ou une zone de stockage PL, */
+	/*A extraire les Pr des Cantons de l'autoroute dans le sens choisi */
+	vl_sens = tm_sens[vm_i_sens].numero
+	IF (vl_sens = XDC_SENS_ENTREE_NORD)  OR  (vl_sens = XDC_SENS_SORTIE_NORD)
+		vl_sens = XDC_SENS_NORD
+	IF (vl_sens = XDC_SENS_ENTREE_SUD)  OR  (vl_sens = XDC_SENS_SORTIE_SUD)
+		vl_sens = XDC_SENS_SUD
+
+	lm_pr_autoroute = NULL
+	vl_idx_pr = 0
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tm_cantons) - 1
+		IF (tm_cantons[vl_indice].sens = vl_sens) AND
+		   (tm_cantons[vl_indice].autoroute = tm_autoroutes[vm_i_autoroute].numero)
+		{
+			lm_pr_autoroute[vl_idx_pr] = tm_cantons[vl_indice].PR_debut
+			vl_idx_pr = vl_idx_pr + 1
+		}
+	NEXT vl_indice
+
+DEFAULT
+	/*A Par defaut, la liste des choix de Pr N'EST PAS MODIFIEE */
+ENDCASE
+
+
+/*A afficher la liste des valeurs de Pr proposées */
+DB_CTRL_STRINGS@ (va_fenetre, "BL_liste_ptcar", lm_pr_autoroute)
+
+/*A puis sélectionner le plus proche de la valeur actuelle de Pr saisie */
+IF ARRAY_SIZE@ (lm_pr_autoroute) = 0 {
+	vl_idx_pr = -1
+} ELSE {
+	vl_pr = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_pr")
+	vl_idx_pr = 0
+	vl_diff_pr = ABS@ (lm_pr_autoroute[0] - vl_pr)
+	FOR vl_indice = 1 TO ARRAY_SIZE@ (lm_pr_autoroute) - 1
+		IF ABS@ (lm_pr_autoroute[vl_indice] - vl_pr) < vl_diff_pr {
+			vl_idx_pr = vl_indice
+			vl_diff_pr = ABS@ (lm_pr_autoroute[vl_indice] - vl_pr)
+		}
+	NEXT vl_indice
+}
+DB_CTRL_VALUE@ (va_fenetre, "BL_liste_ptcar", vl_idx_pr)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche la localisation de la fiche événement en définissant les valeurs
+*  des différents champs de la boîte de dialogue.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMC_Afficher_Localisation (va_fenetre, FORMAT TMC_fmc va_fiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*   va_fenetre     : identifiant de la fenetre de dialogue.
+*   va_fiche       : fiche main courante en cours de traitement.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*   Définit les valeurs et la visibilité des différents champs
+*   de la boîte de dialogue.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_idx_ptcar, vl_indice
+VAR	tl_sens_bretelles
+
+
+IF (va_fiche.type = XZAEC_FMC_Travaux) OR
+      (va_fiche.type = XZAEC_FMC_ZoneStockage)
+{
+	DB_CTRL_TITLE@ (va_fenetre, "LI_ptcar", "Canton")
+}
+
+/*B Valuer les listes des autoroutes, sens et types de points caractéristiques */
+DB_CTRL_STRINGS@ (va_fenetre, "BO_autoroute",
+                     ARRAY_COLUMN@ (tm_autoroutes, TDO_NOM_AUTOROUTE))
+DB_CTRL_STRINGS@ (va_fenetre, "BO_sens", ARRAY_COLUMN@ (tm_sens, TDO_NOM_SENS))
+DB_CTRL_STRINGS@ (va_fenetre, "BO_sur", ARRAY_COLUMN@ (tm_pt_car,TDO_NOM_POINT_CAR))
+
+/*B masquer par défaut les champs de saisie utilisés dans peu de cas */
+DB_CTRL_DISPLAY@ (va_fenetre, "BO_autoroute", FALSE)
+DB_CTRL_DISPLAY@ (va_fenetre, "BS_pr", FALSE)
+DB_CTRL_DISPLAY@ (va_fenetre, "BO_position", FALSE)
+DB_CTRL_DISPLAY@ (va_fenetre, "LI_ptcar", FALSE)
+
+/*B valeurs par défaut d'autoroute et de sens */
+vm_i_autoroute = -1
+vm_i_sens = -1
+
+
+CASE OF va_fiche.point_car
+CASE XDC_POINT_CARACT_AIRE
+	/* initialiser la liste des aires */
+	DB_CTRL_STRINGS@ (va_fenetre, "BL_liste_ptcar", ARRAY_COLUMN@ (tm_aires, 1))
+
+	/*B sélectionner le type aire et l'aire elle-même */
+	vl_indice = COM45_IndexEnColonne (tm_pt_car, TDO_NUMERO_POINT_CAR,
+	                                     XDC_POINT_CARACT_AIRE)
+	DB_CTRL_VALUE@ (va_fenetre, "BO_sur", vl_indice)
+	vl_indice = COM45_IndexEnColonne (tm_aires, TDO_NUMERO_AIRE,
+	                                     va_fiche.nom_point_car)
+	DB_CTRL_VALUE@ (va_fenetre, "BL_liste_ptcar", vl_indice)
+
+	/*B ne pas proposer la saisie du sens */
+	DB_CTRL_DISPLAY@ (va_fenetre, "BO_sens", FALSE)
+
+
+CASE XDC_POINT_CARACT_ECHANGEUR
+	/* initialiser la liste des echangeurs */
+	DB_CTRL_STRINGS@ (va_fenetre, "BL_liste_ptcar",
+	                     ARRAY_COLUMN@ (tm_echangeurs, TDO_NOM_ECHANGEUR))
+
+	/*B sélectionner le type échangeur et l'échangeur lui-même */
+	vl_indice = COM45_IndexEnColonne (tm_pt_car, TDO_NUMERO_POINT_CAR,
+	                                     XDC_POINT_CARACT_ECHANGEUR)
+	DB_CTRL_VALUE@ (va_fenetre, "BO_sur", vl_indice)
+	vl_idx_ptcar = COM45_IndexEnColonne (tm_echangeurs, TDO_NUMERO_ECHANGEUR,
+	                                        va_fiche.nom_point_car)
+	DB_CTRL_VALUE@ (va_fenetre, "BL_liste_ptcar", vl_idx_ptcar)
+
+	/*B si l'événement concerne un échangeur alors ni sens ni position */
+	IF (va_fiche.type = XZAEC_FMC_FermetureEch) OR
+	   (va_fiche.type = XZAEC_FMC_EchDeconseille)
+	{
+		DB_CTRL_DISPLAY@ (va_fenetre, "BO_sens", FALSE)
+		DB_CTRL_STRINGS@ (va_fenetre, "BO_sens", {tm_sens_echangeur[0].nom})
+		vm_i_sens = 0
+	} ELSE {
+		/*! sinon réinitialiser les sens et sélectionner sens et position */
+		vm_i_sens = COM45_IndexEnColonne (tm_sens_echangeur, TDO_NUMERO_SENS,
+		                                     va_fiche.sens)
+		IF (vm_i_sens < 0) {
+			DB_CTRL_STRINGS@ (va_fenetre, "BO_sens", NULL)
+		} ELSE {
+			tl_sens_bretelles = TMC_LOC_Sens_Bretelles (vl_idx_ptcar)
+			DB_CTRL_STRINGS@ (va_fenetre, "BO_sens",
+			                     ARRAY_COLUMN@ (tl_sens_bretelles, TDO_NOM_SENS))
+			vm_i_sens = COM45_IndexEnColonne (tl_sens_bretelles, TDO_NUMERO_SENS,
+			                                     va_fiche.sens)
+		}
+
+		/*B définir la position sur echangeur et l'afficher */
+		DB_CTRL_DISPLAY@ (va_fenetre, "BO_position", TRUE)
+		DB_CTRL_VALUE@ (va_fenetre, "BO_position", 0)
+		if (va_fiche.position <> -1) {
+			DB_CTRL_VALUE@ (va_fenetre, "BO_position",va_fiche.position)
+		}
+	}
+
+
+CASE XDC_POINT_CARACT_PEAGE
+	/* initialiser la liste des peages */
+	DB_CTRL_STRINGS@ (va_fenetre, "BL_liste_ptcar", ARRAY_COLUMN@ (tm_gares, 1))
+
+	/*B sélectionner le type péage et le péage lui-même */
+	vl_indice = COM45_IndexEnColonne (tm_pt_car, TDO_NUMERO_POINT_CAR,
+	                                     XDC_POINT_CARACT_PEAGE)
+	DB_CTRL_VALUE@ (va_fenetre, "BO_sur", vl_indice)
+	vl_indice = COM45_IndexEnColonne (tm_gares, TDO_NUMERO_GARE,
+	                                     va_fiche.nom_point_car)
+	DB_CTRL_VALUE@ (va_fenetre, "BL_liste_ptcar", vl_indice)
+
+	/*A sélectionner le sens de circulation (le premier si inconnu) */
+	vm_i_sens = COM45_IndexEnColonne (tm_sens, TDO_NUMERO_SENS, va_fiche.sens)
+	IF (vm_i_sens < 0) {
+		vm_i_sens = 0
+	}
+
+
+CASE XDC_POINT_CARACT_LIT_ARRET
+	/* initialiser la liste des lits d'arret */
+	DB_CTRL_STRINGS@ (va_fenetre, "BL_liste_ptcar",
+	                     ARRAY_COLUMN@(tm_lits_arret, TDO_NOM_LIT))
+
+	/*A sélectionner le type et le lit d'arret lui-même */
+	vl_indice = COM45_IndexEnColonne (tm_pt_car, TDO_NUMERO_POINT_CAR,
+	                                     XDC_POINT_CARACT_LIT_ARRET)
+	DB_CTRL_VALUE@ (va_fenetre, "BO_sur", vl_indice)
+	vl_indice = COM45_IndexEnColonne (tm_lits_arret, TDO_NUMERO_LIT,
+	                                     va_fiche.nom_point_car)
+	DB_CTRL_VALUE@ (va_fenetre, "BL_liste_ptcar", vl_indice)
+
+	/*B ne pas proposer la saisie du sens */
+	DB_CTRL_DISPLAY@ (va_fenetre, "BO_sens", FALSE)
+
+
+DEFAULT /* pleine voie */
+	/*A sélectionner la section courante pour localisation */
+	vl_indice = COM45_IndexEnColonne (tm_pt_car, TDO_NUMERO_POINT_CAR, 0)
+	DB_CTRL_VALUE@ (va_fenetre, "BO_sur", vl_indice)
+
+	/*A sélectionner l'autoroute (la première si inconnue) */
+	vm_i_autoroute = COM45_IndexEnColonne (tm_autoroutes, TDO_NUMERO_AUTOROUTE,
+	                                          va_fiche.autoroute)
+	IF (vm_i_autoroute < 0) {
+		vm_i_autoroute = 0
+	}
+
+	/*A sélectionner le sens de circulation (le premier si inconnu) */
+	vm_i_sens = COM45_IndexEnColonne (tm_sens, TDO_NUMERO_SENS, va_fiche.sens)
+	IF (vm_i_sens < 0) {
+		vm_i_sens = 0
+	}
+
+	/* afficher l'autoroute */
+	DB_CTRL_DISPLAY@ (va_fenetre, "BO_autoroute", TRUE)
+
+	/*A afficher le champ de saisie du Pr et afficher la valeur du Pr si connu */
+	DB_CTRL_DISPLAY@ (va_fenetre, "BS_pr", TRUE)
+	IF (va_fiche.pr <> XDC_PR_INCONNU)  AND  (va_fiche.pr <> NULL) {
+		DB_CTRL_VALUE@ (va_fenetre, "BS_pr", va_fiche.pr / 1000)
+	}
+
+	/*A pour des travaux, une zone de stockage ou un basculement pour travaux, */
+	IF (va_fiche.type = XZAEC_FMC_Travaux) OR
+	      (va_fiche.type = XZAEC_FMC_ZoneStockage) OR
+	      (va_fiche.type = XZAEC_FMC_BasculTravaux)
+	{
+		/*A présenter la liste des Pr de l'autoroute sélectionnée */
+		DB_CTRL_DISPLAY@ (va_fenetre, "BL_liste_ptcar", TRUE)
+		DB_CTRL_DISPLAY@ (va_fenetre, "LI_ptcar", TRUE)
+		TMC_LOC_Liste_Pr (va_fenetre, va_fiche.type)
+	} ELSE {
+		DB_CTRL_DISPLAY@ (va_fenetre, "BL_liste_ptcar", FALSE)
+	}
+ENDCASE
+
+	DB_CTRL_VALUE@ (va_fenetre, "BO_autoroute", vm_i_autoroute)
+	DB_CTRL_VALUE@ (va_fenetre, "BO_sens", vm_i_sens)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  construire la liste des sens de circulation
+*  sur les bretelles d'accès existantes d'un echangeur donné.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TMC_LOC_Sens_Bretelles (va_id_echangeur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*   va_id_echangeur   : identifiant de l'échangeur
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR :
+*    la liste des sens sur les bretelles de l'echangeur spécifié.
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*   Construit et retourne la sous-liste des sens de circulation
+*   sur les bretelles d'accès existantes de l'échangeur.
+*
+---------------------------------------------------------------------------- */
+
+VAR	tl_sens_bretelles
+VAR	tl_num_sens
+VAR	vl_i_sens, j
+
+tl_num_sens = ARRAY_COLUMN@ (tm_sens_echangeur,TDO_NUMERO_SENS)
+
+/*A construire la liste des sens sur les bretelles existantes de l'echangeur */
+j=0
+IF (tm_echangeurs[va_id_echangeur].PR_entree_sens1 > 0) {
+	vl_i_sens = ARRAY_INDEX@ (tl_num_sens, XDC_SENS_ENTREE_SUD)
+	tl_sens_bretelles[j] = tm_sens_echangeur[vl_i_sens]
+	j=j+1
+}
+
+IF (tm_echangeurs[va_id_echangeur].PR_sortie_sens1 > 0) {
+	vl_i_sens = ARRAY_INDEX@ (tl_num_sens, XDC_SENS_SORTIE_SUD)
+	tl_sens_bretelles[j] = tm_sens_echangeur[vl_i_sens]
+	j=j+1
+}
+
+IF (tm_echangeurs[va_id_echangeur].PR_entree_sens2 > 0) {
+	vl_i_sens = ARRAY_INDEX@ (tl_num_sens, XDC_SENS_ENTREE_NORD)
+	tl_sens_bretelles[j] = tm_sens_echangeur[vl_i_sens]
+	j=j+1
+}
+
+IF (tm_echangeurs[va_id_echangeur].PR_sortie_sens2 > 0) {
+	vl_i_sens = ARRAY_INDEX@ (tl_num_sens, XDC_SENS_SORTIE_NORD)
+	tl_sens_bretelles[j] = tm_sens_echangeur[vl_i_sens]
+	j=j+1
+}
+
+
+RETURN (tl_sens_bretelles)
+
+ENDFUNCTION
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Réinitialise les valeurs proposées pour les différents champs
+*  de localisation selon le choix du type de point caractéristique.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMC_LOC_Choix_Type_Point_Car (va_fenetre, va_type_fmc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*   va_fenetre        : identifiant de la fenetre de dialogue.
+*   va_type_fmc       : type de la fiche main courante en cours de saisie
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+*
+* CONDITION D'UTILISATION
+*   Sur choix d'un nouveau type de point caractéristique.
+*
+* FONCTION
+*   En fonction du type de point caractéristique choisi,
+*   affiche ou non les champs de saisie et réinitialise leurs valeurs.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_option
+
+
+/*B si un nouveau type de point caractéristique est choisi */
+/*B alors le mémoriser sinon ne rien faire */
+vl_option = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_sur")
+IF tm_pt_car[vl_option].numero = vm_type_ptcar
+	RETURN
+vm_type_ptcar = tm_pt_car[vl_option].numero
+
+
+/*B définir un affichage par défaut des champs de saisie */
+DB_CTRL_DISPLAY@ (va_fenetre, "BO_autoroute", FALSE)
+DB_CTRL_DISPLAY@ (va_fenetre, "BS_pr", FALSE)
+DB_CTRL_DISPLAY@ (va_fenetre, "BO_sens", TRUE)
+DB_CTRL_DISPLAY@ (va_fenetre, "BL_liste_ptcar", TRUE)
+DB_CTRL_DISPLAY@ (va_fenetre, "LI_ptcar", FALSE)
+DB_CTRL_DISPLAY@ (va_fenetre, "BO_position", FALSE)
+
+
+/*B par défaut, sélectionner le premier point caractéristique */
+DB_CTRL_VALUE@ (va_fenetre, "BL_liste_ptcar", 0)
+
+
+/*B suivant le point caractéristique */
+CASE OF vm_type_ptcar
+
+CASE XDC_POINT_CARACT_AIRE
+	/* initialiser la liste des aires */
+	DB_CTRL_STRINGS@ (va_fenetre, "BL_liste_ptcar",
+ 	                     ARRAY_COLUMN@ (tm_aires, TDO_NOM_AIRE))
+
+	/*B ne pas proposer la saisie du sens */
+	DB_CTRL_DISPLAY@ (va_fenetre, "BO_sens", FALSE)
+	vm_i_sens = -1
+
+
+CASE XDC_POINT_CARACT_ECHANGEUR
+	/* initialiser la liste des echangeurs */
+	DB_CTRL_STRINGS@ (va_fenetre, "BL_liste_ptcar",
+	                     ARRAY_COLUMN@ (tm_echangeurs, TDO_NOM_ECHANGEUR))
+
+	DB_CTRL_VALUE@ (va_fenetre, "BO_position", 0)
+
+	/*! si l'événement concerne un échangeur */
+	IF (va_type_fmc = XZAEC_FMC_FermetureEch) OR
+	   (va_type_fmc = XZAEC_FMC_EchDeconseille)
+	{
+		/*! ne pas afficher le sens ni la position */
+		DB_CTRL_DISPLAY@ (va_fenetre, "BO_sens", FALSE)
+		DB_CTRL_STRINGS@ (va_fenetre, "BO_sens", { tm_sens_echangeur[0].nom })
+		vm_i_sens = 0
+	} ELSE {
+		/*! sinon permettre (et exiger) la saisie du sens */
+		DB_CTRL_DISPLAY@ (va_fenetre, "BO_sens", TRUE)
+		DB_CTRL_STRINGS@ (va_fenetre, "BO_sens", NULL)
+		vm_i_sens = -1
+
+		/*! et permettre la saisie de la position */
+		DB_CTRL_DISPLAY@ (va_fenetre, "BO_position", TRUE)
+	}
+
+
+CASE XDC_POINT_CARACT_PEAGE
+	/* initialiser la liste des peages */
+	DB_CTRL_STRINGS@ (va_fenetre, "BL_liste_ptcar",
+	                     ARRAY_COLUMN@ (tm_gares, TDO_NOM_GARE))
+
+	/*A mettre a jour la liste des sens */
+	DB_CTRL_STRINGS@ (va_fenetre, "BO_sens",
+	                     ARRAY_COLUMN@ (tm_sens, TDO_NOM_SENS))
+	vm_i_sens = 0
+
+
+CASE XDC_POINT_CARACT_LIT_ARRET
+	/* initialiser la liste des lits d'arret */
+	DB_CTRL_STRINGS@ (va_fenetre, "BL_liste_ptcar",
+	                     ARRAY_COLUMN@ (tm_lits_arret, TDO_NOM_LIT))
+
+	/*B ne pas proposer la saisie du sens */
+	DB_CTRL_DISPLAY@ (va_fenetre, "BO_sens", FALSE)
+	vm_i_sens = -1
+
+
+DEFAULT /* voie */
+	/* afficher autoroute, pr et sens */
+	DB_CTRL_DISPLAY@ (va_fenetre, "BO_autoroute",TRUE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BS_pr",TRUE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BO_sens",TRUE)
+
+	/*A si aucune autoroute n'est sélectionnée alors sélectionner la première */
+	IF vm_i_autoroute < 0 {
+		vm_i_autoroute = 0
+		DB_CTRL_VALUE@ (va_fenetre, "BO_autoroute", vm_i_autoroute)
+	}
+
+	/*A mettre a jour la liste des sens */
+	DB_CTRL_STRINGS@ (va_fenetre, "BO_sens",
+			     ARRAY_COLUMN@ (tm_sens, TDO_NOM_SENS))
+	vm_i_sens = 0
+
+	/*A pour des travaux, une zone de stockage ou un basculement pour travaux, */
+	IF (va_type_fmc = XZAEC_FMC_Travaux) OR
+	      (va_type_fmc = XZAEC_FMC_ZoneStockage) OR
+	      (va_type_fmc = XZAEC_FMC_BasculTravaux)
+	{
+		/*A présenter la liste des Pr de l'autoroute sélectionnée */
+		DB_CTRL_DISPLAY@ (va_fenetre, "BL_liste_ptcar", TRUE)
+		DB_CTRL_DISPLAY@ (va_fenetre, "LI_ptcar", TRUE)
+		TMC_LOC_Liste_Pr (va_fenetre, va_type_fmc)
+	} ELSE {
+		/* sinon masquer la liste des points caractéristiques */
+		DB_CTRL_DISPLAY@ (va_fenetre, "BL_liste_ptcar", FALSE)
+	}
+ENDCASE
+
+DB_CTRL_VALUE@ (va_fenetre, "BO_sens", vm_i_sens)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Construit et retourne la localisation définie par les valeurs saisies
+*  dans les différents champs de la boîte de dialogue.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMC_Localisation_Saisie (va_fenetre, FORMAT COM_Localisation va_loc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*   va_fenetre        : identifiant de la fenetre de dialogue.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_loc            : valeurs de localisation saisies.
+*
+*
+* CODE RETOUR         : COM_OK ou COM_NOK selon validité.
+*
+*
+* CONDITION D'UTILISATION
+*   Sur action de fin de saise avec validation.
+*
+* FONCTION
+*   Rassemble les valeurs saisies dans les champs de la fenêtre,
+*   construit et retourne la structure de localisation ainsi définie.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_type_ptcar
+VAR	vl_nom_sens
+
+VAR	tl_libelles
+VAR	vl_idx_ptcar, vl_idx_sens
+
+
+/*B identifiant du point caracteristique choisi */
+vl_idx_ptcar = DB_CTRL_GET_VALUE@ (va_fenetre, "BL_liste_ptcar")
+
+
+/*B suivant le type de point caracteristique */
+CASE OF vm_type_ptcar
+	/*B aire*/
+	CASE XDC_POINT_CARACT_AIRE
+		va_loc.type_point_caract = XDC_POINT_CARACT_AIRE
+		va_loc.point_caract = tm_aires[vl_idx_ptcar].numero
+		va_loc.position = null
+
+		va_loc.numauto = XDC_AUT_INCONNUE
+		va_loc.pr = XDC_PR_INCONNU
+		va_loc.sens_circulation = tm_aires[vl_idx_ptcar].sens_circul
+
+
+	/*B echangeur */
+	CASE XDC_POINT_CARACT_ECHANGEUR
+		va_loc.type_point_caract = XDC_POINT_CARACT_ECHANGEUR
+		va_loc.point_caract = tm_echangeurs[vl_idx_ptcar].numero
+		va_loc.position = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_position")
+
+		va_loc.numauto = XDC_AUT_INCONNUE
+		va_loc.pr = XDC_PR_INCONNU
+
+		/* le sens doit avoir été saisi */
+		IF vm_i_sens < 0 {
+			INFO_MESSAGE@ ("Selectionner l'échangeur et le sens")
+			RETURN (COM_NOK)
+		}
+
+		/*B le sens est recherché par son libellé dans la liste complète */
+		tl_libelles = DB_CTRL_GET_STRINGS@ (va_fenetre, "BO_sens")
+		vl_nom_sens = tl_libelles[vm_i_sens]
+		vl_idx_sens = COM45_IndexEnColonne (tm_sens_echangeur, TDO_NOM_SENS,
+		                                       vl_nom_sens)
+		va_loc.sens_circulation = tm_sens_echangeur[vl_idx_sens].numero
+
+
+	/*B gares de peage */
+	CASE XDC_POINT_CARACT_PEAGE
+		va_loc.type_point_caract = XDC_POINT_CARACT_PEAGE
+		va_loc.point_caract = tm_gares[vl_idx_ptcar].numero
+		va_loc.position = null
+
+		va_loc.numauto = XDC_AUT_INCONNUE
+		va_loc.pr = XDC_PR_INCONNU
+		va_loc.sens_circulation = tm_sens[vm_i_sens].numero
+
+
+	/*B lit d'arret */
+	CASE XDC_POINT_CARACT_LIT_ARRET
+		va_loc.type_point_caract = XDC_POINT_CARACT_LIT_ARRET
+		va_loc.point_caract = tm_lits_arret[vl_idx_ptcar].numero
+		va_loc.position = null
+
+		va_loc.numauto = XDC_AUT_INCONNUE
+		va_loc.pr = XDC_PR_INCONNU
+		va_loc.sens_circulation = tm_lits_arret[vl_idx_ptcar].sens_circul
+
+
+	DEFAULT
+		/*B pas de point caracteristique */
+		va_loc.type_point_caract = null
+		va_loc.point_caract = null
+		va_loc.position = null
+
+		va_loc.NumAuto = tm_autoroutes[vm_i_autoroute].numero
+		va_loc.PR = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_pr") * 1000
+		va_loc.sens_circulation = tm_sens[vm_i_sens].numero
+ENDCASE
+
+RETURN (COM_OK)
+ENDMACRO

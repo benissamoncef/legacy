@@ -1,0 +1,489 @@
+/*E*/
+/* Fichier : $Id: ITMA_TDI_Donnees_Individuelles.am,v 1.5 2009/07/08 14:20:23 gesconf Exp $        Release : $Revision: 1.5 $        Date : $Date: 2009/07/08 14:20:23 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TDI * FICHIER ITMA_TDI_Donnees_Individuelles.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Recuperation des donnees individuelles.
+**
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 18 Sep 1994	: Creation                                        V1.1
+* Noel	  08  Fev		: Correction sur envoi de la demande (poke)	  V1.2
+*					(DEM 856)
+* Hilmarcher	10/08/2005: Am≈lioration de la fiche metier: ajout d'une horodate de d≈but et fin prevue DEM493 v1.3
+* Hilmarcher    22/08/2005: copie sous /mbo et non plus /dyn + importer les fichiers en .as et non plus .txt v1.4
+* JPL		03/07/2009: Gestion centralisee des barres de menu personnalisees Applix et leur id. 1.5
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TBR.h"
+INCLUDE	"../inc/ITMA_TCV.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdf_ax.h"
+INCLUDE	"../../XDMICG/inc/xzao05sp.h"
+INCLUDE	"../../XDMICG/inc/xzas01sp.h"
+
+
+
+DEFINE	C_MODULE	"MTDI"				' Nom du module
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+VAR FORMAT COM_Donnees_Equipements vm_l_stations	' Liste stations comptage
+VAR	vm_l_noms_stations						' Leurs designations
+VAR vm_lt
+VAR tm_stations
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  recup des donnees.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TDI_Donnees_Individuelles (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR FORMAT TCV_Donnees_Station vl_info_station 	' Informations sur station
+							' selectionnee lues en base
+	VAr tl_selection
+	VAR vl_indice
+	VAR vl_cmd,vl_arg,vl_nom
+	VAR vl_menu
+	VAR vl_str,vl_rep_dyn,vl_rep_mbo
+	VAr vl_taille
+	VAr tl_titres
+	VAR vl_fenetre_fictive, vl_evt
+	VAR vl_date_deb, vl_date_fin
+	VAR vl_date,va_jour,va_mois, va_annee, va_heure, va_minute, va_seconde
+
+/*lancement du timer 1 minute*/
+NEW_TASK@("ITMA_TIME_INDIV")
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A
+ * Charger la fenetre "Courbe a visualiser"
+ * ----------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TDI")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+'COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TDI_Donnees_Individuelles")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_INDIV
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+DB_DISPLAY_only@ (vl_fenetre, TRUE)
+DB_DISPLAY@ (vl_fenetre)
+
+tl_titres[0]="Stations de comptage",200
+tl_titres[1]="Demande",150
+tl_titres[2]="ArrÍt",150
+Db_TABLE_SET_DATA@ (vl_fenetre,"TA_stations",NULL,tl_titres,NULL)
+DB_CTRL_MULTI_SELECT@ (vl_fenetre,"TA_stations",TRUE)
+
+/*A
+ * Initialiser la visualisation (liste des stations, echangeurs, ...)
+ * ------------------------------------------------------------------
+ */
+MACRO_WINS_BUSY@()
+IF TDI_Init_Visualisation (vl_fenetre) <> COM_OK
+    RETURN
+
+DB_DISPLAY_only@ (vl_fenetre, FALSE)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> C_ERR_IHM
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+	CASE OF vl_objet_selecte
+
+    	CASE "poke_"
+        	CASE OF  DB_GET_POKE@ (vl_fenetre)
+        	CASE COM_CANAL_FIN
+           		 vl_la_fenetre_est_active = FALSE
+        	CASE COM_CANAL_INDIV
+			 COM01_Trace(0,"poke recu")
+			 Demande_Debut_Execution_Collecte(vl_fenetre)
+			 Demande_Fin_Execution_Collecte(vl_fenetre)
+		ENDCASE
+
+    	CASE "BP_Quitter"
+		FOR vl_indice=0 TO (ARRAY_SIZE@(tm_stations)-1)
+			IF NOT IS_NULL@(tm_stations[vl_indice][1])
+			{
+					vl_arg=vm_l_stations[vl_indice].numero,
+						XDC_FIN_ABONNEMENT_EQUEXT,
+						tm_stations[vl_indice][3]
+				
+					vl_cmd=MTAR_MSG_EXEC, 1,MTAR_FCT_DONINDIV,ARRAY_TO_STRING@ (vl_arg, MTAR_CAR_SEPAR)
+					DB_SEND_POKE@(COM_CANAL_TAR01, vl_cmd)
+			}	
+		NEXT vl_indice
+		DB_SEND_POKE@(COM_CANAL_FIN_INDIV)
+		vl_la_fenetre_est_active = FALSE
+
+    	CASE "BP_horodeb"
+        	COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+                               "BS_Jour_Debut","BS_Mois_Debut","BS_Annee_Debut",
+                                 "BS_Heure_Debut", "BS_Minute_Debut")
+		
+	CASE "BP_horofin"
+        	COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+                                 "BS_Jour_Fin", "BS_Mois_Fin", "BS_Annee_Fin",
+                                 "BS_Heure_Fin", "BS_Minute_Fin")
+		
+	CASE "BP_demande"
+		vl_date_deb = COM23_Horodate (vl_fenetre, "BS_Jour_Debut",
+                                 "BS_Mois_Debut", "BS_Annee_Debut",
+                                 "BS_Heure_Debut", "BS_Minute_Debut")
+		
+		IF NOT IS_NULL@ (vl_date_deb)
+		{
+			IF (COM17_Difference_Dates (vl_date_deb, COM09_Date_Courante ()) <0)
+			{
+				vl_date_deb = COM09_Date_Courante()
+				COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+					"BS_Jour_Debut","BS_Mois_Debut","BS_Annee_Debut",
+					"BS_Heure_Debut", "BS_Minute_Debut")
+			}
+			tl_selection=DB_TABLE_GET_SELECTIONS@ (vl_fenetre,"TA_stations")
+			IF (tl_selection<>NULL)
+			{
+				FOR vl_indice=0 TO (ARRAY_SIZE@(tl_selection)-1)
+					tm_stations[tl_selection[vl_indice]][1]= vl_date_deb
+				NEXT vl_indice
+                		DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_stations",tm_stations,0)
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_stations",tl_selection)
+				Demande_Debut_Execution_Collecte(vl_fenetre)
+			}
+			ELSE
+				INFO_MESSAGE@("Vous devez selectionner une station de comptage")
+			
+		}
+		ELSE
+			INFO_MESSAGE@("Vous devez renseigner une horodate de debut de collecte")
+
+ 	CASE "BP_arret"
+		vl_date_fin = COM23_Horodate (vl_fenetre, "BS_Jour_Fin",
+                                        "BS_Mois_Fin", "BS_Annee_Fin",
+                                        "BS_Heure_Fin", "BS_Minute_Fin")
+		
+		IF NOT IS_NULL@ (vl_date_fin)
+		{
+			IF (COM17_Difference_Dates (vl_date_fin, COM09_Date_Courante ()) <0)
+			{
+				vl_date_fin = COM09_Date_Courante()
+				COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+					"BS_Jour_Fin", "BS_Mois_Fin", "BS_Annee_Fin",
+					"BS_Heure_Fin", "BS_Minute_Fin")
+			}
+			tl_selection=DB_TABLE_GET_SELECTIONS@ (vl_fenetre,"TA_stations")
+			IF (tl_selection<>NULL)
+			{
+				FOR vl_indice=0 TO (ARRAY_SIZE@(tl_selection)-1)
+					tm_stations[tl_selection[vl_indice]][2]= vl_date_fin
+				NEXT vl_indice
+                		DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_stations",tm_stations,0)
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_stations",tl_selection)
+				Demande_Fin_Execution_Collecte(vl_fenetre)
+			}
+			ELSE
+				INFO_MESSAGE@("Vous devez selectionner une station de comptage")
+			
+		}
+		ELSE
+			INFO_MESSAGE@("Vous devez renseigner une horodate de fin de collecte")
+
+	CASE "BP_consulter"
+		MACRO_WINS_BUSY@()
+		vl_rep_dyn=SYSTEM_VAR@(vg_repertoire_migrazur)++ COM_SOUS_REP_DYN
+		vl_rep_mbo=SYSTEM_VAR@(vg_repertoire_migrazur)++ COM_SOUS_REP_MBO
+		tl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_stations")
+		tl_selection=tl_selection[0]
+
+		/*rcp du fichier*/
+		IF (tm_stations[tl_selection][4]<>NULL) 
+		{
+			COM14_Valeurs_Horodate (tm_stations[tl_selection][1],
+							va_jour, va_mois, va_annee, va_heure, va_minute, va_seconde)
+			vl_date = "_" ++ va_annee ++ va_mois ++ va_jour ++ "_" ++ va_heure ++ va_minute
+			vl_str="rcp "++TRIM@(tm_stations[tl_selection][3])++":"++vl_rep_dyn++
+						TRIM@(tm_stations[tl_selection][4])++" "++vl_rep_mbo++
+						TRIM@(tm_stations[tl_selection][4])++ vl_date ++ ".txt"
+			SHELL_COMMAND@(vl_str)
+
+			/*le fichier existe-t-il?*/
+			IF (FILE_EXISTS@(vl_rep_mbo++TRIM@(tm_stations[tl_selection][4])++vl_date ++ ".txt")=FALSE)
+				INFO_MESSAGE@("ProblËme : le fichier de donnÈes de la station "++
+			 		TRIM@(tm_stations[tl_selection][0])++
+					" n'a pas pu Ítre rÈcuperÈ sur la machine "
+					++tm_stations[tl_selection][3]++".")
+			ELSE 
+			{
+				/*ouverture du tableur*/
+				vl_menu = ITMA_TBR_Menu_Appli_Applix (TBR_MENU_SS_DYN)
+				IF (vl_menu > 0) {
+					PEND_FOR_NEW_TASK@("SS_IMPORT_GRID@",
+						vl_rep_mbo++TRIM@(tm_stations[tl_selection][4])++ vl_date ++ ".txt")
+					SET_MENU_BAR_ID@ (vl_menu)
+				}
+			}
+		}
+  ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation (listes stations de comptage ou echangeurs, ...)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TDI_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCV_Courbe_A_Visualiser
+*
+* FONCTION
+*   Initialise les valeurs des objets graphiques : listes des stations de
+*   comptage
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT COM_Localisation vl_localisation
+    VAR     vl_liste
+    VAR     vl_indice
+    VAR     i
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+/*A
+ * Lire et afficher (si necessaire) la liste des stations de comptage
+ * ------------------------------------------------------------------
+ */
+tm_stations=NULL
+
+ IF ITMA_COM_Lire_Equipements (XDC_EQT_RAD, NULL, XDC_EQT_HS, XDC_EQT_NON_HS,
+				    0, 0, vm_l_stations, C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+
+    FOR i = 0  TO ARRAY_SIZE@ (vm_l_stations) - 1
+	IF vm_l_stations[i].autoroute = NULL
+	    vm_l_noms_stations[i] = vm_l_stations[i].nom
+	ELSE {
+	    vl_localisation.NumAuto = vm_l_stations[i].autoroute
+	    vl_localisation.PR = vm_l_stations[i].PR
+	    vl_localisation.sens_circulation = vm_l_stations[i].sens
+	    vm_l_noms_stations[i] = COM10_Localisation (vl_localisation)
+	}
+	tm_stations[i][0]=vm_l_noms_stations[i]
+
+	/*pour chaque station, on recupere son LT*/
+	vl_resultats=NULL
+	vl_parametres[0].type = SYB#INT4_     ' Type alarme 
+	vl_parametres[0].data = vm_l_stations[i].numero
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#INT4_    ' Type radt
+	vl_parametres[1].data = XDC_EQT_RAD
+	vl_parametres[1].output = FALSE
+
+ 	vl_parametres[2].type = SYB#CHAR_     ' machine qui pilote
+	vl_parametres[2].data = NULL
+	vl_parametres[2].output = TRUE
+
+ 	COM05_SQL_Procedure (XZAO05_Nom_Machine_LT,
+                           vl_parametres, vl_resultats, C_MODULE)
+	tm_stations[i][3]=vl_resultats.return_parameters[0]
+
+
+  NEXT i
+    DB_TABLE_SEt_NEW_DATA@ (va_fenetre, "TA_stations", tm_stations,0)
+RETURN (COM_OK)
+
+ENDMACRO
+
+/* ***********************************************/
+FUNCTION Demande_Debut_Execution_Collecte (va_fenetre)
+/************************************************/
+
+VAR	vl_arg,vl_cmd, vl_indice
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_stations)-1)
+		IF NOT IS_NULL@(tm_stations[vl_indice][1]) 
+		{
+			IF (COM17_Difference_Dates (tm_stations[vl_indice][1], COM09_Date_Courante ()) =0)
+			{
+				/*demande d'execution a la tache relais*/
+				vl_arg=vm_l_stations[vl_indice].numero,
+						XDC_DEBUT_ABONNEMENT_EQUEXT,
+						tm_stations[vl_indice][3]
+				
+				vl_cmd=MTAR_MSG_EXEC, 1,MTAR_FCT_DONINDIV,ARRAY_TO_STRING@ (vl_arg, MTAR_CAR_SEPAR)
+				DB_SEND_POKE@(COM_CANAL_TAR01, vl_cmd)
+
+				/*ajout a la liste des fichiers*/
+				IF (tm_stations[vl_indice][4]=NULL)
+					tm_stations[vl_indice][4]=XDF_Dem_Indiv
+						++"_R" ++vm_l_stations[vl_indice].numero 
+			}
+		}
+   	NEXT vl_indice
+
+ENDFUNCTION
+
+/* ************************************************/
+FUNCTION Demande_Fin_Execution_Collecte (va_fenetre)
+/**************************************************/
+
+VAR     vl_arg, vl_cmd, vl_indice, vl_date
+VAR	va_jour, va_mois, va_annee, va_heure, va_minute, va_seconde 
+VAR	vl_str, vl_rep_dyn,vl_rep_mbo
+
+	vl_rep_dyn=SYSTEM_VAR@(vg_repertoire_migrazur)++ COM_SOUS_REP_DYN
+	vl_rep_mbo=SYSTEM_VAR@(vg_repertoire_migrazur)++ COM_SOUS_REP_MBO
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_stations)-1)
+		IF NOT IS_NULL@(tm_stations[vl_indice][2])
+		{
+			IF (COM17_Difference_Dates (tm_stations[vl_indice][2], COM09_Date_Courante ()) =0)
+			{
+				vl_arg=vm_l_stations[vl_indice].numero,
+					XDC_FIN_ABONNEMENT_EQUEXT,
+					tm_stations[vl_indice][3]
+				
+				vl_cmd=MTAR_MSG_EXEC, 1,MTAR_FCT_DONINDIV,ARRAY_TO_STRING@ (vl_arg, MTAR_CAR_SEPAR)
+				DB_SEND_POKE@(COM_CANAL_TAR01, vl_cmd)
+				
+				IF (tm_stations[vl_indice][4]<>NULL) 
+				{
+					COM14_Valeurs_Horodate (tm_stations[vl_indice][1],
+							va_jour, va_mois, va_annee, va_heure, va_minute, va_seconde)
+					vl_date = "_" ++ va_annee ++ va_mois ++ va_jour ++ "_" ++ va_heure ++ va_minute
+					vl_str="rcp "++TRIM@(tm_stations[vl_indice][3])++":"++vl_rep_dyn++
+						TRIM@(tm_stations[vl_indice][4])++" "++vl_rep_mbo++
+						TRIM@(tm_stations[vl_indice][4])++ vl_date ++ ".txt"
+					SHELL_COMMAND@(vl_str)
+					
+					SS_APPLICATION_DLG@(NULL, TRUE)
+					SS_IMPORT_GRID@(vl_rep_mbo++TRIM@(tm_stations[vl_indice][4])++ vl_date ++ ".txt",TRUE)
+					SS_SAVE_AS@(vl_rep_mbo++TRIM@(tm_stations[vl_indice][4])++ vl_date ++ ".txt.as",1,1,1)
+					SS_EXIT@()
+				}
+			}
+		}	
+	NEXT vl_indice
+
+ENDFUNCTION

@@ -1,0 +1,103 @@
+/*E*/
+/* Fichier : $Id: dedi_genere.am,v 1.1 1995/05/24 10:16:31 gesconf Exp $	      Release : $Revision: 1.1 $        Date : $Date: 1995/05/24 10:16:31 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_genere.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* genere une liste de fichiers ASCII au format RTIE
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	29 nov 1994	: Creation						V1.1
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la liste des fichiers
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_genere (va_fichier,va_num,ta_args)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fichier: modele du fichier a generer
+* va_num: numero de ce fichier 
+* ta_args: tableau contenant la liste des variables a inclure dans le fichier
+*
+* ARGUMENTS EN SORTIE : nom du fichier genere
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+* dedi
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_indice
+VAR vl_nom_modele
+VAR vl_num
+VAR vl_mode
+VAR vl_fichier
+
+
+	/*A recupere le mode: impression ou generation*/
+	vl_mode=SYSTEM_VAR@(vg_mode)
+
+	/*! ajoute 100 au numero de fichier pour que la commande ls donne une liste
+	**  correctement ordonnee */
+	vl_num = va_num + 100
+
+	/*A force le modele par defaut suivant le type et le mode*/
+	IF (vl_mode=DEDI_MODE_GENERE)
+		vl_fichier=va_fichier
+	ELSE IF (vl_mode=DEDI_MODE_IMPRIM)
+		vl_fichier=va_fichier++DEDI_SUFFIXE_IMPRIM
+	vl_nom_modele=IE_PATH++vl_fichier++".aw"
+	CHANGE_PREFS@("wpNewTemplate",vl_nom_modele)
+
+	WP_NEW@()
+
+	/*A remplit les champs de variables*/
+	WP_SET_DOC_VAR@("n1",va_num)
+
+	FOR vl_indice=1 TO (ARRAY_SIZE@(ta_args))
+		WP_SET_DOC_VAR@("n"++(vl_indice+1),ta_args[vl_indice-1])
+	NEXT vl_indice
+
+	/*A renomme le fichier*/
+	WP_SAVE_RENAME@(IE_PATH++vl_fichier++vl_num++".asc",null,2,2)
+
+	/*A selectionne sa fenetre*/
+	SELECT_WINDOW_BY_NAME@(IE_PATH++vl_fichier++vl_num++".asc")
+
+	/*A fige les champs*/
+	WP_SELECT_ALL@()
+	WP_UNFIELD@()
+
+	/*A sauve ce fichier avec les champs figes*/
+	WP_SAVE_RENAME@(IE_PATH++vl_fichier++vl_num++".asc",null,2,2)
+
+	/*A formatte ce fichier en un fichier ASCII*/
+	NEW_TASK@("FILTER_WP_TO_ASC@",
+					IE_PATH++vl_fichier++vl_num++".asc",
+				     IE_PATH_BDC++vl_fichier++vl_num++".tie")
+
+	/*A efface le fichier initial*/
+	DELETE_FILE@(IE_PATH++vl_fichier++vl_num++".asc")
+
+	/*A renvoie le nom du fichier genere */
+	RETURN(IE_PATH_BDC++vl_fichier++vl_num++".tie")
+
+ENDMACRO

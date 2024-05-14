@@ -1,0 +1,565 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMA_diffusion_tdp_rtfm.am,v 1.3 2013/08/28 09:26:21 pc2dpdy Exp $     Release : $Revision: 1.3 $      Date :  $Date: 2013/08/28 09:26:21 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLS * FICHIER ITMA_TMA_diffusion_tdp_rtfm.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* CHI 29/06/2005            : Creation DEM481 v1.1
+* CHI 17/08/2005	    : Creation Boite de saisie TDP DEM481 v1.2
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TFC.h"
+INCLUDE	"../inc/ITMA_TFS.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE  "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xzanc.h"
+
+INCLUDE "../inc/xzao433sp.h"
+INCLUDE "../inc/xzao434sp.h"
+INCLUDE "../inc/xzao435sp.h"
+
+VAR FORMAT TDO_Autoroute vm_autoroutes           ' Liste autoroutes
+
+
+DEFINE	C_MODULE	"MTMA"					' Nom du module
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMA_diffusion_tdp_rtfm ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_appelant       : Nom de la macro Applix ayant invoque la presente.
+*
+* . Si activation depuis MTAT ou MTFX :
+*   va_type_astr      : Numero du type d'astreinte ;
+*   va_num_auto       : Numero d'autoroute ;
+*   va_PR             : PR de la localisation astreinte.
+*
+* . Si activation depuis MSOP :
+*   va_arg1[] Liste d'arguments :
+*    va_type_astr     : Numero du type d'astreinte ;
+*    va_num_auto      : Numero d'autoroute ;
+*    va_PR            : PR de la localisation astreinte.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_t_titres                         ' Titres colonnes table
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+    VAR	    vl_sens, i,j ,vl_autoroute
+    VAR	    vl_results,vl_resultats_tab,vl_Liste_origine
+    VAR     vl_liste_destination
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR vl_index,vl_liste,vl_zone_origine,vl_zone_destination,tl_listing_information
+    VAR vl_appelant,vl_indice, vl_liste_autoroute
+    VAR vm_tdp, vl_tdp1
+    VAR vl_tdp_result
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+*/
+
+/*ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+    }
+*/
+
+/*A
+ * Charger la fenetre 
+ * ------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TMA_diffusion_tdp_rtfm")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_WIDTH@(vl_fenetre, 800)
+DB_XPOS@(vl_fenetre, 0)
+DB_YPOS@(vl_fenetre, 93)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TMA_diffusion_tdp_rtfm")
+
+vm_autoroutes = SYSTEM_VAR@(vg_toutes_les_autoroutes)
+DB_CTRL_STRINGS@ (vl_fenetre, "BO_autoroute",
+					ARRAY_COLUMN@ (vm_autoroutes, TDO_NOM_AUTOROUTE))
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_autoroute", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_sens", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_origine", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_destination" , TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BP_Inserer", TRUE)
+
+
+/* affichage a l'ecran de la boite de dialogue et interdit tout calcul */
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+vl_t_titres[0] = "Autoroute",           100
+vl_t_titres[1] = "Sens",                100
+vl_t_titres[2] = "Origine",             200
+vl_t_titres[3] = "Destination",         200
+vl_t_titres[4] = "TDP",         	100
+DB_TABLE_SET_DATA@ (vl_fenetre, "TA_zones", NULL, vl_t_titres,NULL)
+
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+/* affichage de la liste des evts*/
+DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_zones",0,-1)
+DB_TABLE_SET_DATA@ ( vl_fenetre , "TA_zones" , NULL, NULL, NULL)
+DB_TABLE_SET_SELECTIONS@ (vl_fenetre ,"TA_zones" , NULL)
+	
+MACRO_WINS_BUSY@()
+tl_listing_information = null
+vm_tdp = null
+vl_tdp1 = null
+
+vl_appelant = 0
+vl_parametres[0].type = SYB#INT1_
+vl_parametres[0].data = vl_appelant
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT1_
+vl_parametres[1].data = 0
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = 0
+vl_parametres[2].output = FALSE
+	
+vl_parametres[3].type = SYB#CHAR_
+vl_parametres[3].data = "toutes"
+vl_parametres[3].output = FALSE
+	
+vl_parametres[4].type = SYB#CHAR_
+vl_parametres[4].data = "toutes"
+vl_parametres[4].output = FALSE
+
+IF COM05_SQL_Procedure (XZAO434_Liste_Origines_Destinations,
+		vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+RETURN (COM_NOK)
+tl_listing_information = vl_resultats.select_results[0]
+ 
+vl_parametres=NULL
+FOR i=0 TO ARRAY_SIZE@(tl_listing_information)-1
+	vl_resultats = null
+        vl_parametres[0].type = SYB#INT1_
+        vl_parametres[0].data = tl_listing_information[i,1]     /*sens*/
+        vl_parametres[0].output = FALSE
+
+        vl_parametres[1].type = SYB#CHAR_
+        vl_parametres[1].data = tl_listing_information[i,2]     /*origine*/
+        vl_parametres[1].output = FALSE
+
+        vl_parametres[2].type = SYB#CHAR_
+        vl_parametres[2].data = tl_listing_information[i,3]     /*destination*/
+        vl_parametres[2].output = FALSE
+
+
+	vl_autoroute = tl_listing_information[i,0]
+	vl_autoroute=ARRAY_INDEX@(ARRAY_COLUMN@(vm_autoroutes, 1), vl_autoroute)
+        	vl_parametres[3].type = SYB#INT2_
+        	vl_parametres[3].data = vm_autoroutes[vl_autoroute].numero
+        vl_parametres[3].output = FALSE
+
+
+        IF COM05_SQL_Procedure (XZAO435_Calcul_TDP_RTFM,
+                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+        RETURN (COM_NOK)
+        
+	vl_tdp1 = vl_resultats.select_results[0]
+	vm_tdp[i] =  vl_tdp1[0,3]
+	tl_listing_information[i,4] = vm_tdp[i]
+NEXT i
+
+DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_zones",0,-1)
+DB_TABLE_SET_DATA@ ( vl_fenetre , "TA_zones" , tl_listing_information, NULL, NULL)
+DB_TABLE_SET_SELECTIONS@ (vl_fenetre ,"TA_zones" , NULL)	
+DB_CTRL_GRAYED@ (vl_fenetre, "BO_origine", TRUE)
+DB_CTRL_GRAYED@ (vl_fenetre, "BO_destination", TRUE)
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Inserer", TRUE)
+DB_CTRL_GRAYED@ (vl_fenetre, "BS_tdp", TRUE)
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    
+    CASE OF vl_objet_selecte
+
+    	CASE "BP_Quitter"
+		DB_CTRL_GRAYED@ (vl_fenetre, "BS_tdp", TRUE)
+		vl_la_fenetre_est_active = FALSE
+
+	CASE "BO_autoroute"
+		DB_CTRL_GRAYED@(vl_fenetre,"BO_sens",FALSE)
+
+	CASE "BO_sens"
+		vl_sens = 0
+		vl_parametres = NULL
+                vl_results = NULL
+		vl_resultats = NULL
+		
+		vl_sens = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_sens") 
+		vl_sens = vl_sens + 1
+
+		DB_CTRL_VALUE@(vl_fenetre, "BO_origine",0)
+		
+		vl_autoroute = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_autoroute")
+		vl_parametres[0].type = SYB#INT2_
+		vl_parametres[0].data = vm_autoroutes[vl_autoroute].numero
+		vl_parametres[0].output = FALSE
+
+		vl_parametres[1].type = SYB#INT1_
+		vl_parametres[1].data = vl_sens
+		vl_parametres[1].output = FALSE
+
+                vl_parametres[2].type = SYB#CHAR_
+                vl_parametres[2].data = ""
+                vl_parametres[2].output = FALSE
+	
+		IF COM05_SQL_Procedure (XZAO433_Liste_Origines_Destinations,	
+	   			vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    		RETURN (COM_NOK)
+		IF (ARRAY_SIZE@(vl_resultats.select_results[0]) = 0 )
+		{
+			DB_CTRL_GRAYED@(vl_fenetre,"BO_origine",TRUE)
+			DB_CTRL_GRAYED@(vl_fenetre,"BO_destination",TRUE)
+			DB_CTRL_GRAYED@(vl_fenetre,"BP_Inserer",TRUE)
+		}
+		ELSE
+		{
+			DB_CTRL_GRAYED@(vl_fenetre, "BO_origine", FALSE)	
+			DB_CTRL_GRAYED@(vl_fenetre, "BO_destination", TRUE)
+			DB_CTRL_GRAYED@(vl_fenetre, "BP_Inserer", TRUE)
+		}
+
+		FOR i=0 to (ARRAY_SIZE@(vl_resultats.select_results[0])-1)
+			vl_results[i] = vl_resultats.select_results[0,i]
+		NEXT i	
+		DB_CTRL_STRINGS@ (vl_fenetre, "BO_origine", ARRAY_COLUMN@(vl_results,0))
+		DB_CTRL_VALUE@ (vl_fenetre, "BS_tdp","")
+	CASE "BO_origine"
+		vl_zone_origine= NULL
+		vl_parametres = NULL
+                vl_resultats = NULL
+		vl_resultats_tab=NULL
+		vl_sens = 0
+                
+		DB_CTRL_VALUE@(vl_fenetre, "BO_destination",0)
+		vl_zone_origine = vl_results[DB_CTRL_GET_VALUE@ (vl_fenetre,"BO_origine"),0]
+		vl_sens = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_sens") 
+		vl_sens = vl_sens + 1
+		
+		vl_autoroute = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_autoroute")
+		vl_parametres[0].type = SYB#INT1_
+		vl_parametres[0].data = vm_autoroutes[vl_autoroute].numero
+		vl_parametres[0].output = FALSE
+
+		vl_parametres[1].type = SYB#INT1_
+                vl_parametres[1].data = vl_sens
+                vl_parametres[1].output = FALSE
+
+                vl_parametres[2].type = SYB#CHAR_
+                vl_parametres[2].data = vl_zone_origine
+                vl_parametres[2].output = FALSE
+
+		IF COM05_SQL_Procedure (XZAO433_Liste_Origines_Destinations,
+						vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		RETURN (COM_NOK)
+
+		FOR i=0 to (ARRAY_SIZE@(vl_resultats.select_results[0])-1)
+			vl_resultats_tab[i] = vl_resultats.select_results[0,i]
+		NEXT i
+		DB_CTRL_STRINGS@ (vl_fenetre, "BO_destination", ARRAY_COLUMN@(vl_resultats_tab,0))
+		DB_CTRL_GRAYED@ (vl_fenetre, "BO_destination", FALSE)
+
+	CASE "BO_destination"
+		vl_zone_destination = vl_resultats_tab[DB_CTRL_GET_VALUE@ (vl_fenetre,"BO_destination"),0]
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Inserer", FALSE)	
+		DB_CTRL_GRAYED@ (vl_fenetre, "BS_tdp", FALSE)
+		vl_resultats = null
+        	vl_parametres = null
+		vl_tdp1 = null
+
+		vl_parametres[0].type = SYB#INT1_
+        	vl_parametres[0].data =  DB_CTRL_GET_VALUE@(vl_fenetre,"BO_sens") + 1    /*sens*/
+        	vl_parametres[0].output = FALSE
+
+	        vl_parametres[1].type = SYB#CHAR_
+       		vl_parametres[1].data =  vl_zone_origine    /*origine*/
+        	vl_parametres[1].output = FALSE
+
+        	vl_parametres[2].type = SYB#CHAR_
+        	vl_parametres[2].data = vl_zone_destination     /*destination*/
+        	vl_parametres[2].output = FALSE
+
+		vl_autoroute = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_autoroute")
+		vl_parametres[3].type = SYB#INT2_
+		vl_parametres[3].data =  vm_autoroutes[vl_autoroute].numero
+		vl_parametres[3].output = FALSE
+
+		IF COM05_SQL_Procedure (XZAO435_Calcul_TDP_RTFM,
+                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+        	RETURN (COM_NOK)
+        
+		vl_tdp1 = vl_resultats.select_results[0]
+		vl_tdp_result = vl_tdp1[0,3]
+		DB_CTRL_VALUE@ (vl_fenetre, "BS_tdp",vl_tdp_result)		
+
+	CASE "BP_Inserer"
+		MACRO_WINS_BUSY@()
+		vl_zone_destination = vl_resultats_tab[DB_CTRL_GET_VALUE@ (vl_fenetre,"BO_destination"),0]
+
+		/*recuperation des donnees sens,origine,destination pour insertion en base
+		vl_sens = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_sens")
+		vl_sens = vl_sens + 1
+		
+		/*insertion en base*/
+		vl_appelant = 1
+
+		vl_parametres[0].type = SYB#INT1_
+                vl_parametres[0].data = vl_appelant
+		vl_parametres[0].output = FALSE
+                
+		vl_autoroute = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_autoroute")
+		vl_parametres[1].type = SYB#INT2_
+		vl_parametres[1].data =  vm_autoroutes[vl_autoroute].numero
+		vl_parametres[1].output = FALSE
+
+		vl_parametres[2].type = SYB#INT1_
+		vl_parametres[2].data = vl_sens
+                vl_parametres[2].output = FALSE
+
+                vl_parametres[3].type = SYB#CHAR_
+                vl_parametres[3].data = vl_zone_origine
+                vl_parametres[3].output = FALSE
+
+		vl_parametres[4].type = SYB#CHAR_
+		vl_parametres[4].data = vl_zone_destination
+		vl_parametres[4].output = FALSE
+
+		IF COM05_SQL_Procedure (XZAO434_Liste_Origines_Destinations,
+						vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		
+		/*recupration des donnees en base pour affichage */
+		tl_listing_information = null
+		vl_appelant = 0
+		vl_parametres[0].type = SYB#INT1_
+        	vl_parametres[0].data = vl_appelant
+		vl_parametres[0].output = FALSE
+
+		vl_autoroute = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_autoroute")
+		vl_parametres[1].type = SYB#INT2_
+		vl_parametres[1].data =  vm_autoroutes[vl_autoroute].numero
+		vl_parametres[1].output = FALSE
+		
+		vl_parametres[2].type = SYB#INT1_
+		vl_parametres[2].data = 0
+		vl_parametres[2].output = FALSE
+		
+		vl_parametres[3].type = SYB#CHAR_
+		vl_parametres[3].data = "toutes"
+		vl_parametres[3].output = FALSE
+		
+		vl_parametres[4].type = SYB#CHAR_
+		vl_parametres[4].data = "toutes"
+		vl_parametres[4].output = FALSE
+		IF COM05_SQL_Procedure (XZAO434_Liste_Origines_Destinations,
+			vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		RETURN (COM_NOK)
+		tl_listing_information = vl_resultats.select_results[0]
+		
+		vl_tdp1 = null
+		vm_tdp = null
+		FOR i=0 TO ARRAY_SIZE@(tl_listing_information)-1
+			vl_resultats = null
+        		vl_parametres[0].type = SYB#INT1_
+        		vl_parametres[0].data = tl_listing_information[i,1]     /*sens*/
+        		vl_parametres[0].output = FALSE
+
+		        vl_parametres[1].type = SYB#CHAR_
+       			vl_parametres[1].data = tl_listing_information[i,2]     /*origine*/
+        		vl_parametres[1].output = FALSE
+
+        		vl_parametres[2].type = SYB#CHAR_
+        		vl_parametres[2].data = tl_listing_information[i,3]     /*destination*/
+        		vl_parametres[2].output = FALSE
+
+		vl_autoroute = tl_listing_information[i,0]
+		vl_autoroute=ARRAY_INDEX@(ARRAY_COLUMN@(vm_autoroutes, 1), vl_autoroute)
+		vl_parametres[3].type = SYB#INT2_
+		vl_parametres[3].data =  vm_autoroutes[vl_autoroute].numero
+		vl_parametres[3].output = FALSE
+
+        		IF COM05_SQL_Procedure (XZAO435_Calcul_TDP_RTFM,
+            	               vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+        		RETURN (COM_NOK)
+        
+			vl_tdp1 = vl_resultats.select_results[0]
+			vm_tdp[i] =  vl_tdp1[0,3]
+			tl_listing_information[i,4] = vm_tdp[i]
+		NEXT i
+		DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_zones",0,-1)
+		DB_TABLE_SET_DATA@ ( vl_fenetre , "TA_zones" , tl_listing_information, NULL, NULL)
+		DB_TABLE_SET_SELECTIONS@ (vl_fenetre ,"TA_zones" , NULL)	
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Inserer", TRUE)
+		DB_CTRL_VALUE@ (vl_fenetre, "BS_tdp","")
+	
+	CASE "BP_Supprimer"
+		MACRO_WINS_BUSY@()
+		vl_indice = DB_CTRL_GET_VALUE@( vl_fenetre, "TA_zones")
+		vl_indice = vl_indice[0]
+
+		/*suppression en base*/
+		vl_autoroute = tl_listing_information[vl_indice,0]
+		vl_sens = tl_listing_information[vl_indice,1]
+		vl_zone_origine = tl_listing_information[vl_indice,2]
+		vl_zone_destination = tl_listing_information[vl_indice,3]
+		
+		vl_autoroute=ARRAY_INDEX@(ARRAY_COLUMN@(vm_autoroutes, 1), vl_autoroute)
+
+		vl_appelant = 2
+
+		vl_parametres[0].type = SYB#INT1_
+                vl_parametres[0].data = vl_appelant
+		vl_parametres[0].output = FALSE
+                
+        	vl_parametres[1].type = SYB#INT2_
+        	vl_parametres[1].data = vm_autoroutes[vl_autoroute].numero
+
+        	vl_parametres[1].output = FALSE
+
+		vl_parametres[2].type = SYB#INT1_
+		vl_parametres[2].data = vl_sens
+                vl_parametres[2].output = FALSE
+
+                vl_parametres[3].type = SYB#CHAR_
+                vl_parametres[3].data = vl_zone_origine
+                vl_parametres[3].output = FALSE
+
+		vl_parametres[4].type = SYB#CHAR_
+		vl_parametres[4].data = vl_zone_destination
+		vl_parametres[4].output = FALSE
+
+		IF COM05_SQL_Procedure (XZAO434_Liste_Origines_Destinations,
+						vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		
+		/*recupration des donnees en base pour affichage */
+		tl_listing_information = null
+		vl_appelant = 0
+		vl_parametres[0].type = SYB#INT1_
+        	vl_parametres[0].data = vl_appelant
+		vl_parametres[0].output = FALSE
+		
+        	vl_parametres[1].type = SYB#INT2_
+        	vl_parametres[1].data = 0
+        	vl_parametres[1].output = FALSE
+
+		vl_parametres[2].type = SYB#INT1_
+		vl_parametres[2].data = 0
+		vl_parametres[2].output = FALSE
+		
+		vl_parametres[3].type = SYB#CHAR_
+		vl_parametres[3].data = "toutes"
+		vl_parametres[3].output = FALSE
+		
+		vl_parametres[4].type = SYB#CHAR_
+		vl_parametres[4].data = "toutes"
+		vl_parametres[4].output = FALSE
+		IF COM05_SQL_Procedure (XZAO434_Liste_Origines_Destinations,
+			vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		RETURN (COM_NOK)
+		tl_listing_information = vl_resultats.select_results[0]
+		
+		vl_tdp1 = null
+		vm_tdp = null
+
+		FOR i=0 TO ARRAY_SIZE@(tl_listing_information)-1
+	
+			vl_autoroute = tl_listing_information[i,0]
+			vl_autoroute=ARRAY_INDEX@(ARRAY_COLUMN@(vm_autoroutes, 1), vl_autoroute)
+
+	
+			vl_resultats = null
+        		vl_parametres[0].type = SYB#INT1_
+        		vl_parametres[0].data = tl_listing_information[i,1]     /*sens*/
+        		vl_parametres[0].output = FALSE
+
+        		vl_parametres[1].type = SYB#CHAR_
+        		vl_parametres[1].data = tl_listing_information[i,2]     /*origine*/
+        		vl_parametres[1].output = FALSE
+
+        		vl_parametres[2].type = SYB#CHAR_
+        		vl_parametres[2].data = tl_listing_information[i,3]     /*destination*/
+        		vl_parametres[2].output = FALSE
+
+       	vl_parametres[3].type = SYB#INT2_
+        	vl_parametres[3].data = vm_autoroutes[vl_autoroute].numero
+
+        	vl_parametres[3].output = FALSE
+
+        		IF COM05_SQL_Procedure (XZAO435_Calcul_TDP_RTFM,
+                        	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+        		RETURN (COM_NOK)
+        
+			vl_tdp1 = vl_resultats.select_results[0]
+			vm_tdp[i] =  vl_tdp1[0,3]
+			tl_listing_information[i,4] = vm_tdp[i]
+		NEXT i
+		DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_zones",0,-1)
+		DB_TABLE_SET_DATA@ ( vl_fenetre , "TA_zones" , tl_listing_information, NULL, NULL)
+		DB_TABLE_SET_SELECTIONS@ (vl_fenetre ,"TA_zones" , NULL)	
+	
+		DB_CTRL_GRAYED@ (vl_fenetre, "BO_origine", TRUE)
+		DB_CTRL_GRAYED@ (vl_fenetre, "BO_destination", TRUE)
+		
+	CASE "TA_zones"
+		vl_index=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_zones")
+
+		
+    ENDCASE
+WEND
+
+ENDMACRO

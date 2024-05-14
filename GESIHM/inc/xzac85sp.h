@@ -1,0 +1,1 @@
+DEFINE	XZAC85_Lire_Commande_PMVA		"XZAC85"

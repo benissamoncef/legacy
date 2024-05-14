@@ -1,0 +1,1339 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPM_choix_intensite.am,v 1.35 2017/04/02 16:08:52 pc2dpdy Exp $      Release : $Revision: 1.35 $        Date : $Date: 2017/04/02 16:08:52 $
+-----------------------------------------------------------------------
+*  GTIE  *  PROJET MIGRAZUR
+-----------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-----------------------------------------------------------------------
+*  MODULE ITMA_TPM  *  Fichier ITMA_TPM_Choix_Intensite.am
+-----------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*
+*	Permet de configurer l'intensité des équipements suivants :
+*		- Picto
+*     	- PMV
+*    	- NAV 
+*
+-----------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  Cornu	07 Oct 1994	1.1	: Création
+*  cornu	14 Oct 1994	1.2	: Ajout de la gestion PMV+PCT
+*  Cornu	17 Oct 1994	1.3	: Modif. du nom du fichier d'aide
+*  Cornu	09 Dec 1994	1.8	: Modif. de la liste des Eqt dispo
+*  Cornu	06 Avr 1995	1.22	: MAJ du nomage des eqt et controle des clicks
+*  Charles 05 Jul 1995	1.26	: Action qualité + Aboonement au CI
+*  F.Volcic 26 Sep 1995	1.28	: Modif interdiction pilotage au CI
+*  C.T.	04 Fev 1998	1.29 : Correction erreur de compilation 
+			(suppression accent dans ITMA_TPM_Piloter_équipement, vl_intensité)
+*  Mismer	27 Fev 1985	1.30	: ajout pal et fac et fau (DEM/1595)
+*  Niepceron	28 Oct 1998	1.32 : test sur tableau si pas de PMV dem/1721 
+*  Cluchague   29 Oct 2001 1.33 : Bra n'apparait pas sur aubagne ni picto du 26900(dem198)
+* JMG           29/09/09             : SECTO DEM 887
+*  JMG           03/03/17 : regio DEM1220
+-----------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+
+
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/xzat01sp.h"
+
+
+/*A Définition des constantes */
+
+DEFINE	C_MODULE		"MTPM_choix_intensite"		' Nom du module
+DEFINE	C_MODIFIE		10			' modification de la table donnée
+DEFINE	C_INTACT		20			' modification de la table donnée
+DEFINE	C_LIB		"ITMA_TPM_choix_intensite"
+DEFINE	REP_CONFIG		"../fichiers/"
+
+
+/*A Définition des variables globales */
+
+VAR		vm_table_picto				' picto associés
+VAR		vm_table_titre				' titre des colonnes
+VAR		vm_table_donnee				' table des donnees
+VAR		vl_fenetre_chx_int			' adresse de la fenetre
+VAR		vm_simulation				' flag de simulation de SYBASE
+VAR		vm_District					' le nom du district
+VAR		vm_Dispo					' le code de disponibilité
+VAR		vm_Liste_Eqt					' liste des équipements dispo
+VAR		vm_NomSite					' le nom du site ( ex : DM )
+VAR		vm_Liste_num_Eqt				' contient les n° d'eqt
+VAR		vm_F_PMV					' le select pour les PMV
+VAR		vm_F_PCT					' le select pour les PCT
+VAR		vm_F_NAV					' le select pour les NAV
+VAR		vm_F_FAC					' le select pour les FAC
+VAR		vm_F_FAU					' le select pour les FAU
+VAR		vm_F_PAL					' le select pour les PAL
+VAR		vm_F_Type_Num				' contient le type d'eqt et son n° d'eqt 
+								'  indexé comme la liste affiché
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+*	Permet de configurer l'intensité des équipements suivants :
+*		- Picto
+*     	- PMV
+*    	- NAV 
+*    	- FAU 
+*    	- FAC 
+*    	- PAL 
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPM_choix_intensite (va_appelant,va_1,va_2,va_3,va_4)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_appelant		: nom de la macro appelant la présente
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*	Permet de configurer l'intensité des équipements suivants :
+*		- Picto
+*     	- PMV
+*    	- NAV 
+*    	- FAU 
+*    	- FAC 
+*    	- PAL 
+--------------------------------------------------------------------- */
+
+VAR		vl_fenetre_etat_poste		' Nom de la fenetre du module
+VAR		vl_objet_selecte			' L'objet courant de la fenetre
+VAR		vl_la_fenetre_est_active		' flag de la fenetre
+VAR		vl_messages_acceptes		' message retourné
+VAR		vl_pos					' position de la selection
+VAR		vl_erreur					' flag de retour des macros
+VAR		vl_taille3				' taille d'un tableau
+VAR		i,j						' index de loop
+VAR		vl_les_districts			' liste des districts
+VAR 		vl_message2
+VAR		vl_F_tpm					' fichier tampon
+VAR		vl_taille
+VAR		vl_taille2
+VAR		vl_trouve
+VAR		vl_type
+VAR		vl_message
+VAR		vl_F_Type_Numtmp
+VAR		vl_text					' texte libre
+VAR		vl_abonnement				' flag d'abonnement
+
+ALL_WINDOWS_BUSY@()
+
+/*A MAJ des variables statiques */
+vm_simulation = SYSTEM_VAR@("vg_simuler_SQL")
+vm_District = SYSTEM_VAR@("vg_site")
+vm_Dispo = 0
+vm_NomSite = SYSTEM_VAR@("vg_nom_site")
+vl_les_districts = SYSTEM_VAR@("vg_les_districts")
+vl_abonnement = FALSE
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+'ON ERROR 
+'{
+'    ERROR_BOX@
+'    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+ '   RETURN
+'}
+
+
+/*A Tracer l'initialisation de la procedure :
+* -------------------------------------------*/
+COM01_Trace(0," ")
+vl_text = "------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = COM09_Date_Courante() ++ "   User : " ++ USER_NAME@()
+vl_text = "Start ITMA_TPM_choix_intensite " ++ vl_text
+COM01_Trace(0,vl_text)
+
+vl_text = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_text)
+
+if NOT(IS_ARRAY@(va_1))
+{vl_text = "va_1 : " ++ va_1
+COM01_Trace(0,vl_text)}
+
+if NOT(IS_ARRAY@(va_2))
+{vl_text = "va_2 : " ++ va_2
+COM01_Trace(0,vl_text)}
+
+if NOT(IS_ARRAY@(va_3))
+{vl_text = "va_3 : " ++ va_3
+COM01_Trace(0,vl_text)}
+
+if NOT(IS_ARRAY@(va_4))
+{vl_text = "va_4 : " ++ va_4
+COM01_Trace(0,vl_text)}
+
+
+
+/*A Charger la fenetre "Etat de Poste"
+* ------------------------------------*/
+vl_fenetre_chx_int = DB_LOAD@ ("ITMA_TPM_choix_intensite")
+
+
+/*A Mettre en place la reception des messages
+* -------------------------------------------*/
+vl_messages_acceptes[0] = COM_CANAL_FIN
+vl_messages_acceptes[1] = COM_CANAL_MTPM
+DB_ACCEPT_POKES@ (vl_fenetre_chx_int, vl_messages_acceptes)
+
+
+/*A Affichage des elements dans la boite 
+* -------------------------------------- */
+DB_WINDOW_REMAIN@ (vl_fenetre_chx_int, TRUE)
+DB_XPOS@ (vl_fenetre_chx_int, 0)
+DB_YPOS@ (vl_fenetre_chx_int, 93)
+DB_CTRL_HORIZ_SCROLL@(vl_fenetre_chx_int, "TA_Equipements",FALSE)
+
+
+/*A Rattacher la fenetre d'aide associée
+* --------------------------------------*/
+COM02_Attacher_Aide (vl_fenetre_chx_int,"ITMA_TPM_choix_intensite")
+
+
+
+
+/*A Lecture des équipements disponibles pour le district
+* ------------------------------------------------------*/
+
+/*----------------------------- Lecture PMV dispo --------------------------------*/
+vm_Liste_Eqt[0] = 0
+vm_Liste_Eqt = ITMA_TPM2_Liste_Eqt_Dispo(XDC_EQT_PMV,vm_District,vm_Dispo)
+
+IF IS_ARRAY@(vm_Liste_Eqt) and ARRAY_SIZE@(vm_Liste_Eqt)>0 and vm_Liste_Eqt[0]<>""
+{
+	/*A Ajout du trigram PMV devant la chaine lue & MAJ des autres tables */
+	for i = 0 to ARRAY_SIZE@(vm_Liste_Eqt)-1
+		vm_Liste_Eqt[i] = "PMV " ++ vm_Liste_Eqt[i]
+		vm_Liste_num_Eqt[i] = vm_F_PMV[i,1]
+		vm_F_Type_Num[i,0] = vm_F_PMV[i,1]
+		vm_F_Type_Num[i,1] = "PMV"
+	next i
+}
+
+
+/*---------------------------- Lecture Picto dispo -------------------------------*/
+vl_F_tpm = ITMA_TPM2_Liste_Eqt_Dispo(XDC_EQT_PCT,vm_District,vm_Dispo)
+
+IF IS_ARRAY@(vl_F_tpm) and ARRAY_SIZE@(vl_F_tpm)>0 and vl_F_tpm[0]<>""
+{
+/* dem 198 les 2 lignes suivantes a mettre en commentaire */
+/*vl_F_tpm = ARRAY_DELETE@(vl_F_tpm,3)
+vm_F_PCT = ARRAY_DELETE@(vm_F_PCT,3)*/
+
+IF IS_ARRAY@(vl_F_tpm)
+{
+	/*A Ajout du trigram PCT devant la chaine lue */
+	vl_taille = ARRAY_SIZE@(vl_F_tpm)-1
+	for i = 0 to vl_taille
+		vl_F_tpm[i] = "PCT " ++ vl_F_tpm[i]
+	next i
+}
+
+/*A traiter la liste des PCT */
+for i = 0 to ARRAY_SIZE@(vl_F_tpm)-1 
+
+	vl_trouve = False
+
+	/*A chercher dans la liste des PMV */
+	for j = 0 to ARRAY_SIZE@(vm_Liste_Eqt)-1
+
+		/*A si le n° eqt concorde : inserer la ligne dans les tables */
+		if vm_F_Type_Num[j,0] = vm_F_PCT[i,1] and vm_F_Type_Num[j,1] = "PMV"
+		{ 	
+			vm_Liste_Eqt = ARRAY_INSERT@(vm_Liste_Eqt,vl_F_tpm[i],j+1)
+
+			/*A construction de la petite table à inserer */
+			vl_trouve = ""
+			vl_trouve[0,0] = vm_F_PCT[i,1]
+			vl_trouve[0,1]  = "PCT"
+
+			vm_F_Type_Num = ARRAY_INSERT@(vm_F_Type_Num,vl_trouve,j+1)
+			vm_F_Type_Num[j+1,0] = vm_F_PCT[i,1]
+			vm_F_Type_Num[j+1,1] = "PCT"
+
+			/*A MAJ du flag de recherche */
+			vl_trouve = ""
+	   	  	vl_trouve = True
+
+			/*A forcer l'index de loop a la fin du tableau */
+		  	j = ARRAY_SIZE@(vm_Liste_Eqt)-1 
+		}
+
+	next j
+
+	if NOT (vl_trouve) 
+	{ 	vm_Liste_Eqt[ARRAY_SIZE@(vm_Liste_Eqt)] = vl_F_tpm[i]
+		vm_Liste_num_Eqt[ARRAY_SIZE@(vm_Liste_Eqt)] = vm_F_PCT[i,0]
+		vm_F_Type_Num[ARRAY_SIZE@(vm_F_Type_Num),0] = vm_F_PCT[i,0]
+		vm_F_Type_Num[ARRAY_SIZE@(vm_F_Type_Num),1] = "PCT"
+	}
+
+next i	
+	
+}
+
+/*----------------------------- Lecture BRA dispo --------------------------------*/
+vl_F_tpm = ITMA_TPM2_Liste_Eqt_Dispo(XDC_EQT_NAV,vm_District,vm_Dispo)
+
+IF IS_ARRAY@(vl_F_tpm) and ARRAY_SIZE@(vl_F_tpm)>0 and vl_F_tpm[0]<>""
+{
+	/*A Ajout du trigram BRA devant la chaine lue */
+	for i = 0 to ARRAY_SIZE@(vl_F_tpm)-1
+		vl_F_tpm[i] = "BRA " ++ vl_F_tpm[i]
+		vl_F_Type_Numtmp[i,0] = vm_F_NAV[i,1]
+		vl_F_Type_Numtmp[i,1] = "BRA"
+
+	next i
+	vm_Liste_Eqt = ARRAY_APPEND@(vm_Liste_Eqt,vl_F_tpm)
+	vm_Liste_num_Eqt = ARRAY_APPEND@(vm_Liste_Eqt,ARRAY_COLUMN@(vm_F_NAV,0))
+	vm_F_Type_Num = ARRAY_APPEND@(vm_F_Type_Num,vl_F_Type_Numtmp)
+}
+
+/*----------------------------- Lecture FAU dispo --------------------------------*/
+vl_F_tpm = ITMA_TPM2_Liste_Eqt_Dispo(XDC_EQT_FAU,vm_District,vm_Dispo)
+
+IF IS_ARRAY@(vl_F_tpm) and ARRAY_SIZE@(vl_F_tpm)>0 and vl_F_tpm[0]<>""
+{
+	/*A Ajout du trigram FAU devant la chaine lue */
+	for i = 0 to ARRAY_SIZE@(vl_F_tpm)-1
+		vl_F_tpm[i] = "FAU " ++ vl_F_tpm[i]
+		vl_F_Type_Numtmp[i,0] = vm_F_FAU[i,1]
+		vl_F_Type_Numtmp[i,1] = "FAU"
+
+	next i
+	vm_Liste_Eqt = ARRAY_APPEND@(vm_Liste_Eqt,vl_F_tpm)
+	vm_Liste_num_Eqt = ARRAY_APPEND@(vm_Liste_Eqt,ARRAY_COLUMN@(vm_F_FAU,0))
+	vm_F_Type_Num = ARRAY_APPEND@(vm_F_Type_Num,vl_F_Type_Numtmp)
+}
+/*----------------------------- Lecture FAC dispo --------------------------------*/
+vl_F_tpm = ITMA_TPM2_Liste_Eqt_Dispo(XDC_EQT_FAC,vm_District,vm_Dispo)
+
+IF IS_ARRAY@(vl_F_tpm) and ARRAY_SIZE@(vl_F_tpm)>0 and vl_F_tpm[0]<>""
+{
+	/*A Ajout du trigram FAC devant la chaine lue */
+	for i = 0 to ARRAY_SIZE@(vl_F_tpm)-1
+		vl_F_tpm[i] = "FAC " ++ vl_F_tpm[i]
+		vl_F_Type_Numtmp[i,0] = vm_F_FAC[i,1]
+		vl_F_Type_Numtmp[i,1] = "FAC"
+
+	next i
+	vm_Liste_Eqt = ARRAY_APPEND@(vm_Liste_Eqt,vl_F_tpm)
+	vm_Liste_num_Eqt = ARRAY_APPEND@(vm_Liste_Eqt,ARRAY_COLUMN@(vm_F_FAC,0))
+	vm_F_Type_Num = ARRAY_APPEND@(vm_F_Type_Num,vl_F_Type_Numtmp)
+}
+/*----------------------------- Lecture PAL dispo --------------------------------*/
+vl_F_tpm = ITMA_TPM2_Liste_Eqt_Dispo(XDC_EQT_PAL,vm_District,vm_Dispo)
+
+IF IS_ARRAY@(vl_F_tpm) and ARRAY_SIZE@(vl_F_tpm)>0 and vl_F_tpm[0]<>""
+{
+	/*A Ajout du trigram PAL devant la chaine lue */
+	for i = 0 to ARRAY_SIZE@(vl_F_tpm)-1
+		vl_F_tpm[i] = "PAL " ++ vl_F_tpm[i]
+		vl_F_Type_Numtmp[i,0] = vm_F_PAL[i,1]
+		vl_F_Type_Numtmp[i,1] = "PAL"
+
+	next i
+	vm_Liste_Eqt = ARRAY_APPEND@(vm_Liste_Eqt,vl_F_tpm)
+	vm_Liste_num_Eqt = ARRAY_APPEND@(vm_Liste_Eqt,ARRAY_COLUMN@(vm_F_PAL,0))
+	vm_F_Type_Num = ARRAY_APPEND@(vm_F_Type_Num,vl_F_Type_Numtmp)
+}
+
+
+/*A Mettre à jour les différents tables
+* --------------------------------------*/
+FOR i = 0 to ARRAY_SIZE@(vm_Liste_Eqt)-1
+	vm_table_donnee[i] = "",vm_Liste_Eqt[i],0,C_INTACT
+NEXT i
+
+vm_table_titre[0,0]	= "Commande"
+vm_table_titre[0,1] 	= 80
+vm_table_titre[1,0]	= "Liste des équipements"
+vm_table_titre[1,1] 	= 225
+
+vl_taille3 = ARRAY_SIZE@(vm_table_donnee)-1
+FOR i = 0 to vl_taille3
+	vm_table_picto[i] =  REP_CONFIG ++ "pic/pix_noir",""
+	if vm_table_donnee[i,2]= XDC_CONTRASTENORMAL
+			{ vm_table_picto[i] =  REP_CONFIG ++ "pic/pix_forte_intensite","" }
+	if vm_table_donnee[i,2]= XDC_CONTRASTEBRILLANT
+		{ vm_table_picto[i] =  REP_CONFIG ++ "pic/pix_faible_intensite","" }
+NEXT i
+
+DB_DISPLAY_ONLY@(vl_fenetre_chx_int,TRUE)
+DB_DISPLAY@(vl_fenetre_chx_int)
+
+/*A Paramettrage des objets de la boite de dialogue
+* -------------------------------------------------*/
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_chx_int,"BA_fort",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_chx_int,"BA_faible",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_chx_int,"TA_Equipements",TRUE)
+DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre_chx_int, "TA_Equipements", 23)
+DB_TABLE_SET_NEW_TOP_ROW@(vl_fenetre_chx_int,"TA_Equipements",0)
+DB_TABLE_SET_DATA@(vl_fenetre_chx_int,"TA_Equipements",vm_table_donnee,vm_table_titre,vm_table_picto)
+
+/*A Echo sur la procedure d'appel
+* -------------------------------
+if va_appelant<>"" {INFO_MESSAGE@("Procedure appelante : " ++ va_appelant)}
+*/
+
+DB_DISPLAY_ONLY@(vl_fenetre_chx_int,FALSE)
+
+vl_erreur = ITMA_TPM_Abonnement_contraste(XDC_DEBUT_ABONNEMENT_EQUEXT,vm_NomSite)
+if (vl_erreur <> COM_NOK) { vl_abonnement = TRUE }
+
+
+/*A Tant que la fenetre n'est pas desactivee, la visualiser
+* ---------------------------------------------------------*/
+vl_la_fenetre_est_active = TRUE
+WHILE (vl_la_fenetre_est_active)
+
+	DB_DISPLAY@ (vl_fenetre_chx_int)
+
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_chx_int)
+	
+	/*B selon la selection dans la BD */
+	CASE OF vl_objet_selecte
+
+	/*B si reception poke */
+	CASE "poke_"
+
+		/*B selon le canal */
+		CASE OF DB_GET_POKE@ (vl_fenetre_chx_int)
+
+		/*B si reception sur canal_fin */
+		CASE COM_CANAL_FIN
+
+			/*B fermer la fenetre */
+			vl_la_fenetre_est_active = FALSE
+
+		/*B si reception sur canal_XZEC d'un message */
+		CASE COM_CANAL_MTPM
+
+			/*B tracer la réception */
+			COM01_Trace(0," ")
+			vl_text = COM09_Date_Courante() ++ "   MsgPoke : "
+			vl_message2 = DB_GET_POKE_DATA@(vl_fenetre_chx_int)
+			vl_text =  vl_text ++ vl_message2[0]
+			COM01_Trace(0,vl_text)
+
+			/*B appel de la procedure 'ITMA_TPM_MAJ_tableau' */
+			ITMA_TPM_MAJ_tableau(vl_message2[0])
+
+			vl_text = "Status : Reception Etat non valide"
+
+			vl_message = COMMA_SPLIT@(vl_message2[0])
+
+			vl_type = " non valide"
+			if vl_message[2] = XDC_CONTRASTEBRILLANT { vl_type = " Surbrillant" }
+			if vl_message[2] = XDC_CONTRASTENORMAL { vl_type = " Normal" }
+
+			if vl_message[0]=XDC_EQT_PMV
+ 			{ vl_text ="Status: Reception Etat PMV "++vl_message[1]++vl_type }
+
+			if vl_message[0]=XDC_EQT_PCT
+ 			{ vl_text ="Status: Reception Etat PCT "++vl_message[1]++vl_type }
+
+			if vl_message[0]=XDC_EQT_NAV
+ 			{ vl_text ="Status: Reception Etat NAV "++vl_message[1]++vl_type }
+
+			if vl_message[0]=XDC_EQT_FAU
+ 			{ vl_text ="Status: Reception Etat FAU "++vl_message[1]++vl_type }
+
+			if vl_message[0]=XDC_EQT_FAC
+ 			{ vl_text ="Status: Reception Etat FAC "++vl_message[1]++vl_type }
+
+			if vl_message[0]=XDC_EQT_PAL
+ 			{ vl_text ="Status: Reception Etat PAL "++vl_message[1]++vl_type }
+
+			DB_CTRL_TITLE@(vl_fenetre_chx_int,"LI_status",vl_text)
+	ENDCASE
+
+	/*B si BP_Quitter : fermer la fenetre */
+	CASE "BP_Quitter"
+		vl_la_fenetre_est_active = FALSE
+		/*RETURN(COM_OK)*/
+
+	/*B si BP_executer : appel de la procedure 'ITMA_TPM_Piloter_tel_quel' */
+	CASE "BP_executer"
+	   if vm_District = XDC_CI
+	   {
+		info_message@("Pilotage interdit au CI")
+	   }
+	   else
+	   {
+		DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BP_executer",TRUE)
+		vl_erreur = ITMA_TPM_Piloter_tel_quel()
+		if vl_erreur=COM_OK
+		{ 
+			DB_CTRL_TITLE@(vl_fenetre_chx_int,"LI_status",
+									"Status : Execution envoyée à l'eqt.")
+		}
+		else
+		{ 
+			DB_CTRL_TITLE@(vl_fenetre_chx_int,"LI_status",
+								"Status : Execution non envoyée à l'eqt.")
+		}
+	   }
+
+	/*B si BA_fort : basculer +fort & -faible */
+	CASE "BA_fort"
+	   if vm_District = XDC_CI
+	   {
+		info_message@("Pilotage interdit au CI")
+	   }
+	   else
+	   {
+		DB_CTRL_TITLE@(vl_fenetre_chx_int,"LI_status",
+									"Status : choix surbrillant")
+		DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BP_valider",FALSE)
+
+		DB_CTRL_VALUE@(vl_fenetre_chx_int,"BA_faible",FALSE)
+		DB_CTRL_VALUE@(vl_fenetre_chx_int,"BA_fort",TRUE)
+
+		DB_CTRL_DISPLAY@(vl_fenetre_chx_int,"BP_valider",TRUE)
+
+		/*A reset de la table d'etat a rien */
+		for i = 0 to ARRAY_SIZE@(vm_table_donnee)- 1
+		 	vm_table_donnee[i,2] = XDC_CONTRASTEBRILLANT
+			vm_table_donnee[i,0] = "Surbrillant" 
+			vm_table_donnee[i,3] = C_MODIFIE
+		next i
+
+		/*A MAJ du widget */
+		DB_TABLE_SET_DATA@	(	vl_fenetre_chx_int,
+							"TA_Equipements",
+							vm_table_donnee,
+							vm_table_titre,
+							vm_table_picto )
+
+	   }
+
+	/*B si BA_faible : basculer +faible & -fort */
+	CASE "BA_faible"
+	   if vm_District = XDC_CI
+	   {
+		info_message@("Pilotage interdit au CI")
+	   }
+	   else
+	   {
+		DB_CTRL_TITLE@(vl_fenetre_chx_int,"LI_status","Status : choix normal")
+		DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BP_valider",FALSE)
+
+		DB_CTRL_VALUE@(vl_fenetre_chx_int,"BA_faible",TRUE)
+		DB_CTRL_VALUE@(vl_fenetre_chx_int,"BA_fort",FALSE)
+
+		DB_CTRL_DISPLAY@(vl_fenetre_chx_int,"BP_valider",TRUE)
+
+		/*A reset de la table d'etat a rien */
+		for i = 0 to ARRAY_SIZE@(vm_table_donnee)- 1
+			vm_table_donnee[i,2] = XDC_CONTRASTENORMAL
+			vm_table_donnee[i,3] = C_MODIFIE
+			vm_table_donnee[i,0] = "Normal" 
+		next i
+
+		/*A MAJ du widget */
+		DB_TABLE_SET_DATA@	(	vl_fenetre_chx_int,
+							"TA_Equipements",
+							vm_table_donnee,
+							vm_table_titre,
+							vm_table_picto )
+
+	   }
+
+
+	/*B si BP_piloter : afficher BP_valider & griser BP_piloter */
+	CASE "BP_piloter"
+	   if vm_District = XDC_CI
+	   {
+		info_message@("Pilotage interdit au CI")
+	   }
+	   else
+	   {
+		if DB_CTRL_GET_TITLE@(vl_fenetre_chx_int,"BP_piloter") <> "Annuler"
+		{
+			DB_CTRL_TITLE@(vl_fenetre_chx_int,"LI_status",
+											"Status : Piloter tous")
+			DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BA_fort",FALSE)
+			DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BA_faible",FALSE)
+			DB_CTRL_TITLE@(vl_fenetre_chx_int,"BP_piloter","Annuler")
+		}
+		else
+		{
+			DB_CTRL_TITLE@(vl_fenetre_chx_int,"LI_status",
+									"Status : Annuler Piloter tous")
+			DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BA_fort",True)
+			DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BA_faible",True)
+			DB_CTRL_TITLE@(vl_fenetre_chx_int,"BP_piloter","Tous piloter")
+			DB_CTRL_DISPLAY@(vl_fenetre_chx_int,"BP_valider",False)
+			DB_CTRL_VALUE@(vl_fenetre_chx_int,"BA_fort",FALSE)
+			DB_CTRL_VALUE@(vl_fenetre_chx_int,"BA_faible",FALSE)
+
+			/*A reset de la table d'etat a rien */
+			for i = 0 to ARRAY_SIZE@(vm_table_donnee)- 1
+				vm_table_donnee[i,2] = 0
+				vm_table_donnee[i,3] = C_INTACT
+				vm_table_donnee[i,0] = "" 
+			next i
+
+			/*A MAJ du widget */
+			DB_TABLE_SET_DATA@	(	vl_fenetre_chx_int,
+								"TA_Equipements",
+								vm_table_donnee,
+								vm_table_titre,
+								vm_table_picto )
+		}
+	   }
+
+	/*B si BP_valider : appel de la procedure 'ITMA_TPM_Piloter_tout' */
+	CASE "BP_valider"
+	   if vm_District = XDC_CI
+	   {
+		info_message@("Pilotage interdit au CI")
+	   }
+	   else
+	   {
+		DB_CTRL_TITLE@(vl_fenetre_chx_int,"BP_piloter","Tous piloter")
+		DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BP_piloter",FALSE)
+		DB_CTRL_DISPLAY@(vl_fenetre_chx_int,"BP_valider",FALSE)
+		DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BP_valider",TRUE)
+		vl_erreur = ITMA_TPM_Piloter_tout()
+		if vl_erreur=COM_OK
+		{ 
+			DB_CTRL_TITLE@(vl_fenetre_chx_int,"LI_status",
+										"Status : Piloter tout demande")
+		}
+		else
+		{ 
+			DB_CTRL_TITLE@(vl_fenetre_chx_int,"LI_status",
+										"Status : Piloter tout refuse")
+		}
+		DB_CTRL_VALUE@(vl_fenetre_chx_int,"BA_fort",FALSE)
+		DB_CTRL_VALUE@(vl_fenetre_chx_int,"BA_faible",FALSE)
+		DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BA_fort",True)
+		DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BA_faible",True)
+
+	   }
+
+
+	/*B si TA_Equipements : MAJ du picto & de la table de donnee */
+	CASE "TA_Equipements"
+		DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BP_valider",TRUE)
+		DB_CTRL_GRAYED@(vl_fenetre_chx_int,"BP_executer",FALSE)
+		vl_pos = DB_TABLE_GET_SELECTIONS@(vl_fenetre_chx_int,"TA_Equipements")
+		vm_table_donnee[vl_pos[0],3] = C_MODIFIE
+
+		/*A cycle sur les 3 etats : normal ,surbrillant ,rien */
+		if vm_table_donnee[vl_pos[0],0] = ""
+		{ 	
+			vm_table_donnee[vl_pos[0],2] = XDC_CONTRASTENORMAL
+			vm_table_donnee[vl_pos[0],0] = "Normal" 
+		}
+		else if vm_table_donnee[vl_pos[0],0] = "Normal"
+		{
+		 	vm_table_donnee[vl_pos[0],2] = XDC_CONTRASTEBRILLANT
+			vm_table_donnee[vl_pos[0],0] = "Surbrillant" 
+		}
+		else if vm_table_donnee[vl_pos[0],0] = "Surbrillant"
+		{ 	
+			vm_table_donnee[vl_pos[0],2] = 0
+			vm_table_donnee[vl_pos[0],3] = C_INTACT
+			vm_table_donnee[vl_pos[0],0] = "" 
+		}
+
+		/*A si l'eqt est un PMV */
+		if vm_F_Type_Num[vl_pos[0],1] = "PMV"
+		{
+			/*A si on retrouve le picto correspondant : MAJ de la table*/
+			if vm_F_Type_Num[vl_pos[0],0] = vm_F_Type_Num[vl_pos[0]+1,0]
+				and vm_F_Type_Num[vl_pos[0]+1,1] = "PCT"
+			{
+				vm_table_donnee[vl_pos[0]+1,0] = vm_table_donnee[vl_pos[0],0]
+				vm_table_donnee[vl_pos[0]+1,2] = vm_table_donnee[vl_pos[0],2]
+				vm_table_donnee[vl_pos[0]+1,3] = vm_table_donnee[vl_pos[0],3]
+			}
+		}
+
+		/*A si l'eqt est un picto */
+		if vm_F_Type_Num[vl_pos[0],1] = "PCT"
+		{
+			/*A si on retrouve le PMV correspondant : MAJ de la table*/
+			if vm_F_Type_Num[vl_pos[0],0] = vm_F_Type_Num[vl_pos[0]-1,0]
+				and vm_F_Type_Num[vl_pos[0]-1,1] = "PMV"
+			{
+				vm_table_donnee[vl_pos[0]-1,0] = vm_table_donnee[vl_pos[0],0]
+				vm_table_donnee[vl_pos[0]-1,2] = vm_table_donnee[vl_pos[0],2]
+				vm_table_donnee[vl_pos[0]-1,3] = vm_table_donnee[vl_pos[0],3]
+			}
+		}
+
+		/*A MAJ du widget */
+		DB_TABLE_SET_DATA@	(	vl_fenetre_chx_int,
+							"TA_Equipements",
+							vm_table_donnee,
+							vm_table_titre,
+							vm_table_picto )
+
+	ENDCASE
+
+WEND
+
+/*B Fermer l'abonnement à XZEA28 */
+if vl_abonnement {ITMA_TPM_Abonnement_contraste(XDC_FERMER_ABONNEMENT_EQUEXT,vm_NomSite) }
+
+/*B trace de la fin de traitement */
+COM01_Trace(0," ")
+vl_text = COM09_Date_Courante() ++ "   User : " ++ USER_NAME@()
+vl_text = "Stop ITMA_TPM_choix_intensite " ++ vl_text
+COM01_Trace(0,vl_text)
+
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/*----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+* ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPM_Piloter_equipement(va_NumEqt,va_TypeEqt,va_valeur)
+
+/*
+* ARGUMENTS EN ENTREE 	: 
+*		va_NumEqt	: le numero de l'équipement à piloter
+*		va_TypeEqt	: le type de l'équipement à piloter
+*		va_valeur	: l'état à positionner ( 0 ou 1 ) 
+*
+*
+* ARGUMENTS EN SORTIE	: aucun
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   Effacement du tableau de selection du PMV.
+*
+--------------------------------------------------------------------------- */
+
+var vl_Contraste
+var vl_text
+var i
+var vl_erreur
+var vl_TypeEqt
+
+/*B trace de début de procedure */
+COM01_Trace(0," ")
+vl_text = "appel de la procedure Piloter_equipement ( "++va_NumEqt++" , "++va_TypeEqt++" , "++va_valeur++" )"
+COM01_Trace(0,vl_text)
+
+/*B MAJ du contraste */
+vl_Contraste = va_valeur
+
+if vl_Contraste<>XDC_CONTRASTENORMAL and vl_Contraste<>XDC_CONTRASTEBRILLANT
+{
+
+	vl_text = C_LIB ++ " - Piloter_equipement : contraste invalide ..."
+	COM01_Trace(0,vl_text)
+	RETURN(COM_NOK)
+}
+
+/*B capture du n° équipement dans le libellé */
+if va_TypeEqt="PCT" vl_TypeEqt = XDC_EQT_PCT
+if va_TypeEqt="BRA" vl_TypeEqt = XDC_EQT_NAV
+if va_TypeEqt="FAC" vl_TypeEqt = XDC_EQT_FAC
+if va_TypeEqt="FAU" vl_TypeEqt = XDC_EQT_FAU
+if va_TypeEqt="PAL" vl_TypeEqt = XDC_EQT_PAL
+if va_TypeEqt="PMV" vl_TypeEqt = XDC_EQT_PMV
+if vl_TypeEqt<>XDC_EQT_PCT and vl_TypeEqt<>XDC_EQT_NAV and vl_TypeEqt<>XDC_EQT_PMV
+and  vl_TypeEqt<>XDC_EQT_PAL and vl_TypeEqt<>XDC_EQT_FAC and vl_TypeEqt<>XDC_EQT_FAU
+{
+	vl_text = C_LIB ++ " - ITMA_TPM_Piloter_equipement : TypeEqt="++va_TypeEqt++" invalide"
+	COM01_Trace(0,vl_text)
+	RETURN(COM_NOK)
+}
+
+if vm_NomSite=""
+{
+	vl_text = C_LIB ++ " - ITMA_TPM_Piloter_equipement : Nom du site invalide"
+	COM01_Trace(0,vl_text)
+	RETURN(COM_NOK)
+}
+
+/*B appel de la procedure 'ITMA_TPM_commande_contraste' */
+vl_erreur = ITMA_TPM_commande_contraste(vl_Contraste,va_NumEqt,vl_TypeEqt,vm_NomSite)
+
+/*B code retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/*----------------------------------------------------------------------------
+* SERVICE RENDU :	Effacement du tableau de selection du PMV
+*
+* ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPM_Piloter_tout
+
+/*
+* ARGUMENTS EN ENTREE 	: aucun
+*
+*
+* ARGUMENTS EN SORTIE	: aucun
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   Effacement du tableau de selection du PMV.
+*
+--------------------------------------------------------------------------- */
+
+var		vl_valeur1			' valeur de la 1ere bascule
+var		vl_valeur2			' valeur de la 2eme bascule
+var		vl_text			' texte retourné
+var		vl_intensite			' flag de pilotage
+var		i				' index de boucle
+var		vl_TypeEqt			' type de l'Eqt
+var		vl_erreur			' flag d'erreur
+var		vl_les_districts	' liste des districts
+
+COM01_Trace(0," ")
+vl_text = "appel de la procedure 'ITMA_TPM_Piloter_tout'"
+COM01_Trace(0,vl_text)
+
+/*A capture des valeurs des bascules */
+vl_valeur1 = DB_CTRL_GET_VALUE@(vl_fenetre_chx_int,"BA_fort")
+vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_chx_int,"BA_faible")
+
+/*A test des valeurs des bascules */
+if (vl_valeur1=vl_valeur2) then RETURN(COM_NOK)
+vl_text = "rien"
+if vl_valeur1 = TRUE
+{ 	vl_text = "intensité forte..."
+	vl_intensite = XDC_CONTRASTEBRILLANT }
+if vl_valeur2 = TRUE
+{ 	vl_text = "intensité faible..."
+	vl_intensite = XDC_CONTRASTENORMAL }
+
+/*B appel de la procedure 'ITMA_TPM_commande_contraste' pour les PMV */
+vl_TypeEqt = XDC_EQT_PMV
+vl_erreur = ITMA_TPM_commande_contraste(vl_intensite,0,vl_TypeEqt,vm_NomSite)
+
+/*B appel de la procedure 'ITMA_TPM_commande_contraste' pour les PCT */
+vl_TypeEqt = XDC_EQT_PCT
+vl_erreur = ITMA_TPM_commande_contraste(vl_intensite,0,vl_TypeEqt,vm_NomSite)
+
+/*B appel de la procedure 'ITMA_TPM_commande_contraste' pour les NAV */
+vl_TypeEqt = XDC_EQT_NAV
+vl_erreur = ITMA_TPM_commande_contraste(vl_intensite,0,vl_TypeEqt,vm_NomSite)
+
+/*B appel de la procedure 'ITMA_TPM_commande_contraste' pour les FAC */
+vl_TypeEqt = XDC_EQT_FAC
+vl_erreur = ITMA_TPM_commande_contraste(vl_intensite,0,vl_TypeEqt,vm_NomSite)
+
+/*B appel de la procedure 'ITMA_TPM_commande_contraste' pour les FAU */
+vl_TypeEqt = XDC_EQT_FAU
+vl_erreur = ITMA_TPM_commande_contraste(vl_intensite,0,vl_TypeEqt,vm_NomSite)
+
+/*B appel de la procedure 'ITMA_TPM_commande_contraste' pour les PAL */
+vl_TypeEqt = XDC_EQT_PAL
+vl_erreur = ITMA_TPM_commande_contraste(vl_intensite,0,vl_TypeEqt,vm_NomSite)
+
+
+/*A Retour OK de procedure */
+RETURN(vl_erreur)
+
+ENDMACRO
+
+
+
+/*X*/
+/*----------------------------------------------------------------------------
+* SERVICE RENDU :	Effacement du tableau de selection du PMV
+*
+* ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPM_Piloter_tel_quel
+
+/*
+* ARGUMENTS EN ENTREE 	: aucun
+*
+*
+* ARGUMENTS EN SORTIE	: aucun
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   Effacement du tableau de selection du PMV.
+*
+--------------------------------------------------------------------------- */
+
+var		vl_text		' text retourné
+var		i			' index de boucle
+var		vl_erreur		' flag d'erreur
+var		vl_Contraste		' contraste
+
+/*B trace de début de procedure */
+COM01_Trace(0," ")
+vl_text = "appel de la procedure 'ITMA_TPM_Piloter_tel_quel'"
+COM01_Trace(0,vl_text)
+
+/*A Pour tous les équipements compris dans la table */
+FOR i = 0 to ARRAY_SIZE@(vm_table_donnee)-1
+
+	/*A si l'équipements à été modifié */
+	if vm_table_donnee[i,3]=C_MODIFIE
+	{
+		/*A Pilotage de l'équipement selectioné */
+		if vm_table_donnee[i,0] = "Surbrillant" {vl_Contraste = XDC_CONTRASTEBRILLANT}
+		if vm_table_donnee[i,0] = "Normal" {vl_Contraste = XDC_CONTRASTENORMAL}
+		vl_erreur = ITMA_TPM_Piloter_equipement (	vm_F_Type_Num[i,0],
+								vm_F_Type_Num[i,1],
+								vl_Contraste )
+
+		/*A si erreur d'execution retour COM_NOK */
+		if (vl_erreur = COM_NOK) then RETURN(COM_NOK)
+
+		/*A reset du flag de modification */
+		vm_table_donnee[i,3]=C_INTACT
+	}
+
+NEXT i
+
+ENDMACRO
+
+
+
+/*X*/
+/*----------------------------------------------------------------------------
+* SERVICE RENDU :	
+*
+* -------------------------------------------------------------------------*/
+ 
+FUNCTION ITMA_TPM_commande_contraste(va_1, va_2, va_3, va_4)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*			va_1 : Contraste ( Surbillance ou non )
+*			va_2 : N° d'équipement
+*			va_3 : Type d'équipements
+*			va_4 : Nom du site
+*
+* ARGUMENTS EN SORTIE : 
+*		
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   	
+*
+----------------------------------------------------------------------------*/
+
+	VAR vl_cmd
+	VAR vl_indice
+	VAR vl_result
+	VAR vl_text
+
+	/*B trace de l'abt */
+	vl_text = COM09_Date_Courante() ++ " ---> Commande contraste XZEC02"
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEC02  
+
+	/*B arguments */
+	vl_cmd[3]=va_1 ++ MTAR_CAR_SEPAR ++ va_2 ++ MTAR_CAR_SEPAR ++ va_3 ++ MTAR_CAR_SEPAR ++ va_4  
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = COM09_Date_Courante() ++ " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/*----------------------------------------------------------------------------
+* SERVICE RENDU :	Abonnement à la procedure XZEA28_Abt_Etat_Contrast
+*
+* -------------------------------------------------------------------------*/
+ 
+MACRO ITMA_TPM_Abonnement_contraste(va_1,va_2)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*			va_1 : Abonnement (debut ou fin)
+*			va_2 : Nom du site demandé
+*
+* ARGUMENTS EN SORTIE : 
+*		
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION :
+*   	
+*
+----------------------------------------------------------------------------*/
+
+	VAR 	vl_time,vl_cmd
+	VAR 	vl_liste_codes
+	VAR 	vl_exit_value
+	VAR 	vl_num_cmd
+	VAR 	vl_message
+	VAR 	vl_text
+	VAR vl_site_demande		' Site à demander
+
+	/*B trace de l'abt */
+	vl_text = COM09_Date_Courante() ++ " ---> Abonnement contraste XZEA28"
+	COM01_Trace(0,vl_text)
+
+	/*B capture du Current_Time */
+	vl_time = CURRENT_TIME@()
+
+	/*A SI le site est le CI */
+	if va_2 = XDC_NOM_SITE_CI 
+	{
+		/*A ALORS s'abonner aux deux sites */
+		vl_site_demande = XDC_NOM_SITE_VC
+		/*B preparation de la requete pour l'abonnement à DM */
+		vl_cmd[0]=MTAR_MSG_EXEC
+		vl_cmd[1]=1
+		vl_cmd[2]=MTAR_FCT_XZEA28
+		vl_cmd[3]=va_1++ MTAR_CAR_SEPAR ++ vl_site_demande
+		/*B envoi de la commande a la tache TAR01 */
+		DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+
+		vl_site_demande = XDC_NOM_SITE_DN
+		/*B preparation de la requete pour l'abonnement à DN */
+		vl_cmd[0]=MTAR_MSG_EXEC
+		vl_cmd[1]=1
+		vl_cmd[2]=MTAR_FCT_XZEA28
+		vl_cmd[3]=va_1++ MTAR_CAR_SEPAR ++ vl_site_demande
+		/*B envoi de la commande a la tache TAR01 */
+		DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	}
+	else
+	{
+		/*A SINON s'abonner au  site sur lequel on est */
+		/*B preparation de la requete pour l'abonnement */
+		vl_cmd[0]=MTAR_MSG_EXEC
+		vl_cmd[1]=1
+		vl_cmd[2]=MTAR_FCT_XZEA28
+		vl_cmd[3]=va_1++ MTAR_CAR_SEPAR ++ va_2
+		/*B envoi de la commande a la tache TAR01 */
+		DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	}
+	/*A FINSI */	
+	vl_text = COM09_Date_Courante() ++ " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/*----------------------------------------------------------------------------
+* SERVICE RENDU :	MAj du tableau des pictogrammes
+*
+* -------------------------------------------------------------------------*/
+ 
+MACRO ITMA_TPM_MAJ_tableau(va_message)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*			va_message : message reçu par le poke
+*
+* ARGUMENTS EN SORTIE : 
+*		
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION :	MAJ du tableau des pictogrammes
+*   	
+*
+----------------------------------------------------------------------------*/
+
+var	vl_text		' chaine de caratères
+var	i			' index de loop
+var	j			' index de loop
+var	vl_TypEqt		' Type d'équipement
+var	vl_message	' tableau du message
+
+
+
+vl_message = COMMA_SPLIT@(va_message)
+vl_message[0] = vl_message[0] + 0	' type eqt
+vl_message[1] = vl_message[1] + 0	' n° eqt
+vl_message[2] = vl_message[2] + 0	' normal ou surbrillant
+
+
+/*A si reception d'un eqt autre que PMV,PCT ou NAV : retour NOK */
+if vl_message[0]<>XDC_EQT_PMV and vl_message[0]<>XDC_EQT_PCT and
+ vl_message[0]<>XDC_EQT_NAV and vl_message[0]<>XDC_EQT_PAL and
+ vl_message[0]<>XDC_EQT_FAC and vl_message[0]<>XDC_EQT_FAU
+  { Return(COM_NOK) } 
+
+FOR i  = 0 to ARRAY_SIZE@(vm_table_donnee) - 1
+
+	/*A capture du type d'eqt */
+	if vm_F_Type_Num[i,1]="PCT" { vl_TypEqt = XDC_EQT_PCT }
+	if vm_F_Type_Num[i,1]="PMV" { vl_TypEqt = XDC_EQT_PMV }
+	if vm_F_Type_Num[i,1]="BRA" { vl_TypEqt = XDC_EQT_NAV }
+	if vm_F_Type_Num[i,1]="FAC" { vl_TypEqt = XDC_EQT_FAC }
+	if vm_F_Type_Num[i,1]="FAU" { vl_TypEqt = XDC_EQT_FAU }
+	if vm_F_Type_Num[i,1]="PAL" { vl_TypEqt = XDC_EQT_PAL }
+
+	/*B si le message reçu contient le NumEqt lu */
+	if (vm_F_Type_Num[i,0]+0 = vl_message[1]) 
+			and (vl_message[1]<>0) and (vl_TypEqt = vl_message[0])
+	{
+
+		/*B si le message reçu contient XDC_CONTRASTENORMAL */
+		if (vl_message[2] = XDC_CONTRASTENORMAL)
+		{
+			/*B MAJ du picto */
+			vm_table_picto[i] = REP_CONFIG ++ "pic/pix_faible_intensite",""
+			vm_table_donnee[i,2] = XDC_CONTRASTENORMAL
+	
+			/*B MAJ du tableau */
+			DB_TABLE_SET_DATA@(vl_fenetre_chx_int, "TA_Equipements", 
+								vm_table_donnee, vm_table_titre, vm_table_picto)			
+
+		}
+	
+		/*B si le message reçu contient XDC_CONTRASTEBRILLANT */
+		if (vl_message[2] = XDC_CONTRASTEBRILLANT)
+		{
+			/*B MAJ du picto */
+			vm_table_picto[i] =  REP_CONFIG ++ "pic/pix_forte_intensite",""
+			vm_table_donnee[i,2] = XDC_CONTRASTEBRILLANT
+
+			/*B MAJ du tableau */
+			DB_TABLE_SET_DATA@(vl_fenetre_chx_int,"TA_Equipements", 
+								vm_table_donnee, vm_table_titre, vm_table_picto)
+
+		}
+
+	}
+
+NEXT i
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des équipements disponibles
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPM2_Liste_Eqt_Dispo(va_type,va_District,va_Dispo)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		va_type		:	le type d'équipement
+*		va_District		:	le numero du district
+*		va_Dispo		:	le type de disponibilité
+*
+*
+* ARGUMENTS EN SORTIE : 
+*		ListeEqts		: la liste des équipements correspondants
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   	Lecture des équipements en disponibilités.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR FORMAT COM_Localisation 	 vl_localisation
+
+	var	vl_Liste_select	' liste resultat du select SQL
+	var	vl_Liste		' liste formattée
+	var	i,j			' index de loop
+	var	vl_taille		' taille de la table de resultat
+	var 	vl_autoroutes		' listes des autoroutes
+	var	vl_text		
+
+
+	/*A trace de l'appel de procedure */
+	vl_text = COM09_Date_Courante()  
+	vl_text =  vl_text ++ "--> XZAT01_Liste_Eqt_Dispo("++va_type++","++va_District++",...)"
+	COM01_Trace(0,vl_text)
+
+	vl_autoroutes = SYSTEM_VAR@(vg_les_autoroutes)
+
+	vl_parametres[0].type	= SYB#INT1_
+	vl_parametres[0].data	= va_type
+	vl_parametres[0].output	= FALSE
+	
+	vl_parametres[1].type	= SYB#INT1_
+	if va_District = XDC_CI
+	{
+		vl_parametres[1].data	= NULL
+	}
+	else
+	{
+		vl_parametres[1].data	= va_District
+	}
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT4_			' Conditions
+	vl_parametres[2].data	= NULL
+	vl_parametres[2].output	= FALSE
+
+	vl_parametres[3].type	= SYB#INT4_			' Conditions niees
+	vl_parametres[3].data	= XDC_EQT_MAJEUR + XDC_EQT_CRITIQUE + XDC_EQT_DESACTIVE + XDC_EQT_HS + XDC_EQT_INHIBE
+	vl_parametres[3].output	= FALSE
+
+	vl_parametres[4].type	= SYB#INT4_			' Exclusions
+	vl_parametres[4].data	= NULL
+	vl_parametres[4].output	= FALSE
+
+	vl_parametres[5].type	= SYB#INT4_			' Exclusions niees
+	vl_parametres[5].data	= NULL
+	vl_parametres[5].output	= FALSE
+
+IF COM05_SQL_Procedure (XZAT01_Liste_Eqt_Dispo,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+	{
+		COM01_Trace(0,COM09_Date_Courante()++" --> Pb avec XZAT01_Liste_Eqt_Dispo")
+    		RETURN (COM_NOK)
+	}
+
+	/*A récuperation du select dans la liste 'liste_select' */
+	vl_Liste_select = vl_resultats.select_results[0]
+	if va_type = XDC_EQT_PCT { vm_F_PCT = vl_Liste_select }
+	if va_type = XDC_EQT_PMV { vm_F_PMV = vl_Liste_select }
+	if va_type = XDC_EQT_NAV { vm_F_NAV = vl_Liste_select }
+	if va_type = XDC_EQT_FAC { vm_F_FAC = vl_Liste_select }
+	if va_type = XDC_EQT_FAU { vm_F_FAU = vl_Liste_select }
+	if va_type = XDC_EQT_PAL { vm_F_PAL = vl_Liste_select }
+	vl_taille = ARRAY_SIZE@(vl_Liste_select) - 1	
+
+	/*A Construction de la liste des équipements */
+     /* dem 198 bug */
+	/* if vl_taille>0 */
+     if vl_taille >=0
+	{
+	for i = 0 to vl_taille	
+
+		/*A Format du n° d'equipement */
+		if LEN@(vl_Liste_select[i,1]) = 1
+		 { vl_Liste_select[i,1] = "00" ++ vl_Liste_select[i,1] }
+		if LEN@(vl_Liste_select[i,1]) = 2
+		 { vl_Liste_select[i,1] = "0" ++ vl_Liste_select[i,1] }
+
+		vl_localisation.NumAuto = vl_Liste_select[i,3]
+		vl_localisation.PR = vl_Liste_select[i,4]
+		vl_localisation.sens_circulation = vl_Liste_select[i,5]
+
+		vl_Liste[i] = COM10_Localisation(vl_localisation)
+
+	next i
+	}
+	else
+	{
+		vl_Liste		= 	""
+		vl_Liste[0]		= 	""
+	}
+
+	RETURN (vl_Liste)
+
+ENDMACRO
+
+
+
+
+

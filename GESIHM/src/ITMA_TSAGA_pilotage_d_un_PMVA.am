@@ -1,0 +1,2366 @@
+/*E*/
+/* Fichier : $Id: ITMA_TSAGA_pilotage_d_un_PMVA.am,v 1.3 2020/11/03 17:46:46 pc2dpdy Exp $    Release : $Revision: 1.3 $       Date : $Date: 2020/11/03 17:46:46 $
+*-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER ITMA_TSAGA_pilotage_d_un_PMVA.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Le module permet de commander l'affichage sur 1 PMV 3 ou 4 lignes
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG	xx/03/17	: Creation d'apres ITMA_TPMVA_pilotage_d_un_PMVA.am V1.10  1.1
+* JPL	06/04/18	: Prise en compte mise au neutre programme (DEM 1278)  1.2
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes générales
+ * ------------------------------------*/
+DEFINE	C_MODULE			"MPMVA"	' Nom du module
+
+DEFINE	REP_CONFIG		"/produits/migrazur/appliSD/fichiers/"
+
+
+/*A Description des modules à inclures
+ * ----------------------------------
+ */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+INCLUDE	"GESIHM/inc/ITMA_PMV_format.h"
+INCLUDE	"GESIHM/inc/ITMA_TSAGA_pilotage_PMV.h"
+
+
+/*A Description des procedures sotckées à appeler
+ * ---------------------------------------------*/
+INCLUDE	"GESIHM/inc/xzat78sp.h"
+INCLUDE	"GESIHM/inc/xzac640sp.h"
+
+
+/*A Description des variables globales
+ * ----------------------------------*/
+var     	vm_fenetre			' item de la fenetre du module
+var     	vm_objet_selecte		' L'objet courant de la fenetre
+var     	vm_la_fenetre_est_active	' flag d'activation de la fenetre
+
+var             vm_poke_tdp1                    ' tdp pour destination 1
+var             vm_poke_tdp2                    ' tdp pour destination 2
+var             vm_poke_tdp4                    ' tdp pour destination 4
+var             vm_poke_tdp5                    ' tdp pour destination 5
+var 		vm_mode_auto
+
+var		vm_titre_table_proposition	' titre du tableau des propositions.
+var 		vm_table_proposition	' libellés du tableau des proposition
+var		vm_liste_elements		' liste des diférents éléments
+var		vm_liste_PMV			' liste des différents PMV
+var		vm_Text_Actif			' type du text modifié (message ou alternat)
+var		vm_District			' le code du district
+var		vm_NomSite			' le nom du district
+var		vm_les_districts		' Liste des district
+var		vm_NomOperateur
+var		vm_validation_nouv_message ' flag de validation d'une modif de message 
+var		vm_mode_formation		' Mode Formation
+var		vm_Appel
+var format Config_SAGA		vm_Config_PMV	' table avec t[n] = configuration du PMVA numéro n
+var format T_commande 		vm_PMV		' PMVA dont l'état actuel est affiché
+var format T_commande 		vm_Lect_PMV	' PMVA séléctionné dans la liste pour affichage nouveau message
+var		vm_Destination
+/*A Description des tableaux
+ * ------------------------*/
+var format T_commande vm_etat_PMV		' table avec t[n] = état du PMVA numéro n
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* 	DESCRIPTION DES DIFFERENTS MACROS LIEES AU MODULE
+*		'ITMA_TSAGA_pilotage_d_un_PMVA.am' :
+*  ----------------------------------------------------------------------------
+*
+*	ITMA_TSAGA_pilotage_d_un_PMVA (va_appelant,va_1,va_2,va_3) 
+*		description :	Commande l'affichage sur PMV via IHM
+*
+* 	ITMA_TPM_BL_éléments_click
+*		description :	Capture le click de la liste des éléments
+*					MAJ des lignes 1,2 et 3
+*
+* 	ITMA_TSAGA_Tabuler_ligne (old,new,taille)
+*		description :	Centre un message sur une zone de 'n' caractère
+*
+*	ITMA_TPM_Modif_message
+*		description :	Modifications du message et MAJ de la BL
+*
+*	ITMA_TPM_Appel_Modif_message 
+*		description :	Affichage d'un BE pour modification du message
+*
+*	ITMA_TPM_Lecture_PMV 
+*		descritpion :	Lecture des PMV disponibles
+*					via 'XZAT05_Utilisation_PMV'
+*
+*	ITMA_TPM_MAJ_PMV ( va_type )
+*		description :	MAJ des données nouvelle  ou actuel sur l'IHM
+*					depuis la table PMV
+*	ITMA_TPM_Commande_PMV 
+*		description :	Commande du nouveau PMV
+*
+*	ITMA_TPM_Liste_Eqt_Dispo 
+*		description :	Lecture des PMV disponible
+*
+*	ITMA_TPM_Executer_PMV 
+*		description :	Execution des commandes PMV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commande l'affichage sur PMV 
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TSAGA_pilotage_d_un_PMVA (va_appelant,va_1,va_2,va_3,va_4,va_5,va_6)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 à va_6		: N° d'ordre + N° PA  ou  N° Equipement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> PMV dans MTPA : Plan d'action
+*   Selection de Piloter -> PMV dans MTMT : menu textuel
+*  Selection d'un PMV sur synotique ( clic droit) -> ISYN_SOP
+*   Selection d'un PMV sur synotique ( clic gauche ) -> ITMA_TUE
+*
+* FONCTION
+*   Lit en base de donnees puis affiche la liste des alarmes en cours en
+*   mettant en evidence les changements par rapport a la derniere consultation.
+*   Permet a l'operateur de choisir des alarmes dans la liste affichee puis
+*   d'en effectuer l'acquittement, avec mise a jour de la base de donnees.
+*
+---------------------------------------------------------------------------- */
+
+
+var		i,j,k				' index de loop
+var		vl_mess
+var		vl_liste_font			' liste des fonts disponibles sous Applix
+var		vl_objet				' objet en cours de modification
+var		vl_retour		 		' code retourne à l'appelant
+var		vl_lib_fmc			' tableau du libellé fmc
+var		vl_fmc				' libellé fmc à construire
+var		vl_fmc1				' 1ere partie du libellé fmc
+var		vl_fmc2				' 2eme partie du libellé fmc
+var		vl_erreur				' flag d'erreur
+var		vl_numero
+var		tl_titres,tl_data,tl_retour
+var		vl_ligne
+var		vl_rang
+var		vl_lecture
+var		vl_message
+var		vl_tplecture			' text tampon de lecture d'une liste
+var		vl_tptext				' zone de text tampon
+var		vl_messages_acceptes	' les messages acceptés en "_poke"
+var		vl_coderet
+var		tl_liste_causes
+var		vl_Destination
+var		vl_NumDest
+var		vl_num_eqt
+var		vl_liste_district
+var		tl_sel_pmv
+
+vl_retour 	= { COM_QUITTE }
+vl_liste_font 	= LIST_FONT_FAMILIES@()
+vm_NomSite 	= SYSTEM_VAR@("vg_nom_site")
+vm_District 	= SYSTEM_VAR@("vg_site")
+
+vm_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vm_NomOperateur = SUBSTRING@(vm_NomOperateur, 1, 25)
+
+vm_Config_PMV 	= SYSTEM_VAR@(vg_type_SAGA)
+
+vm_validation_nouv_message = XDC_FAUX
+
+/*!!! */
+/*!!!  SET_SYSTEM_VAR@(vg_formation,COM_FORMATION_PASSIF) */
+/*!!! */
+
+vm_mode_formation = (SYSTEM_VAR@(vg_formation) <> NULL)
+
+
+INSTALL_FILE@("ITMA_TSAGA_Lecture_Etat_SAGA.elo")
+
+/*A Definition du traitement a realiser en cas d'erreur
+* -----------------------------------------------------*/
+
+ON ERROR {
+    ERROR_BOX@
+    RETURN
+}
+
+
+vl_tptext = "Start ITMA_TSAGA_pilotage_d_un_PMVA " ++ "   User : " ++ vm_NomOperateur
+COM01_Trace(COM_INFO,vl_tptext)
+
+vl_tptext = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_tptext)
+
+if NOT(IS_ARRAY@(va_1))
+{vl_tptext = "va_1 : " ++ va_1
+COM01_Trace(0,vl_tptext)}
+
+if NOT(IS_ARRAY@(va_2))
+{vl_tptext = "va_2 : " ++ va_2
+COM01_Trace(0,vl_tptext)}
+
+if NOT(IS_ARRAY@(va_3))
+{vl_tptext = "va_3 : " ++ va_3
+COM01_Trace(0,vl_tptext)}
+
+if NOT(IS_ARRAY@(va_4))
+{vl_tptext = "va_4 : " ++ va_4
+COM01_Trace(0,vl_tptext)}
+
+if NOT(IS_ARRAY@(va_5))
+{vl_tptext = "va_5 : " ++ va_5
+COM01_Trace(0,vl_tptext)}
+
+if NOT(IS_ARRAY@(va_6))
+{vl_tptext = "va_6 : " ++ va_6
+COM01_Trace(0,vl_tptext)}
+
+vm_Appel = SUBSTRING@(va_appelant,1,8)
+
+
+/*A test les droits d'acces à cette fonction */
+if vm_appel="ISYN_SOP"
+{
+	if NOT vm_mode_formation  and NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) and 
+	NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+	NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and 	
+	NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_ADMINISTRATION)) and 	
+	(NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI) and
+	  SYSTEM_VAR@(vg_site) = XDC_CI) )
+	{		
+		vl_tptext = " Appel pilotage PMVA SAGA depuis syno par un utilisateur non autorisé"
+		COM01_Trace(COM_WARNING,vl_tptext)
+		RETURN(COM_OK)
+	}
+}
+
+
+vm_liste_PMV = ITMA_TSAGA_Liste_Eqt_Dispo ()
+if NOT IS_ARRAY@(vm_liste_PMV)
+{ 
+	INFO_MESSAGE@( "Aucun PMVA disponible" )
+	RETURN(COM_OK)
+}
+
+vm_mode_auto = 0
+
+if vm_appel="ISYN_SOP"
+{
+	if IS_ARRAY@(va_1) { vl_numero = va_1[0]+0 }
+	else { vl_numero = va_1+0 }
+	vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PMV,0), vl_numero)
+	if vl_numero = -1
+	{ 
+		INFO_MESSAGE@( "PMVA indisponible" )
+		RETURN(COM_OK)
+	}
+	vm_PMV.identifiant = vm_Config_PMV[vl_numero].Identifiant
+	vm_pmv.numero_eqt = vl_numero
+	/* Au CI si appel depuis depuis le synoptique prendre le district du PMV  */
+	if vm_District = XDC_CI
+	{ 
+		if NOT ITMA_COM_District_pilotable(vm_Config_PMV[vl_numero].sitegestion, 
+				XDC_LIB_PMVA,TRUE,vm_Config_PMV[vl_numero].Identifiant) 
+		{ 
+			vl_tptext = " Appel pilotage PMVA depuis syno pour un PMVA pilotable au secteur " ++ vm_Config_PMV[vl_numero].NomSite
+			COM01_Trace(COM_INFO,vl_tptext)
+				RETURN(COM_OK)
+ 		}	
+	}
+	else
+	{ 
+		if (vm_District <> vm_Config_PMV[vl_numero].sitegestion) 
+		{ 
+			vl_tptext = " Appel pilotage PMVA depuis syno pour un PMVA hors secteur " ++ vm_Config_PMV[vl_numero].NomSite
+			COM01_Trace(COM_INFO,vl_tptext)
+			RETURN(COM_OK)
+		}
+	}
+	vm_Lect_PMV 	= vm_etat_PMV[vl_numero]
+	vm_PMV 		= vm_etat_PMV[vl_numero]
+
+	vl_numero = ARRAY_INDEX@(vm_liste_PMV,vm_PMV.identifiant)
+	if vl_numero = -1
+	{ 
+		INFO_MESSAGE@( "PMVA indisponible" )
+		RETURN(COM_OK)
+	}
+
+}
+else if (vm_appel = "ITMA_TPA") {
+	vm_pmv = va_2
+	vm_lect_PMV = va_2
+	vm_mode_auto = va_3
+	ITMA_TSAGA_Tabuler_ligne(vm_lect_pmv.ligne1,vl_tptext,15)
+	vm_lect_pmv.ligne1=vl_tptext
+	ITMA_TSAGA_Tabuler_ligne(vm_lect_pmv.ligne2,vl_tptext,15)
+	vm_lect_pmv.ligne2=vl_tptext
+	ITMA_TSAGA_Tabuler_ligne(vm_lect_pmv.ligne3,vl_tptext,15)
+	vm_lect_pmv.ligne3=vl_tptext
+	ITMA_TSAGA_Tabuler_ligne(vm_lect_pmv.ligne4,vl_tptext,15)
+	vm_lect_pmv.ligne4=vl_tptext
+	ITMA_TSAGA_Tabuler_ligne(vm_lect_pmv.ligne5,vl_tptext,15)
+	vm_lect_pmv.ligne5=vl_tptext
+	vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PMV,0),vm_pmv.numero_eqt)
+	vm_pmv = vm_etat_PMV[vl_numero]
+}
+else
+{
+	vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PMV,1),vm_liste_PMV[0])
+	if vl_numero >= 0
+ 	{ 
+		vm_Lect_PMV 	= vm_etat_PMV[vl_numero]
+		vm_PMV 		= vm_etat_PMV[vl_numero]
+	}
+}
+
+
+/*A Charger la fenetre de pilotage d'un PMV 
+ * ----------------------*/
+vm_fenetre = DB_LOAD@("ITMA_TSAGA_pilotage_d_un_PMVA")
+
+if (vm_mode_auto) {
+  if ( (TRIM@(vm_Lect_PMV.ligne1)="") ANd
+     (TRIM@(vm_Lect_PMV.ligne2)="") AND
+     (TRIM@(vm_Lect_PMV.ligne3)=""))
+    vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_NEUTRE
+
+  if      (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_NEUTRE) or
+          (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_HEURE) or
+          (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_ETEINT)
+	ITMA_TSAGA_Commande_Fin_PMVA() 
+  else
+    ITMA_TSAGA_Commande_PMVA()
+  return (COM_QUITTE)
+}
+
+vl_messages_acceptes[0] = COM_CANAL_FIN
+vl_messages_acceptes[1] = COM_CANAL_MTSAGA_ETAT
+'vl_messages_acceptes[2] = COM_CANAL_MTPMVA_TDP
+DB_ACCEPT_POKES@ (vm_fenetre, vl_messages_acceptes)
+DB_DISPLAY_ONLY@(vm_fenetre,TRUE)
+DB_WINDOW_REMAIN@ (vm_fenetre, TRUE)
+DB_XPOS@ (vm_fenetre,0)
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+DB_YPOS@ (vm_fenetre,300)
+else
+DB_YPOS@ (vm_fenetre,104)
+DB_CTRL_HORIZ_SCROLL@(vm_fenetre,"TA_proposition",FALSE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"TA_proposition",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BO_Arret",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BA_clignotement1_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BA_clignotement2_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BA_clignotement3_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BA_clignotement4_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BA_clignotement5_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BT_flash_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_message_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_alternat_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_PMV",TRUE)
+DB_CTRL_MULTI_SELECT@(vm_fenetre, "BL_PMV", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_éléments",TRUE)
+
+DB_CTRL_DISPLAY@(vm_fenetre, "BT_flash_nouveau", FALSE)
+DB_CTRL_DISPLAY@(vm_fenetre, "BT_flash_actuel", FALSE)
+
+
+/*A Definir les caracteristiques (initiales) des objets graphiques
+* --------------------------------------------------------------*/
+
+/* effacer certains éléments de la boite de dialogue */
+DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",FALSE)
+DB_CTRL_GRAYED@(vm_fenetre,"BP_lier_fmc",FALSE)
+
+/* afficher sur fond blanc les zones de listes et de tableaux */
+DB_CTRL_WORK_COLORS@(vm_fenetre,"BL_message_actuel",TRUE)
+DB_CTRL_WORK_COLORS@(vm_fenetre,"BL_message_nouveau",TRUE)
+DB_CTRL_WORK_COLORS@(vm_fenetre,"BL_alternat_actuel",TRUE)
+DB_CTRL_WORK_COLORS@(vm_fenetre,"BL_alternat_nouveau",TRUE)
+/*
+DB_CTRL_WORK_COLORS@(vm_fenetre,"BE_remarque",TRUE)
+*/
+
+
+/*A Affichage de la fenetre
+* -------------------------*/
+DB_DISPLAY@(vm_fenetre)
+
+
+
+/*A MAJ TA_proposition
+* -------------------*/
+
+vm_table_proposition 			= ""
+vm_table_proposition[0,0]		=" "
+vm_table_proposition[0,1]		=" "
+vm_table_proposition[0,2]		=" "
+vm_table_proposition[0,3]		=" "
+vm_table_proposition[0,4]		=" "
+vm_titre_table_proposition 		= ""
+vm_titre_table_proposition[0,0] 	= "Ligne 1"
+vm_titre_table_proposition[0,1]	= 160
+vm_titre_table_proposition[1,0] 	= "Ligne 2"
+vm_titre_table_proposition[1,1]	= 160
+vm_titre_table_proposition[2,0] 	= "Ligne 3"
+vm_titre_table_proposition[2,1]	= 160
+vm_titre_table_proposition[3,0] 	= "Ligne 4"
+vm_titre_table_proposition[3,1]	= 160
+vm_titre_table_proposition[4,0] 	= "Ligne 5"
+vm_titre_table_proposition[4,1]	= 160
+
+DB_TABLE_ALLOW_EDITING@(vm_fenetre,"TA_proposition",True)
+DB_TABLE_ALLOW_COLUMN_RESIZING@(vm_fenetre,"TA_proposition",True)
+DB_TABLE_SET_MARKER_WIDTH@(vm_fenetre,"TA_proposition",24)
+DB_TABLE_SET_DATA@(	vm_fenetre,
+				"TA_proposition",
+				vm_table_proposition,
+				vm_titre_table_proposition)
+		
+
+
+
+
+vm_liste_elements = READ_ASCII_FILE@(REP_CONFIG ++ "pmv/ConfigListeElementsPMVA.cfg")
+
+DB_CTRL_STRINGS@(vm_fenetre, "BL_éléments", vm_liste_elements)
+DB_CTRL_VALUE@(vm_fenetre, "BL_éléments", 0)
+DB_CTRL_PICK_DEFAULT@(vm_fenetre, "BL_éléments", TRUE)
+
+DB_CTRL_STRINGS@(vm_fenetre,"BL_PMV",vm_liste_PMV)
+vl_numero = ARRAY_INDEX@(vm_liste_PMV,vm_PMV.identifiant)
+tl_sel_pmv = { vl_numero }
+DB_CTRL_VALUE@(vm_fenetre, "BL_PMV", tl_sel_pmv)
+
+/*A Modif. de la police des fenetres de messages et d'alternats
+* -----------------------------------------------------------*/
+DB_CTRL_MONOSPACE@(vm_fenetre,"BL_message_actuel",TRUE)
+DB_CTRL_MONOSPACE@(vm_fenetre,"BL_alternat_actuel",TRUE)
+DB_CTRL_MONOSPACE@(vm_fenetre,"BL_message_nouveau",TRUE)
+DB_CTRL_MONOSPACE@(vm_fenetre,"BL_alternat_nouveau",TRUE)
+
+
+/*A Lire l'état actuel des PMV selon l'origine de l'appel
+ * ------------------------------------------------------*/
+
+
+vl_erreur = ITMA_TSAGA_Lecture_PMVA()
+if vl_erreur<>COM_NOK then ITMA_TSAGA_MAJ_PMVA  ( "actuel" )
+ 
+ITMA_TSAGA_MAJ_PMVA  ( "nouveau" )
+DB_CTRL_VALUE@(vm_fenetre,"BO_Arret",1)
+
+if (vm_appel = "ITMA_TPA") {
+        ITMA_COM_Lire_Evenement (vm_lect_pmv.numero_evt,
+                                vm_lect_pmv.cle_evt,
+                                vl_lib_fmc,
+                        "TSAGA")
+        vl_fmc = COM11_Libelle_FMC(vl_lib_fmc)
+        vl_fmc1=SUBSTRING@(vl_fmc,1,46)
+        vl_fmc2=TRIM@(SUBSTRING@(vl_fmc,46,20))
+	      DB_CTRL_TITLE@(vm_fenetre,"LI_fmc_liée_nouveau",vl_fmc1)
+        DB_CTRL_DISPLAY@(vm_fenetre,"BP_lier_fmc",FALSE)
+        DB_CTRL_DISPLAY@(vm_fenetre,"BO_Arret",FALSE)
+        DB_CTRL_GRAYED@(vm_fenetre,"BL_PMV",TRUE)
+}
+/*A MAJ de la liste des lignes de message
+* -------------------------------------*/
+ ITMA_TSAGA_BL_elements_click
+
+/*A flag de capture des évenements dans la fenetre
+* ------------------------------------------------*/
+DB_DISPLAY_ONLY@(vm_fenetre,FALSE)
+
+
+DB_CTRL_GRAYED@(vm_fenetre,"BP_message",FALSE)
+DB_CTRL_GRAYED@(vm_fenetre,"BP_alternat",FALSE)
+/*DB_CTRL_DISPLAY@(vm_fenetre,"BP_explication",TRUE)
+DB_CTRL_DISPLAY@(vm_fenetre,"BP_refuser",TRUE)*/
+DB_CTRL_DISPLAY@(vm_fenetre,"BP_destination",FALSE)
+DB_CTRL_DISPLAY@(vm_fenetre,"BP_destination_alt",FALSE)
+
+
+/*A Abonnement a l'etat des panneaux */ 
+if (SYSTEM_VAR@(vg_site) = XDC_CI) 
+{
+	vl_liste_district = SYSTEM_VAR@ ( vg_les_districts )
+	for i = 0 to ARRAY_SIZE@(vl_liste_district) - 1
+		if ( vl_liste_district[i][3] = XDC_TYPEM_PC2 ) or 
+		   ( vl_liste_district[i][3] = XDC_TYPEM_PC2LT ) or 
+	 	   ( vl_liste_district[i][3] = XDC_TYPEM_PCS )
+
+		{
+			ITMA_TSAGA_Abt_Etat_SAGA(vl_liste_district[i][2])
+		}
+	next i
+}
+else		
+{
+	ITMA_TSAGA_Abt_Etat_SAGA(vm_NomSite)
+}
+
+
+
+
+/*A Gestion des événements liés à la fiche 'Pilotage des PMV'
+* --------------------------------------------------------*/
+vm_la_fenetre_est_active = TRUE
+WHILE (vm_la_fenetre_est_active)
+
+	/*A
+	 * Lecture de la date system et MAJ du libellé
+	 * -------------------------------------------
+	 */
+	DB_DISPLAY@ (vm_fenetre)
+
+    	vm_objet_selecte = DB_EXIT_CTRL@ (vm_fenetre)
+    	IF SYSTEM_VAR@ (vg_verrou) vm_objet_selecte = NULL
+
+	CASE OF vm_objet_selecte
+
+	/*A SI action sur bouton QUITTER */
+	CASE "BP_quitter"
+
+		vm_la_fenetre_est_active = FALSE 
+
+
+ 	/*B appui sur le bouton lier fmc*/
+	CASE "BP_lier_fmc"
+
+		vl_tptext = "Status : appel lien FMC"
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+							"ITMA_TSAGA_pilotage_d_un_PMVA")
+
+		tl_liste_causes=tl_data[0]
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vm_fenetre,"TA_Evenements",TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"TA_Evenements",TRUE)
+		DB_TABLE_ALLOW_COLUMN_RESIZING@(vm_fenetre,"TA_Evenements",True)
+		DB_TABLE_SET_MARKER_WIDTH@(vm_fenetre, "TA_Evenements", 25)
+		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+		DB_TABLE_SET_DATA@(vm_fenetre,"TA_Evenements",tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vm_fenetre, "TA_Evenements", 0, tl_data[2])
+		
+ 	/*B appui sur le bouton destination */
+	/*CASE "BP_destination"
+
+		vl_Destination = Pend_For_New_Task@("ITMA_TPM_Choix_Destination",
+							vm_PMV.NumEqt,485,130)
+		ITMA_TSAGA_Tabuler_ligne(vl_Destination[1],vl_tptext,15)
+		vm_Lect_PMV.Message2 = UPPERCASE@(vl_tptext)
+		vm_Lect_PMV.Destination	= vl_Destination[0] + 0
+		ITMA_TSAGA_Demande_Calcul_TDP ( vm_Lect_PMV.NumEqt, 
+				vm_Lect_PMV.Destination, vm_Lect_PMV.AltDestination )
+		ITMA_TSAGA_Tabuler_ligne(SAGA_CM_AFF_TEXTE_TDP,vl_tptext,15)
+		vm_Lect_PMV.Message3	= vl_tptext
+		ITMA_TSAGA_MAJ_PMVA ( "nouveau" )*/
+		
+ 	/*B appui sur le bouton destination alternat */
+	/*CASE "BP_destination_alt"
+
+		vl_Destination = Pend_For_New_Task@("ITMA_TPM_Choix_Destination",
+							vm_PMV.NumEqt,485,130)
+		ITMA_TSAGA_Tabuler_ligne(vl_Destination[1],vl_tptext,15)
+		vm_Lect_PMV.Alternat2		= UPPERCASE@(vl_tptext)
+		vm_Lect_PMV.AltDestination	= vl_Destination[0] + 0
+		ITMA_TSAGA_Demande_Calcul_TDP ( vm_Lect_PMV.NumEqt, 
+				vm_Lect_PMV.Destination, vm_Lect_PMV.AltDestination )
+		ITMA_TSAGA_Tabuler_ligne(SAGA_CM_AFF_TEXTE_TDP,vl_tptext,15)
+		vm_Lect_PMV.Alternat3		= vl_tptext
+		ITMA_TSAGA_MAJ_PMVA ( "nouveau" )*/
+		
+	/*B selection d'une proposition*/	
+  	CASE "TA_proposition"
+
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_message",False)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_alternat",False)
+
+	/*B selection d'un message*/	
+  	CASE "BP_message"
+
+	
+		vl_lecture = DB_TABLE_GET_SELECTIONS@(vm_fenetre,"TA_proposition")
+		vl_rang = vl_lecture[0]
+		vl_lecture= DB_TABLE_GET_DATA@(vm_fenetre,"TA_proposition")
+		ITMA_TSAGA_Tabuler_ligne(vl_lecture[vl_rang,0],vl_tptext,15)
+		vm_Lect_PMV.ligne1	= vl_tptext
+		ITMA_TSAGA_Tabuler_ligne(vl_lecture[vl_rang,1],vl_tptext,15)
+		vm_Lect_PMV.ligne2	= vl_tptext
+		ITMA_TSAGA_Tabuler_ligne(vl_lecture[vl_rang,2],vl_tptext,15)
+		vm_Lect_PMV.ligne3	= vl_tptext
+		ITMA_TSAGA_Tabuler_ligne(vl_lecture[vl_rang,3],vl_tptext,15)
+		vm_Lect_PMV.ligne4	= vl_tptext
+		ITMA_TSAGA_Tabuler_ligne(vl_lecture[vl_rang,4],vl_tptext,15)
+		vm_Lect_PMV.ligne5	= vl_tptext
+		
+
+		if DB_CTRL_GET_VALUE@(vm_fenetre,"BA_cligno1")=True
+		{	vm_Lect_PMV.Clignotement = XDC_PMV_CLIGNORAPIDE }
+		else 
+		{	vm_Lect_PMV.Clignotement = XDC_PMV_PASCLIGNO }
+
+
+		vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TEXTE
+		ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_message",True)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_alternat",True)
+
+		vl_tptext = "Status : MAJ du message du PMVA "
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+		DB_TABLE_SET_SELECTIONS@(vm_fenetre,"TA_proposition",NULL)
+
+
+	/*B selection d'un alternat*/	
+  	CASE "BP_alternat"
+
+		vl_lecture = DB_TABLE_GET_SELECTIONS@(vm_fenetre,"TA_proposition")
+		vl_rang = vl_lecture[0]
+		vl_lecture= DB_TABLE_GET_DATA@(vm_fenetre,"TA_proposition")
+		ITMA_TSAGA_Tabuler_ligne(vl_lecture[vl_rang,0],vl_tptext,15)
+		vm_Lect_PMV.Alternat1	= vl_tptext
+		ITMA_TSAGA_Tabuler_ligne(vl_lecture[vl_rang,1],vl_tptext,15)
+		vm_Lect_PMV.Alternat2	= vl_tptext
+		ITMA_TSAGA_Tabuler_ligne(vl_lecture[vl_rang,2],vl_tptext,15)
+		vm_Lect_PMV.Alternat3	= vl_tptext
+		ITMA_TSAGA_Tabuler_ligne(vl_lecture[vl_rang,3],vl_tptext,15)
+		vm_Lect_PMV.Alternat4	= vl_tptext
+		ITMA_TSAGA_Tabuler_ligne(vl_lecture[vl_rang,4],vl_tptext,15)
+		vm_Lect_PMV.Alternat5	= vl_tptext
+
+		if vm_Lect_PMV.TypeAffichage <> SAGA_CM_AFF_TDP
+		{	vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TEXTE }
+		
+		ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_alternat",True)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_message",True)
+
+		vl_tptext = "Status : MAJ de l'alternat du PMVA "
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+ 
+		DB_TABLE_SET_SELECTIONS@(vm_fenetre,"TA_proposition",NULL)
+
+
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+		vl_tptext = "Status : selection evenement"
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+		tl_retour=ITMA_COM_Validite_Cause("ITMA_TSAGA_pilotage_d_un_PMVA",
+										vm_fenetre,tl_liste_causes)
+		vm_Lect_PMV.Numero_Evt = tl_retour[0][0]
+		vm_Lect_PMV.Cle_Evt = tl_retour[0][1]
+		vl_fmc = tl_retour[1]
+		if vm_Lect_PMV.Numero_Evt<>0 and  vm_Lect_PMV.Cle_Evt<>0
+		{
+			vm_Lect_PMV.fmc_liee = vl_fmc
+		}
+		else	vm_Lect_PMV.fmc_liee = "Pas de libellé F.M.C"
+		vl_fmc1=SUBSTRING@(vl_fmc,1,46)
+		vl_fmc2=TRIM@(SUBSTRING@(vl_fmc,46,20))
+
+		DB_CTRL_DISPLAY@(vm_fenetre,"TA_Evenements",FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",FALSE)
+
+	      DB_CTRL_TITLE@(vm_fenetre,"LI_fmc_liée_nouveau",vl_fmc1)
+		DB_CTRL_TITLE@(vm_fenetre,"LI_date_fmc_nouveau",vl_fmc2)
+
+
+
+	/*A SI action sur bouton executer  */
+	CASE "BP_executer"
+		tl_sel_pmv = DB_CTRL_GET_VALUE@(vm_fenetre,"BL_PMV")
+		if NOT IS_ARRAY@ (tl_sel_pmv)				' mono-selection, simuler la multi-selection
+			tl_sel_pmv = { tl_sel_pmv }
+
+		if (ARRAY_SIZE@ (tl_sel_pmv) > 0)
+		{
+			if vm_validation_nouv_message = XDC_FAUX
+			{
+				vl_erreur = COM_OK
+				for i = 0  to ARRAY_SIZE@ (tl_sel_pmv) - 1
+					vl_rang = tl_sel_pmv[i]
+					vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PMV,2), vm_liste_PMV[vl_rang])
+					vm_Lect_PMV.numero_eqt = vm_Config_PMV[vl_numero][0]
+					vm_Lect_PMV.Identifiant = vm_liste_PMV[vl_rang]
+
+					/* memoriser le numero du premier PMVA, dont le retour terrain est attendu */
+					if (i = 0) and (vm_PMV.numero_eqt <> vl_numero) {
+						vm_PMV.numero_eqt = vm_Lect_PMV.numero_eqt
+						ITMA_TSAGA_Reset_PMVA ( "actuel" )
+						ITMA_TSAGA_MAJ_PMVA ( "actuel" )
+						vm_PMV.TypeAffichage = vm_Lect_PMV.TypeAffichage
+					}
+
+					/* executer la commande sur le PMVA */
+					vl_coderet = ITMA_TSAGA_EXECUTER_PMVA ()
+					if vl_coderet <> COM_OK
+						vl_erreur = COM_NOK
+				next i
+				if vl_erreur = COM_OK
+				{
+					DB_CTRL_TITLE@(vm_fenetre, "LI_fmc_liée_nouveau","Pas de fmc liée")
+					DB_CTRL_TITLE@(vm_fenetre, "LI_date_fmc_nouveau","")
+					vm_Lect_PMV.Numero_Evt	= 0
+					vm_Lect_PMV.Cle_Evt	= 0
+					vm_Lect_PMV.fmc_liee	= ""
+				}
+			}
+			else 
+			{
+				info_message@("Execution impossible : Valider ou Annuler la modification du message...")	
+			}
+		}
+		else 
+		{
+			info_message@("Execution impossible : Zone Identification non renseignée...")
+		}
+
+
+	/*A SI action sur bouton refuser le plan d'action pour le 1er PMV 
+	CASE "BP_refuser"
+
+		vl_tptext = "Status : Refus plan d'action"
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_refuser",TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_explication",TRUE)
+		vl_retour[0] = COM_REFUSE*/
+
+
+	/*A SI action sur liste  des PMV */
+	CASE "BL_PMV"
+
+		vl_tptext = "Status : "
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+		tl_sel_pmv = DB_CTRL_GET_VALUE@(vm_fenetre,"BL_PMV")
+		IF NOT IS_ARRAY@ (tl_sel_pmv)				' mono-selection, simuler la multi-selection
+			tl_sel_pmv = { tl_sel_pmv }
+
+		vl_rang = tl_sel_pmv[ARRAY_SIZE@ (tl_sel_pmv) - 1]
+		vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PMV,2), vm_liste_PMV[vl_rang])
+		if (vm_Config_PMV[vl_numero].numeqt <> vm_PMV.numero_eqt)
+ 		{ 
+			vm_Lect_PMV.numero_eqt = vm_Config_PMV[vl_numero].numeqt
+			vm_Lect_PMV.Identifiant = vm_liste_PMV[vl_rang]
+			vm_Lect_PMV.site = vm_Config_PMV[vl_numero].sitegestion
+			vm_PMV = vm_Lect_PMV
+
+			vl_erreur = ITMA_TSAGA_Lecture_PMVA()
+			if vl_erreur<>COM_NOK then ITMA_TSAGA_MAJ_PMVA  ( "actuel" )
+
+			IF (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_NEUTRE)
+			{ 
+				ITMA_TSAGA_Reset_PMVA ( "nouveau" )
+				vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_NEUTRE
+				ITMA_TSAGA_Lire_Neutre_Programme ()
+				ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+			}
+
+		/*	if vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP
+ 			{ 
+		
+				ITMA_TSAGA_Liste_Destination_PMVA ( vm_PMV.numero_eqt, 
+							vl_NumDest, vm_Destination )
+				if ( vl_NumDest[0]+vl_NumDest[1]+vl_NumDest[2]+vl_NumDest[3] + 0 <> 0 )
+				{
+					vm_Lect_PMV.ligne3 = ""
+					vm_Lect_PMV.ligne1 = UPPERCASE@(vm_Destination[0])
+					vm_Lect_PMV.ligne2 = UPPERCASE@(vm_Destination[1])
+					vm_Lect_PMV.ligne4 = UPPERCASE@(vm_Destination[2])
+					vm_Lect_PMV.ligne5 = UPPERCASE@(vm_Destination[3])
+				'	ITMA_TSAGA_Tabuler_ligne(SAGA_CM_AFF_TEXTE_TDP,vl_tptext,15)
+				'	vm_Lect_PMV.Message3	= vl_tptext
+				'	vm_Lect_PMV.Dest1_proche	= vl_NumDest[0] + 0
+				'	vm_Lect_PMV.Dest1_loin	= vl_NumDest[1] + 0
+				'	vm_Lect_PMV.Dest2_proche	= vl_NumDest[2] + 0
+				'	vm_Lect_PMV.Dest2_loin	= vl_NumDest[3] + 0
+
+					vm_Lect_PMV.Alternat1	= ""
+					vm_Lect_PMV.Alternat2	= ""
+					vm_Lect_PMV.Alternat3	= ""
+					vm_Lect_PMV.Alternat4	= ""
+					vm_Lect_PMV.Alternat5	= ""
+					ITMA_TSAGA_Demande_Calcul_TDP_PMVA ( vm_Lect_PMV.numero_eqt, 
+						vm_Lect_PMV.Dest1_proche, vm_Lect_PMV.Dest1_loin, vm_Lect_PMV.Dest2_proche, vm_Lect_PMV.Dest2_loin,vm_Lect_PMV.Site )
+
+					DB_CTRL_GRAYED@(vm_fenetre, "BP_executer", FALSE)
+			ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+				}
+				else
+				{
+				info_message@("Pas d'affichage Temps de parcours possible pour ce PMVA")
+					ITMA_TSAGA_Reset_PMVA ( "nouveau" )
+					ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+
+				}
+
+			}*/
+		}
+
+	/*A SI action sur liste  des types de messages */
+	CASE "BL_éléments"
+
+		vl_tptext = "Status : "
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+		vl_erreur = ITMA_TSAGA_BL_elements_click()	
+
+
+	/*A SI action bouton choix du type d'affichage */
+	CASE "BO_Arret"
+
+		vl_tptext = "Status : "
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+		
+		vm_Lect_PMV.TypeAffichage = DB_CTRL_GET_VALUE@(vm_fenetre,"BO_Arret")	
+
+		if 	vm_Lect_PMV.TypeAffichage > SAGA_CM_AFF_TEXTE and 
+			vm_Lect_PMV.TypeAffichage < SAGA_CM_AFF_TDP
+		{
+			ITMA_TSAGA_Reset_PMVA ( "nouveau" )
+			vm_Lect_PMV.TypeAffichage = DB_CTRL_GET_VALUE@(vm_fenetre,"BO_Arret")
+
+			/* Si choix affichage du neutre, lire la mise au neutre programmee actuelle */
+			IF (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_NEUTRE) {
+				ITMA_TSAGA_Lire_Neutre_Programme ()
+			}
+
+			ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+  		 	DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",FALSE)
+/*			vl_tplecture = ""
+			vl_tplecture[0] = ""
+			DB_EDITBOX_SET_DATA@(vm_fenetre,"BE_remarque",vl_tplecture)*/
+		}
+
+		/* Si choix neutre ou TDP */
+		IF (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_NEUTRE) OR (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP)
+		{
+			/* si plusieurs PMVA sont selectionnes alors ne garder que le dernier */
+			/* (celui qui a fait l'objet de la derniere commande et dont l'etat est affiche) */
+			IF (ARRAY_SIZE@ (tl_sel_pmv) > 1)
+			{
+				DB_CTRL_MULTI_SELECT@(vm_fenetre,"BL_PMV",FALSE)
+				vl_rang = ARRAY_INDEX@(vm_liste_PMV,vm_PMV.Identifiant)
+				IF (vl_rang >= 0)
+				{
+					tl_sel_pmv = { vl_rang }
+					DB_CTRL_VALUE@(vm_fenetre, "BL_PMV", vl_rang)
+				}
+				else
+				{
+					tl_sel_pmv = { }
+					DB_CTRL_VALUE@(vm_fenetre, "BL_PMV", -1)
+				}
+			}
+		}
+
+		/* Si choix aff TDP */
+		if 	vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP
+		{
+			IF (vm_PMV.numero_eqt + 0 <> 0)
+			{
+				ITMA_TSAGA_Liste_Destination_PMVA ( vm_PMV.numero_eqt, 
+								vl_NumDest, vm_Destination )
+
+				if ( vl_NumDest[0]+vl_NumDest[1]+vl_NumDest[2]+vl_NumDest[3] + 0 <> 0 )
+				{
+					ITMA_TSAGA_Tabuler_ligne(vm_Destination[0],vl_tptext,15)
+					vm_Lect_PMV.ligne3 = ""
+					vm_Lect_PMV.ligne1 = UPPERCASE@(vm_Destination[0])
+					vm_Lect_PMV.ligne2 = UPPERCASE@(vm_Destination[1])
+					vm_Lect_PMV.ligne4 = UPPERCASE@(vm_Destination[2])
+					vm_Lect_PMV.ligne5 = UPPERCASE@(vm_Destination[3])
+				'	ITMA_TSAGA_Tabuler_ligne(SAGA_CM_AFF_TEXTE_TDP,vl_tptext,15)
+				'	vm_Lect_PMV.Message3	= vl_tptext
+				'	vm_Lect_PMV.Dest1_proche	= vl_NumDest[0] + 0
+				'	vm_Lect_PMV.Dest1_loin	= vl_NumDest[1] + 0
+				'	vm_Lect_PMV.Dest2_proche	= vl_NumDest[2] + 0
+				'	vm_Lect_PMV.Dest2_loin	= vl_NumDest[3] + 0
+
+				/*	ITMA_TSAGA_Demande_Calcul_TDP_PMVA ( vm_Lect_PMV.numero_eqt, 
+						vm_Lect_PMV.Dest1_proche, 
+						vm_Lect_PMV.Dest1_loin, 
+						vm_Lect_PMV.Dest2_proche, vm_Lect_PMV.Dest2_loin,
+						vm_Lect_PMV.Site )*/
+
+
+
+					ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+				}
+				else
+				{
+					info_message@("Pas d'affichage Temps de parcours possible pour ce PMVA ")
+					ITMA_TSAGA_Reset_PMVA ( "nouveau" )
+					ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+				}
+			}
+			else
+			{
+				ITMA_TSAGA_Reset_PMVA ( "nouveau" )
+				ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+			}
+		}
+
+	case "ITMA_TSAGA_nouveau"
+	'	if DB_CTRL_GET_VALUE@(vm_fenetre,"ITMA_TSAGA_nouveau")
+		'	vm_lect_pmv.flash=XDC_PMV_FLASH		
+	'	else
+	'			vm_lect_pmv.flash=XDC_PMV_PASFLASH
+
+	/*A SI action sur bascule de clignotement PMV */
+	CASE "BA_clignotement1_nouveau"
+	CASE "BA_clignotement2_nouveau"
+	CASE "BA_clignotement3_nouveau"
+	CASE "BA_clignotement4_nouveau"
+	CASE "BA_clignotement5_nouveau"
+		if  DB_CTRL_GET_VALUE@(vm_fenetre,"BA_clignotement1_nouveau")
+		{ vm_Lect_PMV.Clignotement = XDC_PMV_CLIGNORAPIDE }
+		else { vm_Lect_PMV.Clignotement = XDC_PMV_PASCLIGNO }
+
+	
+
+		if vm_Lect_PMV.TypeAffichage <> SAGA_CM_AFF_TDP
+		{	vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TEXTE }
+
+
+  	/*A SI clic sur nouveau message  du  PMVA */
+	CASE "BL_message_nouveau"
+		if vm_validation_nouv_message = XDC_FAUX /*!!! and 
+		   vm_Lect_PMV.TypeAffichage <> SAGA_CM_AFF_TDP */
+
+		{
+			vl_tptext = "Status : MAJ message "
+ 			DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+			vm_Text_Actif = "message"
+			ITMA_TSAGA_Appel_Modif_message("message")
+		}
+
+   	/*A SI clic sur nouvel alternat du  PMV */
+	CASE "BL_alternat_nouveau"
+		if vm_validation_nouv_message = XDC_FAUX /*!!! and 
+		    vm_Lect_PMV.TypeAffichage <> SAGA_CM_AFF_TDP */
+		{
+			vl_tptext = "Status : MAJ alternat "
+ 			DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+			vm_Text_Actif = "alternat"
+			ITMA_TSAGA_Appel_Modif_message("alternat")
+		}
+
+  	/*A SI clic sur valider message  du  PMV */
+ 	CASE "BP_valider_nouveau"
+
+		vl_tptext = "Status : Validation Modif."
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+		vm_validation_nouv_message = XDC_FAUX
+		ITMA_TSAGA_Modif_message
+
+	/*A SI action sur bouton copier / coller   */
+	CASE "BP_copier_coller"
+		vm_Lect_PMV = vm_PMV
+		ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+
+		vl_tptext = "Status : Copie de l'état actuel du PMVA"
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+  	/*A SI clic sur annuler modif message  du  PMV */
+	CASE "BP_annuler_nouveau"
+
+		vl_tptext = "Status : Annulation Modif. "
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_valider_nouveau",FALSE)	
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_annuler_nouveau",FALSE)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif1",FALSE)	
+		DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif2",FALSE)	
+		DB_CTRL_DISPLAY@(vm_fenetre, "BS_modif3",FALSE)
+		DB_CTRL_DISPLAY@(vm_fenetre, "BS_modif4",FALSE)
+		DB_CTRL_DISPLAY@(vm_fenetre, "BS_modif5",FALSE)
+		vm_validation_nouv_message = XDC_FAUX
+		ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_message",True)	
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_alternat",True)
+
+
+    	CASE "poke_"
+
+     	CASE OF  DB_GET_POKE@ (vm_fenetre)
+
+  		/*A SI reception message de FIN */
+    		CASE COM_CANAL_FIN
+    			vm_la_fenetre_est_active = FALSE
+
+   		/*A SI reception etat PMV */
+      	CASE COM_CANAL_MTSAGA_ETAT
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre)
+			/*A décomposition du message reçu en tableau */
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+			vl_num_eqt = vl_mess[0]+0
+			'COM01_Trace(COM_DEBUG2, "Recu etat PMVA " ++ vl_num_eqt)
+
+			/* indicateur etat recu = 1*/
+			vm_etat_PMV[vl_num_eqt].NumeroAction		=1	
+
+			ITMA_TSAGA_Tabuler_ligne(vl_mess[1],vl_tptext,15)
+			vm_etat_PMV[vl_num_eqt].ligne1= vl_tptext 
+			ITMA_TSAGA_Tabuler_ligne(vl_mess[4],vl_tptext,15)
+			vm_etat_PMV[vl_num_eqt].ligne2= vl_tptext 
+			ITMA_TSAGA_Tabuler_ligne(vl_mess[7],vl_tptext,15)
+			vm_etat_PMV[vl_num_eqt].ligne3= vl_tptext 
+			ITMA_TSAGA_Tabuler_ligne(vl_mess[10],vl_tptext,15)
+			vm_etat_PMV[vl_num_eqt].ligne4= vl_tptext 
+			ITMA_TSAGA_Tabuler_ligne(vl_mess[13],vl_tptext,15)
+			vm_etat_PMV[vl_num_eqt].ligne5= vl_tptext 
+		 
+			ITMA_TSAGA_Tabuler_ligne(vl_mess[3],vl_tptext,15)
+			vm_etat_PMV[vl_num_eqt].Alternat1= vl_tptext 
+			ITMA_TSAGA_Tabuler_ligne(vl_mess[6],vl_tptext,15)
+			vm_etat_PMV[vl_num_eqt].Alternat2= vl_tptext 
+			ITMA_TSAGA_Tabuler_ligne(vl_mess[9],vl_tptext,15)
+			vm_etat_PMV[vl_num_eqt].Alternat3= vl_tptext 
+			ITMA_TSAGA_Tabuler_ligne(vl_mess[12],vl_tptext,15)
+			vm_etat_PMV[vl_num_eqt].Alternat4= vl_tptext 
+			ITMA_TSAGA_Tabuler_ligne(vl_mess[15],vl_tptext,15)
+			vm_etat_PMV[vl_num_eqt].Alternat5= vl_tptext 
+		 
+			vm_etat_PMV[vl_num_eqt].clignotement = vl_mess[16] 
+		'	vm_etat_PMV[vl_num_eqt].Flash = vl_mess[21] 
+
+			if vm_Lect_PMV.numero_eqt = vl_num_eqt 
+			{ 	
+				vm_PMV.ligne1 		= vm_etat_PMV[vl_num_eqt].ligne1
+				vm_PMV.ligne2 		= vm_etat_PMV[vl_num_eqt].ligne2
+				vm_PMV.ligne3 		= vm_etat_PMV[vl_num_eqt].ligne3
+				vm_PMV.ligne4 		= vm_etat_PMV[vl_num_eqt].ligne4
+				vm_PMV.ligne5 		= vm_etat_PMV[vl_num_eqt].ligne5
+				vm_PMV.Alternat1 		= vm_etat_PMV[vl_num_eqt].Alternat1
+				vm_PMV.Alternat2 		= vm_etat_PMV[vl_num_eqt].Alternat2
+				vm_PMV.Alternat3 		= vm_etat_PMV[vl_num_eqt].Alternat3
+				vm_PMV.Alternat4 		= vm_etat_PMV[vl_num_eqt].Alternat4
+				vm_PMV.Alternat5 		= vm_etat_PMV[vl_num_eqt].Alternat5
+				vm_PMV.Clignotement	=
+						 vm_etat_PMV[vl_num_eqt].Clignotement	
+
+				ITMA_TSAGA_MAJ_PMVA ( "actuel" )
+			}
+   		/*A SI reception calcul TDP */
+      	CASE COM_CANAL_MTPMVA_TDP
+
+		/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre)
+			/*A décomposition du message reçu en tableau */
+			vl_mess = null
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+			vl_num_eqt = vl_mess[0]+0
+			vm_poke_tdp1=""
+			vm_poke_tdp2=""
+			vm_poke_tdp4=""
+			vm_poke_tdp5=""
+			if (vm_Lect_PMV.numero_eqt = vl_num_eqt)
+			{
+/*				vl_tptext = " --> Recu TDP PMVA : Dest1_p(" ++vm_Lect_PMV.Dest1_proche++")="++ vl_mess[1]++" Dest1_l("++vm_Lect_PMV.Dest1_loin++")="++vl_mess[2]++" Dest2_p("++vm_Lect_PMV.Dest2_proche++")="++vl_mess[3]++" Dest2_l("++vm_Lect_PMV.Dest2_loin++")="++vl_mess[4]*/
+				COM01_Trace(COM_DEBUG2,vl_tptext)
+				if ((vl_mess[1] <> "") or (vl_mess[2] <> "") or (vl_mess[3] <> "") or (vl_mess[4] <> ""))
+				{			
+					vm_Lect_PMV.ligne1 = ""
+					vm_Lect_PMV.ligne2 = ""
+					vm_Lect_PMV.ligne3 = ""
+					vm_Lect_PMV.ligne4 = ""
+					vm_Lect_PMV.ligne5 = ""
+
+					vm_poke_tdp1 = vl_mess[1]
+					if (vm_poke_tdp1 <> "")
+					{
+						ITMA_TSAGA_Tabuler_ligne_bis(vm_Destination[0],vm_poke_tdp1,vl_tptext)
+						vm_Lect_PMV.ligne1 = vl_tptext
+					}
+					vm_poke_tdp2 = vl_mess[2]
+					if (vm_poke_tdp2 <> "")
+					{
+						ITMA_TSAGA_Tabuler_ligne_bis(vm_Destination[1],vm_poke_tdp2,vl_tptext)
+						vm_Lect_PMV.ligne2 = vl_tptext
+					}
+					vm_poke_tdp4 = vl_mess[3]
+					if (vm_poke_tdp4 <> "")
+					{
+						ITMA_TSAGA_Tabuler_ligne_bis(vm_Destination[2],vm_poke_tdp4,vl_tptext)
+						vm_Lect_PMV.ligne4 = vl_tptext
+					}
+					vm_poke_tdp5 = vl_mess[4]
+					if (vm_poke_tdp5 <> "")
+					{
+						ITMA_TSAGA_Tabuler_ligne_bis(vm_Destination[3],vm_poke_tdp5,vl_tptext)
+						vm_Lect_PMV.ligne5 = vl_tptext
+					}
+					
+					if vm_validation_nouv_message = XDC_FAUX
+					{
+						ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+					}
+				}
+				else
+				/* S'il n'y a aucune TDP valides, alors on passe en neutre */
+				{
+					vm_Lect_PMV.ligne1 = ""
+					vm_Lect_PMV.ligne2 = ""
+					vm_Lect_PMV.ligne3 = ""
+					vm_Lect_PMV.ligne4 = ""
+					vm_Lect_PMV.ligne5 = ""
+				'	vm_Lect_PMV.Dest1_proche = 0
+ 				'	vm_Lect_PMV.Dest1_loin = 0
+				'	vm_Lect_PMV.Dest2_proche = 0
+				'	vm_Lect_PMV.Dest2_loin = 0
+					info_message@("Pas d'affichage Temps de parcours possible (zone HS)")
+					ITMA_TSAGA_Reset_PMVA ( "nouveau" )
+					vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_NEUTRE
+					DB_CTRL_VALUE@(vm_fenetre,"BO_Arret",vm_Lect_PMV.TypeAffichage)
+					ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+				}
+
+	}
+
+
+   		ENDCASE
+
+	ENDCASE
+	
+	
+	DB_CTRL_VALUE@(vm_fenetre,"BO_Arret",vm_Lect_PMV.TypeAffichage)
+	if (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP)
+	{
+		DB_CTRL_MULTI_SELECT@ (vm_fenetre, "BL_PMV", FALSE)
+	}
+	else
+	{
+		DB_CTRL_MULTI_SELECT@ (vm_fenetre, "BL_PMV", TRUE)
+	}
+
+/*	if vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP and 			
+	   vm_validation_nouv_message = XDC_FAUX
+	{ 	
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_destination",TRUE)
+	}
+	else
+	{ 	
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_destination",FALSE)
+	}
+
+	if vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP and 			
+	   vm_validation_nouv_message = XDC_FAUX and 
+	   DB_CTRL_GET_DISPLAY@(vm_fenetre,"BL_alternat_nouveau") = TRUE
+	{ 	
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_destination_alt",TRUE)
+	}
+	else
+	{ 	
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_destination_alt",FALSE)
+	}*/
+	
+WEND
+
+vl_tptext = "Stop ITMA_TSAGA_pilotage_d_un_PMVA " ++ "   User : " ++ vm_NomOperateur
+COM01_Trace(COM_INFO,vl_tptext)
+
+RETURN(COM_QUITTE)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Executer
+*  ----------------------------------------------------------------------------
+*/
+MACRO ITMA_TSAGA_EXECUTER_PMVA
+/*
+* ARGUMENTS EN ENTREE :
+*   aucun
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : auncun
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_d_un_PMVA
+*
+*
+---------------------------------------------------------------------------- */
+var	vl_retour
+var	vl_erreur
+var	vl_tptext
+
+	vl_retour = NULL
+	vl_erreur = COM_NOK
+
+	DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",TRUE)
+/*	DB_CTRL_GRAYED@(vm_fenetre,"BP_refuser",TRUE)*/
+	vm_Lect_PMV.TypeAffichage = DB_CTRL_GET_VALUE@(vm_fenetre,"BO_Arret")
+
+	vl_tptext = FORMAT@ (" --> Exec PMVA %s, Fmc %s/%s",
+	                     vm_Lect_PMV.numero_eqt, vm_Lect_PMV.Numero_Evt, vm_Lect_PMV.Cle_Evt)
+	COM01_Trace(COM_INFO,vl_tptext)
+	
+	
+  if SYSTEM_VAR@(vg_site) = XDC_CI and NOT vm_mode_formation
+	{
+		if NOT ITMA_COM_District_pilotable(vm_Config_PMV[position(vm_PMV.numero_eqt)].sitegestion, 
+			XDC_LIB_PMVA,TRUE,vm_Config_PMV[position(vm_PMV.numero_eqt)].Identifiant) 
+		{ 
+			RETURN(COM_NOK)
+ 		}
+ 	}
+	
+	if (vm_Lect_PMV.Numero_Evt<>NULL and vm_Lect_PMV.Cle_Evt<>NULL) or
+	   (vm_Lect_PMV.TypeAffichage > SAGA_CM_AFF_TEXTE and 
+	    vm_Lect_PMV.TypeAffichage < SAGA_CM_AFF_TDP) or
+	   (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP and string_index@(vm_Lect_PMV.ligne1,"=>")=0)
+	{
+		vl_retour = COM_VALIDE
+		if vm_Lect_PMV.TypeAffichage <= SAGA_CM_AFF_TEXTE or 
+		   vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP
+		{
+				if NOT vm_mode_formation
+				{ vl_erreur = ITMA_TSAGA_Commande_PMVA() }
+				if vl_erreur = COM_OK
+				{
+					vm_PMV.Numero_Evt	= vm_Lect_PMV.Numero_Evt
+ 					vm_PMV.Cle_Evt		= vm_Lect_PMV.Cle_Evt
+ 					vm_PMV.fmc_liee	= vm_Lect_PMV.fmc_liee
+					ITMA_TSAGA_MAJ_PMVA ( "actuel" )
+				}	
+		}
+		else
+		{
+		
+			if 	(vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_NEUTRE) or
+			   	(vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_HEURE) or
+				(vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_ETEINT) 
+			{
+				if NOT vm_mode_formation
+				{ vl_erreur = ITMA_TSAGA_Commande_Fin_PMVA() }
+			}
+			else
+			{	vl_erreur = COM_NOK }
+		}
+			
+		if vl_erreur = COM_NOK
+		{	
+			info_message@("Commande PMVA numéro " ++ vm_Lect_PMV.numero_eqt ++ " impossible")
+		}
+	}
+	else
+	{
+		info_message@("Vous devez lier cette action à une FMC")
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_lier_fmc",FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",FALSE)
+		vl_erreur = COM_NOK
+	} 
+
+	RETURN(vl_erreur)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Capture le click de la liste des éléments
+*				MAJ des lignes 1,2 et 3
+*
+* -----------------------------------------------------------------------------
+*/
+MACRO ITMA_TSAGA_BL_elements_click
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : COM_OK ou COM_NOK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_d_un_PMV
+*
+*
+---------------------------------------------------------------------------- */
+	
+	var	vl_Lect_elements ' ligne séléctioné dans la liste des éléments
+	var	vl_pos		' tampon de position de la liste
+	var	i,j			' index de loop
+	var	vl_ele_table	' tableau de lecture des elements
+	var	vl_ele_propo	' tableau de lecture des elements
+	var	vl_Fichier	' nom du fichier de proposition
+	var	vl_tpm
+	var	vl_tpm2
+	var	vl_picto
+	var	vl_tptext		' zone de text tampon
+
+/*A trace de l'appel de procedure */
+vl_tptext =  "--> ITMA_TSAGA_BL_elements_click"
+COM01_Trace(0,vl_tptext)
+
+vl_pos =	DB_CTRL_GET_VALUE@(vm_fenetre,"BL_éléments")
+	
+if vl_pos<0 { vl_pos = 0 }
+
+vl_Lect_elements =	TRIM@(TABS_TO_SPACES@(vm_liste_elements[vl_pos]))
+	
+vl_Fichier = REP_CONFIG ++ "pmv/Config_Element_" ++ vl_Lect_elements ++ "_PMVA.cfg" 
+
+/*A Si fichier de config existant */
+if FILE_EXISTS@(vl_Fichier)
+{
+	vl_tpm2 = READ_ASCII_FILE@(vl_Fichier)
+	for i = 0 to ARRAY_SIZE@(vl_tpm2)-1
+		vl_tpm = array_from_string@(vl_tpm2[i],",")
+		for j = 0 to array_size@(vl_tpm)-1
+			vl_ele_propo[i,j] = TRIM@(TABS_TO_SPACES@(vl_tpm[j]))
+		next j
+	next i
+	
+	vm_table_proposition		= ""
+	for i = 0 to ARRAY_SIZE@(vl_ele_propo)-1
+		vm_table_proposition[i,0]	= vl_ele_propo[i,1]
+		vm_table_proposition[i,1]	= vl_ele_propo[i,2]
+		vm_table_proposition[i,2]	= vl_ele_propo[i,3]
+		vm_table_proposition[i,3]	= vl_ele_propo[i,4]
+		vm_table_proposition[i,4]	= vl_ele_propo[i,5]
+	next i
+
+	DB_TABLE_SET_NEW_TOP_ROW@(vm_fenetre,"TA_proposition",0)
+	DB_TABLE_SET_MARKER_WIDTH@(vm_fenetre,"TA_proposition",24)
+	DB_TABLE_SET_DATA@( vm_fenetre,
+					"TA_proposition",
+					vm_table_proposition,
+					vm_titre_table_proposition)
+}
+
+
+RETURN(COM_OK)
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Centre un message sur une zone de 'n' caractère
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TSAGA_Tabuler_ligne(va_old,va_new,va_taille)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   	va_old        	: Chaine en entrée ;
+*	va_taille		: taille de la chaine de sortie
+*
+*
+* ARGUMENTS EN SORTIE : 
+*   va_new     		: Chaine en sortie.
+*
+*
+* CODE RETOUR         : auncun
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_d_un_PMV
+*
+*
+---------------------------------------------------------------------------- */
+
+	var	vl_long		' longeur du message
+	var 	x			' variable static
+	var 	i			' index de loop
+	var		vl_tptext					' zone de text tampon
+
+	vl_long = (len@(trim@(va_old)))
+	x = int@((va_taille-vl_long)/2)
+	va_new = ""
+	for i = 1 to x
+		va_new = va_new ++ " "
+	next i
+	vl_tptext = va_new ++ trim@(va_old) ++ "               "
+	va_new = SUBSTRING@(vl_tptext,1,va_taille)
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Modifications du message et MAJ de la BL
+*
+*  ----------------------------------------------------------------------------
+*/
+MACRO ITMA_TSAGA_Modif_message
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : COM_OK ou COM_NOK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_d_un_PMV
+*
+*
+---------------------------------------------------------------------------- */
+	
+var	vl_objet		' object en cours de modification
+var	vl_tplecture	' text tampon de lecture d'une liste
+var	vl_tptext		' zone de text tampon
+
+
+	vl_tplecture[0] = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_modif1")
+/*	vl_tplecture[0] = UPPERCASE@(SUBSTRING@(TRIM@(vl_tplecture[0]),1,15))*/
+	vl_tplecture[0] = SUBSTRING@(TRIM@(vl_tplecture[0]),1,15)
+	ITMA_TSAGA_Tabuler_ligne(vl_tplecture[0],vl_tptext,15)
+	vl_tplecture[0] = vl_tptext
+	DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif1",FALSE)
+	
+	vl_tplecture[1] = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_modif2")
+/*	vl_tplecture[1] = UPPERCASE@(SUBSTRING@(TRIM@(vl_tplecture[1]),1,15))*/
+	vl_tplecture[1] = SUBSTRING@(TRIM@(vl_tplecture[1]),1,15)
+	ITMA_TSAGA_Tabuler_ligne(vl_tplecture[1],vl_tptext,15)
+	vl_tplecture[1] = vl_tptext
+	DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif2",FALSE)
+	
+	vl_tplecture[2] = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_modif3")
+/*	vl_tplecture[2] = UPPERCASE@(SUBSTRING@(TRIM@(vl_tplecture[2]),1,15))*/
+	vl_tplecture[2] = SUBSTRING@(TRIM@(vl_tplecture[2]),1,15)
+	ITMA_TSAGA_Tabuler_ligne(vl_tplecture[2],vl_tptext,15)
+	vl_tplecture[2] = vl_tptext
+	DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif3",FALSE)
+
+	vl_tplecture[3] = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_modif4")
+/*	vl_tplecture[3] = UPPERCASE@(SUBSTRING@(TRIM@(vl_tplecture[3]),1,15))*/
+	vl_tplecture[3] = SUBSTRING@(TRIM@(vl_tplecture[3]),1,15)
+	ITMA_TSAGA_Tabuler_ligne(vl_tplecture[3],vl_tptext,15)
+	vl_tplecture[3] = vl_tptext
+	DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif4",FALSE)
+
+	vl_tplecture[4] = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_modif5")
+/*	vl_tplecture[4] = UPPERCASE@(SUBSTRING@(TRIM@(vl_tplecture[4]),1,15))*/
+	vl_tplecture[4] = SUBSTRING@(TRIM@(vl_tplecture[4]),1,15)
+	ITMA_TSAGA_Tabuler_ligne(vl_tplecture[4],vl_tptext,15)
+	vl_tplecture[4] = vl_tptext
+	DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif5",FALSE)
+	
+	vl_objet = "BL_"++ vm_Text_Actif ++ "_nouveau"
+	DB_CTRL_STRINGS@(vm_fenetre,vl_objet,vl_tplecture)
+	DB_CTRL_VALUE@(vm_fenetre,vl_objet,-1)
+
+	if (vm_Text_Actif = "message")
+	{
+		vm_Lect_PMV.ligne1 	= vl_tplecture[0]
+  		vm_Lect_PMV.ligne2 	= vl_tplecture[1]
+		vm_Lect_PMV.ligne3 	= vl_tplecture[2]
+		vm_Lect_PMV.ligne4 	= vl_tplecture[3]
+		vm_Lect_PMV.ligne5 	= vl_tplecture[4]
+	}
+	else
+	{
+		vm_Lect_PMV.Alternat1 	= vl_tplecture[0]
+		vm_Lect_PMV.Alternat2 	= vl_tplecture[1]
+		vm_Lect_PMV.Alternat3 	= vl_tplecture[2]
+		vm_Lect_PMV.Alternat4 	= vl_tplecture[3]
+		vm_Lect_PMV.Alternat5 	= vl_tplecture[4]
+	}
+
+	
+	DB_CTRL_DISPLAY@(vm_fenetre,"BP_valider_nouveau",FALSE)
+	DB_CTRL_DISPLAY@(vm_fenetre,"BP_annuler_nouveau",FALSE)
+
+	/*A Afficher les boutons de MAJ de message semi-automatique */
+	DB_CTRL_DISPLAY@(vm_fenetre,"BP_message",True)	
+	DB_CTRL_DISPLAY@(vm_fenetre,"BP_alternat",True)	
+
+
+	/*A Afficher le texte saisi */
+	vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TEXTE
+	ITMA_TSAGA_MAJ_PMVA ( "nouveau" )
+
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Affichage d'un BE pour modification du message
+*
+*  ----------------------------------------------------------------------------
+*/
+MACRO ITMA_TSAGA_Appel_Modif_message ( va_Type )
+/*
+* ARGUMENTS EN ENTREE :
+*	va_Type : type d'affichage (message ou alternat)
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : COM_OK ou COM_NOK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_d_un_PMV
+*
+*
+---------------------------------------------------------------------------- */
+
+var	vl_tplecture		' text tampon de lecture d'une liste
+	
+
+vl_tplecture = DB_CTRL_GET_STRINGS@(vm_fenetre,"BL_"++ va_Type ++ "_nouveau")
+
+DB_CTRL_DISPLAY@(vm_fenetre,"BL_message_nouveau",FALSE)
+DB_CTRL_DISPLAY@(vm_fenetre,"BL_alternat_nouveau",FALSE)
+
+
+DB_CTRL_VALUE@(vm_fenetre,"BS_modif1",TRIM@(vl_tplecture[0]))
+DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif1",TRUE)	
+
+DB_CTRL_VALUE@(vm_fenetre,"BS_modif2",TRIM@(vl_tplecture[1]))
+DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif2",TRUE)	
+/*if (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP) and
+   (va_Type = "message" or vm_Lect_PMV.Dest1_loin > 0 )
+{	DB_CTRL_GRAYED@(vm_fenetre,"BS_modif2",TRUE) }
+else
+{	DB_CTRL_GRAYED@(vm_fenetre,"BS_modif2",FALSE) }*/
+
+DB_CTRL_VALUE@(vm_fenetre,"BS_modif3",TRIM@(vl_tplecture[2]))
+DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif3",TRUE)	
+/*if (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP) and
+   (va_Type = "message" or vm_Lect_PMV.Dest1_loin > 0 )
+{	DB_CTRL_GRAYED@(vm_fenetre,"BS_modif3",TRUE) }
+else
+{	DB_CTRL_GRAYED@(vm_fenetre,"BS_modif3",FALSE) }*/
+
+DB_CTRL_VALUE@(vm_fenetre,"BS_modif4",TRIM@(vl_tplecture[3]))
+DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif4",TRUE)	
+/*if (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP) and
+   (va_Type = "message" or vm_Lect_PMV.Dest1_loin > 0 )
+{	DB_CTRL_GRAYED@(vm_fenetre,"BS_modif4",TRUE) }
+else
+{	DB_CTRL_GRAYED@(vm_fenetre,"BS_modif4",FALSE) }*/
+
+DB_CTRL_VALUE@(vm_fenetre,"BS_modif5",TRIM@(vl_tplecture[4]))
+DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif5",TRUE)	
+/*if (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP) and
+   (va_Type = "message" or vm_Lect_PMV.Dest1_loin > 0 )
+{	DB_CTRL_GRAYED@(vm_fenetre,"BS_modif5",TRUE) }
+else
+{	DB_CTRL_GRAYED@(vm_fenetre,"BS_modif5",FALSE) }*/
+
+DB_CTRL_DISPLAY@(vm_fenetre,"BP_valider_nouveau",TRUE)	
+DB_CTRL_DISPLAY@(vm_fenetre,"BP_annuler_nouveau",TRUE)
+
+/*A griser les boutons de MAJ de message semi-automatique */
+DB_CTRL_DISPLAY@(vm_fenetre,"BP_message",False)	
+DB_CTRL_DISPLAY@(vm_fenetre,"BP_alternat",False)	
+
+/*A mise a jour du flag de modification d'un message */
+vm_validation_nouv_message = XDC_VRAI
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_PMV",FALSE)
+DB_CTRL_GRAYED@(vm_fenetre,"BP_lier_fmc",TRUE)
+DB_CTRL_GRAYED@(vm_fenetre,"BO_Arret",TRUE)
+DB_CTRL_GRAYED@(vm_fenetre, "BP_copier_coller", TRUE)
+
+
+RETURN(COM_OK)
+					
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des PMV disponibles
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TSAGA_Lecture_PMVA
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*   aucun
+*
+*
+* ARGUMENTS EN SORTIE	: 
+*	va_liste_PMV	: Liste des PMV disponibles
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_d_un_PMV
+*
+*
+* FONCTION
+*   MAJ de la liste des PMV disponibles dans la fiche de pilotage des PMV.
+*
+---------------------------------------------------------------------------- */
+
+
+	VAR	vl_etat_null		' flag d'etat_PMV NULL
+	VAR	i				' index de boucle
+	var	vl_tptext			' zone de text tampon
+	VAR	vl_erreur
+
+	/*A trace de l'appel de procedure */
+	vl_tptext =  "--> XZAT050_Utilisation_PMVA "++ vm_PMV.numero_eqt
+	COM01_Trace(0,vl_tptext)
+	/*A si n° Eqt du PMV nul : sortir */
+	if ( vm_PMV.numero_eqt=NULL or TRIM@(vm_PMV.numero_eqt)="" )
+	{
+		vl_tptext = "ITMA_TSAGA_Lecture_PMVA refusee:"++vm_PMV.numero_eqt
+		COM01_Trace(COM_WARNING,vl_tptext)
+		RETURN(COM_NOK)
+	}
+
+
+	if	vm_etat_PMV[vm_PMV.numero_eqt+0].NumeroAction > 0	
+	{ vl_etat_null = False }
+	else
+	{ vl_etat_null = True }
+
+	vl_erreur = ITMA_TSAGA_Lecture_Etat_SAGA ( vm_mode_formation, vm_PMV,
+									 vl_etat_null, C_MODULE )
+
+	/*A si pas etat_PMV null : MAJ avec l'etat terrain  */
+'	if ( NOT vl_etat_null ) 
+'	{
+	 	vm_PMV.ligne1 		= vm_etat_PMV[vm_PMV.numero_eqt+0].ligne1
+  		vm_PMV.ligne2 		= vm_etat_PMV[vm_PMV.numero_eqt+0].ligne2
+	 	vm_PMV.ligne3 		= vm_etat_PMV[vm_PMV.numero_eqt+0].ligne3
+	 	vm_PMV.ligne4 		= vm_etat_PMV[vm_PMV.numero_eqt+0].ligne4
+	 	vm_PMV.ligne5 		= vm_etat_PMV[vm_PMV.numero_eqt+0].ligne5
+	 	vm_PMV.Alternat1 		= vm_etat_PMV[vm_PMV.numero_eqt+0].Alternat1
+	 	vm_PMV.Alternat2 		= vm_etat_PMV[vm_PMV.numero_eqt+0].Alternat2
+	 	vm_PMV.Alternat3 		= vm_etat_PMV[vm_PMV.numero_eqt+0].Alternat3
+	 	vm_PMV.Alternat4 		= vm_etat_PMV[vm_PMV.numero_eqt+0].Alternat4
+	 	vm_PMV.Alternat5 		= vm_etat_PMV[vm_PMV.numero_eqt+0].Alternat5
+	 	vm_PMV.Clignotement	= vm_etat_PMV[vm_PMV.numero_eqt+0].Clignotement	
+	 '	vm_PMV.Flash			= vm_etat_PMV[vm_PMV.NumEqt+0].Flash
+'	}
+
+RETURN (vl_erreur)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	MAJ de l'IHM avec la table PMV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TSAGA_MAJ_PMVA ( va_type )
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_type : actuel ou nouveau
+*
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_d_un_PMV
+*
+*
+* FONCTION
+*   MAJ de l'IHM par rapport à la table PMV.
+*
+---------------------------------------------------------------------------- */
+
+	var		vl_objet		' l'objet en cours de modif.
+	var		i			' index de loop
+	var		vl_taille		' taille du text
+	var		vl_fmc1		' libellé fmc 1
+	var		vl_fmc2		' libellé fmc 2
+	var		vl_tplecture	' text tampon de lecture d'une liste
+	var		vl_tptext		' zone de text tampon
+	var		vl_tpaffichage	' flag de la bascule d'affichage
+	var format t_commande vl_PMV
+
+
+	/*A trace de l'appel de procedure */
+	vl_tptext =  "--> ITMA_TSAGA_MAJ_PMVA" ++ va_type
+	COM01_Trace(0,vl_tptext)
+
+/*	if ( vm_Lect_PMV.TypeAffichage <> SAGA_CM_AFF_TDP )
+	{ 
+		vm_Lect_PMV.Dest1_proche = 0
+		vm_Lect_PMV.Dest1_loin = 0
+		vm_Lect_PMV.Dest2_proche = 0
+		vm_Lect_PMV.Dest2_loin = 0
+	}*/
+
+	vl_tpaffichage = SAGA_CM_AFF_NEUTRE
+
+	if ( va_type = "nouveau" )
+	{ vl_PMV = vm_Lect_PMV }
+	else
+	{ vl_PMV = vm_PMV }
+
+	DB_CTRL_TITLE@(vm_fenetre,"LI_identification",vl_PMV.identifiant)
+
+	vl_fmc1=SUBSTRING@(vl_PMV.fmc_liee,1,46)
+	vl_fmc2=TRIM@(SUBSTRING@(vl_PMV.fmc_liee,46,20))
+
+	vl_objet = "LI_fmc_liée_" ++ va_type
+	DB_CTRL_TITLE@(vm_fenetre,vl_objet,vl_fmc1)
+
+	vl_objet = "LI_date_fmc_" ++ va_type
+	DB_CTRL_TITLE@(vm_fenetre,vl_objet,vl_fmc2)
+
+	vl_objet = "BL_message_" ++ va_type
+	vl_tplecture[0] = vl_PMV.ligne1 
+	vl_tplecture[1] = vl_PMV.ligne2
+	vl_tplecture[2] = vl_PMV.ligne3
+	vl_tplecture[3] = vl_PMV.ligne4
+	vl_tplecture[4] = vl_PMV.ligne5
+	DB_CTRL_STRINGS@(vm_fenetre,vl_objet,vl_tplecture)
+	DB_CTRL_VALUE@(vm_fenetre,vl_objet,-1)
+	DB_CTRL_DISPLAY@(vm_fenetre,vl_objet,TRUE)
+
+	vl_tptext = vl_tplecture[0] ++ vl_tplecture[1] ++ vl_tplecture[2] ++ vl_tplecture[3] ++ vl_tplecture[4]
+	if TRIM@(vl_tptext)<>""
+	{ 	vl_tpaffichage = SAGA_CM_AFF_TEXTE }
+
+	/*vl_objet = "BL_alternat_" ++ va_type
+	vl_tplecture[0] = vl_PMV.Alternat1 
+	vl_tplecture[1] = vl_PMV.Alternat2
+	vl_tplecture[2] = vl_PMV.Alternat3
+	vl_tplecture[3] = vl_PMV.Alternat4
+	vl_tplecture[4] = vl_PMV.Alternat5
+	DB_CTRL_STRINGS@(vm_fenetre,vl_objet,vl_tplecture)
+	DB_CTRL_VALUE@(vm_fenetre,vl_objet,-1)
+
+	vl_tptext = vl_tplecture[0] ++ vl_tplecture[1] ++ vl_tplecture[2] ++ vl_tplecture[3] ++ vl_tplecture[4]
+	if TRIM@(vl_tptext)<>""
+	{ 	
+		DB_CTRL_DISPLAY@(vm_fenetre,vl_objet,TRUE)
+		if ( va_type = "actuel" ) { DB_CTRL_DISPLAY@(vm_fenetre,"LibAlt",TRUE)}
+			if (va_type = "actuel") and (vm_validation_nouv_message = XDC_FAUX)
+			{ 
+				vl_tptext = vm_Lect_PMV.Alternat1 ++ vm_Lect_PMV.Alternat2 ++ 
+						vm_Lect_PMV.Alternat3  ++ vm_Lect_PMV.Alternat4 ++ vm_Lect_PMV.Alternat5
+				if TRIM@(vl_tptext)<>""
+				{ DB_CTRL_DISPLAY@(vm_fenetre,"BL_alt_dir_nouveau",TRUE) }
+			} 
+		vl_tpaffichage = SAGA_CM_AFF_TEXTE 
+	}
+	else
+ 	{ 	
+		DB_CTRL_DISPLAY@(vm_fenetre,vl_objet,False)	
+		if ( va_type = "actuel" ) { DB_CTRL_DISPLAY@(vm_fenetre,"LibAlt",FALSE)}
+	}
+*/
+	if vl_PMV.Clignotement = XDC_PMV_CLIGNORAPIDE
+	{ 
+		vl_tplecture = TRUE
+		vl_tpaffichage = SAGA_CM_AFF_TEXTE
+	}
+	else 
+	{	vl_tplecture = FALSE }
+
+	vl_objet = "BA_clignotement1_" ++ va_type
+	DB_CTRL_VALUE@(vm_fenetre,vl_objet,vl_tplecture)
+
+
+
+	vl_objet = "BA_clignotement5_" ++ va_type
+	DB_CTRL_VALUE@(vm_fenetre,vl_objet,vl_tplecture)
+
+/*	if vl_PMV.flash = XDC_PMV_FLASH	{ 
+		vl_tplecture = TRUE
+	}
+	else 
+	{ 	vl_tplecture = FALSE
+	 }
+
+	vl_objet = "BT_flash_" ++ va_type
+	DB_CTRL_VALUE@(vm_fenetre,vl_objet,vl_tplecture)*/
+
+	if ( va_type = "nouveau" )
+	{ 
+		if ( vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TDP or 
+		    vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TEXTE ) and
+		   ( vl_tpaffichage = SAGA_CM_AFF_NEUTRE )
+		{	vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_NEUTRE }
+		if ( vm_Lect_PMV.TypeAffichage <> SAGA_CM_AFF_TDP and 
+		    vm_Lect_PMV.TypeAffichage <> SAGA_CM_AFF_TEXTE  and
+		    vm_Lect_PMV.TypeAffichage <> SAGA_CM_AFF_NEUTRE  and
+		     vl_tpaffichage = SAGA_CM_AFF_TEXTE )
+		{	vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_TEXTE }
+	}
+
+
+	if ( vm_validation_nouv_message = XDC_FAUX )
+	{ 
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_PMV",TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_lier_fmc",FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BO_Arret",FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_copier_coller",FALSE)
+	}
+
+	RETURN (COM_OK)
+	
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commande du nouveau PMV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TSAGA_Commande_PMVA
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	aucun
+*
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_d_un_PMV
+*
+*
+* FONCTION
+*   	Commande du nouveau PMV.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	
+	var		vl_tptext		' zone de text tampon
+
+	/*A test les droits d'acces à cette fonction */
+/*	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) and 
+	NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+	NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+	(NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI) and    
+	 SYSTEM_VAR@(vg_site) = XDC_CI) )
+	{
+		ITMA_TSAGA_Acces_interdit
+		RETURN(COM_NOK) 
+	}
+*/
+
+	if NOT IS_NUMERIC_STRING@(vm_Lect_PMV.numero_eqt)
+	{
+		vl_tptext ="Commande PMVA refusée (numéro d'équipement invalide)"
+		COM01_Trace(COM_WARNING,vl_tptext)
+		RETURN(COM_NOK)
+	}
+
+	ITMA_TSAGA_commander(vm_Lect_PMV)
+	vl_tptext = "Status : Commande envoyee ..."
+ 	DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+	RETURN (COM_OK)
+
+ENDMACRO 
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Arret du PMV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TSAGA_Commande_Fin_PMVA
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	aucun
+*
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_d_un_PMV
+*
+*
+* FONCTION
+*    Arret du PMV.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	
+	VAR FORMAT T_commande vl_cmd
+
+	VAR		vl_heure
+	var		vl_tptext		' zone de text tampon
+	var		vl_type_extinct
+	var		vl_cr
+
+	/*A test les droits d'acces à cette fonction */
+/*	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) and 
+	NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+	NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+	(NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI) and 	
+	 SYSTEM_VAR@(vg_site) = XDC_CI) )
+	{
+		ITMA_TSAGA_Acces_interdit
+		RETURN(COM_NOK)
+	}*/
+
+	vl_heure = COM09_Date_Courante ()
+	vl_cmd = itma_TSAGA_init_commande()
+
+
+	if (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_NEUTRE) vl_type_extinct = XDC_PMV_DEFAUT
+	if (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_HEURE) vl_type_extinct = XDC_PMV_HEURE
+	if (vm_Lect_PMV.TypeAffichage = SAGA_CM_AFF_ETEINT) vl_type_extinct = XDC_PMV_ETEINDRE
+
+	vl_cmd.numero_eqt =  vm_Lect_PMV.numero_eqt
+	vl_cmd.site = vm_Lect_PMV.site
+
+	vl_tptext =  " Extinction PMVA numéro " ++ vm_Lect_PMV.numero_eqt ++ ", type : "++ vl_type_extinct
+     COM01_Trace(COM_INFO,vl_tptext)
+
+	vl_tptext = "Status : Arret demandee ..."
+ 	DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+	IF (vl_type_extinct = XDC_PMV_DEFAUT)
+	{
+		vl_parametres = COM15_Parametres_Requete ( {
+					{ FALSE, SYB#INT2_, vm_Lect_PMV.numero_eqt },
+					{ FALSE, SYB#INT1_, vm_Lect_PMV.site },
+					{ FALSE, SYB#CHAR_, XDC_CHAINE_VIDE },
+					{ FALSE, SYB#INT1_, XDC_VRAI },
+					{ FALSE, SYB#CHAR_, XDC_CHAINE_VIDE },
+					{ FALSE, SYB#CHAR_, XDC_CHAINE_VIDE },
+					{ FALSE, SYB#CHAR_, XDC_CHAINE_VIDE },
+					{ FALSE, SYB#CHAR_, XDC_CHAINE_VIDE },
+					{ FALSE, SYB#CHAR_, XDC_CHAINE_VIDE },
+					{ FALSE, SYB#CHAR_,  XDC_CHAINE_VIDE },
+					{ FALSE, SYB#CHAR_,  XDC_CHAINE_VIDE },
+					{ FALSE, SYB#CHAR_,  XDC_CHAINE_VIDE },
+					{ FALSE, SYB#CHAR_,  XDC_CHAINE_VIDE },
+					{ FALSE, SYB#CHAR_,  XDC_CHAINE_VIDE },
+					{ TRUE, SYB#INT4_, NULL },
+					{ TRUE, SYB#INT1_, NULL },
+					{ FALSE, SYB#CHAR_, SYSTEM_VAR@(vg_nom_site) }
+				} )
+		vl_cr = COM05_SQL_Procedure (XZAC640_Mise_Au_Neutre_PMVx_SAGA,vl_parametres,vl_resultats,C_MODULE)
+		vm_Lect_PMV.NumeroAction = vl_resultats.return_parameters[0]
+	}
+	ELSE
+	{
+		vl_cr = ITMA_TSAGA_commander_fin(vl_cmd)
+		vm_Lect_PMV.NumeroAction = 0
+	}
+
+	IF (vl_cr <> COM_OK)
+	{
+		vl_tptext = "Status : erreur arret"
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+		RETURN (COM_NOK)
+	}
+
+	vl_tptext = "Status : arret PMVA effectue..."
+ 	DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+	RETURN (COM_OK)
+
+ENDMACRO 
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourne un message à l'operateur et trace l'accès interdit
+*				à une macro.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TSAGA_Acces_interdit(va_NomMacro)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomMacro	:	le nom de la macro interdite
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+
+* CONDITION D'UTILISATION :
+*   appel d'une macro avec les droits d'accès insuffisant.
+*
+* FONCTION :
+*	Retourne un message à l'operateur et trace l'accès interdit à une macro
+*---------------------------------------------------------------------------- */
+
+	/*A message d'info à l'opérateur */
+	var		vl_tptext			' zone de text tampon
+	
+	vl_tptext = "L'utilisateur " ++vm_NomOperateur ++ " n'a pas les droits suffisants" ++ NUM_TO_STRING@(10) ++ "pour piloter un PMVA"
+	info_message@(vl_tptext)
+
+	/*A trace de l'appel de procedure */
+	vl_tptext =  " Accès Macro "
+				 ++ va_NomMacro ++ " refusé pour " ++ vm_NomOperateur
+	COM01_Trace(COM_WARNING,vl_tptext)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des équipements disponibles
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TSAGA_Liste_Eqt_Dispo
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		aucun
+*
+* ARGUMENTS EN SORTIE : 
+*		ListeEqts		: la liste des équipements correspondants
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_d_un_PMV
+*
+*
+* FONCTION
+*   	Lecture des équipements en disponibilités.
+*
+---------------------------------------------------------------------------- */
+	var	FORMAT COM_Donnees_Equipements vl_info_equip
+	var	vl_Liste		' liste formattée
+	var	i,k			' index de loop
+	var vl_district
+
+	if vm_District = XDC_CI
+	{	vl_District	= NULL	}
+	else
+	{	vl_district	= vm_District	}
+
+	ITMA_COM_Lire_Equipements (XDC_EQT_SAGA, vl_District,
+				 XDC_EQT_MINEUR, XDC_EQT_MINEUR,
+				 XDC_EQT_HS + XDC_EQT_MAJEUR + XDC_EQT_CRITIQUE + XDC_EQT_DESACTIVE + XDC_EQT_INHIBE, 0,vl_info_equip,
+			C_MODULE)
+
+
+	/*A Construction de la liste des équipements */
+	k = 0
+	if  IS_ARRAY@(vl_info_equip)
+	{
+	   for i = 0 to ARRAY_SIZE@(vl_info_equip) - 1	
+			if ( (vm_Config_PMV[position(vl_info_equip[i].numero)].typeSAGA = XDC_SAGA_PMVA) AND ((vl_info_equip[i].sitegestion = vm_District) OR 
+			   ((vm_District = XDC_CI)  and 
+					(ITMA_COM_District_pilotable( 	
+						vl_info_equip[i].sitegestion, 
+							XDC_LIB_PMV,FALSE,NULL)) )))
+			{
+			vl_Liste[k] = vm_Config_PMV[position(vl_info_equip[i].numero)].Identifiant
+			k= k + 1
+			}
+	    
+		next i
+	}
+	else
+	{
+		vl_Liste[0]		= 	""
+		info_message@("Pas de PMVA diponible dans ce secteur...")
+	}
+
+	for i = 0 to ARRAY_SIZE@(vm_Config_PMV)-1
+	   if (vm_Config_PMV[i].sitegestion = vm_District) or 
+		 ( (vm_District = XDC_CI) 
+		   and 
+		 (ITMA_COM_District_pilotable(vm_Config_PMV[i].sitegestion, 
+			XDC_LIB_PMVA,FALSE,NULL)) ) or
+		((vm_District = XDC_CI) and COM04_Operateur_A_Le_Droit_De(XDC_FAM_ADMINISTRATION))
+	   {
+		vm_etat_PMV[i].Horodate 			=	COM09_Date_Courante()
+		vm_etat_PMV[i].numero_eqt 			=	i		
+		vm_etat_PMV[i].Operateur 		= 	""			
+		vm_etat_PMV[i].Identifiant 		= 	vm_Config_PMV[i].Identifiant			
+	'	vm_etat_PMV[i].DispoPMV 			= 	0			
+  	 	vm_etat_PMV[i].ligne1			=	""					
+  	 	vm_etat_PMV[i].ligne2			=	""					
+  	 	vm_etat_PMV[i].ligne3			=	""					
+  	 	vm_etat_PMV[i].ligne4			=	""					
+  	 	vm_etat_PMV[i].ligne5			=	""					
+		vm_etat_PMV[i].Alternat1			=	""					
+		vm_etat_PMV[i].Alternat2			=	""				
+		vm_etat_PMV[i].Alternat3			=	""				
+		vm_etat_PMV[i].Alternat4			=	""				
+		vm_etat_PMV[i].Alternat5			=	""				
+  '		vm_etat_PMV[i].Flash			=	XDC_PMV_PASFLASH			
+  	 	vm_etat_PMV[i].Clignotement		=	XDC_PMV_PASCLIGNO	
+  		vm_etat_PMV[i].fmc_liee			=	""			
+	'	vm_etat_PMV[i].Remarque			=	""			
+		vm_etat_PMV[i].site			=vm_Config_PMV[i].sitegestion			
+	'	vm_etat_PMV[i].Explication		=	""			
+		vm_etat_PMV[i].Numero_Evt		=	0		
+		vm_etat_PMV[i].Cle_Evt			=	0			
+		vm_etat_PMV[i].Priorite			=	0			
+		vm_etat_PMV[i].Distance		=	XDC_DISTANCE_INCONNUE		
+		vm_etat_PMV[i].NumeroAction		=	0	
+	'	vm_etat_PMV[i].Dest1_proche		= 	0
+	'	vm_etat_PMV[i].Dest1_loin		= 	0
+	'	vm_etat_PMV[i].Dest2_proche		= 	0
+	'	vm_etat_PMV[i].Dest2_loin		= 	0
+
+  	 	vm_etat_PMV[i].TypeAffichage		=	SAGA_CM_AFF_TEXTE					
+	  }
+	next i
+	RETURN (vl_Liste)
+
+ENDMACRO
+
+
+ 
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Reset etat du PMV actuel ou nouveau
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TSAGA_Reset_PMVA ( va_type )
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_type : actuel ou nouveau
+*
+* ARGUMENTS EN SORTIE : 
+*	aucun
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_d_un_PMV
+*
+*
+* FONCTION
+*   	Lecture des équipements en disponibilités.
+*
+---------------------------------------------------------------------------- */
+
+	var	format t_commande	vl_PMV
+
+	if ( va_type = "nouveau" )
+	{ vl_PMV = vm_Lect_PMV }
+	else
+	{ vl_PMV = vm_PMV }
+
+	vl_PMV.Horodate 	= COM09_Date_Courante()
+	vl_PMV.Operateur 	= ""			
+	vl_PMV.Identifiant 	= vm_Config_PMV[position(vl_PMV.numero_eqt)].Identifiant			
+'	vl_PMV.DispoPMV 	= 0			
+  	vl_PMV.ligne1		= ""					
+  	vl_PMV.ligne2		= ""					
+  	vl_PMV.ligne3		= ""					
+  	vl_PMV.ligne4		= ""					
+  	vl_PMV.ligne5		= ""					
+	vl_PMV.Alternat1	= ""					
+	vl_PMV.Alternat2	= ""				
+	vl_PMV.Alternat3	= ""				
+	vl_PMV.Alternat4	= ""				
+	vl_PMV.Alternat5	= ""				
+  '	vl_PMV.Flash		= XDC_PMV_PASFLASH			
+  	vl_PMV.Clignotement	= XDC_PMV_PASCLIGNO	
+	
+	vl_PMV.fmc_liee		= ""			
+'	vl_PMV.Remarque		= ""			
+'	vl_PMV.Explication	= ""			
+	vl_PMV.Numero_Evt	= 0		
+	vl_PMV.Cle_Evt		= 0			
+	vl_PMV.Priorite		= 0			
+	vl_PMV.Distance	= XDC_DISTANCE_INCONNUE				
+	vl_PMV.NumeroAction	= 0	
+'	vl_PMV.Dest1_proche		= 	0
+'	vl_PMV.Dest1_loin		= 	0
+'	vl_PMV.Dest2_proche		= 	0
+'	vl_PMV.Dest2_loin		= 	0
+
+  	vl_PMV.TypeAffichage	=	SAGA_CM_AFF_TEXTE					
+
+	if ( va_type = "nouveau" )
+	{ vm_Lect_PMV = vl_PMV }
+	else
+	{ vm_PMV = vl_PMV }
+
+ENDMACRO
+
+
+MACRO ITMA_TSAGA_Tabuler_ligne_bis(va_dest,va_tdp,va_new)
+
+/*
+* ARGUMENTS EN ENTREE :
+*       va_dest          : Chaine destination en entree ;
+*       va_tdp           : Chaine tdp en entre ;
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_new              : Chaine en sortie.
+*
+*
+* CODE RETOUR         : auncun
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_d_un_PMV
+*
+*
+---------------------------------------------------------------------------- */
+
+        var     vl_long1,vl_long2       ' longueur du message destination et tdp
+        var     x                       ' variable static
+        var     i                       ' index de loop
+        var     vl_space                ' longueur de l espace entre dest et tdp
+        var     vl_tptext               ' zone de text tampon
+
+        vl_long1 = (len@(trim@(va_dest)))
+        vl_long2 = (len@(trim@(va_tdp)))
+        x = int@((15-(vl_long1 + vl_long2)))
+        vl_space = ""
+        for i = 1 to x
+                vl_space = vl_space ++ " "
+        next i
+        vl_tptext = trim@(va_dest) ++ vl_space ++ trim@(va_tdp)
+        va_new = SUBSTRING@(vl_tptext,1,15)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lit en base et affiche la mise au neutre programmee
+*                       du PMVA courant a la date courante, s'il y en a une.
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TSAGA_Lire_Neutre_Programme ()
+
+	VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+	VAR	FORMAT XZATT_Neutre_PMVA_SAGA	tl_Neutres
+	VAR	vl_cr
+
+	vl_parametres[0].type = SYB#INT2_
+	vl_parametres[0].data = vm_Lect_PMV.numero_eqt
+	vl_parametres[0].output = FALSE
+
+	vl_cr = COM05_SQL_Procedure (XZAT78_Neutre_Programme_PMVA_SAGA, vl_parametres, vl_resultats, C_MODULE)
+	IF (vl_cr <> COM_OK)
+		RETURN (COM_NOK)
+
+	tl_Neutres = vl_resultats.select_results[0]
+	IF ARRAY_SIZE@ (tl_Neutres) = 0
+		RETURN (COM_OK)
+
+	/*B Si la FMC n'est pas en cours, la mise au neutre n'est pas effectuee */
+	IF (tl_Neutres[0].debut_fmc = NULL)  OR  (tl_Neutres[0].fin_fmc <> NULL)
+		RETURN (COM_OK)
+
+
+	ITMA_TSAGA_Tabuler_ligne (tl_Neutres[0].ligne_1, vm_Lect_PMV.ligne1, 15)
+	ITMA_TSAGA_Tabuler_ligne (tl_Neutres[0].ligne_2, vm_Lect_PMV.ligne2, 15)
+	ITMA_TSAGA_Tabuler_ligne (tl_Neutres[0].ligne_3, vm_Lect_PMV.lignE3, 15)
+	ITMA_TSAGA_Tabuler_ligne (tl_Neutres[0].ligne_4, vm_Lect_PMV.ligne4, 15)
+	ITMA_TSAGA_Tabuler_ligne (tl_Neutres[0].ligne_5, vm_Lect_PMV.ligne5, 15)
+	ITMA_TSAGA_Tabuler_ligne (tl_Neutres[0].ligne_1_alternat, vm_Lect_PMV.Alternat1, 15)
+	ITMA_TSAGA_Tabuler_ligne (tl_Neutres[0].ligne_2_alternat, vm_Lect_PMV.Alternat2, 15)
+	ITMA_TSAGA_Tabuler_ligne (tl_Neutres[0].ligne_3_alternat, vm_Lect_PMV.Alternat3, 15)
+	ITMA_TSAGA_Tabuler_ligne (tl_Neutres[0].ligne_4_alternat, vm_Lect_PMV.Alternat4, 15)
+	ITMA_TSAGA_Tabuler_ligne (tl_Neutres[0].ligne_5_alternat, vm_Lect_PMV.Alternat5, 15)
+
+	RETURN (COM_OK)
+ENDMACRO
+
+FUNCTION position(va_numero)
+
+
+return (ARRAY_INDEX@(ARRAY_COLUMN@(vm_config_PMV,0),va_numero))
+ENDFUNCTION
+

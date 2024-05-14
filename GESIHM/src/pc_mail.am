@@ -1,0 +1,360 @@
+/*E*/
+/* Fichier : $Id: pc_mail.am,v 1.6 2021/10/29 12:00:13 pc2dpdy Exp $        Release : $Revision: 1.6 $        Date : $Date: 2021/10/29 12:00:13 $
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR PASTRE
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+/* MODULE UTIL * FICHIER pc_mail.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*  Mail simplifie
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	10/09/99	creation
+* Guilhou	25/02/00	ajout du beep (appel a send_sound)
+* JPL		25/10/10	Constantes, listes des postes, ...  1.2
+* XXX		XX/XX/XX	Utilisation de "aplay" et "zenity" pour Linux (recupere)  1.3
+* JPL		17/07/17	Tracage en base de donnees des messages echanges entre operateurs (DEM 1129)  1.4
+* ABE		14/10/21	Ajout Configuration TOPS display pour appel fiche ecoulement DEM-SAE228 1.5
+* ABE		28/10/21	Ajout num ecran du fichier tops dans la commande DEM-SAE228 1.6
+-------------------------------------------------------------------------------
+*/
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"xdc_ax.h"
+INCLUDE	"xzai600sp.h"
+
+INCLUDE	"ITMA_COM.h"
+INCLUDE	"ITMA_TDO.h"
+
+
+DEFINE	CM_MODULE	"MTOU"			' Nom du module
+
+DEFINE	CM_FICH_DEST	"/produits/migrazur/appliSD/fichiers/util/pc_mail.txt"
+
+DEFINE	CM_CMD_SON_DISTANT	"rsh %s \"/usr/bin/aplay %s &\""
+DEFINE	CM_SON_PC_MAIL	"/produits/migrazur/appliSD/fichiers/inf/carillon.wav"
+
+
+DEFINE	CM_FMT_PC_MAIL	"Date d'émission : %s\n\n\nMessage en provenance du poste %s\n\n\nTexte du message :\n\n%s"
+DEFINE	CM_CMD_PC_MAIL	"zenity --display=%s --info --title \"Messagerie SAE \" --text=\"%s\" &"
+
+
+VAR	vm_no_mon_poste
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+* Permet l'envoi d'un message a une des postes distants
+* choisis dans une liste de destinataires autorises pour le poste local.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO pc_mail()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Appel depuis le menu principal
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR 	vl_exit_value
+	VAR	vl_la_fenetre_est_active
+	VAR 	vl_fenetre			 
+
+     VAR tl_destinataires
+	VAR vl_indice
+	VAR vl_commande
+	VAR tl_selections
+	VAR vl_machine
+	VAR vl_host
+	VAr tl_data
+	VAR tl_donnees
+	VAR tl_cr_cmd
+
+	VAR tl_texte, vl_texte
+	VAR	vl_msg, vl_msg_epure
+	VAR	vl_nb_envois, vl_date_envoi
+     VAR i
+
+	VAR vl_fichier_tops
+	VAR vl_lignes
+	VAR vl_array
+        VAR vl_display_IPaddress
+	VAR vl_display_number
+	VAR vl_screen_number
+	VAR vl_display_cmd
+	VAR vl_taille
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	RETURN (COM_NOK)
+}
+
+
+vm_no_mon_poste = SYSTEM_VAR@ (vg_numero_poste)
+
+/*
+ *  Recherche du fichier TOPS pour recuperer l'adresse de laffichage distant
+ */
+
+vl_display_IPaddress="xxx"
+vl_fichier_tops = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_ADM ++ "TOPS_" ++ SYSTEM_VAR@(vg_poste) ++ ".txt"
+if FILE_EXISTS@(vl_fichier_tops)
+{
+	OPEN_ASCII_FILE@ (vl_fichier_tops,"r")
+	vl_lignes = READ_ASCII_FILE@(vl_fichier_tops)
+	vl_taille = ARRAY_SIZE@(vl_lignes) -1
+	for i = 0 to vl_taille
+		if (SUBSTRING@(vl_lignes[i],1,1) <> "#" )
+		{
+			if (SUBSTRING@(vl_lignes[i],1,8) = "display1")
+			{
+				vl_array = ARRAY_FROM_STRING@(vl_lignes[i],"\t")
+				vl_display_IPaddress= vl_array[1]
+				vl_display_number = vl_array[2]
+				vl_screen_number = vl_array[3]
+			}
+		}
+	next i
+	CLOSE_FILE@(vl_fichier_tops)
+}
+
+/* On construit le display avec le display TOPS si il existe */
+if (vl_display_IPaddress <> "xxx")
+{
+	vl_display_cmd = vl_display_IPaddress ++ ":" ++ vl_display_number ++ "." ++ vl_screen_number
+}
+else
+{
+	vl_display_cmd = vl_machine ++ ":0.0"
+}
+
+/*A
+ * Charger la fenetre "menu principal"
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("pc_mail")
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, -35)
+
+vl_la_fenetre_est_active = TRUE
+
+/*A Initialiser la liste des machines */
+vl_host=GETHOSTNAME@()
+tl_data=READ_ASCII_FILE@(CM_FICH_DEST)
+tl_destinataires=NULL
+
+/* Extrait les destinataires declares pour le poste local */
+vl_indice=0
+WHILE (vl_indice < ARRAY_SIZE@(tl_data))  AND  IS_NULL@ (tl_destinataires)
+	tl_donnees=ARRAY_FROM_STRING@(tl_data[vl_indice],"|")
+
+	if (tl_donnees[0]=vl_host)
+	{		
+		tl_destinataires=ARRAY_FROM_STRING@(tl_donnees[1],",")
+	}
+
+	vl_indice= vl_indice + 1
+WEND
+
+/*si pas de machine destinataire pour le host*/
+if (tl_destinataires=NULL)
+{		
+	INFO_MESSAGE@("Pas de machine destinataire pour votre poste operateur")
+	RETURN (COM_NOK)
+}
+
+
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_destinataire", tl_destinataires)
+
+/*A boucle infinie de traitement des evenements*/
+WHILE vl_la_fenetre_est_active
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+
+	/*B si demande d'execution */
+	CASE "BP_Envoyer"
+		MACRO_WINS_BUSY@()
+
+		/*B recuperer les machines destinataires */
+		tl_selections=DB_CTRL_GET_VALUE@(vl_fenetre,"BL_destinataire")
+
+		/*B recuperer le texte a diffuser */
+		tl_texte=DB_EDITBOX_GET_DATA@(vl_fenetre,"BE_texte")
+
+		/*B verifier la validite des donnees saisies */
+		IF (IS_NULL@(tl_texte))
+		{
+			INFO_MESSAGE@("Saisir le texte du message !")
+		}
+		ELSE IF (ARRAY_SIZE@(tl_selections) = 0)
+		{
+			INFO_MESSAGE@("Choisir un ou plusieurs destinataire(s)")
+		}
+		ELSE
+		{		
+			/*B formater le texte, remplacer les guillemets par "'" */ 
+			vl_texte=ARRAY_TO_STRING@(tl_texte,"\n")
+			vl_texte=REPLACE_SUBSTR@(vl_texte, "\"", "'")
+
+			vl_date_envoi=COM09_Date_Courante()
+			vl_msg = FORMAT@ (CM_FMT_PC_MAIL, vl_date_envoi, vl_host, vl_texte)
+
+			/*B envoyer le message a chacun des destinataires */
+			vl_nb_envois = 0
+			FOR i=0 TO ( ARRAY_SIZE@(tl_selections) - 1 )
+				vl_machine=tl_destinataires[tl_selections[i]]
+
+				IF (vl_machine = XDC_NOMADE)
+				{
+					vl_msg_epure = FORMAT@ (CM_FMT_PC_MAIL, vl_date_envoi, vl_host,
+					                           REPLACE_SUBSTR@ (REPLACE_SUBSTR@ (vl_texte, "'", ":"), "`", ":"))
+					vl_commande="echo \""++vl_msg_epure++"\" >/tmp/mail;gzip /tmp/mail; mv /tmp/mail.gz /tmp/mail"
+					vl_commande=vl_commande++ ";rcp /tmp/mail " ++ XDC_SRV_SYN ++ ":" ++ XDC_PATHFIC ++ "/stra/nomade/out/mail 2>/dev/null || echo Echec"
+					'info_message@(vl_commande)
+					tl_cr_cmd=SHELL_COMMAND@(vl_commande)
+				}
+				ELSE
+				{
+					vl_commande=FORMAT@(CM_CMD_SON_DISTANT, vl_machine, CM_SON_PC_MAIL)
+					SHELL_COMMAND@(vl_commande)
+
+					vl_commande=FORMAT@(CM_CMD_PC_MAIL, vl_display_cmd, vl_msg)
+					tl_cr_cmd=SHELL_COMMAND@(vl_commande)
+				}
+
+				/* Si l'envoi est correct alors le tracer en base, sinon avertir l'operateur */
+				IF (ARRAY_SIZE@ (tl_cr_cmd) = 0) {
+					vl_nb_envois = vl_nb_envois + 1
+					ITMA_TRACER_MESSAGE_SAE (vl_date_envoi, vl_machine, vl_texte)
+				} ELSE {
+					INFO_MESSAGE@ ("Le message n'a pas pu être envoyé à " ++ vl_machine)
+				}
+			NEXT i
+
+			IF (vl_nb_envois > 0) {
+				INFO_MESSAGE@("Message(s) envoyé(s)")
+			}
+		}
+
+
+	CASE "BP_quitter"
+		RETURN
+	ENDCASE	
+
+WEND
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+* Trace en base de donnees l'envoi d'un message a un autre poste du SAE
+*  avec la date, les postes emetteur et destinataire.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRACER_MESSAGE_SAE (va_date_envoi, va_destinataire, va_texte)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_date_envoi     : Horodate de l'action d'envoi
+*   va_destinataire   : Nom de la machine destinataire
+*   va_texte          : Texte du message
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Appel depuis la macro d'envoi de message, sur envoi reussi.
+*
+* FONCTION
+*   Decoupe le texte du message s'il est trop long, puis
+*   Enregistre en base de donnees chaque portion du texte.
+*   Note : les lignes du texte sont concatenees en une seule au prealable.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	tl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	vl_texte
+VAR	vl_lgr_texte, vl_lgr_morceau
+VAR	vl_morceau, vl_num_morceau
+VAR	vl_cr
+
+vl_texte = REPLACE_SUBSTR@ (va_texte, "\n", " ")
+vl_lgr_texte = LEN@ (vl_texte)
+
+vl_num_morceau = 0
+WHILE (vl_lgr_texte > 0)
+	/* Si le (reste du) texte a ecrire est plus long que le maximum d'une portion alors */
+	IF (vl_lgr_texte > XDC_MAX_CHAR_LEN) {
+		/* le morceau ecrit aura la taille d'une portion */
+		vl_morceau = SUBSTRING@ (vl_texte, 1, XDC_MAX_CHAR_LEN)
+		vl_texte = SUBSTRING@ (vl_texte, XDC_MAX_CHAR_LEN + 1)
+		vl_lgr_texte = vl_lgr_texte - XDC_MAX_CHAR_LEN
+	} ELSE {
+		/* sinon le morceau sera le texte entier */
+		vl_morceau = vl_texte
+		vl_texte = ""
+		vl_lgr_texte = 0
+	}
+	vl_num_morceau = vl_num_morceau + 1
+
+	tl_parametres = COM15_Parametres_Requete ( {
+		{ FALSE,	SYB#DATETIME_,	va_date_envoi },
+		{ FALSE,	SYB#INT2_,	vm_no_mon_poste },
+		{ FALSE,	SYB#CHAR_,	va_destinataire },
+		{ FALSE,	SYB#INT2_,	vl_num_morceau },
+		{ FALSE,	SYB#CHAR_,	vl_morceau }
+	} )
+
+	vl_cr = COM41_SQL_Procedure_Distante (XDC_HIS, XZAI600_Tracer_Message_SAE, tl_parametres, vl_resultats, CM_MODULE)
+WEND
+
+RETURN
+
+ENDMACRO

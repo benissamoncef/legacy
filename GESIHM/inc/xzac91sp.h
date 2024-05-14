@@ -1,0 +1,1 @@
+DEFINE	XZAC91_Fin_Cmd_Manu_BAD		"XZAC91"

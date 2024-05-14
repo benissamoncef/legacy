@@ -1,0 +1,150 @@
+/*E*/
+/* Fichier : $Id: ITMA_COM_Lire_Evenement.am,v 1.5 2011/10/18 14:12:59 gesconf Exp $      Release : $Revision: 1.5 $        Date : $Date: 2011/10/18 14:12:59 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_COM * FICHIER ITMA_COM_Lire_Evenement.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fonctions communes.
+*
+*   Non decrit dans le DCG
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain   01 Dec 1994 : Creation                                      V1.1
+* Lecrivain   10 Mar 1995 : Creation                                      V1.2
+* Guilhou	10 Sep 1996 : calcul au CI depuis le PC simplifie (RADT) 	V1.3
+* Guilhou	17 sep 1996 : pas de calcul si mode degrade sur PC simplifie (RADT) V1.3
+* Guilhou	19 sep 1996 : affinage du test sur pc simplifie (RADT)	V1.3
+* Guilhou	05 nov 1996 : ajout heure de debut prevu (DEM/1281) V1.4
+* JPL		10/10/2011 : Ajout retour de l'origine de la creation FMC (DEM 995)  1.5
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+
+INCLUDE	"GESIHM/inc/xzae72sp.h"
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit les informations sur l'evenement d'identifiant indique.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_COM_Lire_Evenement (va_num_evt, va_cle_evt,
+				  FORMAT COM_Intitule_FMC va_FMC, va_module)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_evt        : Numero de l'evenement a lire ;
+*   va_cle_evt        : Cle de l'evenement ;
+*   va_module         : Nom du module appelant.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_FMC            : Informations sur l'evenement lues en base.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   Toute macro
+*
+* FONCTION
+*   Lit en base de donnees les informations sur l'evenement de numero et cle
+*   indiques en arguments.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) and (SYSTEM_VAR@(vg_comm_CI)<>COM_OK) {
+  va_FMC.IdFMC.numero = va_num_evt
+  va_FMC.IdFMC.cle = va_cle_evt
+  return (COM_OK)
+}
+
+vl_parametres[0].type = COM_Numero_Evenement
+vl_parametres[0].data = va_num_evt
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Cle_Evenement
+vl_parametres[1].data = va_cle_evt
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Type_Evenement
+vl_parametres[2].output = TRUE
+
+vl_parametres[3].type = SYB#DATETIME_				' Date debut
+vl_parametres[3].output = TRUE
+
+vl_parametres[4].type = COM_Identifiant_Autoroute		' No autoroute
+vl_parametres[4].output = TRUE
+
+vl_parametres[5].type = COM_Identifiant_PR			' PR
+vl_parametres[5].output = TRUE
+
+vl_parametres[6].type = COM_Identifiant_Sens_Circul		' No sens
+vl_parametres[6].output = TRUE
+
+vl_parametres[7].type = SYB#INT1_				' Point caract.
+vl_parametres[7].output = TRUE
+
+vl_parametres[8].type = SYB#INT1_				' Type Pt caract
+vl_parametres[8].output = TRUE
+
+vl_parametres[9].type = SYB#INT1_				' Position
+vl_parametres[9].output = TRUE
+
+vl_parametres[10].type = SYB#DATETIME_                           ' Date debut prevu
+vl_parametres[10].output = TRUE
+
+vl_parametres[11].type = SYB#CHAR_				' Origine creation
+vl_parametres[11].output = TRUE
+
+
+IF (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) {
+IF COM39_SQL_Procedure_PCS (XZAE72_Lire_Intitule_FMC,
+			    vl_parametres, vl_resultats, va_module) <> COM_OK
+    RETURN (COM_NOK)
+}
+else {
+IF COM05_SQL_Procedure (XZAE72_Lire_Intitule_FMC,
+			    vl_parametres, vl_resultats, va_module) <> COM_OK
+	RETURN (COM_NOK)
+}
+
+
+va_FMC.IdFMC.numero = va_num_evt
+va_FMC.IdFMC.cle = va_cle_evt
+
+va_FMC.Numtype = vl_resultats.return_parameters[0]
+va_FMC.date = COM18_Date_SGBD_Formatee (vl_resultats.return_parameters[1])
+
+va_FMC.localisation.NumAuto = vl_resultats.return_parameters[2]
+va_FMC.localisation.PR = vl_resultats.return_parameters[3]
+va_FMC.localisation.sens_circulation = vl_resultats.return_parameters[4]
+va_FMC.localisation.point_caract = vl_resultats.return_parameters[5]
+va_FMC.localisation.type_point_caract = vl_resultats.return_parameters[6]
+va_FMC.localisation.position = vl_resultats.return_parameters[7]
+
+va_FMC.date_prevu = COM18_Date_SGBD_Formatee (vl_resultats.return_parameters[8])
+va_FMC.origine_creation = vl_resultats.return_parameters[9]
+
+RETURN (COM_OK)
+
+ENDMACRO

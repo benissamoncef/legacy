@@ -1,0 +1,1 @@
+DEFINE XZAP17_Lire_Prop_Fax		"XZAP17"

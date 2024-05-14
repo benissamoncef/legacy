@@ -1,0 +1,136 @@
+/*E*/
+/* Fichier : $Id: dedi_pmv_ligne.am,v 1.1 1995/05/24 10:16:47 gesconf Exp $	      Release : $Revision: 1.1 $        Date : $Date: 1995/05/24 10:16:47 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_pmv_ligne.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* contient la fonction pmv_construit_ligne
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Thomas	30 Jan 1995	: Creation						V1.1
+---------------------------------------------------------------------------- */
+
+include "dedi_init.h"
+
+/*caractere utilise pour ne pas perdre les " " sur ARRAY_FROM_STRING@() */
+DEFINE DEDI_CAR_ESPACE		"#"
+
+
+
+/* macro vide pour charger le module */
+MACRO dedi_pmv_ligne()
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_construit_ligne (va_ligne, va_fichier)
+
+/*
+* ARGUMENTS EN ENTREE : va_ligne (la chaine a traiter)
+*	va_fichier (le nom du fichier pour dedi_var_convert)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : tl_ligne / NULL
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: remplace les | par des \n (ceux qui sont suivis de texte),
+*	ajoute des quotes aux expressions constantes, conserve les espaces, et
+*	remplace les noms de variables (tels qu'ils apparaissent a l'IHM) par
+*	l'expression correspondante (telles qu'elles apparaissent dans les regles RTie)
+
+---------------------------------------------------------------------------- */
+VAR vl_ligne
+VAR tl_ligne
+VAR tl_cte
+VAR vl_indice, vl_i
+
+	/*! on remplace les espaces par un caractere special
+	(sinon Applix les supprime d'office en fin de chaine) */
+	tl_ligne = ARRAY_FROM_STRING@(va_ligne, " ")
+	vl_ligne = ""
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_ligne)-1)
+		IF (vl_indice <> (ARRAY_SIZE@(tl_ligne)-1))
+			vl_ligne = vl_ligne ++ tl_ligne[vl_indice] ++ DEDI_CAR_ESPACE
+		ELSE
+			vl_ligne = vl_ligne ++ tl_ligne[vl_indice]
+	NEXT vl_indice
+
+	/*A on remplace les | par des \n */
+	tl_ligne = ARRAY_FROM_STRING@(vl_ligne, DEDI_CAR_SEPAR)
+	vl_ligne = ""
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_ligne)-1)
+		IF ( (vl_indice <> (ARRAY_SIZE@(tl_ligne)-1))
+			AND (tl_ligne[vl_indice+1] <> "") )
+			vl_ligne = vl_ligne ++ tl_ligne[vl_indice] ++ "\\n"
+		ELSE
+			vl_ligne = vl_ligne ++ tl_ligne[vl_indice]
+	NEXT vl_indice
+
+	/*A on separe les variables des constantes */
+	tl_ligne = ARRAY_FROM_STRING@(vl_ligne, DEDI_CAR_VAR)
+
+	/*A on traite chaque element */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_ligne) - 1)
+	
+		/*B rangs pairs : on considere le texte comme une constante */
+		IF INT@(vl_indice / 2) * 2 = vl_indice  
+		{
+			IF tl_ligne[vl_indice] <> NULL
+			{
+				/*B on ajoute les quotes */
+				tl_ligne[vl_indice] = "\"" ++ tl_ligne[vl_indice] ++ "\""
+
+				/*! on reinstalle les espaces */
+				tl_cte = ARRAY_FROM_STRING@(tl_ligne[vl_indice],DEDI_CAR_ESPACE)
+				tl_ligne[vl_indice] = tl_cte[0]
+				FOR vl_i=1 TO (ARRAY_SIZE@(tl_cte) - 1)
+					tl_ligne[vl_indice]=tl_ligne[vl_indice]++" "++tl_cte[vl_i]
+				NEXT vl_i
+			}
+		}
+
+		/*B rangs impairs : on considere le texte comme un nom de variable */
+		ELSE	
+		{
+			/*! on reinstalle les espaces */
+			tl_cte = ARRAY_FROM_STRING@(tl_ligne[vl_indice], DEDI_CAR_ESPACE)
+			tl_ligne[vl_indice] = tl_cte[0]
+			FOR vl_i=1 TO (ARRAY_SIZE@(tl_cte) - 1)
+				tl_ligne[vl_indice] = tl_ligne[vl_indice] ++ " " ++ tl_cte[vl_i]
+			NEXT vl_i
+
+			/*B on remplace les variables */
+			tl_ligne[vl_indice]=dedi_var_convert(tl_ligne[vl_indice],va_fichier)
+			IF tl_ligne[vl_indice] = NULL
+				RETURN(NULL)
+		}
+	NEXT vl_indice
+
+	/*A si la premiere constante est nulle, on la supprime */
+	IF ARRAY_SIZE@(tl_ligne) > 0 AND tl_ligne[0] = NULL
+		tl_ligne = ARRAY_DELETE@(tl_ligne, 0)
+
+	RETURN(tl_ligne)
+	
+ENDFUNCTION
+
+

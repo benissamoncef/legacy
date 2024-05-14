@@ -1,0 +1,1028 @@
+/*E*/
+/* Fichier : $Id: ITMA_TGF_Gestion_Fichiers.am,v 1.3 2009/10/05 10:32:08 gesconf Exp $      Release : $Revision: 1.3 $        Date : $Date: 2009/10/05 10:32:08 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TGF * FICHIER ITMA_TGF_Gestion_Fichiers.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Gestion des fichiers (copies Local <-> Public, suppressions).
+*
+*   Non decrit dans le DCG
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain  21 Mar 1995  Creation                                        V1.1
+* JMG        29/09/09    : SECTO DEM 887
+---------------------------------------------------------------------------- */
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"../inc/ITMA_TGF.h"
+
+
+
+DEFINE	C_MODULE	"MTGF"			' Nom du module
+
+
+/*A
+ * Definition des formats des commande de listage d'un repertoire,
+ * de copie et de suppression ; fichier temporaire et fichier d'erreurs
+ * --------------------------------------------------------------------
+ */
+
+DEFINE	C_FMT_CMD_LISTE	"remsh %s cd %s && /bin/ls -Agod %s | awk '/^-/ {print $3,$7}'"
+DEFINE	C_FMT_CMD_SUPP	"remsh %s cd %s && /bin/rm -f %s"
+DEFINE	C_FMT_CMD_COPIE	"remsh %s cd %s && rcp %s %s"
+
+DEFINE	C_FICHIER_OUT	"/tmp/dir_applix.txt"
+DEFINE	C_FICHIER_ERRS	"/dev/null"
+
+
+
+/*A
+ * Libelles ou formats des messages affiches
+ * -----------------------------------------
+ */
+
+DEFINE	C_LIB_CHOISIR_FORMAT	"Veuillez choisir un format de nom fichier"
+DEFINE	C_LIB_SUPPRIMER_FICH	"Voulez-vous vraiment supprimer ces fichiers ?"
+
+DEFINE	C_LIB_ERR_LISTE_REPERT	"Impossible de lire la liste des fichiers"
+DEFINE	C_LIB_ERR_SUPPRESSION	"Erreur lors de la suppression des fichiers"
+DEFINE	C_LIB_ERR_COPIE		"Erreur lors de la copie des fichiers"
+DEFINE	C_LIB_ERR_TAILLE_MAX	"La taille maximale est dépassée"
+
+/*B ATTENTION : les tailles sont obtenues en blocs de 1/2 Ko */
+DEFINE	C_FMT_TAILLE	"Taille : %s Ko"
+
+
+
+/*A
+ * Description du format des donnees "fichiers"
+ * --------------------------------------------
+ */
+
+
+FORMAT	TGF_Fichier				' Format des infos fichiers
+	taille,
+	nom
+
+
+
+VAR	vm_l_postes				' Postes des sites distants
+VAR	vm_poste_local				' Nom de la machine locale
+VAR	vm_poste_public_site			' Nom poste public du site local
+VAR	vm_poste_distant			' Nom machine distante selectee
+
+VAR	vm_repertoire_local			' Chemin d'acces local complet
+VAR	vm_repertoire_public			' Chemin d'acces public complet
+
+VAR FORMAT TGF_Fichier vm_total_fich_locaux	' Table des fichiers locaux
+VAR FORMAT TGF_Fichier vm_total_fich_distants	' Table des fichiers distants
+
+VAR	vm_taille_local				' Taille totale repertoire local
+VAR	vm_taille_distant			' Taille totale repert. distant
+
+
+VAR FORMAT TGF_Fichier vm_t_fich_locaux		' Table fichiers locaux affichee
+VAR FORMAT TGF_Fichier vm_t_fich_distants	' Table fich. distants affichee
+
+
+VAR FORMAT TGF_Fichier vm_t_sel_locaux		' Table fichiers locaux selectes
+VAR FORMAT TGF_Fichier vm_t_sel_distants	' Table fich. distants selectes
+
+VAR	vm_taille_select_local			' Taille selection repert. local
+VAR	vm_taille_select_distant		' Taille selection rep. distant
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation, transfert et suppression de fichiers locaux et publics.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TGF_Gestion_Fichiers (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*   Visualise la liste des fichiers locaux ainsi que les fichiers publics d'un
+*   site ou les fichiers d'une disquette.
+*   Permet de transferer des fichiers du repertoire local au repertoire distant
+*   et d'en supprimer.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_select				' Rangs des fichiers selectes
+    VAR     vl_format				' Format de nom de fichier
+    VAR     vl_taille
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (COM_NOK)
+}
+
+
+/*A
+ * Charger la fenetre "Gestion Fichiers"
+ * -------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TGF")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_FMC, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TGF_Gestion_Fichiers")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Initialiser la visualisation (listes des fichiers locaux et publics du site)
+ * ----------------------------------------------------------------------------
+ */
+
+IF TGF_Init_Visualisation (vl_fenetre) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_Repertoire_Distant", TRUE)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Local", TRUE)
+DB_CTRL_MULTI_SELECT@ (vl_fenetre, "BL_Local", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Local", NULL)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Distant", TRUE)
+DB_CTRL_MULTI_SELECT@ (vl_fenetre, "BL_Distant", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Distant", NULL)
+
+DB_CTRL_VALUE@ (vl_fenetre, "BS_Format_Local", "*")
+DB_CTRL_ACTIVE_RETURN@ (vl_fenetre, "BS_Format_Local", TRUE)
+
+DB_CTRL_VALUE@ (vl_fenetre, "BS_Format_Distant", "*")
+DB_CTRL_ACTIVE_RETURN@ (vl_fenetre, "BS_Format_Distant", TRUE)
+
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Supp_Local", TRUE)
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Supp_Distant", TRUE)
+
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Publier", TRUE)
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Acquerir", TRUE)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur selection d'un site distant, reinitialiser
+     * l'affichage de son contenu et sa taille totale
+     * ----------------------------------------------
+     */
+
+    CASE "BO_Repertoire_Distant"
+	MACRO_WINS_BUSY@ ()
+	vl_select = DB_CTRL_GET_VALUE@ (vl_fenetre, "BO_Repertoire_Distant")
+	vm_poste_distant = vm_l_postes[vl_select]
+	IF vm_poste_distant <> vm_poste_local  AND
+	   vm_poste_distant <> vm_poste_public_site
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_Publier", TRUE)
+
+	vl_format = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Format_Distant")
+	TGF_Reinit_Liste_Distante (vl_fenetre, vl_format, vl_taille)
+
+	/*B Si la liste affichee n'est pas la liste totale, la relire */
+	IF vl_format = "*" {
+	    vm_total_fich_distants = vm_t_fich_distants
+	    vm_taille_distant = vl_taille
+	} ELSE {
+	    TGF_Liste_Fichiers(vl_fenetre,vm_poste_distant,vm_repertoire_public,
+				  "*", vm_total_fich_distants,vm_taille_distant)
+	}
+
+
+    /*A
+     * A l'activation d'un zone de saisie, preparer
+     * la recherche des fichiers de format saisi
+     * --------------------------------------------
+     */
+
+    CASE "BS_Format_Local"
+	DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Rech_Local", TRUE)
+
+    CASE "BS_Format_Distant"
+	DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Rech_Distant", TRUE)
+
+
+    /*A
+     * Sur choix "Rechercher", afficher les fichiers correspondant au format
+     * ---------------------------------------------------------------------
+     */
+
+    CASE "BP_Rech_Local"
+	MACRO_WINS_BUSY@ ()
+	vl_format = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Format_Local")
+	IF vl_format = NULL
+	    INFO_MESSAGE@ (C_LIB_CHOISIR_FORMAT)
+	ELSE TGF_Reinit_Liste_Locale (vl_fenetre, vl_format, vl_taille)
+
+
+    CASE "BP_Rech_Distant"
+	MACRO_WINS_BUSY@ ()
+	vl_format = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Format_Distant")
+	IF vl_format = NULL
+	    INFO_MESSAGE@ (C_LIB_CHOISIR_FORMAT)
+	ELSE TGF_Reinit_Liste_Distante (vl_fenetre, vl_format, vl_taille)
+
+
+    /*A
+     * Sur selection de fichiers dans l'une des listes,
+     * calculer et afficher la taille de la selection
+     * puis autoriser la suppression et le transfert
+     * ------------------------------------------------
+     */
+
+    CASE "BL_Local"
+	vl_select = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Local")
+	vm_taille_select_local =
+	    TGF_Fichiers_Selectes (vm_t_fich_locaux, vl_select, vm_t_sel_locaux)
+	DB_CTRL_TITLE@ (vl_fenetre, "LI_Taille_Local",
+			    FORMAT@ (C_FMT_TAILLE, vm_taille_select_local))
+
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Supp_Local", IS_NULL@ (vl_select))
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Publier",
+			    IS_NULL@ (vl_select)  OR
+			    (vm_poste_distant <> vm_poste_local  AND
+			     vm_poste_distant <> vm_poste_public_site))
+
+
+    CASE "BL_Distant"
+	vl_select = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Distant")
+	vm_taille_select_distant =
+	   TGF_Fichiers_Selectes(vm_t_fich_distants,vl_select,vm_t_sel_distants)
+	DB_CTRL_TITLE@ (vl_fenetre, "LI_Taille_Distant",
+			   FORMAT@ (C_FMT_TAILLE, vm_taille_select_distant))
+
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Supp_Distant",
+			    IS_NULL@ (vl_select)  OR
+			    vm_poste_distant <> vm_poste_local)
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Acquerir", IS_NULL@ (vl_select))
+
+
+    /*A
+     * Sur choix "Supprimer", effectuer la suppression
+     * puis reinitialiser la visualisation de la liste
+     * -----------------------------------------------
+     */
+
+    CASE "BP_Supp_Local"
+	IF PEND_FOR_NEW_TASK@ ("ITMA_TCF_Demande_Confirmation",
+				    C_LIB_SUPPRIMER_FICH) = COM_OK {
+	    MACRO_WINS_BUSY@ ()
+	    TGF_Supprimer_Fichiers (vm_poste_local, vm_repertoire_local,
+					vm_t_sel_locaux)
+
+	    vl_format = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Format_Local")
+	    TGF_Reinit_Liste_Locale (vl_fenetre, vl_format, vl_taille)
+
+	    /*B Si la liste affichee n'est pas la liste totale, la relire */
+	    IF vl_format = "*" {
+		vm_total_fich_locaux = vm_t_fich_locaux
+		vm_taille_local = vl_taille
+	    } ELSE {
+	       TGF_Liste_Fichiers(vl_fenetre,vm_poste_local,vm_repertoire_local,
+				    "*", vm_total_fich_locaux, vm_taille_local)
+	    }
+	}
+
+
+    CASE "BP_Supp_Distant"
+	IF PEND_FOR_NEW_TASK@ ("ITMA_TCF_Demande_Confirmation",
+				    C_LIB_SUPPRIMER_FICH) = COM_OK {
+	    MACRO_WINS_BUSY@ ()
+	    TGF_Supprimer_Fichiers (vm_poste_distant, vm_repertoire_public,
+					vm_t_sel_distants)
+
+	    vl_format = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Format_Distant")
+	    TGF_Reinit_Liste_Distante (vl_fenetre, vl_format, vl_taille)
+
+	    /*B Si la liste affichee n'est pas la liste totale, la relire */
+	    IF vl_format = "*" {
+		vm_total_fich_distants = vm_t_fich_distants
+		vm_taille_distant = vl_taille
+	    } ELSE {
+		TGF_Liste_Fichiers (vl_fenetre, vm_poste_distant,
+				       vm_repertoire_public, "*",
+				       vm_total_fich_distants,vm_taille_distant)
+	    }
+	}
+
+
+    /*A
+     * Sur choix "Publier" ou "Acquerir", transferer les fichiers selectes
+     * -------------------------------------------------------------------
+     */
+
+    CASE "BP_Publier"
+	vl_taille = TGF_Espace_Occupe (vm_t_sel_locaux, vm_total_fich_distants)
+	IF vm_taille_distant - vl_taille + vm_taille_select_local > TGF_TAILLE_MAX_PUBLIC {
+	    BEEP@
+	    INFO_MESSAGE@ (C_LIB_ERR_TAILLE_MAX)
+	} ELSE {
+	    MACRO_WINS_BUSY@ ()
+	    TGF_Copier_Fichiers (vm_poste_local, vm_repertoire_local,
+				 vm_t_sel_locaux, vm_poste_distant,vm_repertoire_public)
+	    vl_format = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Format_Distant")
+	    TGF_Reinit_Liste_Distante (vl_fenetre, vl_format, vl_taille)
+
+	    /*B Si la liste affichee n'est pas la liste totale, la relire */
+	    IF vl_format = "*" {
+		vm_total_fich_distants = vm_t_fich_distants
+		vm_taille_distant = vl_taille
+	    } ELSE {
+		TGF_Liste_Fichiers (vl_fenetre, vm_poste_distant,
+				       vm_repertoire_public, "*",
+				       vm_total_fich_distants,vm_taille_distant)
+	    }
+	}
+
+
+    CASE "BP_Acquerir"
+	vl_taille = TGF_Espace_Occupe (vm_t_sel_distants, vm_total_fich_locaux)
+	IF vm_taille_local - vl_taille + vm_taille_select_distant > TGF_TAILLE_MAX_LOCAL {
+	    BEEP@
+	    INFO_MESSAGE@ (C_LIB_ERR_TAILLE_MAX)
+	} ELSE {
+	    MACRO_WINS_BUSY@ ()
+	    TGF_Copier_Fichiers (vm_poste_distant, vm_repertoire_public,
+				 vm_t_sel_distants, vm_poste_local,vm_repertoire_local)
+	    vl_format = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Format_Local")
+	    TGF_Reinit_Liste_Locale (vl_fenetre, vl_format, vl_taille)
+
+	    /*B Si la liste affichee n'est pas la liste totale, la relire */
+	    IF vl_format = "*" {
+		vm_total_fich_locaux = vm_t_fich_locaux
+		vm_taille_local = vl_taille
+	    } ELSE {
+	       TGF_Liste_Fichiers(vl_fenetre,vm_poste_local,vm_repertoire_local,
+				    "*", vm_total_fich_locaux, vm_taille_local)
+	    }
+	}
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation (fichiers locaux et fichiers publics du site).
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TGF_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGF_Gestion_Fichiers
+*
+* FONCTION
+*   Initialise les valeurs des choix de repertoires distants, la liste des
+*   fichiers locaux et les fichiers publics du site.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TDO_District vl_t_districts	' Liste des districts
+    VAR     vl_l_num_districts			' Liste de leurs numeros
+
+    VAR     vl_l_sites				' Liste des sites distants
+    VAR     vl_l_noms_sites			' Liste de leurs noms affiches
+    VAR     vl_rang_site_local
+    VAR     i, j
+
+
+DELETE_FILE@ (C_FICHIER_OUT)
+
+vm_poste_local = UPPERCASE@ (SYSTEM_VAR@ (vg_poste))
+vm_repertoire_local = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_LOCAL
+vm_repertoire_public = SYSTEM_VAR@(vg_repertoire_migrazur) ++COM_SOUS_REP_PUBLIC
+
+
+/*A
+ * Initialiser la liste des sites publics distants et
+ * les machines associees stockant les fichiers publics
+ * ----------------------------------------------------
+ */
+
+vl_l_sites = TGF_LISTE_SITES
+vm_l_postes = TGF_LISTE_POSTES
+
+vl_t_districts = SYSTEM_VAR@ (vg_les_districts)
+vl_l_num_districts = ARRAY_COLUMN@ (vl_t_districts, TDO_NUMERO_DISTRICT)
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_l_sites) - 1
+    j = ARRAY_INDEX@ (vl_l_num_districts, vl_l_sites[i])
+    vl_l_noms_sites[i] = "Public " ++ vl_t_districts[j].code
+
+    IF vl_l_sites[i] = SYSTEM_VAR@ (vg_site) {
+	vl_rang_site_local = i
+	vm_poste_public_site = UPPERCASE@ (vm_l_postes[i])
+    }
+NEXT i
+
+
+/*A
+ * Ajouter le lecteur de disquettes
+ * --------------------------------
+ */
+
+/*! For future use : EVOLUTION */
+/*
+vm_l_postes = ARRAY_INSERT@ (vm_l_postes, vm_poste_local, 0)
+vl_l_noms_sites = ARRAY_INSERT@ (vl_l_noms_sites, "Lecteur de disquettes", 0)
+vl_rang_site_local = vl_rang_site_local + 1
+*/
+
+DB_CTRL_STRINGS@ (va_fenetre, "BO_Repertoire_Distant", vl_l_noms_sites)
+DB_CTRL_VALUE@ (va_fenetre, "BO_Repertoire_Distant", vl_rang_site_local)
+
+
+/*A
+ * Initialiser la liste des fichiers locaux et des fichiers publics du site ;
+ * Afficher la taille totale du contenu de chacun des deux repertoires
+ * --------------------------------------------------------------------------
+ */
+
+TGF_Reinit_Liste_Locale (va_fenetre, "*", vm_taille_local)
+vm_total_fich_locaux = vm_t_fich_locaux
+
+
+vm_poste_distant = vm_poste_public_site
+TGF_Reinit_Liste_Distante (va_fenetre, "*", vm_taille_distant)
+vm_total_fich_distants = vm_t_fich_distants
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Reinitialise la visualisation des fichiers locaux et leur taille.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TGF_Reinit_Liste_Locale (va_fenetre, va_format, va_taille)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a valuer ;
+*   va_format         : Format des noms de fichiers a rechercher.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_taille         : Taille totale de la selection.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGF_Gestion_Fichiers
+*
+* FONCTION
+*   Reinitialise la liste des fichiers locaux avec les fichiers dont le format
+*   est indique.
+*   Affiche leur taille et active ou inhibe les boutons operant sur les
+*   fichiers.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_status				' Compte-rendu de la commande
+
+
+/*A
+ * Lire la liste des fichiers
+ * --------------------------
+ */
+
+vl_status = TGF_Liste_Fichiers (va_fenetre, vm_poste_local, vm_repertoire_local,
+				    va_format, vm_t_fich_locaux, va_taille)
+
+/*A
+ * Afficher la liste des fichiers et leur taille
+ * ---------------------------------------------
+ */
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Local", ARRAY_COLUMN@ (vm_t_fich_locaux, 1))
+DB_CTRL_VALUE@ (va_fenetre, "BL_Local", NULL)
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Taille_Local", FORMAT@(C_FMT_TAILLE, va_taille))
+
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Supp_Local", TRUE)
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Publier", TRUE)
+
+RETURN (vl_status)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Reinitialise la visualisation des fichiers locaux et leur taille.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TGF_Reinit_Liste_Distante (va_fenetre, va_format, va_taille)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a valuer ;
+*   va_format         : Format des noms de fichiers a rechercher.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_taille         : Taille totale de la selection.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGF_Gestion_Fichiers
+*
+* FONCTION
+*   Reinitialise la liste des fichiers distants avec les fichiers dont le
+*   format est indique.
+*   Affiche leur taille et active ou inhibe les boutons operant sur les
+*   fichiers.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_status				' Compte-rendu de la commande
+
+
+/*A
+ * Lire la liste des fichiers
+ * --------------------------
+ */
+
+vl_status = TGF_Liste_Fichiers(va_fenetre,vm_poste_distant,vm_repertoire_public,
+				    va_format, vm_t_fich_distants, va_taille)
+
+/*A
+ * Afficher la liste des fichiers et leur taille
+ * ---------------------------------------------
+ */
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Distant", ARRAY_COLUMN@(vm_t_fich_distants,1))
+DB_CTRL_VALUE@ (va_fenetre, "BL_Distant", NULL)
+
+DB_CTRL_TITLE@(va_fenetre, "LI_Taille_Distant", FORMAT@(C_FMT_TAILLE,va_taille))
+
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Supp_Distant", TRUE)
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Acquerir", TRUE)
+
+RETURN (vl_status)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit la liste des fichiers d'un poste et leur taille.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TGF_Liste_Fichiers (va_fenetre, va_poste, va_repertoire, va_format,
+				FORMAT TGF_Fichier va_liste, va_taille)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a valuer ;
+*   va_poste          : Nom du poste sur lequel lister les fichiers ;
+*   va_repertoire     : Repertoire a lister ;
+*   va_format         : Format des noms de fichiers a rechercher.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_liste          : Liste des fichiers trouves ;
+*   va_taille         : Taille totale de la selection.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGF_Gestion_Fichiers
+*
+* FONCTION
+*   Liste les fichiers dont le nom correspond au format indique contenus dans
+*   le repertoire indique de la machine indiquee.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_cmd				' Commande de listage
+    VAR     vl_status				' Compte-rendu de la commande
+    VAR     vl_l_fichiers			' Liste des fichiers
+    VAR     i
+
+
+va_liste = NULL
+va_taille = 0
+
+WRITE_ASCII_FILE@ (C_FICHIER_OUT, NULL)
+
+
+/*A
+ * Lire dans le fichier temporaire le contenu du repertoire indique
+ * ----------------------------------------------------------------
+ */
+
+vl_cmd = FORMAT@ (C_FMT_CMD_LISTE, va_poste, va_repertoire, va_format)
+vl_status = RUN_PROGRAM@ (vl_cmd, C_FICHIER_OUT, C_FICHIER_ERRS)
+
+IF vl_status <> 0 {
+    BEEP@
+    INFO_MESSAGE@ (C_LIB_ERR_LISTE_REPERT)
+    RETURN (COM_NOK)
+} ELSE {
+    vl_l_fichiers = READ_ASCII_FILE@ (C_FICHIER_OUT)
+    FOR i = 0  TO ARRAY_SIZE@ (vl_l_fichiers) - 1
+	va_liste[i] = ARRAY_FROM_STRING@ (vl_l_fichiers[i], " ")
+	va_taille = va_taille + va_liste[i].taille
+    NEXT i
+
+    /*B Convertir la taille en Ko */
+    va_taille = va_taille \ 1024
+    RETURN (COM_OK)
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Extrait d'une liste de fichiers la sous-liste selectee et calcule sa taille.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TGF_Fichiers_Selectes (FORMAT TGF_Fichier va_liste_fichiers, va_selection,
+				FORMAT TGF_Fichier va_sous_liste)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_liste_fichiers : Table des fichiers dont on extrait la selection ;
+*   va_selection      : Liste des indices dans la table des fichiers.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_sous_liste     : La sous-liste de fichiers selectes.
+*
+*
+* CODE RETOUR         : La taille de la selection.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGF_Gestion_Fichiers
+*
+* FONCTION
+*   Extrait la sous-liste indiquee de la liste de fichiers indiquee ;
+*   calcule et retourne la taille de la selection convertie en K octets.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_taille				' La taille totale calculee
+    VAR     i, j
+
+
+va_sous_liste = NULL
+vl_taille = 0
+
+j = 0
+FOR i = 0  TO ARRAY_SIZE@ (va_selection) - 1
+    va_sous_liste[j] = va_liste_fichiers[va_selection[i]]
+    vl_taille = vl_taille + va_sous_liste[j].taille
+    j = j + 1
+NEXT i
+
+/*B Convertir la taille en Ko */
+RETURN (vl_taille \ 1024)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Calcule la taille occupee dans un repertoire par les fichiers d'une liste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TGF_Espace_Occupe (FORMAT TGF_Fichier va_liste,
+				FORMAT TGF_Fichier va_liste_rep)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_liste          : Liste des fichiers a rechercher ;
+*   va_liste_rep      : Contenu du repertoire d'ou extraire les fichiers.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : La taille de la sous-liste de fichiers extraite.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGF_Gestion_Fichiers
+*
+* FONCTION
+*   Effectue la somme des tailles des fichiers du repertoire indique figurant
+*   dans la liste indiquee et retourne la valeur convertie en K octets.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_l_fich_rep			' Les noms de fichiers du rep.
+    VAR     vl_taille				' La taille totale calculee
+    VAR     i, j
+
+
+vl_l_fich_rep = ARRAY_COLUMN@ (va_liste_rep, 1)
+
+vl_taille = 0
+FOR i = 0  TO ARRAY_SIZE@ (va_liste) - 1
+    j = ARRAY_INDEX@ (vl_l_fich_rep, va_liste[i].nom)
+    IF j >= 0
+	vl_taille = vl_taille + va_liste_rep[j].taille
+NEXT i
+
+/*B Convertir la taille en Ko */
+RETURN (vl_taille \ 1024)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Supprime une liste de fichiers d'un repertoire sur un poste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TGF_Supprimer_Fichiers (va_poste, va_repertoire, FORMAT TGF_Fichier va_liste)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_poste          : Nom du poste sur lequel supprimer les fichiers ;
+*   va_repertoire     : Repertoire dans lequel les supprimer ;
+*   va_liste          : Liste des fichiers a supprimer.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGF_Gestion_Fichiers
+*
+* FONCTION
+*   Construit et execute la commande de suppression des fichiers indiques
+*   contenus dans le repertoire indique de la machine indiquee.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_l_fichiers			' Liste des fichiers
+    VAR     vl_sous_liste			' Sous-liste fichiers supprimes
+    VAR     vl_cmd				' Commande de suppression
+    VAR     vl_status				' Compte-rendu de la commande
+
+
+vl_l_fichiers = ARRAY_COLUMN@ (va_liste, 1)
+
+
+/*A
+ * Supprimer la liste par troncons pour eviter la troncature de la commande
+ * ------------------------------------------------------------------------
+ */
+
+vl_status = 0
+WHILE vl_status = 0  AND  NOT IS_NULL@ (vl_l_fichiers)
+    IF ARRAY_SIZE@ (vl_l_fichiers) > 20 {
+	vl_sous_liste = SUBARRAY@ (vl_l_fichiers, 0, 20)
+	vl_l_fichiers = SUBARRAY_REMOVE@ (vl_l_fichiers, 0, 20)
+    } ELSE {
+	vl_sous_liste = vl_l_fichiers
+	vl_l_fichiers = NULL
+    } 
+
+    vl_cmd = FORMAT@ (C_FMT_CMD_SUPP, va_poste, va_repertoire,
+			ARRAY_TO_STRING@ (vl_sous_liste, " "))
+    vl_status = RUN_PROGRAM@ (vl_cmd, "/dev/null", C_FICHIER_ERRS)
+
+    IF vl_status <> 0 {
+	BEEP@
+	INFO_MESSAGE@ (C_LIB_ERR_COPIE)
+    }
+WEND
+
+
+IF vl_status = 0
+    RETURN (COM_OK)
+ELSE RETURN (COM_NOK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Copie une liste de fichiers d'un repertoire d'un poste a un autre poste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TGF_Copier_Fichiers (va_poste_origine, va_rep_origine,
+				FORMAT TGF_Fichier va_liste,
+				va_poste_dest, va_rep_dest)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_poste_origine  : Nom de la machine depuis laquelle copier les fichiers ;
+*   va_rep_origine    : Repertoire depuis lequel les copier ;
+*   va_liste          : Liste des fichiers a copier ;
+*   va_poste_dest     : Nom de la machine sur laquelle les copier ;
+*   va_rep_dest       : Repertoire ou les copier ;
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGF_Gestion_Fichiers
+*
+* FONCTION
+*   Construit et execute la commande de copie des fichiers indiques depuis la
+*   machine et le repertoire indiques a l'endroit indiquee.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_l_fichiers			' Liste des fichiers
+    VAR     vl_sous_liste			' Sous-liste des fichiers copies
+    VAR     vl_cmd				' Commande de copie
+    VAR     vl_status				' Compte-rendu de la commande
+
+
+vl_l_fichiers = ARRAY_COLUMN@ (va_liste, 1)
+
+
+/*A
+ * Copier la liste par troncons pour eviter la troncature de la commande
+ * ---------------------------------------------------------------------
+ */
+
+vl_status = 0
+WHILE vl_status = 0  AND  NOT IS_NULL@ (vl_l_fichiers)
+    IF ARRAY_SIZE@ (vl_l_fichiers) > 20 {
+	vl_sous_liste = SUBARRAY@ (vl_l_fichiers, 0, 20)
+	vl_l_fichiers = SUBARRAY_REMOVE@ (vl_l_fichiers, 0, 20)
+    } ELSE {
+	vl_sous_liste = vl_l_fichiers
+	vl_l_fichiers = NULL
+    } 
+
+    vl_cmd = FORMAT@ (C_FMT_CMD_COPIE, va_poste_origine, va_rep_origine,
+			ARRAY_TO_STRING@ (vl_sous_liste, " "),
+			va_poste_dest ++ ":" ++ va_rep_dest)
+    vl_status = RUN_PROGRAM@ (vl_cmd, "/dev/null", C_FICHIER_ERRS)
+
+    IF vl_status <> 0 {
+	BEEP@
+	INFO_MESSAGE@ (C_LIB_ERR_COPIE)
+    }
+WEND
+
+
+IF vl_status = 0
+    RETURN (COM_OK)
+ELSE RETURN (COM_NOK)
+
+ENDMACRO

@@ -1,0 +1,1 @@
+DEFINE	XZAT67_Supprimer_Neutre_PMVA	"XZAT67"

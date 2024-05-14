@@ -1,0 +1,694 @@
+
+/*E*/
+/* Fichier : $Id: ITMA_TPP_pilotage_PAL_LT.am,v 1.2 2010/12/16 16:49:53 pc2dpdy Exp $     Release : $Revision: 1.2 $      Date :  $Date: 2010/12/16 16:49:53 $
+------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE MTPM * FICHIER  ITMA_TPP_pilotage_PAL.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de commande des PAL par LT.
+*
+*
+------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Mismer	12 Jan 1998	: Creation						1.1
+* JMG		26/06/10: portage linux DEM/934
+--------------------------------------------------------------------- */
+
+/*A Description des constantes générales
+ * ------------------------------------*/
+DEFINE	REP_FICHIER		"../fichiers/"
+
+
+/*A Description des modules a inclures 
+* ------------------------------------ */
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_TPP.h"
+
+
+
+/*A Declaration des variables globales 
+* ------------------------------------ */
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Commande le pilotage des PAL par le LT
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPP_pilotage_PAL_LT(va_appelant)
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*
+*	1 appel possible
+*
+*
+*
+*
+*
+*
+*
+*
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant resultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> PAL dans la liste
+*
+* FONCTION
+*    Pilote les PAL par le LT
+*
+--------------------------------------------------------------------- */
+
+/*A Declaration des variables */
+/*A ------------------------- */
+
+/*A Variables secondaires ou de travail */
+/*A ----------------------------------- */
+
+
+var	vl_fenetre_active	' flag de fenetre active
+var	vl_controle_sortie	' flag de sortie
+var	vl_erreur			' flag d'erreur
+var	i,j,vl_mess		' index de loop
+var	vl_message		' message affiche
+var	vl_objet			' objet en edition
+var	vl_rang			' rang de la selection dans la liste
+var	vl_abt_panneau		' flag d'abonnement des panneaux
+var	vl_NumPAL			' numero de PAL selectionne
+var	vl_NumPALDispo		' numero du premier PAL disponible
+var	vl_ancien_NumPAL	' ancien numero de PAL avant nouvelle selection
+var	vl_Appel			' appelant
+var	vl_NomMachine		' nom de la machine
+var	vl_NumAction		' Numero d'action
+var	vl_text			' text en edition
+var	vl_etat_actuel_man	' Etat actuel recherche pour la cmd manuelle
+var	vl_message_man		' Message envoye par la commande
+
+/*A Variables principales */
+/*A --------------------- */
+
+/*A Numero du district
+*/
+var	vl_District
+
+/*A Item de la fenetre du module
+*/
+var 	vl_fenetre_TPP
+
+/*A Messages acceptes dans la boucle principale
+*/
+var	vl_messages_acceptes
+
+/*A Nom du site en cours
+*/
+var	vl_NomSite
+
+
+/*A Modules du PAL en cours
+*/
+var	vl_Module
+
+
+/*A Nom de l'operateur
+*/
+var	vl_NomOperateur
+
+/*A Liste de nom des PAL
+*/
+var	vl_liste_nom_PAL
+
+
+/*A Liste des PAL et leurs infos associees Table sur indice numero PAL
+*/
+
+var	FORMAT Config_PAL vl_info_liste_PAL
+
+
+/*A Tableau d'infos contenant les infos sur la configuration des
+	messages et des affichages pour les PALs Indice du tableau le
+							numero de l'equipement dans la PAL */ 
+var	FORMAT ST_affichage_et_message vl_ST_aff_msg
+
+
+/*A liste des objets pour la boite de dialogue consultation
+*/
+var FORMAT	ST_objet	vl_liste_objet_consultation
+
+/*A liste des objets pour la boite de dialogue pilotage
+*/
+var	FORMAT	ST_objet	vl_liste_objet_pilotage
+
+
+
+
+
+/*A MAJ des variables statiques */
+
+vl_District 	= SYSTEM_VAR@(vg_site)
+vl_NomSite 	= SYSTEM_VAR@(vg_nom_site)
+vl_abt_panneau	= FALSE
+vl_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vl_NomMachine 	= SYSTEM_VAR@(vg_poste)
+vl_NomOperateur = SUBSTRING@(vl_NomOperateur, 1, 25)
+
+
+
+/*B trace du debut du traitement */
+vl_text = "------------------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = " Start ITMA_TPP_pilotage_PAL_LT   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+vl_text = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_text)
+vl_Appel		= SUBSTRING@(va_appelant,1,8)
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace(COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN(COM_NOK)
+}
+
+/*A Pour initialiser les procedures communes */
+/*  ---------------------------------------- */
+
+ITMA_TPP_commun_PAL()
+
+
+ITMA_TPP_Liste_Eqt_LT(vl_NomMachine,vl_liste_nom_PAL,
+						vl_info_liste_PAL,vl_NumPAL)
+
+/*A Si la liste des PAL est vide */
+ 
+if NOT(IS_ARRAY@(vl_info_liste_PAL))
+{
+ 		info_message@("Aucun Panneau d'alerte dans ce Local Technique !") 
+		RETURN(COM_NOK)
+
+}
+/*A Finsi */
+
+
+
+
+/*A Lecture de l'etat actuel du premier PAL */
+
+ITMA_TPP_INIT_PAL(vl_ST_aff_msg,
+			vl_liste_objet_consultation,vl_liste_objet_pilotage,
+					vl_info_liste_PAL[vl_NumPAL].NumType)
+
+
+/*A Initialisation Boite de dialogue pilotage PAL */
+ITMA_TPP_init_boite_dialogue_pilotage_LT(vl_fenetre_TPP,
+		vl_messages_acceptes,vl_ST_aff_msg,vl_liste_objet_pilotage,
+			vl_liste_nom_PAL)
+
+/*A MAJ du titre de la fenetre */
+DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_nom",
+					vl_info_liste_PAL[vl_NumPAL].Identifiant)
+
+
+/*A Abonnement a l'etat des panneaux */ 
+
+vl_erreur = ITMA_TPP_Abt_Etat_Panneaux_Alerte(XDC_DEBUT_ABONNEMENT_EQUEXT,
+					vl_NomSite)
+
+if (vl_erreur <> COM_NOK)
+{
+	vl_abt_panneau = TRUE
+}
+
+
+
+
+/*A Boucle de capture des evenements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la boite de dialogue */
+	DB_DISPLAY@(vl_fenetre_TPP)
+
+	/*A capture de l'evenement dans la BD TPP */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_TPP)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL
+ 
+	if substring@(vl_controle_sortie,1,len@(OBJET_NOUVEL_ETAT))=
+											OBJET_NOUVEL_ETAT
+	{
+
+		vl_erreur=ITMA_TPP_modif_picto(vl_controle_sortie,
+								vl_fenetre_TPP,vl_ST_aff_msg)
+	}
+
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+	CASE "BP_quitter"
+
+		vl_fenetre_active = FALSE
+
+
+	/*A sur  liste PAL */
+	CASE "BL_liste_PAL"
+
+		vl_ancien_NumPAL = vl_NumPAL
+		/*A Capture du rang dans la liste des PAL */
+		vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_TPP,"BL_liste_PAL")
+
+		for i=0 to ARRAY_SIZE@(vl_info_liste_PAL)-1
+
+			if vl_info_liste_PAL[i].Identifiant=
+								vl_liste_nom_PAL[vl_rang]
+			{
+				vl_NumPAL = i
+
+			}
+		next i
+
+		if vl_ancien_NumPAL <> vl_NumPAL
+		{
+			/*A Effacement des objets du pal precedent */
+			ITMA_TPP_effacement_dans_boite_objet_PAL(vl_fenetre_TPP,
+							vl_liste_objet_pilotage)
+
+
+			/*A Configuration du PAL selectionne */
+			ITMA_TPP_INIT_PAL(vl_ST_aff_msg,
+				vl_liste_objet_consultation,vl_liste_objet_pilotage,
+						vl_info_liste_PAL[vl_NumPAL].NumType)
+
+
+			/*A Creation des objets du PAL selectionne */						
+			ITMA_TPP_creation_dans_boite_objet_PAL(vl_fenetre_TPP,
+								vl_liste_objet_pilotage)
+
+
+			/*A Griser le bouton 'Executer' */
+			DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_executer",True)
+
+			/*A Degriser les boutons de pilotage des panneaux
+										de l'etat nouveau */
+
+			for i=0 to DIM_MAX_ST_affichage_et_message
+
+				if(vl_ST_aff_msg[i].equipement_present=TRUE)
+				{
+				DB_CTRL_GRAYED@(vl_fenetre_TPP,
+							vl_ST_aff_msg[i].nom_objet_nouvel_etat,False)
+				}
+			next i
+
+		
+			/*A on affiche les etats des modules du PAL en cours */
+'			for i = 0 to DIM_MAX_ETAT
+				
+	'			ITMA_TPP_MAJ_PAL_EN_COURS(i,
+		'		vl_info_liste_PAL[vl_NumPAL].Etat_actuel[i],
+			'					vl_fenetre_TPP,vl_ST_aff_msg)
+
+'			next i
+							
+	 
+   			/*A MAJ du titre de la fenetre */
+    			DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_nom",
+							vl_info_liste_PAL[vl_NumPAL].Identifiant)
+		}
+
+
+	/*A sur action executer */
+	CASE "BP_executer"
+
+		for i = 0 to DIM_MAX_ST_affichage_et_message
+
+			/* Initialisation module PAL */
+			vl_Module[i] = INDETERMINE
+
+
+			if vl_ST_aff_msg[i].equipement_present=TRUE
+			{
+				vl_etat_actuel_man=vl_ST_aff_msg[i].
+						nouvel_etat_equipement
+
+
+
+				vl_Module[i] = vl_ST_aff_msg[i].
+								message_equipement[
+										vl_etat_actuel_man]
+
+
+
+			}
+		next i
+
+
+		/* Envoi de l'etat des modules du PAL */
+		vl_erreur=ITMA_TPP_Commande_module_PAL(vl_NumPAL,
+						vl_Module,0,
+						vl_info_liste_PAL[vl_NumPAL].nom_machine_LT,
+						vl_NomOperateur,FALSE)
+
+		   	DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_status",
+								"Status : Commande envoyee")
+		if vl_erreur = COM_OK
+		{
+			DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_status",
+								"Status : Pilotage PAL")
+
+		}
+		else
+		{
+			DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_status",
+								"Status : Problème Pilotage PAL")
+		}
+
+
+
+	/*A sur reception de poke */		
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vl_fenetre_TPP)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_MTPP
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vl_fenetre_TPP)
+
+			/*A trace de la reception du message */
+			vl_text = "   MsgPoke MTPP : " ++ vl_message[0]
+			COM01_Trace(0,vl_text)
+			COM01_Trace(0," ")
+
+			/*A decomposition des messages en tableau */
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+			/*A si numero de PAL en cours d'edition */
+			if vl_mess[0]+0 =  vl_NumPAL+0
+			{				
+				/*A on boucle sur toutes les infos du message */
+				for i = 1 to ARRAY_SIZE@(vl_mess)-1
+				
+					'ITMA_TPP_MAJ_PAL_EN_COURS(i-1,vl_mess[i],
+					ITMA_TPP_MAJ_PAL(vl_mess[i],vl_mess[i+1],	
+								vl_fenetre_TPP,vl_ST_aff_msg)
+
+				next i
+			}
+			
+			/*A on boucle sur toutes les infos du message */
+'			for i = 1 to ARRAY_SIZE@(vl_mess)-1
+	'			vl_info_liste_PAL[vl_mess[0]+0].Etat_actuel[i-1] = vl_mess[i]
+		'	next i
+
+		ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+
+
+
+
+/*B Fermerture des abonnements */
+if (vl_abt_panneau)
+{
+	ITMA_TPP_Abt_Etat_Panneaux_Alerte(XDC_FERMER_ABONNEMENT_EQUEXT,
+					vl_info_liste_PAL[vl_NumPAL].NomSite)
+}
+
+/*B trace de la fin de traitement */
+vl_text = " Stop ITMA_TPP_pilotage_PAL_LT   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Initialisation generale de la boite de dialogue
+*										Pilotage_LT
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPP_init_boite_dialogue_pilotage_LT(va_fenetre_TPP,
+								va_messages_acceptes,
+				FORMAT ST_affichage_et_message va_ST_aff_msg,
+						FORMAT	ST_objet	va_liste_objet,
+							va_liste_PAL)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_fenetre_TPP			:	Item de la boite de dialogue
+*												Pilotage
+*	va_messages_acceptes	:	Liste des messages acceptes par la
+*											boite de dialogue
+*	va_ST_aff_msg			:	Structure contenant les donnees
+*							d'affichage et de messages vers
+*							les equipements
+*	va_liste_objet			:	Liste des objets pilotage 
+*
+*	va_liste_PAL			:	Liste des PAL
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*  	va_fenetre_TPP			:	Item de la boite de dialogue Pilotage
+*
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*    Initialisation generale de la boite de dialogue Pilotage_LT
+*
+--------------------------------------------------------------------- */
+
+var i
+
+
+/*A Ouverture de la fiche de pilotage PAL */
+
+va_fenetre_TPP = DB_LOAD@("ITMA_TPP_pilotage_PAL_LT")
+
+va_messages_acceptes[0] = COM_CANAL_FIN
+va_messages_acceptes[1] = COM_CANAL_MTPP
+DB_ACCEPT_POKES@ (va_fenetre_TPP, va_messages_acceptes)
+
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(va_fenetre_TPP,100)
+DB_YPOS@(va_fenetre_TPP, 100)
+
+ITMA_TPP_creation_dans_boite_objet_PAL(va_fenetre_TPP,va_liste_objet)
+
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre_TPP,"BL_liste_PAL",TRUE)
+
+DB_CTRL_STRINGS@(va_fenetre_TPP,"BL_liste_PAL",va_liste_PAL)
+
+
+/*A Griser le bouton 'Executer' */
+DB_CTRL_GRAYED@(va_fenetre_TPP,"BP_executer",True)
+
+/*A Degriser les boutons de pilotage des panneaux de l'etat nouveau */
+
+for i=0 to ARRAY_SIZE@(va_ST_aff_msg)-1
+
+	if(va_ST_aff_msg[i].equipement_present=TRUE)
+	{
+	DB_CTRL_GRAYED@(va_fenetre_TPP,
+				va_ST_aff_msg[i].nom_objet_nouvel_etat,False)
+	}
+next i
+
+DB_DISPLAY_ONLY@(va_fenetre_TPP,TRUE)
+DB_DISPLAY@(va_fenetre_TPP)
+DB_DISPLAY_ONLY@(va_fenetre_TPP,FALSE)
+
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des equipements dans le fichier des eqts
+*
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPP_Liste_Eqt_LT(va_NomMachine,va_liste_nom_PAL,
+								FORMAT Config_PAL va_liste_PAL,
+								va_NumPALDispo)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_NomMachine			:	n° de la machine
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*	va_liste_nom_PAL		:	Liste des noms des PAL
+*	va_liste_PAL			:	Liste des PAL
+*	va_NumPALDispo			:	Numero du premier PAL
+*
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*    Lecture des equipements dans le fichier des eqpts
+*
+--------------------------------------------------------------------- */
+var	vl_F_tpm			' tableau tampon contenant le fichier lu
+
+var	vl_ligne			' tableau d'une ligne
+var	vl_nb_lignes		' Nombre de lignes dans le fichier lu
+var	vl_nb_element_ligne	' Nombre d'elements par lignes
+var	vl_Nom_Machine		' nom de la machine
+var	vl_NumPAL			' numero du PAL
+
+var	i,j
+
+/*A Lecture du fichier des Eqt par LT et MAJ de la liste  
+*   ------------------------------------------------- */
+va_liste_PAL= ""
+
+
+
+	if FILE_EXISTS@(REP_FICHIER ++ "deq/Config_PAL_LCR")
+	{
+		vl_F_tpm = READ_ASCII_FILE@(REP_FICHIER ++ "deq/Config_PAL_LCR")
+	}
+
+	if IS_ARRAY@(vl_F_tpm)
+	{
+
+		/*A Aquisition du nombre de lignes du fichier */
+
+		vl_nb_lignes = ARRAY_SIZE@(vl_F_tpm)-1
+
+		/* Boucle sur la totalite des lignes */
+
+		j=0
+		for i = 0 to vl_nb_lignes
+
+			vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+
+			vl_Nom_Machine = TRIM@(TABS_TO_SPACES@(vl_ligne[2]))
+
+			/* si l'equipement est celui du LT */
+			if va_NomMachine = vl_Nom_Machine
+			{
+
+				va_liste_nom_PAL[j]=vl_ligne[0]
+				vl_NumPAL[j]=vl_ligne[1]+0
+				va_liste_PAL[vl_NumPAL[j]].Identifiant = vl_ligne[0]
+				va_liste_PAL[vl_NumPAL[j]].nom_machine_LT = vl_Nom_Machine
+				j=j+1
+			}
+			
+		next i
+	}
+
+
+	/*A Si la liste des PAL n'est pas vide */
+ 
+	if IS_ARRAY@(va_liste_PAL)
+	{
+
+
+		if FILE_EXISTS@(REP_FICHIER ++ "deq/Config_PAL_" ++ va_NomMachine)
+		{
+			vl_F_tpm = READ_ASCII_FILE@(REP_FICHIER ++ "deq/Config_PAL_" ++
+												va_NomMachine)
+		}
+
+		if IS_ARRAY@(vl_F_tpm)
+		{
+
+			/*A Aquisition du nombre de lignes du fichier */
+
+			vl_nb_lignes = ARRAY_SIZE@(vl_F_tpm)-1
+
+			/* Boucle sur la totalite des lignes */
+
+			for i = 0 to vl_nb_lignes
+
+
+				vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],"\t")
+
+				for j=0 to ARRAY_SIZE@(va_liste_PAL)-1
+
+
+					/* si le numero d'equipement est identique */
+					if vl_ligne[1] = vl_NumPAL[j]
+					{
+						/* Copier le numero du type d'equipement de ce PAL */
+
+						va_liste_PAL[vl_NumPAL[j]].NumType=vl_ligne[5]
+					}
+				next j
+			
+			next i
+		}
+
+		va_NumPALDispo=vl_NumPAL[0]
+	}
+
+ENDMACRO
+

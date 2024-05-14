@@ -1,0 +1,179 @@
+/*X  Fichier : $Id: act_gen.tab,v 1.11 2019/08/22 09:27:36 gesconf Exp $      Release : $Revision: 1.11 $        Date : $Date: 2019/08/22 09:27:36 $
+------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR 
+------------------------------------------------------
+* SOUS-SYSTEME  BASEDD
+------------------------------------------------------
+* FICHIER act_gen.tab
+------------------------------------------------------
+* DESCRIPTION DE LA PROCEDURE :
+*
+* creation de la table ACT_GEN
+*
+------------------------------------------------------
+* HISTORIQUE :
+*
+* C.T.	09/08/94	: Creation
+* C.T.	11/04/95	: Ajout de la description de la table
+* JMG	16/11/96	: ajout du numero de competence
+* JMG	02/03/98	: ajout sit_origine (dem/1605)  1.6
+* JMG	15/05/00	: ajout d'un index en plus pour XZAT;05 1.7
+* PNI   04/06/19	: Ajout index
+* JPC   24/08/23	: Suppression et ajout de l'index comme en PROD
+-----------------------------------------------------*/
+
+
+/* ============================================================ */
+/*   Nom de la base   :  MIGRAZUR                               */
+/*   Nom de SGBD      :  SYBASE10                               */
+/*   Date de creation :  29/07/94                               */
+/* ============================================================ */
+
+/* ============================================================ */
+/*   Table : ACT_GEN                                            */
+/* ============================================================ */
+
+
+/* Suppression de la table si elle existe */
+/* ===========================*/
+if exists (select * from sysobjects where name = 'ACT_GEN' and type = 'U')
+	begin
+	drop table ACT_GEN
+	end
+go
+
+declare @nom_base varchar(10)
+
+/* nom de la base courante */
+select @nom_base = db_name()
+
+/*
+*  Fonctionalité de la table
+*  -------------------------
+*  Contient les caractéristiques générales des actions
+*
+*  Description des colonnes de la table
+*  ------------------------------------
+*        actio                   : numéro d'une action
+*        sit                     : numéro du site de l'action
+*        evenement               : numéro de la fiche main courante cause de l'action
+*        cle                     : numéro de clé de la fiche main courante cause de l'action
+*        type                    : numéro du type d'action    
+*        equipement              : numéro d'équipement à piloter
+*        heure_lancement         : date de lancement de l'action
+*        heure_succes            : date de succés de l'action
+*        heure_echec             : date d'échec de l'action
+*        heure_lancement_fin     : date de lancement de fin de l'action
+*        heure_fin               : date de fin de l'action
+*        priorite                : numéro de priorité de l'action
+*        distance_evt            : distance en mètres entre la localisation de l'action et celle de la fiche main courante
+*        prioritaire             : prioritaire ou non par rapport à des actions de même priorité
+*        operateur               : numéro de l'opérateur ayant réalisée l'action
+* 	 competence		 : numero de competence eventuel
+*	 sit_origine		 : site origine de l'action
+*
+*  Remarque
+*  --------
+*  Le numéro d'action est unique par site (district). Pour sélectionner une
+*  action, il faut préciser son numéro et son site.
+*
+*  Voici la liste exhaustive des types d'action :
+*      type :            libellé                                : complément
+*      ---------------------------------------------------------------------
+*        1  : action sur des biseaux de rabattement automatique : ACT_NAV
+*        2  : action sur un panneau à message variable          : ACT_PMV
+*        3  : action sur un équipement de tunnel                : ACT_TUB
+*        4  : action de dépannage                               : ACT_DEP
+*        5  : action d'affichage en gare                        : ACT_GAR
+*        6  : action d'intervention de patrouille SIS           : ACT_SIS
+*        7  : action d'intervention de patrouille               : ACT_INT
+*        8  : action sur un panneau à message var. sur remorque : ACT_RMQ
+*        9  : action sur un panneau à message var. sur fourgon  : ACT_FRG
+*        10 : action trafic FM                                  : ACT_TFM + ACT_TXT_TFM
+*        11 : action sur un échangeur                           : ACT_ECH
+*        12 : action d'appel par fax                            : ACT_APL + ACT_FAX
+*        13 : action d'appel téléphonique                       : ACT_APL
+*        14 : action d'appel par bip                            : ACT_APL
+*/
+
+
+create table ACT_GEN
+(
+    numero                          int                   not null,
+    sit                             T_SITE                not null,
+    evenement                       int                   not null,
+    cle                             tinyint               not null,
+    type                            tinyint               not null,
+    equipement                      smallint              null    ,
+    heure_lancement                 datetime              not null,
+    heure_succes                    datetime              null,
+    heure_echec                     datetime              null,
+    heure_lancement_fin             datetime              null,
+    heure_fin                       datetime              null,
+    priorite                        tinyint               null    ,
+    distance_evt                    int                   null    ,
+    prioritaire                     bit                           ,
+    operateur                       smallint              not null ,
+    competence			    smallint		  null,
+    sit_origine			    T_SITE                null
+)
+/* ajout des droits a public */
+grant all on ACT_GEN to public
+
+/* =============================================================== */
+/*   creation des cles primaire et des index en fonction de la base courante  */
+/* =============================================================== */
+if @nom_base = 'HIS'
+	begin
+	/* ========================================================== */
+	/*   Cle primaire : numero, sit                                          */
+	/* ========================================================== */
+	execute sp_primarykey ACT_GEN, numero, sit 
+
+	/* ========================================================== */
+	/*   Index : ACT_GEN_PK                                         */
+	/*   Index : ACT_GEN_FK1                                        */
+	/* ========================================================== */
+	create unique index ACT_GEN_PK on ACT_GEN (numero, sit )
+	create index ACT_GEN_SIT on ACT_GEN (sit, numero)
+	create index ACT_GEN_FK1 on ACT_GEN (evenement, cle)
+	create index ACT_GEN_FK2 on ACT_GEN (type, equipement, heure_succes, heure_fin)
+	create index ACT_GEN_FK3 on ACT_GEN (type, equipement, heure_lancement)
+	end
+
+if @nom_base = 'SVG'
+	begin
+	/* ========================================================== */
+	/*   Cle primaire : numero, sit                                          */
+	/* ========================================================== */
+	execute sp_primarykey ACT_GEN, numero, sit 
+
+	/* ========================================================== */
+	/*   Index : ACT_GEN_PK                                         */
+	/*   Index : ACT_GEN_FK1                                        */
+	/* ========================================================== */
+	create unique index ACT_GEN_PK on ACT_GEN (numero, sit )
+	create index ACT_GEN_FK1 on ACT_GEN (evenement, cle)
+	create index ACT_GEN_FK2 on ACT_GEN (type, equipement, heure_succes, heure_fin)
+	end
+
+if @nom_base = 'EXP'
+	begin
+	/* ========================================================== */
+	/*   Cle primaire : numero, sit                                          */
+	/* ========================================================== */
+	execute sp_primarykey ACT_GEN, numero, sit 
+
+	/* ========================================================== */
+	/*   Index : ACT_GEN_PK                                         */
+	/*   Index : ACT_GEN_FK1                                        */
+	/* ========================================================== */
+	create unique index ACT_GEN_PK on ACT_GEN (numero, sit )
+	create index ACT_GEN_FK1 on ACT_GEN (evenement, cle)
+	create index ACT_GEN_FK3 on ACT_GEN (type, equipement,sit)
+	create index ACT_GEN_FK4 on ACT_GEN (evenement, cle,type,equipement,sit_origine,heure_succes,heure_fin)
+	create index ACT_GEN_FK5 on ACT_GEN (evenement, cle,type,equipement,sit,heure_succes,heure_fin,heure_echec)
+	create index ACT_GEN_FK6 on ACT_GEN (evenement, cle,sit,numero)
+	end
+
+go

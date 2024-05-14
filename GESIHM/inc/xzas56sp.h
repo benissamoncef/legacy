@@ -1,0 +1,1 @@
+define XZAS56_Efface_Config_RADT_Strada	"XZAS56"

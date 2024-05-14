@@ -1,0 +1,1 @@
+DEFINE	XZAT66_Programmer_Neutre_PMVA	"XZAT66"

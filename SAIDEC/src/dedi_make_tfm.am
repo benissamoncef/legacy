@@ -1,0 +1,1232 @@
+/*E*/
+/* Fichier : $Id: dedi_make_tfm.am,v 1.7 1999/02/26 11:56:29 gaborit Exp $	      Release : $Revision: 1.7 $        Date : $Date: 1999/02/26 11:56:29 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_make_tfm.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* genere les fichiers ASCII de la politique TFM
+* (format RTie ou format Texte, en fonction de vg_mode)   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Thomas	30 Jan 1995	: Creation						V1.1
+* Niepceron 15 jan 1999	: intergestionnaire 1.2 dem/1725
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+DEFINE dedi_size_file_nature			14
+DEFINE dedi_size_file_fin			5
+DEFINE dedi_cas_gn					"NATURE_GN"
+DEFINE dedi_cas_gv					"NATURE_GV"
+DEFINE dedi_cas_fin					"FIN"
+
+/* compteur du nombre de regles msg_elt_gn, msg_elt_gv, msg_elt_fin */
+VAR vm_indice_nature
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* genere les regles TFM
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_make_tfm()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+* dedi
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR tl_commentaire
+VAR syntaxe_correcte
+
+	trace_chaine("")
+	trace_chaine("POLITIQUE TFM")
+	trace_chaine("")
+
+	/*A
+	** on exploite le fichier de definition de la classe zone de parcours
+	*/
+	trace_chaine("Definition des messages elementaires de temps de parcours")
+	tfm_genere_tdp()
+
+	tl_commentaire[0] = "*        POLITIQUE TFM :"
+	tl_commentaire[1] = "*        Definition des messages elementaires de temps de parcours"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_TDP_TFM, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	** on exploite le fichier de definition de l'entete datex
+	*/
+	trace_chaine("Definition de l'entete pour les messages datex")
+	tfm_genere_entete()
+
+	tl_commentaire[0] = "*        POLITIQUE TFM :"
+	tl_commentaire[1] = "*        Definition de l'entete pour les messages datex"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_ENTETE_TFM, IE_SUFFIXE_RL, tl_commentaire)
+
+
+	/*A
+	**  on exploite le fichier des evts a exclure 
+	*/
+	trace_chaine("Evenements a ne pas inclure ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_EVT_TFM)
+	tfm_evt_exclus(tl_data)
+
+	tl_commentaire[0] = "*        POLITIQUE TFM :" 
+	tl_commentaire[1] = "*        evenements et operations a ne pas decrire dans"
+	tl_commentaire[2] = "*        les messages"
+	dedi_shell(IE_MODELE_EVT_TFM, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	**  on exploite le fichier d'option de mise en evidence des textes travaux 
+	*/
+	trace_chaine("Mise en evidence des textes relatifs aux travaux ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_MEV_TFM)
+	tfm_mev_travaux(tl_data)
+	
+	tl_commentaire[0] = "*        POLITIQUE TFM :" 
+	tl_commentaire[1] = "*        mise en evidence des textes relatifs aux travaux"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_MEV_TFM, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	**  on exploite vg_objectifs_tfm 
+	*/
+	trace_chaine("Definition des objectifs d'information ")
+	tl_data=SYSTEM_VAR@(vg_objectifs_tfm)
+
+		/*B on applique tfm_construit_def sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		trace_point()
+		tfm_construit_def(tl_data[vl_indice], vl_indice)
+	NEXT vl_indice
+
+		/*B on genere le fichier msg_def.rl */
+	tl_commentaire[0] = "*        POLITIQUE TFM :" 
+	tl_commentaire[1] = "*        structure d'un message en fonction des"
+ 	tl_commentaire[2] = "*        caracteristiques de l'evenement ou operation"
+	dedi_shell(IE_MODELE_DEF_TFM, IE_SUFFIXE_RL, tl_commentaire)
+
+
+	/*A
+	**  on exploite le fichier IE_FILE_NATUREGN_TFM
+	*/
+	trace_chaine("Formulation de l'element nature (GN) ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_NATUREGN_TFM)
+
+		/*B on met a jour la variable globale vg_evts_ie */
+	syntaxe_correcte = tfm_lit_nature(tl_data, dedi_cas_gn)
+
+		/*B on genere le fichier msg_elt_gn.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE TFM :" 
+		tl_commentaire[1] = "*        formulation de l'element de message NATURE GN"
+		tl_commentaire[2] = "*        cas particuliers"
+ 		dedi_shell(IE_MODELE_GN_TFM, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES TFM IMPOSSIBLES.")
+		RETURN
+	}
+
+
+	/*A
+	**  on exploite le fichier IE_FILE_NATUREGV_TFM
+	*/
+	trace_chaine("Formulation de l'element nature (GV) ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_NATUREGV_TFM)
+
+		/*B on met a jour la variable globale vg_evts_ie */
+	syntaxe_correcte = tfm_lit_nature(tl_data, dedi_cas_gv)
+
+		/*B on genere le fichier msg_elt_gv.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE TFM :" 
+		tl_commentaire[1] = "*        formulation de l'element de message NATURE GV"
+		tl_commentaire[2] = "*        cas particuliers"
+ 		dedi_shell(IE_MODELE_GV_TFM, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES TFM IMPOSSIBLES.")
+		RETURN
+	}
+
+
+	/*A
+	**  on exploite le fichier IE_FILE_FIN_TFM
+	*/
+	trace_chaine("Formulation de l'element fin ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_FIN_TFM)
+
+		/*B on met a jour la variable globale vg_evts_ie */
+	syntaxe_correcte = tfm_lit_nature(tl_data, dedi_cas_fin)
+
+		/*B on genere le fichier msg_elt_fin.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE TFM :" 
+		tl_commentaire[1] = "*        formulation de l'element de message FIN"
+		tl_commentaire[2] = "*        cas particuliers"
+ 		dedi_shell(IE_MODELE_FIN_TFM, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES TFM IMPOSSIBLES.")
+		RETURN
+	}
+
+
+	/*A
+	**  on exploite le fichier IE_FILE_CAUSE_TFM
+	*/
+	trace_chaine("Formulation de l'element cause ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_CAUSE_TFM)
+
+		/*B on met a jour la variable globale vg_evts_ie */
+	tfm_lit_cause(tl_data)
+
+
+	/*A
+	**  on exploite vg_evts_ie APRES maj des champs gn, gv, fin, cause
+	*/
+	trace_chaine("Definition des types d'evenements et operations")
+	dedi_make_fmc()
+
+
+	/*A
+	**  on exploite le fichier IE_FILE_FORMUL_AUTOROUTE 
+	*/
+	trace_chaine("Formulation des elements autoroute et sens ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_FORMUL_AUTOROUTE)
+
+		/*B on applique tfm_autoroute() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tfm_lit_autoroute(tl_data[vl_indice], vl_indice)
+	NEXT vl_indice
+
+		/*B on genere le fichier autoroute.ob */
+	tl_commentaire[0] = "*        POLITIQUE TFM :" 
+	tl_commentaire[1] = "*        expressions a utiliser pour indiquer le nom"
+	tl_commentaire[2] = "*        d'une autoroute et le sens de circulation"
+	dedi_shell(IE_MODELE_AUTOROUTE, IE_SUFFIXE_OB, tl_commentaire)
+
+
+	/*A
+	**  on exploite le fichier IE_FILE_CHAUSSEE_TFM
+	*/
+	trace_chaine("Formulation de l'element chaussee glissante ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_CHAUSSEE_TFM)
+
+		/*B on applique le modele AW */
+	dedi_genere(IE_MODELE_GLISSE_TFM,1,tl_data)
+
+		/*B on genere le fichier msg_elt_glisse.rl */
+	tl_commentaire[0] = "*        POLITIQUE TFM :" 
+	tl_commentaire[1] = "*        formulation de l'element de message CHAUSSEE GLISSANTE"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_GLISSE_TFM, IE_SUFFIXE_RL, tl_commentaire)
+
+
+	/*A
+	**  on exploite le fichier IE_FILE_CONSEIL_TFM 
+	*/
+	trace_chaine("Formulation de l'element conseil ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_CONSEIL_TFM)
+
+		/*B on applique tfm_lit_conseil() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tfm_lit_conseil(tl_data[vl_indice], vl_indice)
+	NEXT vl_indice
+
+		/*B on genere le fichier msg_elt_conseil.rl */
+	tl_commentaire[0] = "*        POLITIQUE TFM :" 
+	tl_commentaire[1] = "*        formulation de l'element de message CONSEIL"
+	tl_commentaire[2] = "*        en fonction du type de FMC"
+	dedi_shell(IE_MODELE_CONSEIL_TFM, IE_SUFFIXE_RL, tl_commentaire)
+
+
+	/*A
+	**  on exploite le fichier IE_FILE_DUREE_TFM
+	*/
+	trace_chaine("Formulation de l'element duree ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_DUREE_TFM)
+
+		/*B on applique tfm_lit_elt() */
+	syntaxe_correcte = tfm_lit_elt(tl_data, IE_FILE_DUREE_TFM, "duree",
+												IE_MODELE_DUREE_TFM)
+	
+		/*B on genere le fichier msg_elt_duree.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE TFM :" 
+		tl_commentaire[1] = "*        formulation de l'element de message DUREE"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_DUREE_TFM, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES TFM IMPOSSIBLES.")
+		RETURN
+	}
+
+
+	/*A
+	**  on exploite le fichier de config de l'elt gravite 
+	*/
+	trace_chaine("Formulation de l'element gravite ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_GRAVITE_TFM)
+
+		/*B on applique dedi_genere() */
+	dedi_genere(IE_MODELE_GRAVITE_TFM, 1,tl_data)
+	
+		/*B on genere le fichier msg_gravite.rl */
+	tl_commentaire[0] = "*        POLITIQUE TFM :" 
+	tl_commentaire[1] = "*        formulation de l'element de message GRAVITE"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_GRAVITE_TFM, IE_SUFFIXE_RL, tl_commentaire)
+
+
+	/*A
+	**  on exploite le fichier de config de l'elt heure de debut 
+	*/
+	trace_chaine("Formulation de l'element heure de debut ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_DEBUT_TFM)
+
+		/*B on applique tfm_lit_elt() */
+	syntaxe_correcte = tfm_lit_elt(tl_data, IE_FILE_DEBUT_TFM, "heure de debut",
+												IE_MODELE_DEBUT_TFM)
+	
+		/*B on genere le fichier msg_elt_debut.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE TFM :" 
+		tl_commentaire[1] = "*        formulation de l'element de message HEURE DE DEBUT"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_DEBUT_TFM, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES TFM IMPOSSIBLES.")
+		RETURN
+	}
+
+
+	/*A
+	**  on exploite le fichier de config de l'elt localisation 
+	*/
+	trace_chaine("Formulation de l'element localisation ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_LOCAL_TFM)
+
+		/*B on applique tfm_lit_elt() */
+	syntaxe_correcte = tfm_lit_elt(tl_data, IE_FILE_LOCAL_TFM, "localisation",
+											IE_MODELE_LOCAL_TFM)
+	
+		/*B on genere le fichier msg_elt_local.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE TFM :" 
+		tl_commentaire[1] = "*        formulation de l'element de message LOCALISATION"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_LOCAL_TFM, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES TFM IMPOSSIBLES.")
+		RETURN
+	}
+
+
+	/*A
+	**  on exploite le fichier de config de l'elt longueur de bouchon 
+	*/
+	trace_chaine("Formulation de l'element longueur de bouchon ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_BOUCHON_TFM)
+
+		/*B on applique tfm_lit_elt() */
+	syntaxe_correcte = tfm_lit_elt(tl_data, IE_FILE_BOUCHON_TFM,
+							"longueur de bouchon", IE_MODELE_BOUCHON_TFM)
+	
+		/*B on genere le fichier msg_elt_bouchon.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE TFM :" 
+		tl_commentaire[1] = "*        formulation de l'element de message LONGUEUR DE BOUCHON"
+		tl_commentaire[2] = "*        "
+ 		dedi_shell(IE_MODELE_BOUCHON_TFM, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES TFM IMPOSSIBLES.")
+		RETURN
+	}
+
+
+	/*A
+	**  on exploite le fichier de config de l'elt neutralisations 
+	*/
+	trace_chaine("Formulation de l'element neutralisations de voies ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_NEUTRAL_TFM)
+
+		/*B on applique dedi_genere() */
+	dedi_genere(IE_MODELE_NEUTRAL_TFM, 1, tl_data)
+	
+		/*B on genere le fichier msg_elt_neutral.rl */
+	tl_commentaire[0] = "*        POLITIQUE TFM :" 
+	tl_commentaire[1] = "*        formulation de l'element de message NEUTRALISATIONS DE VOIES"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_NEUTRAL_TFM, IE_SUFFIXE_RL, tl_commentaire)
+
+
+	/*A
+	**  on exploite le fichier de config de l'elt periode 
+	*/
+	trace_chaine("Formulation de l'element periode ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_PERIODE_TFM)
+
+		/*B on applique tfm_lit_elt() */
+	syntaxe_correcte = tfm_lit_elt(tl_data, IE_FILE_PERIODE_TFM, "periode",
+											IE_MODELE_PERIODE_TFM)
+	
+		/*B on genere le fichier msg_elt_periode.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE TFM :" 
+		tl_commentaire[1] = "*        formulation de l'element de message PERIODE"
+		tl_commentaire[2] = "*        "
+ 		dedi_shell(IE_MODELE_PERIODE_TFM, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES TFM IMPOSSIBLES.")
+		RETURN
+	}
+
+
+	/*A
+	**  on exploite le fichier de config de l'elt retour a la normale
+	*/
+	trace_chaine("Formulation de l'element retour a la normale ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_RETOUR_TFM)
+
+		/*B on applique tfm_lit_elt() */
+	syntaxe_correcte = tfm_lit_elt(tl_data, IE_FILE_RETOUR_TFM,
+								"retour a la normale", IE_MODELE_RETOUR_TFM)
+	
+		/*B on genere le fichier msg_elt_retour.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE TFM :" 
+		tl_commentaire[1] = "*        formulation de l'element de message RETOUR A LA NORMALE"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_RETOUR_TFM, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES TFM IMPOSSIBLES.")
+		RETURN
+	}
+
+
+	/*A
+	**  on exploite le fichier de config de l'elt secours
+	*/
+	trace_chaine("Formulation de l'element secours ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_SECOURS_TFM)
+
+		/*B on applique le modele AW */
+	dedi_genere(IE_MODELE_SECOURS_TFM,1,tl_data)
+
+		/*B on genere le fichier msg_elt_secours.rl */
+	tl_commentaire[0] = "*        POLITIQUE TFM :" 
+	tl_commentaire[1] = "*        formulation de l'element de message SECOURS"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_SECOURS_TFM, IE_SUFFIXE_RL, tl_commentaire)
+
+
+	/*A
+	**  on exploite le fichier de config de l'elt vehicules impliques
+	*/
+	trace_chaine("Formulation de l'element vehicules impliques ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_VEHICULES_TFM)
+
+		/*B on applique tfm_lit_elt() */
+	syntaxe_correcte = tfm_lit_elt(tl_data, IE_FILE_VEHICULES_TFM,
+							"vehicules impliques", IE_MODELE_VEHICULES_TFM)
+	
+		/*B on genere le fichier msg_elt_vehicules.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE TFM :" 
+		tl_commentaire[1] = "*        formulation de l'element de message VEHICULES IMPLIQUES"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_VEHICULES_TFM, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES TFM IMPOSSIBLES.")
+		RETURN
+	}
+
+
+	/*A
+	**  on exploite le fichier de config de l'elt visibilite
+	*/
+	trace_chaine("Formulation de l'element visibilite ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_VISIBILITE_TFM)
+
+		/*B on applique tfm_lit_elt() */
+	syntaxe_correcte = tfm_lit_elt(tl_data, IE_FILE_VISIBILITE_TFM, "visibilite",
+											IE_MODELE_VISIBILITE_TFM)
+	
+		/*B on genere le fichier msg_elt_visibilite.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE TFM :" 
+		tl_commentaire[1] = "*        formulation de l'element de message VISIBILITE"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_VISIBILITE_TFM, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES TFM IMPOSSIBLES.")
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier de config de l'elt victimes
+	*/
+	trace_chaine("Formulation de l'element victimes ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_VICTIMES_TFM)
+
+		/*B on applique tfm_lit_elt() */
+	syntaxe_correcte = tfm_lit_elt(tl_data, IE_FILE_VICTIMES_TFM, "victimes",
+											IE_MODELE_VICTIMES_TFM)
+	
+	/*B on genere le fichier msg_elt_victimes.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE TFM :" 
+		tl_commentaire[1] = "*        formulation de l'element de message VICTIMES"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_VICTIMES_TFM, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES TFM IMPOSSIBLES.")
+		RETURN
+	}
+	/*A
+	**  on exploite le fichier de config de l'elt voies bloquees
+	*/
+	trace_chaine("Formulation de l'element voies bloquees ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_BLOQUEES_TFM)
+
+	/*B on applique le modele AW */
+	dedi_genere(IE_MODELE_BLOQUE_TFM,1,tl_data)
+
+		/*B on genere le fichier msg_elt_secours.rl */
+	tl_commentaire[0] = "*        POLITIQUE TFM :" 
+	tl_commentaire[1] = "*        formulation de l'element de message VOIES BLOQUEES"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_BLOQUE_TFM, IE_SUFFIXE_RL, tl_commentaire)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION tfm_construit_ligne (va_texte, va_fichier)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_texte : texte comprenant des constantes et des variables
+*	va_fichier : fichier par rapport auquel chercher la "traduction" des variables
+*
+* ARGUMENTS EN SORTIE : l'expression a utiliser dans les regles RTie
+*
+* CODE RETOUR         : texte / NULL si il y a une erreur de syntaxe
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: construit l'expression RTie correspondant au texte d'entree
+*
+---------------------------------------------------------------------------- */
+VAR	tl_texte
+VAR vl_indice
+VAR tl_ct
+
+	/*A le principe est le meme que pour le module PMV */
+	tl_texte = pmv_construit_ligne(va_texte, va_fichier)
+
+	/*A si il y a une seule ligne, on renvoie une cte */ 
+	IF ARRAY_SIZE@(tl_texte) = 1
+		RETURN(tl_texte[0])
+
+	/*A si il y a plusieurs lignes on construit le concat */ 
+	IF ARRAY_SIZE@(tl_texte) > 1
+	{
+		/*B on ajoute les tabulations */
+		FOR vl_indice=0 TO (ARRAY_SIZE@(tl_texte)-1)
+			tl_texte[vl_indice] = "        " ++ tl_texte[vl_indice]
+		NEXT vl_indice
+
+		/*B on ajoute les separateurs */
+		FOR vl_indice=0 TO (ARRAY_SIZE@(tl_texte)-2)
+			tl_texte[vl_indice] = tl_texte[vl_indice] ++ ","
+		NEXT vl_indice
+
+		/*B on ajoute Concat( */
+		tl_ct[0] = "Concat("
+		tl_texte = ARRAY_APPEND@(tl_ct, tl_texte)
+
+		/*B on ajoute ) */
+		tl_ct[0] = "        )"
+		tl_texte = ARRAY_APPEND@(tl_texte, tl_ct)
+
+		/*B on renvoie le resultat */
+		RETURN(tl_texte)
+
+	}
+
+	RETURN(NULL)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION tfm_evt_exclus (ta_evt)
+
+/*
+* ARGUMENTS EN ENTREE : ta_evt
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere le fichier msg_evt_exclus.tie
+*
+---------------------------------------------------------------------------- */
+VAR tl_evt
+VAR vl_indice
+VAR tl_tmp
+VAR vl_fichier
+VAR tl_resultat
+
+	/*A on construit les arguments */
+	IF ARRAY_SIZE@(ta_evt)=0
+	{	
+		tl_evt[0] = "FALSE"
+		tl_evt[1] = ""
+	}
+	ELSE
+	{
+		/*B on applique les modeles sur chaque element de la condition */
+		FOR vl_indice=0 TO (ARRAY_SIZE@(ta_evt)-1)
+
+			tl_tmp[0] = ie_classe(ta_evt[vl_indice])
+			IF vl_indice <> (ARRAY_SIZE@(ta_evt)-1)
+				tl_tmp[1] = "+"
+			ELSE
+				tl_tmp[1] = ""
+
+			trace_point()
+			vl_fichier = dedi_genere(IE_MODELE_C1_EVT_TFM, vl_indice, tl_tmp)
+			tl_resultat = READ_ASCII_FILE@(vl_fichier)
+			tl_evt[0] = ARRAY_APPEND@(tl_evt[0],tl_resultat)
+			DELETE_FILE@(vl_fichier)
+
+			trace_point()
+			vl_fichier = dedi_genere(IE_MODELE_C2_EVT_TFM, vl_indice, tl_tmp)
+			tl_resultat = READ_ASCII_FILE@(vl_fichier)
+			tl_evt[1] = ARRAY_APPEND@(tl_evt[1],tl_resultat)
+			DELETE_FILE@(vl_fichier)
+
+		NEXT vl_indice
+	}
+
+	/*A on applique le modele ax-word */
+	tl_evt[2] = ta_evt
+	dedi_genere(IE_MODELE_EVT_TFM,1,tl_evt)
+	
+ENDFUNCTION
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION tfm_mev_travaux (ta_data)
+
+/*
+* ARGUMENTS EN ENTREE : ta_data
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere le fichier msg_mev_travaux.tie
+*
+---------------------------------------------------------------------------- */
+VAR tl_arg
+
+	/*A on construit les arguments */
+	IF ta_data[0] = 1
+	{
+		tl_arg = NULL
+		tl_arg[0]=NULL
+	}
+	ELSE
+		tl_arg = ta_data
+
+	/*A on applique le modele ax-word */
+	dedi_genere(IE_MODELE_MEV_TFM,1,tl_arg)
+
+	trace_point()
+	
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION tfm_construit_def (ta_def, va_indice)
+
+/*
+* ARGUMENTS EN ENTREE : ta_def, vl_indice
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere le fichier msg_def.tie
+*
+---------------------------------------------------------------------------- */
+VAR tl_obj, tl_duree
+VAR vl_i
+VAR tl_tmp
+VAR tl_data
+VAR vl_nomfichier
+
+	/*A la premiere variable est le nom de l'objectif */
+	tl_obj[0] = ta_def[0]
+
+	/*A la deuxieme variable est la condition sur l'etat de l'evt */
+	tl_obj[1] = dedi_var_convert(ta_def[1], IE_FILE_OBJ_TFM)
+	tl_obj[6] = ta_def[1]
+
+	/*A la troisieme variable est la condition sur le type de FMC */
+	tl_obj[2] = ie_classe(ta_def[2])
+	tl_obj[7] = ta_def[2]
+
+	/*A la quatrieme variable est la condition sur la duree de l'evt */
+	tl_duree = ARRAY_FROM_STRING@(ta_def[3], " ")
+	IF ARRAY_SIZE@(tl_duree) = 3
+	{
+		tl_obj[3] = tl_duree[1]
+		tl_obj[4] = tl_duree[2]
+	}
+
+	/*A la variable suivante est la conclusion */
+	FOR vl_i=1 TO (INT@(ARRAY_SIZE@(ta_def)/3)-1)
+	{		
+		trace_point()
+		/*B on construit les arguments de chaque element de message */
+		tl_tmp[0] = ta_def[3*vl_i+1]
+		tl_tmp[1] = ta_def[3*vl_i+2]
+		tl_tmp[2] = ta_def[3*vl_i+3]
+		/*! on remet un espace dans tl_tmp[0] */
+		IF tl_tmp[0] <> NULL
+			 tl_tmp[0] = tl_tmp[0]++" "
+
+		/*B on applique le modele sur chaque element de message */
+		vl_nomfichier = dedi_genere(IE_MODELE_CONC_DEF_TFM,vl_i,tl_tmp)
+
+		/*B on concatene le fichier resultat a tl_obj[5] */
+		tl_data = READ_ASCII_FILE@(vl_nomfichier)
+		/*! on supprime la derniere ligne (qui est vide) et on concatene la 
+		**  derniere ligne de tl_obj[5] et la premiere ligne du resultat */
+		IF (tl_obj[5]=null)
+		{		
+			tl_data=ARRAY_DELETE@(tl_data,ARRAY_SIZE@(tl_data)-1)
+			tl_obj[5]=tl_data
+		}
+		ELSE
+		{	
+			tl_obj[5][ARRAY_SIZE@(tl_obj[5])-1]=
+							tl_obj[5][ARRAY_SIZE@(tl_obj[5])-1]++
+							tl_data[0]
+			tl_data=ARRAY_DELETE@(tl_data,0)
+			tl_data=ARRAY_DELETE@(tl_data,ARRAY_SIZE@(tl_data)-1)
+			tl_obj[5]=ARRAY_APPEND@(tl_obj[5],tl_data)
+		}
+
+		/*B on supprime le fichier de travail */
+		DELETE_FILE@(vl_nomfichier)
+	}
+	NEXT vl_i	
+	
+	/*A on applique le modele ax-word */
+	dedi_genere(IE_MODELE_DEF_TFM,va_indice,tl_obj)
+	
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION tfm_lit_nature (ta_data, va_cas)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_data	:	(fmc|gn ct|gn cas 1|gn cas 2|...)
+*	va_cas	:	msg_elt_gn / msg_elt_gv / msg_elt_fin
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: met a jour vg_evts_ie et genere les fichiers msg_elt_CAS.tie
+*
+*
+---------------------------------------------------------------------------- */
+VAR vl_fichier, vl_modele, vl_size
+VAR FORMAT dedi_evt	tl_evts_ie
+VAR vl_indice, vl_i
+VAR tl_ligne
+VAR syntaxe_correcte
+
+	syntaxe_correcte = TRUE
+	vm_indice_nature = 0
+
+	/*A on initialise vl_fichier et vl_modele en fonction du cas */
+	CASE OF va_cas 
+
+		CASE dedi_cas_gn
+			vl_fichier = IE_FILE_NATUREGN_TFM
+			vl_modele = IE_MODELE_GN_TFM
+			vl_size = dedi_size_file_nature
+	
+		CASE dedi_cas_gv
+			vl_fichier = IE_FILE_NATUREGV_TFM
+			vl_modele = IE_MODELE_GV_TFM
+			vl_size = dedi_size_file_nature
+
+		CASE dedi_cas_fin
+			vl_fichier = IE_FILE_FIN_TFM
+			vl_modele = IE_MODELE_FIN_TFM
+			vl_size = dedi_size_file_fin
+
+	ENDCASE
+
+	/*A on recupere le tableau des donnees RTie sur les evts */
+	tl_evts_ie = SYSTEM_VAR@(vg_evts_ie)
+
+	/*A on exploite ta_data ligne par ligne */
+	FOR vl_indice = 0 TO (ARRAY_SIZE@(tl_evts_ie)-1)
+
+		/*B on isole les arguments */
+		tl_ligne = ARRAY_FROM_STRING@(ta_data[vl_indice], DEDI_CAR_SEPAR)
+
+		/*B si la ligne a 2 elts et pas de variable, on met a jour le tableau des donnees Rtie*/
+		IF (ARRAY_SIZE@(tl_ligne)=2 
+		AND ARRAY_SIZE@(ARRAY_FROM_STRING@(tl_ligne[1], DEDI_CAR_VAR))<2 )
+		{
+			CASE OF va_cas
+
+				CASE dedi_cas_gn
+					tl_evts_ie[vl_indice].gn_tfm = tl_ligne[1]
+
+				CASE dedi_cas_gv
+					tl_evts_ie[vl_indice].gv_tfm = tl_ligne[1]
+
+				CASE dedi_cas_fin
+					tl_evts_ie[vl_indice].fin_tfm = tl_ligne[1]
+
+			ENDCASE
+		}
+
+		/*B sinon on genere un fichier msg_elt_CAS.tie*/
+		ELSE
+		{
+			tl_ligne[vl_size] = tl_ligne[0]
+			tl_ligne[0] = ie_classe(tl_ligne[0])
+
+			FOR vl_i=1 TO (vl_size-1)
+				IF tl_ligne[vl_i] <> NULL
+				{
+					tl_ligne[vl_i+vl_size] = tl_ligne[vl_i]
+					tl_ligne[vl_i] = tfm_construit_ligne(tl_ligne[vl_i],
+											vl_fichier)
+
+					IF tl_ligne[vl_i]=NULL
+					{
+						syntaxe_correcte = FALSE
+						trace_chaine("Erreur de syntaxe dans la formulation de l'element "++va_cas++", cas "++tl_ligne[vl_size]++".")
+					}
+				}
+			NEXT vl_i
+			IF syntaxe_correcte
+			{
+				vm_indice_nature = vm_indice_nature + 1
+				dedi_genere(vl_modele,vm_indice_nature,tl_ligne)
+			}
+		}
+
+		trace_point()
+
+	NEXT vl_indice
+
+	/*A si la syntaxe est correcte, on met a jour vg_evts_ie */
+	IF syntaxe_correcte
+		SET_SYSTEM_VAR@(vg_evts_ie, tl_evts_ie)
+
+	/*A on renvoie le resultat */
+	RETURN(syntaxe_correcte)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION tfm_lit_cause (ta_data)
+
+/*
+* ARGUMENTS EN ENTREE : ta_data (fmc|cause)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: met a jour vg_evts_ie
+*
+*
+---------------------------------------------------------------------------- */
+VAR FORMAT dedi_evt	tl_evts_ie
+VAR vl_indice
+VAR tl_ligne
+
+	/*A on recupere le tableau des donnees RTie sur les evts */
+	tl_evts_ie = SYSTEM_VAR@(vg_evts_ie)
+
+	/*A on le met a jour ligne par ligne */
+	FOR vl_indice = 0 TO (ARRAY_SIZE@(tl_evts_ie)-1)
+
+		/*B on isole les arguments */
+		tl_ligne = ARRAY_FROM_STRING@(ta_data[vl_indice], DEDI_CAR_SEPAR)
+
+		/*B on met a jour le tableau des evts */
+		tl_evts_ie[vl_indice].cause_tfm = tl_ligne[1]
+
+		trace_point()
+
+	NEXT vl_indice
+
+	/*A on met a jour la variable globale */
+	SET_SYSTEM_VAR@(vg_evts_ie, tl_evts_ie)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION tfm_lit_autoroute (ta_autoroute, va_indice)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_autoroute (numero|nom|sens1|sens2|identifiant)
+*	va_indice
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere le fichier autoroute.tie
+*
+*
+---------------------------------------------------------------------------- */
+VAR tl_arg
+
+	/*A on construit les arguments */
+	tl_arg = ARRAY_FROM_STRING@(ta_autoroute, DEDI_CAR_SEPAR)
+
+	/*A on applique le modele ax-word */
+	dedi_genere(IE_MODELE_AUTOROUTE,va_indice,tl_arg)
+	trace_point()
+	
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION tfm_lit_conseil (ta_conseil, va_indice)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_conseil (fmc|texte)
+*	va_indice
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere le fichier msg_elt_conseil.tie
+*
+*
+---------------------------------------------------------------------------- */
+VAR tl_arg
+VAR vl_fmc, vl_conseil
+
+	/*A on construit les arguments */
+	tl_arg = ARRAY_FROM_STRING@(ta_conseil, DEDI_CAR_SEPAR)
+
+	/*A si il y a un texte de conseil, on applique le modele ax-word */
+	IF ARRAY_SIZE@(tl_arg) = 2
+	{
+		tl_arg[2] = tl_arg[1]
+		tl_arg[1] = ie_classe(tl_arg[0])		
+		dedi_genere(IE_MODELE_CONSEIL_TFM,va_indice,tl_arg)
+		trace_point()
+	}
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION tfm_lit_elt (ta_data, va_fichier, va_elt, va_modele)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_data :		(texte, texte, texte, ...)
+*	va_fichier :	pour dedi_var_convert()
+*	va_elt :		le nom de l'elt (pour les messages d'erreur)
+*	va_modele :	le nom du modele AxWord
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere le fichier msg_elt_xxx.tie
+*
+*
+---------------------------------------------------------------------------- */
+VAR syntaxe_correcte
+VAR vl_indice
+VAR tl_arg
+
+	syntaxe_correcte = TRUE
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(ta_data) - 1)
+
+		/*A on construit l'expression Rtie */
+		IF va_elt="localisation" AND vl_indice=19
+			tl_arg[vl_indice] = ta_data[vl_indice]
+		ELSE
+			tl_arg[vl_indice] = tfm_construit_ligne(ta_data[vl_indice], va_fichier)
+
+		IF tl_arg[vl_indice] = NULL
+		{
+			trace_chaine("Erreur de syntaxe dans la formulation de l'element " ++ va_elt ++ " cas " ++ (vl_indice+1) ++ ".")
+			syntaxe_correcte = FALSE
+		}
+	
+		/*A on conserve l'expression texte */
+		tl_arg[vl_indice+ARRAY_SIZE@(ta_data)] = ta_data[vl_indice]
+
+		trace_point()
+
+	NEXT vl_indice
+
+	/*A on applique le modele ax-word */
+	IF syntaxe_correcte
+		dedi_genere(va_modele,1,tl_arg)
+	trace_point()
+
+	RETURN(syntaxe_correcte)
+
+ENDFUNCTION
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION tfm_genere_tdp ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION              : genere le fichier msg_elt_xxx.tie
+*
+*
+---------------------------------------------------------------------------- */
+VAR tl_data,tl_arg
+
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_TDP_PERTURBE_TFM)
+     tl_arg[2]=tl_data[0]
+	tl_data=ARRAY_TO_STRING@(tl_data," ")
+
+	tl_arg[0]=tfm_construit_ligne(tl_data,IE_FILE_TDP_PERTURBE_TFM)
+
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_TDP_NORMAL_TFM)
+     tl_arg[3]=tl_data[0]
+	tl_data=ARRAY_TO_STRING@(tl_data," ")
+
+	tl_arg[1]=tfm_construit_ligne(tl_data,IE_FILE_TDP_NORMAL_TFM)
+
+	dedi_genere(IE_MODELE_TDP_TFM,2,tl_arg)
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION tfm_genere_entete ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION              : genere le fichier msg_elt_xxx.tie
+*
+*
+---------------------------------------------------------------------------- */
+VAR tl_data,tl_arg
+
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_ENTETE_DATEX_TFM)
+     tl_arg[1]=tl_data[0]
+	tl_data=ARRAY_TO_STRING@(tl_data," ")
+
+	tl_arg[0]=tfm_construit_ligne(tl_data,IE_FILE_ENTETE_DATEX_TFM)
+
+	dedi_genere(IE_MODELE_ENTETE_TFM,1,tl_arg)
+
+ENDFUNCTION

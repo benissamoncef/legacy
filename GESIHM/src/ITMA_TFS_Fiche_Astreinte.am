@@ -1,0 +1,548 @@
+/*E*/
+/* Fichier : $Id: ITMA_TFS_Fiche_Astreinte.am,v 1.16 2014/11/12 11:02:24 devgfi Exp $      Release : $Revision: 1.16 $        Date : $Date: 2014/11/12 11:02:24 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TFS * FICHIER ITMA_TFS_Fiche_Astreinte.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fiche astreinte.
+*
+*   Cf. DCG 2.4.32
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 19 Oct 1994 : Creation                                         V1.1
+* Lecrivain 06 Dec 1994 : Appel depuis MTAT (MTPA), argument supplementaire
+*                             (numero fiche annuaire), XZAN30 differente.  V1.2
+* Lecrivain 14 Dec 1994 : Ajout heure, minute a date validite commentaire  V1.5
+* Lecrivain 15 Dec 1994 : Fonctions de traitements de dates differentes    V1.6
+* Guilhou   23 dec 1994 : Ajout aide composition horodate                 V1.7
+* Lecrivain 18 Avr 1995 : Passage fenetre en avant-plan sur reception msg V1.10
+* Torregrossa 13 Nov 1995 : Modif horodate pour Applix version 4.1	  V1.11
+* Guilhou	15 nov 1996 : refonte complete de la gestion des astreintes (DEM/1306) 1.13
+* Guilhou	12 dec 1996 : activer le bouton radio (DEM/1336) 1.14
+* JPL		07/10/2014 : Affichage du sens dans les libelles de zones geographiques (DEM 1100)  1.16
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TFS.h"
+INCLUDE	"../inc/ITMA_TFC.h"
+INCLUDE	"../inc/ITMA_TFA.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE "../inc/xzan30sp.h"
+
+
+
+DEFINE	C_MODULE	"MTFS"				' Nom du module
+
+
+
+VAR FORMAT TDO_Type_Astreinte vm_le_type_astreinte
+
+VAR	vm_num_fiche_annuaire				' Numero interlocuteur
+VAR	vm_interlocuteur				' Nom interlocuteur
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation d'une fiche astreinte ; contact de l'interlocuteur d'astreinte.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFS_Fiche_Astreinte (va_appelant, va_num_comp, va_horodate, va_num_interlo,ta_plan_infos,va_mode_fax)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*  va_num_comp        : Numero de competence de l'astreinte ;
+*  va_horodate        : Date de l'astreinte a visualiser ;
+*  va_num_interlo     : Identifiant de l'interlocuteur.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTLS
+*
+* FONCTION
+*   Visualise les informations de la fiche d'astreinte correspondant a la
+*   competence de numero indique et a la date indiquee.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_astreinte		' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_numero				' Le numero appele
+    VAR     vl_type_bip				' Le type de bip appele
+
+    VAR     vl_message				' Message recu de MTAT
+    VAR     vl_l_args				' Liste d'arguments
+    VAR     vl_date, vl_liste, vl_tache
+    VAR 	 vl_string
+	VAR vl_appelant
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Fiche astreinte"
+ * ------------------------------------
+ */
+
+vl_fenetre_astreinte = DB_LOAD@ ("ITMA_TFS")
+DB_WINDOW_REMAIN@ (vl_fenetre_astreinte, TRUE)
+
+DB_XPOS@(vl_fenetre_astreinte, 0)
+DB_YPOS@(vl_fenetre_astreinte, 93)
+DB_WIDTH@(vl_fenetre_astreinte, 1264)
+
+COM02_Attacher_Aide (vl_fenetre_astreinte, "ITMA_TFS_Fiche_Astreinte")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_MTFS
+vl_les_messages_acceptes[2] = COM_CANAL_ASTREINTES
+DB_ACCEPT_POKES@ (vl_fenetre_astreinte, vl_les_messages_acceptes)
+
+IF (va_appelant="ITMA_TEI_Equipements_Indispo")
+	vl_appelant=va_appelant
+ELSE IF (va_appelant="ITMA_TAS_Interlocuteurs_Astreint")
+	vl_appelant=va_appelant
+ELSE
+	vl_appelant="ITMA_TFS_Fiche_Astreinte"
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+vl_liste = TFA_NOMS_TYPES_BIP
+DB_CTRL_STRINGS@ (vl_fenetre_astreinte, "BO_Type_Bip", vl_liste)
+DB_CTRL_GRAYED@ (vl_fenetre_astreinte, "BO_Type_Bip", TRUE)
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre_astreinte, "BS_Jour_Validite", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_astreinte, "BS_Mois_Validite", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_astreinte, "BS_Annee_Validite", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_astreinte, "BS_Heure_Validite", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_astreinte, "BS_Minute_Validite", COM_CHIFFRES)
+
+DB_CTRL_VALUE@ (vl_fenetre_astreinte, "BL_Zones", -1)
+
+IF NOT COM04_Operateur_A_Le_Droit_De (XDC_FAM_EXPLOITATION_CI)
+    DB_CTRL_GRAYED@ (vl_fenetre_astreinte, "BP_Valid_Commentaire", TRUE)
+
+
+/*A
+ * Initialiser les donnees a visualiser (competence, contenu fiche annuaire)
+ * -------------------------------------------------------------------------
+ */
+MACRO_WINS_BUSY@()
+IF TFS_Init_Astreinte (vl_fenetre_astreinte,
+			  va_num_comp, va_horodate, va_num_interlo, va_mode_fax) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_astreinte)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_astreinte)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_astreinte)
+        CASE COM_CANAL_FIN
+        CASE COM_CANAL_ASTREINTES
+            vl_la_fenetre_est_active = FALSE
+
+	/*A
+	 * Sur reception d'un message de MTAT, reinitialiser la fiche
+	 * ----------------------------------------------------------
+	 */
+
+	CASE COM_CANAL_MTFS
+	    vl_message = DB_GET_POKE_DATA@ (vl_fenetre_astreinte)
+	    vl_message = ARRAY_FROM_STRING@ (vl_message, COM_SEPAR_CHAMPS)
+	    IF TFS_Init_Astreinte (vl_fenetre_astreinte,
+					vl_message[0] + 0,
+					vl_message[1],
+					vl_message[2] + 0) <> COM_OK
+		vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A bouton aide a la composition de l'horodate*/
+    CASE "BP_horohelp"
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre_astreinte,"BS_Jour_Validite",
+				"BS_Mois_Validite","BS_Annee_Validite",
+				"BS_Heure_Validite","BS_Minute_Validite")
+
+    /*A
+     * Sur choix "Appeler_xxx", activer le module correspondant (MTAT ou MTFX)
+     * s'il ne l'est pas deja, sinon lui envoyer par message le numero d'appel
+     * -----------------------------------------------------------------------
+     */
+
+    CASE "BP_Appeler_Tel1"
+    CASE "BP_Appeler_Tel2"
+    CASE "BP_Appeler_Tel3"
+    CASE "BP_Appeler_Tel_Com"
+    CASE "BP_Appeler_Bip"
+    CASE "BP_Appeler_radio"
+	vl_type_bip = XDC_BIP_INCONNU
+
+	IF vl_objet_selecte = "BP_Appeler_Tel1"
+	    vl_numero = DB_CTRL_GET_VALUE@(vl_fenetre_astreinte,"BS_Telephone1")
+	ELSE IF vl_objet_selecte = "BP_Appeler_Tel2"
+	    vl_numero = DB_CTRL_GET_VALUE@(vl_fenetre_astreinte,"BS_Telephone2")
+	ELSE IF vl_objet_selecte = "BP_Appeler_Tel3"
+	    vl_numero = DB_CTRL_GET_VALUE@(vl_fenetre_astreinte,"BS_Telephone3")
+	ELSE IF vl_objet_selecte = "BP_Appeler_radio"{
+		vl_numero = DB_CTRL_GET_VALUE@(vl_fenetre_astreinte,"BS_radio")
+		vl_type_bip = XDC_APPEL_RADIO
+	}
+	ELSE IF vl_objet_selecte = "BP_Appeler_Tel_Com"
+	    vl_numero = DB_CTRL_GET_VALUE@(vl_fenetre_astreinte,"BS_Tel_Commentaire")
+	ELSE {
+	    vl_numero = DB_CTRL_GET_VALUE@(vl_fenetre_astreinte, "BS_Bip")
+	    vl_type_bip = DB_CTRL_GET_VALUE@(vl_fenetre_astreinte,"BO_Type_Bip")
+	}
+
+	vl_tache = COM21_Tache_De_La_Macro ("ITMA_TAT_Appel_Telephonique")
+	IF vl_tache = NULL {
+	    NEW_TASK@ ("ITMA_TAT_Appel_Telephonique",
+			  vl_appelant,
+			  vl_numero,
+			  vm_num_fiche_annuaire,
+			  vm_interlocuteur,
+			  vl_type_bip,
+			  vm_le_type_astreinte,
+			  ta_plan_infos)
+	} ELSE {
+	    vl_l_args = vl_numero, vm_num_fiche_annuaire, vm_interlocuteur,
+			   vl_type_bip,
+			   vm_le_type_astreinte.numero, vm_le_type_astreinte.nom
+	    DB_SEND_POKE@ (COM_CANAL_MTAT,
+			      ARRAY_TO_STRING@ (vl_l_args, COM_SEPAR_CHAMPS))
+	    SELECT_WINDOW@ (COM22_Fenetre_De_La_Tache (vl_tache), TRUE)
+	}
+
+
+    CASE "BP_Appeler_Fax"
+	vl_numero = DB_CTRL_GET_VALUE@(vl_fenetre_astreinte, "BS_Fax")
+	vl_tache = COM21_Tache_De_La_Macro ("ITMA_TFX_Envoi_Fax")
+	IF vl_tache = NULL {
+	    vl_l_args = vl_numero, vm_num_fiche_annuaire, vm_interlocuteur,
+			   vm_le_type_astreinte
+	    NEW_TASK@("ITMA_TFX_Envoi_Fax","ITMA_TFS_Fiche_Astreinte",vl_l_args)
+	} ELSE {
+	    vl_l_args = vl_numero, vm_num_fiche_annuaire, vm_interlocuteur,
+			   vm_le_type_astreinte.numero, vm_le_type_astreinte.nom
+	    DB_SEND_POKE@ (COM_CANAL_MTFX,
+			      ARRAY_TO_STRING@ (vl_l_args, COM_SEPAR_CHAMPS))
+	    SELECT_WINDOW@ (COM22_Fenetre_De_La_Tache (vl_tache), TRUE)
+	}
+
+
+    /*A
+     * Sur choix "Valider Commentaire", mettre a jour les modifications
+     * ----------------------------------------------------------------
+     */
+
+    CASE "BP_Valid_Commentaire"
+	vl_date = COM23_Horodate (vl_fenetre_astreinte, "BS_Jour_Validite",
+				     "BS_Mois_Validite", "BS_Annee_Validite",
+				     "BS_Heure_Validite", "BS_Minute_Validite")
+	ITMA_TAN_Comm_Fiche_Annuaire (
+		vm_num_fiche_annuaire,
+		DB_CTRL_GET_VALUE@ (vl_fenetre_astreinte, "BS_Commentaire"),
+		vl_date,
+		DB_CTRL_GET_VALUE@ (vl_fenetre_astreinte, "BS_Tel_Commentaire"),
+		C_MODULE)
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  (re)initialise les donnees de la fiche astreinte.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFS_Init_Astreinte (va_fenetre, va_num_comp, va_horodate, va_num_interlo,va_mode_fax)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets a initialiser ;
+*  va_num_comp        : Numero de competence de l'astreinte ;
+*  va_horodate        : Date de l'astreinte a visualiser ;
+*  va_num_interlo     : Identifiant de l'interlocuteur.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFS_Fiche_Astreinte
+*
+* FONCTION
+*   Lit les informations sur la competence de numero indique en argument et
+*   les affiche.
+*   recherche la periode d'astreinte a la date indiquee ;
+*   si un interlocuteur d'astreinte est indique, lit en base de donnees et
+*   affiche la fiche annuaire contenant ses informations.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TFC_Competence vl_competence		' Infos competence
+    VAR FORMAT TFC_Zone_Geographique vl_l_zones		' Zones geographiques
+    VAR vl_num_comp_liee
+
+    VAR FORMAT TDO_Type_Astreinte vl_l_types_astreintes
+    VAR FORMAT TDO_District vl_l_districts
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+    VAR vl_jj, vl_mm, vl_aa, vl_hh, vl_mn
+    VAR i
+
+
+/*A
+ * Lire et afficher les informations sur la competence
+ * ---------------------------------------------------
+ */
+
+IF ITMA_TAN_Lire_Competence (va_num_comp, C_MODULE, vl_competence) <> COM_OK
+    RETURN (COM_NOK)
+
+vl_l_types_astreintes = SYSTEM_VAR@ (vg_les_types_astreintes)
+vl_l_districts = SYSTEM_VAR@ (vg_les_districts)
+
+i = ARRAY_INDEX@(ARRAY_COLUMN@(vl_l_types_astreintes,TDO_NUMERO_TYPE_ASTREINTE),
+		    vl_competence.num_type_astreinte)
+vm_le_type_astreinte = vl_l_types_astreintes[i]
+DB_CTRL_VALUE@ (va_fenetre, "BS_Type_Astreinte", vm_le_type_astreinte.nom)
+
+vl_l_districts[0] = NULL, "Tous"
+vl_l_districts = ARRAY_APPEND@ (vl_l_districts,
+					  SYSTEM_VAR@ (vg_les_districts))
+i =ARRAY_INDEX@(ARRAY_COLUMN@(vl_l_districts,TDO_NUMERO_DISTRICT),
+		    vl_competence.num_district_astreinte)
+DB_CTRL_VALUE@ (va_fenetre, "BS_district", vl_l_districts[i].nom)
+
+vl_l_zones = vl_competence.l_zones_geo
+FOR i = 0  TO ARRAY_SIZE@ (vl_l_zones) - 1
+    vl_l_zones[i] = COM12_Libelle_Zone_Competence (vl_l_zones[i].num_autoroute,
+						      vl_l_zones[i].PR_debut,
+						      vl_l_zones[i].PR_Fin,
+						      vl_l_zones[i].sens)
+NEXT i
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Zones", vl_l_zones)
+
+
+
+/*A
+ * Rechercher et afficher la periode d'astreinte
+ * ---------------------------------------------
+ */
+
+vl_parametres[0].type = TFC_Numero_Competence
+vl_parametres[0].data = va_num_comp
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#DATETIME_
+vl_parametres[1].data = va_horodate
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = TFA_Numero_Fiche_Annuaire
+vl_parametres[2].data = va_num_interlo
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#DATETIME_			' Debut astreinte
+vl_parametres[3].output = TRUE
+
+vl_parametres[4].type = SYB#DATETIME_			' Fin astreinte
+vl_parametres[4].output = TRUE
+
+IF COM05_SQL_Procedure (XZAN30_Rech_Fiche_Astreinte,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+COM24_Afficher_Horodate(COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[0]),
+				va_fenetre,
+				"BS_jour_debut",
+				"BS_mois_debut",
+				"BS_annee_debut",
+				"BS_heure_debut",
+				"BS_minute_debut")
+COM24_Afficher_Horodate(COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[1]),
+				va_fenetre,
+				"BS_jour_fin",
+				"BS_mois_fin",
+				"BS_annee_fin",
+				"BS_heure_fin",
+				"BS_minute_fin")
+
+/*
+COM14_Valeurs_Horodate(COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[0]),
+			  vl_jj, vl_mm, vl_aa, vl_hh, vl_mn)
+DB_CTRL_VALUE@ (va_fenetre, "BS_Debut_Astreinte",
+		   FORMAT@ ("%2s/%2s/%4s", vl_jj, vl_mm, vl_aa))
+
+
+COM14_Valeurs_Horodate(COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[1]),
+			  vl_jj, vl_mm, vl_aa, vl_hh, vl_mn)
+DB_CTRL_VALUE@ (va_fenetre, "BS_Fin_Astreinte",
+		   FORMAT@ ("%2s/%2s/%4s", vl_jj, vl_mm, vl_aa))
+
+*/
+
+/*A
+ * Si un interlocuteur d'astreinte est indique, afficher ses informations
+ * ----------------------------------------------------------------------
+ */
+
+vm_num_fiche_annuaire = va_num_interlo
+
+IF va_num_interlo <> NULL {
+    IF ITMA_TAN_Lire_Fiche_Annuaire (va_num_interlo, C_MODULE, va_fenetre,
+					vl_num_comp_liee) <> COM_OK
+	RETURN (COM_NOK)
+
+    DB_CTRL_DISPLAY@ (va_fenetre, "BP_Valid_Commentaire", TRUE)
+} ELSE {
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Nom", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Fonction", NULL)
+
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Adresse", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Explication_Tel1", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Telephone1", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Explication_Tel2", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Telephone2", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Explication_Tel3", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Telephone3", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Explication_Fax", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Fax", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Explication_Bip", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Bip", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_radio", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Explication_radio", NULL)
+
+    DB_CTRL_VALUE@ (va_fenetre, "BO_Type_Bip", XDC_BIP_INCONNU)
+
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Commentaire", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Jour_Validite", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Mois_Validite", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Annee_Validite", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Heure_Validite", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Minute_Validite", NULL)
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Tel_Commentaire", NULL)
+
+    DB_CTRL_DISPLAY@ (va_fenetre, "BP_Valid_Commentaire", FALSE)
+}
+
+
+DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_Tel1",
+		     (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Telephone1") <> NULL))
+DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_Tel2",
+		     (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Telephone2") <> NULL))
+DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_Tel3",
+		     (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Telephone3") <> NULL))
+DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_Fax",
+		     (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Fax") <> NULL))
+DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_Bip",
+		     (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Bip") <> NULL))
+DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_Tel_Com",
+		  (DB_CTRL_GET_VALUE@(va_fenetre,"BS_Tel_Commentaire") <> NULL))
+DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_radio",
+		     (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_radio") <> NULL))
+
+if (va_mode_fax="MTFX")  {
+  DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_Tel1",FALSE)
+  DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_Tel2",FALSE)
+  DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_Tel3",FALSE)
+  DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_Bip",FALSE)
+  DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_Tel_Com",FALSE)
+  DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler_radio",FALSE)
+}
+
+vm_interlocuteur = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Nom")
+
+RETURN (COM_OK)
+
+ENDMACRO

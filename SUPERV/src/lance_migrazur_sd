@@ -1,0 +1,89 @@
+#!/bin/ksh
+#
+#	-- Script de lancement de l'application MIGRAZUR
+#		sur un SD (SDCI1, SDDP1, SDVC1, SDHIS)
+#
+
+site="XX"
+# tester le nom du site
+if [[ `hostname` = "SDCI1" ]]
+then
+site="CI"
+fi
+
+if [[ `hostname` = "SDVC1" ]]
+then
+site="DM"
+fi
+
+if [[ `hostname` = "SDDP1" ]]
+then
+site="DS"
+fi
+
+if [[ `hostname` = "SDHIS" ]]
+then
+site="HIS"
+fi
+
+if [[ $site = "XX" ]]
+then
+echo "Site inconnu"
+exit 1
+fi
+
+
+##############################################
+# Initialisation des Variables d'environnement concernant l'applicatif (PATH est géré par .profile)
+export exec_migrazur=/produits/migrazur/appliSD/exec
+
+# Definition de la Time Zone
+export TZ=CET;
+
+# lancement du SQL SERVEUR
+xzag21.ksh
+
+sleep 20
+
+# Le REPSERV (xzag15) est lancé par tasrv sur les serveurs des sites (CI, DP et VC) via la xzag22 appelée dans asrv_dir.c
+if [[ $site = "HIS" ]]
+then
+	####################### SDHIS
+	# le repserver/backup est lancé explicitement sur SDHIS et pas par tasrv (qui appelle xzag22.ksh)
+	xzag22.ksh $site
+
+else
+	####################### SDCI1 / SDDP1 / SDVC1
+	# le serveur ems est lancé uniquement sur SDCI1/SDDP1/SDVC1
+	if [[ `ps -ef | grep "tibemsd" | grep -c "cfgmgmt"` = 0 ]]
+	then
+		/usr/bin/nohup $EMS_HOME/bin/tibemsd -config /opt/tibco/config/tibco/cfgmgmt/ems/data/tibemsd.conf >>/dev/null 2>>/dev/null &
+	fi
+fi
+
+# Lancement de l'application
+export LINGER_TIME=0
+rm /nohup.out
+
+export LANGUAGE=fr
+export LANG=fr_FR.iso88591
+export SYBASE_NATLANG=french
+/usr/bin/nohup /produits/migrazur/appliSD/exec/tscmd.x "/usr/bin/axnet" &
+sleep 5
+cd $HOME/exec
+/bin/nohup tsaplg.x tsetat.x >>/dev/null 2>>/dev/null &
+
+if [[ $site != "HIS" ]]
+then
+####################### SDCI1 / SDDP1 / SDVC1
+	sleep 20
+	systemctl restart nginx
+	systemctl restart redis
+	systemctl restart magistra-api1
+	systemctl restart magistra-api2
+	systemctl restart magistra-tunnel-api1
+	systemctl restart magistra-tunnel-api2
+	systemctl restart magistra-fm-api
+	systemctl restart consignation-bouchon
+fi
+

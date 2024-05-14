@@ -1,0 +1,2360 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_trv.am,v 1.52 2020/11/03 17:44:30 pc2dpdy Exp $        $Revision: 1.52 $        $Date: 2020/11/03 17:44:30 $
+-------------------------------------------------------------------------------
+*  GTIE  *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-------------------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMC_trv.am
+-------------------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*
+*   Gere les donnees specifiques au type travaux
+*   et les champs correspondants dans la fenetre de saisie FMC
+*
+-------------------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  Guilhou    24 Oct 1994 : Création                                      V1.1
+*  Lecrivain  26 Mai 1995 : Controles validite dates et PR (reserve 202)  V1.11
+*  Lecrivain  30 Mai 1995 : Coherence PR tete, queue et mobiles (202,S87) V1.12
+*  Lecrivain  09 Jun 1995 : Affichage horodates correctes                 V1.13
+*  Torregrossa  10 Jul 1995 : Correction lorsque PR tete non valué   V1.15
+*  Guilhou    11 Sep 1994 : ?? V1.17
+*  Torregrossa  11 Sep 1995 : Ajout controle date fin<date debut continu  V1.18
+*  Torregrossa  24 Oct 1995 : Prise en compte des sens des autoroutes au niveau
+*                             du test de cohenrence de PR (A57)           V1.19
+* Guilhou	17 sep 1996 : la fmc trv en prevision peut etre passee a l'etat a traiter V1.20
+* Torregrossa 23 sep 1996	: modif cr de sauvegarde (CONF 4) (V1.21)
+* Guilhou	11 oct 1996 :  correction des erreurs de syntaxe V1.22
+* Torregrossa 21 oct 1996 : suppression de la declaration de format de TMC_travaux (IHM7) V1.23
+* Guilhou	11 fev 1997 : ajout neutralisations de voies (DEM/1394) ANA64 1.24
+* Guilhou	26 mai 1997 : ne plus supprimer la ligne ds le tableau des neutralisations
+*				de voies si l'horodate de debut est non nulle (DEM/1394) 1.25
+* Guilhou	26 mai 1997 : ajustement correction precedente 1.26
+* Torregrossa 20 Avr 1998 : Ajout test sur code d'erreur sur XZAE61 (1612) V1.27
+*  Niepceron  11 Jan 1999 : modif intergestionnaire (1623) v1.28
+* Hilmarcher	28/02/05 : modif libelles travaux a chercher dans LIB_PRE DEM429 v1.29
+*  Niepceron  01 Mar 2004 : remise de la voie normale si horodate de fin saisie  1.30 DEM423
+* Hilmarcher    04/03/05 : modif libelles travaux: rajout ligne vide v1.31
+* Lizot       14 Avr 2004 : Gestion du droit de propriete ESCOTA/DDE83 (SAGA) 1.32
+* Lecrivain	22 Mar 2007 : Afficher/effacer champs pour retypage (dem/637) 1.33
+* JPL		21/05/07 : Finalisation affichage/effacement champs 1.34
+* JPL		21/05/07 : Suppression des champs de travaux mobiles (DEM 608) 1.35
+* JPL		24/05/07 : Gestion libelles predefinis; aspect table neutralisation voies (DEM 647) 1.36
+* JPL		25/05/07 : Suppression de la visualisation des config de voies (DEM 647) 1.37
+* JPL		25/05/07 : Args macro ecriture en base; neutralisations voies lues/ecrites a l'IHM 1.38
+* JPL		04/06/07 : Ajout de pictogrammes marquant l'etat des voies (DEM 647) 1.39
+* JPL		12/06/07 : Correction etat des voies neutralisees au chargement de la fiche 1.40
+* JPL		09/07/07 : Libelle Basculement pour Travaux ; marquer toute voie inverse impliquee 1.41
+* JPL		13/10/08 : Controle complet du Pr de tete (DEM 814); macro de controle separee 1.42
+* JPL		23/11/09 : Ajout macros d'affichage / saisie / controles (vides) 1.43
+* JPL		29/07/10 : Gestion champs pour FMC Zone de Stockage (DEM 942) 1.44
+* JPL		24/09/10 : Gestion des types de travaux non valides (pour DEM 942) 1.45
+* LCL		08/11/11 : Ajout vitesse et vitesse opposee pour basculement / travaux (DEM/1015) 1.46
+* PNI		26/03/12 : Ajout calcul de vitesse du BT_voiesret 1.47 DEM1030
+* PNI		28/10/12 : DEM1109 : tm_types_travaux_affiches mis en SYSTEM_VAR pour les basculements pour travaux v1.49
+* JMG		08/03/18 : ajout personnel tracaux 1.50
+* JPL		24/09/19 : Gestion indicateur de bouchon mobile pour Basculements pour travaux (DEM 1346)  1.51
+* LCL   	22/04/20 : MOVIS Ajout site local pilotage DEM-SAE93
+-------------------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+
+INCLUDE		"XDMICG/inc/xdc_ax.h"
+INCLUDE		"XDMICG/inc/xzic_ax.h"
+INCLUDE		"XDMICG/inc/xzaec_ax.h"
+
+INCLUDE		"GESIHM/inc/xzae61sp.h"
+INCLUDE		"GESIHM/inc/xzae49sp.h"
+INCLUDE		"GESIHM/inc/xzao464sp.h"
+
+INCLUDE		"GESIHM/inc/ITMA_COM.h"
+INCLUDE		"GESIHM/inc/ITMA_TMC.h"
+INCLUDE		"GESIHM/inc/ITMA_TDO.h"
+INCLUDE		"GESIHM/inc/ITMA_TAR.h"
+
+/*A Définition des constantes */
+
+DEFINE	CM_MODULE		"MTMC"		' Nom du module
+DEFINE  CM_ERR_IHM               1
+
+
+/*A Définition des pictogrammes marquant l'état des voies */
+DEFINE	CM_PICTO_VOIE_NORMALE	"pix_gris"
+DEFINE	CM_PICTO_VOIE_INVERSE	"pix_bleu"
+
+
+VAR tm_icones_voies
+VAR FORMAT TDO_Libelle_Predefini tm_codes_voies, tm_codes_voies_valides
+VAR FORMAT TDO_Libelle_Predefini tm_types_travaux, tm_types_travaux_valide, tm_types_travaux_affiches
+
+VAR FORMAT  TMC_neutral tm_neutral
+VAR tm_pictos
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche / masque dans la fenetre FMC les champs specifiques au type travaux
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_trv (va_fenetre, va_type_fmc, va_visible)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : id de la boite de dialogue ou afficher les champs
+*  va_type_fmc        : type de la fmc
+*  va_visible         : indicateur de visibilite demandee
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------------------- */
+VAR tl_controles
+VAR vl_indice
+VAR vl_fenetre
+VAR vl_droits
+
+
+/*A
+ * Traitements en cas d'erreur :
+ *  informer l'operateur, tracer l'erreur et abandonner
+ * ----------------------------------------------------
+ */
+ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN
+}
+
+	vl_fenetre = va_fenetre
+
+	ITMA_TMC_trv_init (vl_fenetre)
+
+	/*A rendre visibles ou masquer les champs associes au type fmc */
+
+	/* Modif SAGA : la visibilite depend du droit de propriete */
+	vl_droits = SYSTEM_VAR@ (vg_datex_propriete)
+
+	/*A Pour un Basculement pour Travaux, changer le libelle des config de voies */
+	IF va_type_fmc = XZAEC_FMC_BasculTravaux {
+		DB_CTRL_TITLE@ (vl_fenetre, "LI_trv_config1", "Traitement")
+		DB_CTRL_TITLE@ (vl_fenetre, "LI_trv_config2", "des voies")
+	}
+
+	/*A Pour un Stockage de PL, changer le libelle de l'indicateur de voies retrecies */
+	IF va_type_fmc = XZAEC_FMC_ZoneStockage {
+		DB_CTRL_TITLE@ (vl_fenetre, "BT_voiesret", "Stockage démarré")
+	}
+
+	/* Champs toujours visibles, grises sans droit de propriete */
+	tl_controles = {
+		"BS_prtetetrv",
+		"LI_longueurtrv",
+		"LI_val_longueurtrv",
+		"PA_longueurtrv",
+
+		"LI_trv_config1",
+		"LI_trv_config2",
+		"PA_trv_terreplein"
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice], va_visible)
+		DB_CTRL_GRAYED@ (vl_fenetre, tl_controles[vl_indice],
+		                     (vl_droits = XDC_FAUX))
+	NEXT vl_indice
+
+
+	/* Champs non visibles avant une autre action IHM */
+	/* (et grises sans droit de propriete) */
+	tl_controles = {
+		"BP_trv_bau_i",
+		"BP_trv_vl_i",
+		"BP_trv_vm1_i",
+		"BP_trv_vm2_i",
+		"BP_trv_vr_i",
+		"BP_trv_bau",
+		"BP_trv_vl",
+		"BP_trv_vm1",
+		"BP_trv_vm2",
+		"BP_trv_vr"
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		IF NOT (va_visible)
+			DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice], FALSE)
+		DB_CTRL_GRAYED@ (vl_fenetre, tl_controles[vl_indice],
+		                     (vl_droits = XDC_FAUX))
+		DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, tl_controles[vl_indice], TRUE)
+	NEXT vl_indice
+
+
+	/* Champs visibles selon le type de FMC et les droits de propriete */
+	tl_controles = {
+		"BO_naturetrv",
+		"BO_typetrv",
+
+		"BT_continutrv",
+		"PA_trv2"
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice],
+		                     ((va_type_fmc = XZAEC_FMC_Travaux) OR
+		                      (va_type_fmc = XZAEC_FMC_BasculTravaux)) AND
+		                     va_visible AND (vl_droits = XDC_VRAI))
+	NEXT vl_indice
+
+	/* Champs visibles vitesse selon le type de FMC Travaux, Basculement et Basculement Travaux */
+	tl_controles = {
+		"BS_vitesse_",
+		"BT_personnel"
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice],
+		                     ((va_type_fmc = XZAEC_FMC_Travaux) OR
+		                      (va_type_fmc = XZAEC_FMC_BasculTravaux) OR
+							  (va_type_fmc = XZAEC_FMC_Basculement )) AND
+		                     va_visible )
+	NEXT vl_indice
+	DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_vitesse_", COM_CHIFFRES )
+
+	/* Champs visibles vitesse selon le type de Basculement et Basculement Travaux */
+	tl_controles = {
+		"BS_vitesse_opposee"
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice],
+		                     ((va_type_fmc = XZAEC_FMC_BasculTravaux) OR
+							  (va_type_fmc = XZAEC_FMC_Basculement )) AND
+		                     va_visible )
+	NEXT vl_indice
+
+	/* Champs visibles selon le type de Basculement Travaux */
+	DB_CTRL_TITLE@ (vl_fenetre, "BT_bouchon", "Bouchon mobile")
+	tl_controles = {
+		"BT_bouchon"
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice],
+		                     (va_type_fmc = XZAEC_FMC_BasculTravaux) AND
+		                     va_visible )
+	NEXT vl_indice
+
+
+	/* Champs non visibles sans droit de propriete */
+	tl_controles = {
+		"BT_voiesret",
+
+		"LI_neutral_trv",
+		"TA_neutral_trv"
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice],
+		                     va_visible AND (vl_droits = XDC_VRAI))
+	NEXT vl_indice
+
+
+	RETURN (vl_fenetre)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialiser certaines données et champs specifiques des FMC travaux
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_trv_init (va_fenetre)
+
+VAR	vl_marque
+VAR	tl_type_trav
+VAR	tl_titres
+
+tm_icones_voies = SYSTEM_VAR@ (vg_icones_voies)
+tm_codes_voies = SYSTEM_VAR@ (vg_codes_voies)
+
+/*B Initialisations a effectuer une seule fois dans l'application */
+IF IS_NULL@ (tm_icones_voies) {
+	/*B Definir les valeurs des icones de voies */
+	tm_icones_voies[0] = "BP_trv_bau_i",	XDC_CODE_VOIE_BAU_I
+	tm_icones_voies[1] = "BP_trv_vl_i",	XDC_CODE_VOIE_VL_I
+	tm_icones_voies[2] = "BP_trv_vm1_i",	XDC_CODE_VOIE_VM1_I
+	tm_icones_voies[3] = "BP_trv_vm2_i",	XDC_CODE_VOIE_VM2_I
+	tm_icones_voies[4] = "BP_trv_vr_i",	XDC_CODE_VOIE_VR_I
+	tm_icones_voies[5] = "BP_trv_bau",	XDC_CODE_VOIE_BAU
+	tm_icones_voies[6] = "BP_trv_vl",	XDC_CODE_VOIE_VL
+	tm_icones_voies[7] = "BP_trv_vm1",	XDC_CODE_VOIE_VM1
+	tm_icones_voies[8] = "BP_trv_vm2",	XDC_CODE_VOIE_VM2
+	tm_icones_voies[9] = "BP_trv_vr",	XDC_CODE_VOIE_VR
+	SET_SYSTEM_VAR@ (vg_icones_voies, tm_icones_voies)
+
+	/*B Lire les codes de voies en base de donnees */
+	COM37_Lit_Libelles_Predefinis (XDC_LIB_TYPE_VOIE, tm_codes_voies,
+					  tm_codes_voies_valides)
+	SET_SYSTEM_VAR@ (vg_codes_voies, tm_codes_voies)
+	/*B Lire les types de travaux en base de donnees */
+	COM37_Lit_Libelles_Predefinis (XDC_LIB_TYPE_TRAVAUX, tm_types_travaux, tm_types_travaux_valide)
+	SET_SYSTEM_VAR@ (vg_types_travaux, tm_types_travaux)
+	SET_SYSTEM_VAR@ (vg_types_travaux_valide, tm_types_travaux_valide)
+}
+
+
+/*B Initialisations a effectuer a chaque ouverture de la fenetre FMC au moins */
+vl_marque = DB_CTRL_GET_CLIENT_DATA@ (va_fenetre, "BO_typetrv")
+
+IF IS_NULL@ (vl_marque) {
+	DB_CTRL_CLIENT_DATA@ (va_fenetre, "BO_typetrv", "Initialise")
+
+	tm_types_travaux = SYSTEM_VAR@ (vg_types_travaux)
+	tm_types_travaux_valide = SYSTEM_VAR@ (vg_types_travaux_valide)
+
+	/* A PRIORI n'afficher que les types valides, sauf visualisation d'une fiche ancienne */
+	/* Inserer un type nul en tete de liste des types de travaux proposes par configuration */
+	tm_types_travaux_affiches = ARRAY_INSERT@ (tm_types_travaux_valide, { }, 0)
+
+	tl_type_trav = ARRAY_COLUMN@ (tm_types_travaux_affiches, TDO_TEXTE_LIBELLE)
+	DB_CTRL_STRINGS@ (va_fenetre, "BO_typetrv", tl_type_trav)
+
+	DB_CTRL_VALID_CHARS@ (va_fenetre, "BS_prtetetrv", COM_CHIFFRES ++ ".,")
+
+	DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, "BT_continutrv", TRUE)
+
+	DB_CTRL_VALUE@ (va_fenetre, "BT_bouchon", FALSE)
+
+	/* Définir les titres de la table de voies neutralisees */
+	tl_titres[0] = "Voie", 50
+	tl_titres[1] = "PR debut", 75
+	tl_titres[2] = "PR fin", 75
+	tl_titres[3] = "Horodate debut", 106
+	tl_titres[4] = "Horodate fin", 106
+	DB_TABLE_SET_DATA@ (va_fenetre, "TA_neutral_trv", NULL, tl_titres, NULL)
+	DB_TABLE_SET_MARKER_WIDTH@ (va_fenetre, "TA_neutral_trv", 25)
+	DB_CTRL_HORIZ_SCROLL@ (va_fenetre, "TA_neutral_trv", FALSE)
+	DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, "TA_neutral_trv", TRUE)
+}
+	SET_SYSTEM_VAR@ ("tm_types_travaux_affiches", tm_types_travaux_affiches)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* charge de la base les informations specifiques du type travaux
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_trv_charge (va_fenetre,FORMAT COM_Identifiant_FMC ta_num_evt,
+						va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_num_evt            : numero et cle d'evenement
+* va_fenetre            : id de la boite de dialogue fiche main courante
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+
+VAR FORMAT TMC_travaux		vl_tampon
+VAR tl_retour
+VAR tl_data, vl_suite_tampon
+VAR FORMAT TMC_neutral		tl_neutral
+
+VAR vl_fenetre
+
+VAR vl_indice
+VAR vl_index
+VAR vl_index2,vl_i_voie,vl_i_etat_voie
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+/*ON ERROR
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+    RETURN
+}*/
+
+	vl_fenetre=va_fenetre
+
+	vl_indice=0
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].data=va_horodate
+	vl_parametres[vl_indice].output=false
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=ta_num_evt.numero
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=false
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=ta_num_evt.cle
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=false
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_		'vr
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_		'vm2
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_		'vm1
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_		'vl
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_		'bau
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_		'vr_i
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_		'vm2_i
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_		'vm1_i
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_		'vl_i
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         'bau_i
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         'neutral vr
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         'neutral vm2
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         'neutral vm1
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         'neutral vl
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         'neutral bau
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         'neutral vr_i
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         'neutral vm2_i
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         'neutral vm1_i
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         'neutral vl_i
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         'neutral bau_i
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_         
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_			'vitesse
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	 vl_parametres[vl_indice].type=SYB#INT2_	'personnel
+	 vl_parametres[vl_indice].output=true
+	 vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT1_		'bouchon
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	IF COM05_SQL_Procedure (XZAE49_Lire_Fiche_Travaux,
+				  vl_parametres, vl_resultats, CM_MODULE) <> COM_OK {
+	  	INFO_MESSAGE@ ("Erreur lors de la lecture en base des données spécifiques de l'événement")
+	  	tl_retour[0]=va_fenetre
+	       	tl_retour[1]=null
+	  	RETURN (tl_retour)
+	}
+
+	tl_retour=vl_resultats.return_parameters
+
+	/*separer les 40 neutralisations de voies du reste du tampon*/
+	vl_tampon=SUBARRAY@(tl_retour,0,24)
+	tl_data=SUBARRAY@(tl_retour,24,40)
+	vl_suite_tampon=SUBARRAY@(tl_retour,64)
+
+	vl_tampon=ARRAY_APPEND@(vl_tampon,vl_suite_tampon)
+
+	/* Construire les donnees affichees des voies neutralisees, de VR jusque BAU_I */
+	vl_index=0
+tm_codes_voies = SYSTEM_VAR@(vg_codes_voies)
+tm_icones_voies = SYSTEM_VAR@(vg_icones_voies)
+	vl_i_voie=array_size@(tm_codes_voies)
+	vl_i_etat_voie=array_size@(vl_tampon)-1 - array_size@(tm_codes_voies)
+
+	FOR vl_indice=0 to (array_size@(tl_data)-1) STEP 4
+		vl_i_voie=vl_i_voie-1
+		IF tl_data[vl_indice]<>null {
+			tl_neutral[vl_index].code_voie=tm_icones_voies[vl_i_voie][1]
+			tl_neutral[vl_index].icone=tm_icones_voies[vl_i_voie][0]
+
+			vl_index2=COM45_IndexEnColonne (tm_codes_voies, TDO_CODE_LIBELLE,
+			                                   tl_neutral[vl_index].code_voie)
+			tl_neutral[vl_index].voie=tm_codes_voies[vl_index2].libelle
+			tl_neutral[vl_index].pr_debut= COM31_Libelle_PR(tl_data[vl_indice])
+			tl_neutral[vl_index].pr_fin= COM31_Libelle_PR(tl_data[vl_indice+1])
+			tl_neutral[vl_index].horodate_debut=
+					COM18_Date_SGBD_Formatee(tl_data[vl_indice+2])
+			tl_neutral[vl_index].horodate_fin=
+					COM18_Date_SGBD_Formatee(tl_data[vl_indice+3])
+			vl_index=vl_index+1
+		}
+		vl_i_etat_voie=vl_i_etat_voie+1
+	NEXT vl_indice
+
+
+	/*A Afficher les valeurs des donnees textuelles */
+	ITMA_TMC_trv_affiche (vl_fenetre, vl_tampon, tl_neutral)
+
+	/*A Afficher les neutralisations de voies */
+	tm_pictos = { }
+	FOR vl_indice = 0  TO ARRAY_SIZE@ (tl_neutral) - 1
+		/* marquer toute voie inverse impliquee, quel que soit son etat */
+		CASE OF tl_neutral[vl_indice].code_voie
+		CASE XDC_CODE_VOIE_BAU_I, XDC_CODE_VOIE_VL_I,
+		        XDC_CODE_VOIE_VM1_I, XDC_CODE_VOIE_VM2_I, XDC_CODE_VOIE_VR_I
+			tm_pictos[vl_indice] = { CM_PICTO_VOIE_INVERSE }
+		DEFAULT
+			tm_pictos[vl_indice] = { CM_PICTO_VOIE_NORMALE }
+		ENDCASE
+	NEXT vl_indice
+
+	DB_TABLE_CLEAR_DATA@ (vl_fenetre, "TA_neutral_trv", 0, -1)
+	DB_TABLE_SET_NEW_DATA@ (vl_fenetre, "TA_neutral_trv", tl_neutral, 0)
+	DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre, "TA_neutral_trv", 0, tm_pictos)
+
+
+	tl_retour[0]=vl_fenetre
+	tl_retour[1]=vl_tampon
+	RETURN (tl_retour)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* sauve en base les informations specifiques du type travaux
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_trv_sauve (FORMAT COM_Identifiant_FMC ta_num_evt, 
+                             FORMAT TMC_travaux va_tampon, 
+                             va_mode, va_horodate, va_fenetre,
+                             va_autoroute, va_pr, va_sens,
+                             va_1 /*voies neutralisees ...*/)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_num_evt		: numero et cle d'evenement
+* va_tampon		: valeurs des controles
+* va_mode			: prevision, traiter, clos
+* va_fenetre		: id de la boite de dialogue fiche main courante
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@	vl_parametres	
+VAR FORMAT SQL_Procedure_Result@	vl_resultats
+VAR vl_indice
+VAR vl_cr
+VAR vl_retour
+VAR FORMAT TMC_neutral tl_neutral, tl_neutral_base
+
+
+/*A Traitements en cas d'erreur :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> COM_ERR_VAL_INVAL
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN (COM_NOK)
+}
+
+
+/*B recuperer la table des voies neutralisees */
+tl_neutral = DB_TABLE_GET_DATA@ (va_fenetre, "TA_neutral_trv")
+for vl_indice=0 to (ARRAY_SIZE@(tl_neutral)-1)
+	tl_neutral_base[tl_neutral[vl_indice].code_voie]=tl_neutral[vl_indice]
+next vl_indice
+
+
+vl_indice=0
+/*A preparation des parametres de la procedure stockee*/
+vl_parametres[vl_indice].data=ta_num_evt.numero
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=ta_num_evt.cle
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.nature
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.type
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.continu
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.debut_continu
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.fin_continu
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=XDC_FAUX                                      /* Indicateur mobile obsolete */
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+/*! on force l'autoroute a celle de la fiche main courante*/
+vl_parametres[vl_indice].data=va_autoroute
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=XDC_PR_INCONNU                                /* Pr queue mobile obsolete */
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=XDC_PR_INCONNU                                /* Pr tete mobile obsolete */
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=XDC_SENS_INCONNU                              /* sens mobile obsolete */
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.prt
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.voiesret
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_horodate
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+	vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste_surcharge)
+ELSe
+	vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste)
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_mode
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.vr
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.vm2
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.vm1
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.vl
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.bau
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.vr_i
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.vm2_i
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.vm1_i
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.vl_i
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.bau_i
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VR].pr_debut
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VR].pr_fin
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VR].horodate_debut
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VR].horodate_fin
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM2].pr_debut
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM2].pr_fin
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM2].horodate_debut
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM2].horodate_fin
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM1].pr_debut
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM1].pr_fin
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM1].horodate_debut
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM1].horodate_fin
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VL].pr_debut
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VL].pr_fin
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VL].horodate_debut
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VL].horodate_fin
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_BAU].pr_debut
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_BAU].pr_fin
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_BAU].horodate_debut
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_BAU].horodate_fin
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VR_I].pr_debut
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VR_I].pr_fin
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VR_I].horodate_debut
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VR_I].horodate_fin
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM2_I].pr_debut
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM2_I].pr_fin
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM2_I].horodate_debut
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM2_I].horodate_fin
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM1_I].pr_debut
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM1_I].pr_fin
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM1_I].horodate_debut
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VM1_I].horodate_fin
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VL_I].pr_debut
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VL_I].pr_fin
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VL_I].horodate_debut
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_VL_I].horodate_fin
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_BAU_I].pr_debut
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_BAU_I].pr_fin
+if vl_parametres[vl_indice].data=null
+	vl_parametres[vl_indice].data=XDC_PR_INCONNU
+else
+	vl_parametres[vl_indice].data=vl_parametres[vl_indice].data*1000
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_BAU_I].horodate_debut
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=tl_neutral_base[XDC_CODE_VOIE_BAU_I].horodate_fin
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.vitesse
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.personnel
+vl_parametres[vl_indice].type=SYB#INT2_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].data=va_tampon.bouchon
+vl_parametres[vl_indice].type=SYB#INT1_
+vl_parametres[vl_indice].output=FALSE
+vl_indice=vl_indice+1
+
+/*B Site local */
+vl_parametres[vl_indice].data = SYSTEM_VAR@(vg_nom_site)
+vl_parametres[vl_indice].type = SYB#CHAR_
+vl_parametres[vl_indice].output = FALSE
+vl_indice = vl_indice +1
+
+vl_retour=COM05_SQL_Procedure (XZAE61_Ecrire_Fiche_Travaux,
+				vl_parametres, vl_resultats, CM_MODULE)
+
+IF (vl_retour <> COM_OK) {
+	INFO_MESSAGE@("Erreur lors de l'écriture en base des données complémentaires de la fiche")
+	RETURN (COM_NOK)
+}
+ELSE IF (vl_resultats.status=XZAEC_FMC_PAS_ENR) {
+	RETURN (COM_OK)
+}
+ELSE IF (vl_resultats.status=XZAEC_FMC_CLOSE_PAS_ENR) {
+	/* pas de modif possible car le sit n'est pas le site local */
+	RETURN (COM_OK)
+}
+ELSE IF (vl_resultats.status <> XDC_OK) {
+	INFO_MESSAGE@("Erreur lors de l'écriture en base des données complémentaires de la fiche")
+}
+
+RETURN (vl_resultats.status)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche les donnees specifiques d'une fiche Travaux
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_trv_affiche (va_fenetre, FORMAT TMC_travaux va_travaux)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*  va_travaux         : Données de la fiche Travaux
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur ouverture fiche Travaux
+*
+* FONCTION
+*  Value les champs de saisie spécifiques aux FMC de classe Travaux
+*
+--------------------------------------------------------------------------------- */
+
+VAR	FORMAT TDO_Horo_Eclatee	vl_horodate
+VAR	FORMAT TDO_Autoroute	tl_autoroutes
+VAR	vl_visible
+VAR	tl_controles
+VAR	i, j, k
+tm_types_travaux_affiches = SYSTEM_VAR@ ("tm_types_travaux_affiches")
+
+	/* Afficher les valeurs de localisation et longueur des travaux */
+	tl_autoroutes = SYSTEM_VAR@ (vg_les_autoroutes)
+	i = ARRAY_INDEX@ (ARRAY_COLUMN@ (tl_autoroutes, TDO_NUMERO_AUTOROUTE), va_travaux.autoroute)
+	DB_CTRL_VALUE@ (va_fenetre, "BO_autotrv", i)
+
+	IF NOT IS_NULL@ (va_travaux.prt) {
+		DB_CTRL_VALUE@ (va_fenetre, "BS_prtetetrv", va_travaux.prt / 1000)
+	} ELSE {
+		DB_CTRL_VALUE@ (va_fenetre, "BS_prtetetrv", NULL)
+	}
+
+	IF NOT IS_NULL@(va_travaux.longueur) {
+		DB_CTRL_TITLE@ (va_fenetre, "LI_val_longueurtrv", ABS@(va_travaux.longueur))
+	} ELSE {
+		DB_CTRL_TITLE@ (va_fenetre, "LI_val_longueurtrv", " ")
+	}
+
+	/* Afficher la limitation de vitesse */
+	IF NOT IS_NULL@ (va_travaux.vitesse) {
+		DB_CTRL_VALUE@ (va_fenetre, "BS_vitesse_", va_travaux.vitesse)
+	} ELSE {
+	
+		DB_CTRL_VALUE@ (va_fenetre, "BS_vitesse_", "   ")
+	}
+
+
+	/* Afficher la valeur de la nature des travaux */
+	DB_CTRL_VALUE@ (va_fenetre, "BO_naturetrv", va_travaux.nature)
+
+
+	/* Afficher le type de travaux, en l'ajoutant a la liste affichee s'il n'est plus valide */
+	IF (va_travaux.type = NULL) {
+		i = 0
+	} ELSE {
+		i = COM45_IndexEnColonne (tm_types_travaux_affiches, TDO_CODE_LIBELLE, va_travaux.type)
+
+		/* si la liste affichee ne contient pas le type de travaux, la reconstruire en l'incluant */
+		IF (i < 0) {
+			tm_types_travaux_affiches = { }
+			k = 0
+			FOR j = 0  TO ARRAY_SIZE@ (tm_types_travaux) - 1
+				IF (tm_types_travaux[j].code = va_travaux.type) OR
+				   (tm_types_travaux[j].valide = XDC_VRAI)
+				{
+					tm_types_travaux_affiches[k] = tm_types_travaux[j]
+					k = k + 1
+				}
+			NEXT j
+			tm_types_travaux_affiches = ARRAY_INSERT@ (tm_types_travaux_affiches, { }, 0)
+			DB_CTRL_STRINGS@ (va_fenetre, "BO_typetrv",
+			                     ARRAY_COLUMN@ (tm_types_travaux_affiches, TDO_TEXTE_LIBELLE))
+
+			i = COM45_IndexEnColonne (tm_types_travaux_affiches, TDO_CODE_LIBELLE, va_travaux.type)
+		}
+	}
+	DB_CTRL_VALUE@ (va_fenetre, "BO_typetrv", i)
+
+
+	/* Afficher l'indicateur voies retrecies */
+	IF (va_travaux.voiesret = XDC_VRAI) {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_voiesret", TRUE)
+	} ELSE {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_voiesret", FALSE)
+	}
+
+
+	/* Afficher les donnees de travaux discontinus */
+	IF (va_travaux.continu = XDC_VRAI) {
+		vl_visible = TRUE
+	} ELSE {
+		vl_visible = FALSE
+	}
+	DB_CTRL_VALUE@ (va_fenetre, "BT_continutrv", vl_visible)
+
+	tl_controles = {
+		"BS_jd_trv",
+		"BS_md_trv",
+		"BS_ad_trv",
+		"BS_hd_trv",
+		"BS_mid_trv",
+		"BS_jf_trv",
+		"BS_mf_trv",
+		"BS_af_trv",
+		"BS_hf_trv",
+		"BS_mif_trv",
+		"BP_horohelp_debuttrv",
+		"BP_horohelp_fintrv"
+	}
+	FOR i = 0  TO ARRAY_SIZE@ (tl_controles) - 1
+		DB_CTRL_DISPLAY@ (va_fenetre, tl_controles[i], vl_visible)
+	NEXT i
+
+	/*A horodate debut travaux discontinus */
+	vl_horodate = COM18_Date_SGBD_Formatee (va_travaux.debut_continu)
+	COM24_Afficher_Horodate (vl_horodate, va_fenetre,
+	                            "BS_jd_trv", "BS_md_trv", "BS_ad_trv",
+	                            "BS_hd_trv", "BS_mid_trv")
+
+	/*A horodate fin travaux discontinus */
+	vl_horodate = COM18_Date_SGBD_Formatee (va_travaux.fin_continu)
+	COM24_Afficher_Horodate (vl_horodate, va_fenetre,
+	                            "BS_jf_trv", "BS_mf_trv", "BS_af_trv",
+	                            "BS_hf_trv", "BS_mif_trv")
+
+
+	IF (va_travaux.personnel = 1) {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_personnel", TRUE)
+	} ELSE {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_personnel", FALSE)
+	}
+
+
+	/* Afficher l'indicateur de bouchon mobile */
+	IF (va_travaux.bouchon = XDC_VRAI) {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_bouchon", TRUE)
+	} ELSE {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_bouchon", FALSE)
+	}
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit les donnees specifiques d'une fiche Travaux saisies dans la fenetre
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_trv_saisie (va_fenetre, FORMAT TMC_travaux va_travaux)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_travaux         : Donnees de la fiche Travaux
+*
+*
+* CODE RETOUR         : XDC_NOK si une valeur saisie est incorrecte, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Travaux
+*
+* FONCTION
+*  Remplit la fiche avec les donnees des champs de saisie specifiques.
+*
+--------------------------------------------------------------------------------- */
+
+VAR	vl_i_type
+
+/*A Traitements en cas d'erreur :
+*   informer l'operateur et abandonner
+* ------------------------------------*/
+ON ERROR
+{
+	ERROR_BOX@
+	RETURN (XDC_NOK)
+}
+tm_types_travaux_affiches = SYSTEM_VAR@ ("tm_types_travaux_affiches")
+
+
+	/* Lire la valeur du PR de tete et controler sa validite */
+	va_travaux.prt = COM26_Valeur_PR (va_fenetre, "BS_prtetetrv")
+
+	IF (va_travaux.prt = XDC_PR_INCONNU)
+	{
+		INFO_MESSAGE@ ("PR de tête non renseigné")
+		RETURN (XDC_NOK)
+	}
+
+
+	/* Lire les valeurs de nature et type de travaux */
+	va_travaux.nature = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_naturetrv")
+
+	vl_i_type = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_typetrv")
+
+	IF (vl_i_type < 0) {
+		va_travaux.type = 0
+	} ELSE {
+
+		va_travaux.type = tm_types_travaux_affiches[vl_i_type].code
+	}
+
+	IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BT_voiesret") = TRUE) {
+		va_travaux.voiesret = XDC_VRAI
+	} ELSE {
+		va_travaux.voiesret = XDC_FAUX
+	}
+
+
+	/* Lire les donnees de travaux discontinus */
+	IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BT_continutrv") = TRUE) {
+		va_travaux.continu = XDC_VRAI
+	} ELSE {
+		va_travaux.continu = XDC_FAUX
+	}
+	va_travaux.debut_continu = COM23_Horodate (va_fenetre, "BS_jd_trv", "BS_md_trv", "BS_ad_trv",
+	                                                       "BS_hd_trv", "BS_mid_trv")
+	va_travaux.fin_continu = COM23_Horodate (va_fenetre, "BS_jf_trv", "BS_mf_trv", "BS_af_trv",
+	                                                     "BS_hf_trv", "BS_mif_trv")
+
+	va_travaux.vitesse = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_vitesse_")
+
+
+	IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BT_personnel") = TRUE) {
+		va_travaux.personnel = 1
+	} ELSE {
+		va_travaux.personnel = 0
+	}
+
+
+	/* Lire l'indicateur de bouchon mobile */
+	IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BT_bouchon") = TRUE) {
+		va_travaux.bouchon = XDC_VRAI
+	} ELSE {
+		va_travaux.bouchon = XDC_FAUX
+	}
+
+	 RETURN (XDC_OK)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Effectue les controles de validite des donnees specifiques d'une fiche Travaux
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_trv_controle (FORMAT TMC_fmc va_fiche, FORMAT TMC_travaux va_travaux)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fiche           : Donnees generiques de la Fmc ;
+*  va_travaux         : Donnees specifiques a la Fmc Travaux
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_NOK si les donnees sont incorrectes, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Travaux
+*
+* FONCTION
+*
+--------------------------------------------------------------------------------- */
+
+VAR	vl_sitePr
+
+	/* Controler la coherence du PR de tete par rapport au sens */
+	IF (va_fiche.pr <> XDC_PR_INCONNU) AND (va_fiche.sens <> XDC_SENS_INCONNU)
+	{
+		IF ITMA_TMC_coherence_pr (va_fiche.autoroute, va_travaux.prt, va_fiche.pr, va_fiche.sens) <> COM_OK
+			RETURN (XDC_NOK)
+	}
+
+	vl_sitePr = ITMA_COM_Site_PR (va_fiche.autoroute, va_travaux.prt, CM_MODULE)
+	IF (vl_sitePr = XDC_SITE_INCONNU)
+	{
+		INFO_MESSAGE@ ("Le PR de tête est hors réseau")
+		RETURN (XDC_NOK)
+	}
+
+
+	/* Controler la coherence des dates de travaux discontinus */
+	IF (IS_NULL@(va_travaux.debut_continu) AND NOT IS_NULL@(va_travaux.fin_continu))
+	{
+		INFO_MESSAGE@ ("La date de début de travaux discontinus doit être saisie avant celle de fin")
+		RETURN (XDC_NOK)
+	}
+	ELSE IF NOT IS_NULL@(va_travaux.fin_continu) {
+		IF (COM17_Difference_Dates (va_travaux.fin_continu, va_travaux.debut_continu) < 0) {
+			INFO_MESSAGE@ ("Les dates de début et fin de travaux discontinus ne sont pas cohérentes !")
+			RETURN (XDC_NOK)
+		}
+	}
+
+	IF va_travaux.vitesse > 130 va_travaux.vitesse=130
+	IF (va_fiche.type = XZAEC_FMC_Travaux) AND (IS_NULL@(va_travaux.vitesse))
+	{
+		INFO_MESSAGE@ ("La vitesse limite doit etre saisie")
+		RETURN (XDC_NOK)
+	}
+
+	RETURN (XDC_OK)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* ajoute dans le tableau des neutralisations de voies une neutralisation de voie
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMC_voie_neutral_ajoute (va_fenetre,va_icone,va_etat,va_prdebut,va_prfin)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_icone : code de l'icone associee a la voie
+* va_etat : etat de la voie (type de neutralisation)
+* va_prdebut : pr debut neutralisation
+* va_prfin : pr fin neutralisation
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR	vl_i_voie, vl_i_icone
+VAR	vl_i_neutral
+VAR	vl_indice
+
+	tm_codes_voies = SYSTEM_VAR@ (vg_codes_voies)
+	tm_icones_voies = SYSTEM_VAR@ (vg_icones_voies)
+
+vl_i_icone = COM45_IndexEnColonne (tm_icones_voies, 0, va_icone)
+vl_i_voie = COM45_IndexEnColonne (tm_codes_voies, TDO_CODE_LIBELLE,
+                                     tm_icones_voies[vl_i_icone][1])
+
+tm_neutral = DB_TABLE_GET_DATA@ (va_fenetre, "TA_neutral_trv")
+
+IF NOT IS_ARRAY@ (tm_neutral) {
+	/* premiere insertion */
+	vl_i_neutral = 0
+} ELSE {
+	vl_indice = COM45_IndexEnColonne (tm_neutral, 5, va_icone)
+	IF vl_indice = -1 {
+		/* ajouter en fin de table */
+		vl_i_neutral = ARRAY_SIZE@ (tm_neutral)
+	} ELSE {
+		/* aucune donnee a ajouter */
+		vl_i_neutral = -1
+	}
+}
+
+IF vl_i_neutral <> -1 {
+	/* ajouter la ligne de donnees de la voie si elle ne s'y trouve pas deja */
+	tm_neutral[vl_i_neutral] = { tm_codes_voies[vl_i_voie].libelle,
+	                             COM31_Libelle_PR (va_prdebut),
+	                             COM31_Libelle_PR (va_prfin),
+	                             null, null, va_icone,
+	                             tm_codes_voies[vl_i_voie].code }
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_neutral_trv", 0, -1)
+	DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_neutral_trv", tm_neutral, 0)
+
+	/* marquer la voie si c'est une voie inverse, quel que soit son etat */
+	CASE OF tm_neutral[vl_i_neutral].code_voie
+	CASE XDC_CODE_VOIE_BAU_I, XDC_CODE_VOIE_VL_I,
+	        XDC_CODE_VOIE_VM1_I, XDC_CODE_VOIE_VM2_I, XDC_CODE_VOIE_VR_I
+		tm_pictos[vl_i_neutral] = { CM_PICTO_VOIE_INVERSE }
+	DEFAULT
+		tm_pictos[vl_i_neutral] = { CM_PICTO_VOIE_NORMALE }
+	ENDCASE
+	DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_neutral_trv", 0, tm_pictos)
+}
+
+RETURN (COM_OK)
+ENDMACRO
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* supprime dans le tableau des neutralisations de voies une neutralisation de voie
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMC_voie_neutral_supprime (va_fenetre,va_icone)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_icone : code de l'icone associee a la voie
+* va_etat : etat de la voie (type de neutralisation)
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR vl_indice
+
+tm_neutral=DB_TABLE_GET_DATA@(va_fenetre, "TA_neutral_trv")
+vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_neutral,5),va_icone)
+
+if (vl_indice<>-1) {
+  /*si horodate de debut nulle*/
+  if (tm_neutral[vl_indice].horodate_debut<>null) 
+    return (COM_OK)
+
+  tm_neutral=ARRAY_DELETE@(tm_neutral, vl_indice)
+  tm_pictos=ARRAY_DELETE@(tm_pictos, vl_indice)
+  DB_TABLE_CLEAR_DATA@(va_fenetre,"TA_neutral_trv",0,-1)
+  DB_TABLE_SET_NEW_DATA@(va_fenetre,"TA_neutral_trv",tm_neutral,0)
+  DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_neutral_trv", 0, tm_pictos)
+}
+return (COM_OK)
+ENDMACRO
+
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* modifie le tableau des neutralisations de voies une neutralisation de voie
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMC_voie_neutral_modifie (va_fenetre,va_selection,ta_config_trv,ta_config)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_selction : indice de la neutralisation selectionnee dans le tableau
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Sur selection d'une ligne dans la table de neutralisations de voies
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR FORMAT TMC_neutral tl_neutral
+VAR FORMAT TMC_neutral vl_neutral, vl_neutral_voie_avant
+VAR tl_retour
+VAR vl_indice
+VAR vl_voie
+
+  tl_neutral=DB_TABLE_GET_DATA@(va_fenetre, "TA_neutral_trv")
+  vl_neutral_voie_avant = tl_neutral[va_selection]
+
+  vl_neutral=PEND_FOR_NEW_TASK@("TMC_neutralisation_voies", vl_neutral_voie_avant)
+
+  tl_neutral[va_selection]=vl_neutral
+  vl_voie=tl_neutral[va_selection].icone
+  vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(ta_config_trv,0), vl_voie)
+
+  DB_TABLE_CLEAR_DATA@(va_fenetre,"TA_neutral_trv",0,-1)
+  DB_TABLE_SET_NEW_DATA@(va_fenetre,"TA_neutral_trv",tl_neutral,0)
+  DB_TABLE_MARKER_PIXMAPS@(va_fenetre,"TA_neutral_trv",0,tm_pictos)
+
+  /* si la circulation en sens inverse débute sur la voie rapide en chaussée opposée */
+  /*  alors désélectionner l'indicateur de bouchon mobile (basculement pour travaux) */
+  IF (vl_neutral_voie_avant.code_voie = XDC_CODE_VOIE_VR_I  AND  ta_config_trv[vl_indice][1] = XDC_VOIE_SENS_INVERSE) {
+	IF (vl_neutral_voie_avant.horodate_debut = NULL  AND  tl_neutral[va_selection].horodate_debut <> NULL)
+	{
+		DB_CTRL_VALUE@ (va_fenetre, "BT_bouchon", FALSE)
+	}
+  }
+
+  /*si une horodate de fin a ete saisie*/
+  if (tl_neutral[va_selection].horodate_fin<>null) {
+    /*on met la BAU dans la config des voies a GAUCHE pur BAU* /
+    /*ou on met la fleche verte dans la config des autres voies a GAUCHE*/
+	if (vl_indice=0)  {
+   	 	ta_config[vl_indice][1]=XDC_VOIE_BAU_NORMALE
+  	}
+	else   {
+	if (vl_indice=5)  {
+   	 	ta_config[vl_indice][1]=XDC_VOIE_BAU_NORMALE
+  		}
+	else		
+    		ta_config[vl_indice][1]=XDC_VOIE_SENS_NORMAL
+  	}
+
+    tl_retour[0]=COM_VALIDE
+    return (tl_retour)
+  }
+
+  /*si une horodate de debut a ete saisie*/
+  if (tl_neutral[va_selection].horodate_debut<>null) {
+	vl_voie=tl_neutral[va_selection].icone
+
+	vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(ta_config_trv,0), vl_voie)
+
+	ta_config[vl_indice][1]=ta_config_trv[vl_indice][1]
+	tl_retour[0]=COM_VALIDE
+	tl_retour[1]=ta_config[vl_indice]
+    	return (tl_retour)
+  }
+
+  tl_retour[0]=COM_OK
+  RETURN (tl_retour)
+
+ ENDMACRO
+
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* gestion de la boite de dialogue de modification des caracteristiques
+* d'une neutralisation de voie
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMC_neutralisation_voies (FORMAT TMC_neutral va_neutralisation)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_neutralisation: neutralisation de voie a modifier
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR vl_fenetre
+VAr vl_les_messages_acceptes
+VAR vl_installer_traitement_erreur
+VAR vl_la_fenetre_est_active
+VAR vl_objet_selecte
+VAR FORMAT TMC_neutral vl_retour
+VAr vl_debut,vl_fin
+VAR vl_status
+VAR vl_prdebut,vl_prfin
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+*/
+
+ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN
+}
+
+vl_fenetre=DB_LOAD@("ITMA_TMC_voie")
+DB_XPOS@(vl_fenetre,517)
+DB_YPOS@(vl_fenetre,677)
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_prdebut", COM_CHIFFRES ++ ".,")
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_prfin", COM_CHIFFRES ++ ".,")
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+*/
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+       ERROR_BOX@
+       IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	  ERROR_NUMBER@() <> CM_ERR_IHM
+	      COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	      vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+vl_retour=va_neutralisation
+
+/*affiche les caracteristiques courantes de la neutralisation*/
+DB_CTRL_TITLE@(vl_fenetre, "LI_voie", vl_retour.voie)
+if vl_retour.horodate_debut<>null
+	COM24_Afficher_Horodate(vl_retour.horodate_debut,vl_fenetre,
+					"BS_jour_debut",
+					"BS_mois_debut",
+					"BS_annee_debut",
+					"BS_heure_debut",
+					"BS_minute_debut")
+if vl_retour.horodate_fin<>null
+	COM24_Afficher_Horodate(vl_retour.horodate_fin,vl_fenetre,
+					"BS_jour_fin",
+					"BS_mois_fin",
+					"BS_annee_fin",
+					"BS_heure_fin",
+					"BS_minute_fin")
+
+DB_CTRL_VALUE@(vl_fenetre, "BS_prdebut", vl_retour.pr_debut)
+DB_CTRL_VALUE@(vl_fenetre, "BS_prfin", vl_retour.pr_fin)
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+*/
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	    vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+	CASE "poke_"
+		CASE OF  DB_GET_POKE@ (vl_fenetre)
+			CASE COM_CANAL_FIN
+				    vl_la_fenetre_est_active = FALSE
+		ENDCASE
+
+	CASE "BP_quitter"
+		vl_la_fenetre_est_active = FALSE
+
+    	/*A bouton aide a la composition de l'horodate debut*/
+	CASE "BP_hdebut"
+		/*A recupere l'heure courante et la formate*/
+		COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+					"BS_jour_debut", "BS_mois_debut",
+					"BS_annee_debut",
+					"BS_heure_debut", "BS_minute_debut")
+
+	/*A bouton aide a la composition de l'horodate fin*/
+	CASE "BP_hfin"
+		/*A recupere l'heure courante et la formate*/
+		COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+					 "BS_jour_fin", "BS_mois_fin",
+					 "BS_annee_fin",
+					"BS_heure_fin", "BS_minute_fin")
+
+	/*appui sur le bouton valider*/
+	CASE "BP_valider"
+	       vl_debut=COM23_Horodate (vl_fenetre,"BS_jour_debut",
+					       "BS_mois_debut",
+					       "BS_annee_debut",
+					       "BS_heure_debut",
+					       "BS_minute_debut")
+
+		vl_fin=COM23_Horodate (vl_fenetre,"BS_jour_fin",
+					 "BS_mois_fin",
+					 "BS_annee_fin",
+					 "BS_heure_fin",
+					 "BS_minute_fin")
+
+		vl_status = COM_OK
+
+		IF ( NOT IS_NULL@(vl_fin)) {
+			if IS_NULL@(vl_debut) {
+				INFO_MESSAGE@("L'horodate de fin doit etre saisie apres l'horodate de debut")
+				vl_status = COM_NOK
+			}
+			else if (COM17_Difference_Dates(vl_fin,vl_debut)<0) {
+				INFO_MESSAGE@("L'horodate de fin doit etre superieure a l'horodate de debut")
+				vl_status = COM_NOK
+			}
+		}	
+
+		vl_prdebut=COM26_Valeur_PR(vl_fenetre,"BS_prdebut")
+	 	vl_prfin=COM26_Valeur_PR(vl_fenetre,"BS_prfin")
+
+		if vl_prdebut=XDC_PR_INCONNU or vl_prfin=XDC_PR_INCONNU {
+			INFO_MESSAGE@("Les valeurs des PR debut et fin doivent etre renseignees")
+			vl_status = COM_NOK
+		}
+
+		if (vl_status=COM_OK) {
+			vl_retour.pr_debut=COM31_Libelle_PR(vl_prdebut)
+			vl_retour.pr_fin=COM31_Libelle_PR(vl_prfin)
+			vl_retour.horodate_debut=vl_debut
+			vl_retour.horodate_fin=vl_fin
+			vl_la_fenetre_est_active=FALSE
+		}
+
+	ENDCASE
+WEND
+return (vl_retour)
+ENDMACRO
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* Calcule la vitesse en fonction de la configuration des voies 
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMC_calcule_vitesse (va_fenetre, va_autoroute, va_PR, va_sens, ta_config, va_type_fmc,va_PR_tete)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_autoroute : numero de l'autoroute de l'evenement
+* va_PR : PR de l'evenement
+* va_sens : sens de l'evenement
+*
+* ARGUMENTS EN SORTIE :
+* va_vitesse : vitesse calculee
+* ta_config : configuration de la neutralisation des voies
+* va_type_fmc : type de la fmc
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Sur modification de la localisation ou de la configuration des voies
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@	vl_parametres	
+VAR FORMAT SQL_Procedure_Result@	vl_resultats
+VAR tl_retour
+VAR vl_indice
+VAR vl_vitesse
+VAR vl_nb_voies_circulees
+VAR vl_index
+VAR vl_double_sens
+VAR va_sens_oppose
+VAR vl_nb_voies_init
+var vl_vitesse_mon_sens
+VAR va_vreduites
+
+     /* Aller chercher la vitesse limite du troncon en base */
+	vl_indice=0
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].data=va_autoroute
+	vl_parametres[vl_indice].output=false
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_PR
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=false
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_PR_tete*1000
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=false
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_sens
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=false
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#BIT_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	IF COM05_SQL_Procedure (XZAO464_Lire_Vitesse_Troncon,
+				  vl_parametres, vl_resultats, CM_MODULE) <> COM_OK {
+	  	INFO_MESSAGE@ ("Erreur lors de la lecture en base des données spécifiques de l'événement")
+	}
+
+	tl_retour=vl_resultats.return_parameters
+	
+	/* calcul du bombre de voies circulees     */
+	vl_nb_voies_circulees = 0
+	vl_nb_voies_init = 0
+	vl_double_sens = 0
+	FOR vl_index = 6 TO 9
+		IF ta_config[vl_index][1] = XDC_VOIE_SENS_NORMAL
+			vl_nb_voies_circulees = vl_nb_voies_circulees + 1
+		IF ta_config[vl_index][1] <> XDC_VOIE_INEXISTANTE
+			vl_nb_voies_init = vl_nb_voies_init + 1
+		IF ta_config[vl_index][1] = XDC_VOIE_SENS_INVERSE
+			vl_double_sens = 1
+	NEXT vl_index
+
+	/* calcul de la vitesse en fonction de	*/
+	/* - la vitesse normale sur le troncon	*/
+	/* - la presence d'un tunnel			*/
+	/* le nombree de voies circulees		*/
+
+	vl_vitesse = 0
+	if tl_retour[1] = 1 {
+		/* il s'agit d'un tunnel */
+		IF vl_double_sens = 0 and vl_nb_voies_circulees = vl_nb_voies_init
+			vl_vitesse = tl_retour[0]
+		else IF vl_double_sens = 0 and vl_nb_voies_circulees > 1
+			vl_vitesse = 90
+		ELSE IF vl_double_sens = 0
+			vl_vitesse = 70
+		ELSE
+			vl_vitesse = 50
+	} else 
+	{
+
+		IF tl_retour[0] = 130
+		{
+			IF vl_double_sens = 1
+				vl_vitesse = 70
+			ELSE IF vl_nb_voies_circulees = vl_nb_voies_init
+				vl_vitesse = 130
+			ELSE IF vl_nb_voies_circulees >= 2
+				vl_vitesse = 110
+			ELSE IF vl_nb_voies_circulees >= 1
+				vl_vitesse = 90
+		}
+		ELSE IF tl_retour[0] = 110
+		{
+			IF vl_double_sens = 1
+				vl_vitesse = 70
+			ELSE IF vl_nb_voies_circulees = vl_nb_voies_init
+				vl_vitesse = 110
+			ELSE IF vl_nb_voies_circulees >= 3
+				vl_vitesse = 110
+			ELSE IF vl_nb_voies_circulees >= 1
+				vl_vitesse = 90
+		}
+		ELSE IF tl_retour[0] = 90
+		{
+			IF vl_double_sens = 1
+				vl_vitesse = 50
+            		ELSE IF vl_nb_voies_circulees = vl_nb_voies_init
+				vl_vitesse = 90
+			ELSE IF vl_nb_voies_circulees >= 2
+				vl_vitesse = 90
+			ELSE IF vl_nb_voies_circulees >= 1
+				vl_vitesse = 70
+		}
+		ELSE IF tl_retour[0] = 70
+		{
+			IF vl_double_sens = 1
+				vl_vitesse = 50
+			ELSE
+				vl_vitesse = 70
+		}
+
+	}
+
+	/* PNI : cas des voies reduites */
+	if ( va_type_fmc =  XZAEC_FMC_ZoneStockage)
+		va_vreduites=0
+	else
+		va_vreduites=abs@(0+DB_CTRL_GET_VALUE@(va_fenetre,"BT_voiesret"))
+
+
+	if ( va_vreduites=1 and tl_retour[0] > 90 and vl_vitesse > 90)
+		vl_vitesse = 90
+
+	if ( va_vreduites=1 and tl_retour[0] <= 90 and vl_vitesse > 70)
+		vl_vitesse = 70
+
+	DB_CTRL_VALUE@ (va_fenetre, "BS_vitesse_", vl_vitesse)
+	vl_vitesse_mon_sens=vl_vitesse
+
+
+	/* meme traitement pour la vitesse opposee */
+	IF ( va_type_fmc = XZAEC_FMC_Basculement OR va_type_fmc = XZAEC_FMC_BasculTravaux ) {
+	     /* Aller chercher la vitesse limite du troncon en base pour le sens oppose */
+		IF va_sens = XDC_SENS_NORD
+			va_sens_oppose = XDC_SENS_SUD
+		ELSE
+			va_sens_oppose = XDC_SENS_NORD
+
+		vl_indice=0
+
+		vl_parametres[vl_indice].type=SYB#INT4_
+		vl_parametres[vl_indice].data=va_autoroute
+		vl_parametres[vl_indice].output=false
+		vl_indice=vl_indice+1
+
+		vl_parametres[vl_indice].data=va_PR
+		vl_parametres[vl_indice].type=SYB#INT4_
+		vl_parametres[vl_indice].output=false
+		vl_indice=vl_indice+1
+
+		vl_parametres[vl_indice].data=va_PR_tete*1000
+		vl_parametres[vl_indice].type=SYB#INT4_
+		vl_parametres[vl_indice].output=false
+		vl_indice=vl_indice+1
+
+		vl_parametres[vl_indice].data=va_sens_oppose
+		vl_parametres[vl_indice].type=SYB#INT4_
+		vl_parametres[vl_indice].output=false
+		vl_indice=vl_indice+1
+
+		vl_parametres[vl_indice].type=SYB#INT4_
+		vl_parametres[vl_indice].output=true
+		vl_indice=vl_indice+1
+
+		vl_parametres[vl_indice].type=SYB#BIT_
+		vl_parametres[vl_indice].output=true
+		vl_indice=vl_indice+1
+		IF COM05_SQL_Procedure (XZAO464_Lire_Vitesse_Troncon,
+				  vl_parametres, vl_resultats, CM_MODULE) <> COM_OK {
+		  	INFO_MESSAGE@ ("Erreur lors de la lecture en base des données spécifiques de l'événement")
+		}
+
+		tl_retour=vl_resultats.return_parameters
+		/* calcul du bombre de voies circulees     */
+		vl_nb_voies_circulees = 0
+		vl_nb_voies_init = 0
+		vl_double_sens = 0
+		FOR vl_index = 1 TO 4
+			IF ta_config[vl_index][1] = XDC_VOIE_SENS_NORMAL
+				vl_nb_voies_circulees = vl_nb_voies_circulees + 1
+			IF ta_config[vl_index][1] <> XDC_VOIE_INEXISTANTE
+				vl_nb_voies_init = vl_nb_voies_init + 1
+			IF ta_config[vl_index][1] = XDC_VOIE_SENS_INVERSE
+				vl_double_sens = 1
+		NEXT vl_index
+
+
+		/* calcul de la vitesse en fonction de	*/
+		/* - la vitesse normale sur le troncon	*/
+		/* - la presence d'un tunnel			*/
+		/* le nombree de voies circulees		*/
+	
+		vl_vitesse = 0
+		if tl_retour[1] = 1 {
+			/* il s'agit d'un tunnel */
+			IF vl_double_sens = 0 and vl_nb_voies_circulees = vl_nb_voies_init
+				vl_vitesse = tl_retour[0]
+			ELSE IF vl_double_sens = 0 and vl_nb_voies_circulees > 1
+				vl_vitesse = 90
+			ELSE IF vl_double_sens = 0
+				vl_vitesse = 70
+			ELSE
+				vl_vitesse = 50
+		} else 
+		{
+
+			IF tl_retour[0] = 130
+			{
+				IF vl_double_sens = 1
+					vl_vitesse = 70
+				ELSE IF vl_nb_voies_circulees = vl_nb_voies_init
+					vl_vitesse = 130
+				ELSE IF vl_nb_voies_circulees >= 2
+					vl_vitesse = 110
+				ELSE IF vl_nb_voies_circulees >= 1
+					vl_vitesse = 90
+			}
+			ELSE IF tl_retour[0] = 110
+			{
+				IF vl_double_sens = 1
+					vl_vitesse = 70
+				ELSE IF vl_nb_voies_circulees = vl_nb_voies_init
+					vl_vitesse = 110
+				ELSE IF vl_nb_voies_circulees >= 3
+					vl_vitesse = 110
+				ELSE IF vl_nb_voies_circulees >= 1
+					vl_vitesse = 90
+			}
+			ELSE IF tl_retour[0] = 90
+			{
+				IF vl_double_sens = 1
+					vl_vitesse = 50
+				ELSE IF vl_nb_voies_circulees = vl_nb_voies_init
+					vl_vitesse = 90
+				ELSE IF vl_nb_voies_circulees >= 2
+					vl_vitesse = 90
+				ELSE IF vl_nb_voies_circulees >= 1
+					vl_vitesse = 70
+			}
+			ELSE IF tl_retour[0] = 70
+			{
+				IF vl_double_sens = 1
+					vl_vitesse = 50
+				ELSE
+					vl_vitesse = 70
+			}
+
+		}
+
+
+		DB_CTRL_VALUE@ (va_fenetre, "BS_vitesse_opposee", vl_vitesse)
+
+		IF vl_double_sens = 1
+			DB_CTRL_VALUE@(va_fenetre,"BS_vitesse_",vl_vitesse)
+	}
+
+
+	RETURN (COM_OK)
+
+ENDFUNCTION
+

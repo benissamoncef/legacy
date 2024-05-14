@@ -1,0 +1,399 @@
+/*E*/
+/* Fichier : $Id: ITMA_TRM_Reconfig_Machine.am,v 1.11 2021/05/03 13:55:10 pc2dpdy Exp $      Release : $Revision: 1.11 $        Date : $Date: 2021/05/03 13:55:10 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TRM * FICHIER ITMA_TRM_Reconfig_Machine.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Demande de reconfiguration d'une machine pour un type d'equipement.
+*
+*   Non decrit dans le DCG.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 26 Jan 1995	: Creation                                         V1.1
+* Lecrivain 01 Fev 1995	: Envoi du code district et non le nom             V1.3
+* Mismer	 27 Nov 1996	: Ajout equipement generique LCR (DEM/1232) 	V1.4
+* Mismer	 10 Fev 1997	: Ajout equipement UGTP (DEM/1395) 	V1.5
+* Mismer	 10 Fev 1998	: Ajout equipement UGTP (DEM/1539) 	V1.6
+* JMG		28/09/05	: ajout PMVA BAF BAD 1.7
+* JPL		16/02/12	: Utilisation constante "toutes machines"  1.8
+* LCL		09/04/18	: Ajout controleurs de feux CTRL_FEUX 1.9 DEM1284
+* PNI		23/11/20	: Ajout PRV SAE 195
+* CGR		13/01/21	: Ajout IMU DEM-SAE155 1.11
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE "XDMICG/inc/xdc_ax.h"
+INCLUDE "XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+
+
+
+DEFINE	C_MODULE	"MTRM"				' Nom du module
+
+
+
+VAR FORMAT TDO_District vm_l_sites			' Liste totale des sites
+VAR FORMAT COM_Donnees_Equipements vm_l_machines	' Liste des machines
+VAR vm_l_types_equip					' Numeros de types eqt.
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Demande de reconfiguration d'une machine pour un type d'equipement.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRM_Reconfig_Machine (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation par message depuis GMOT.
+*
+* FONCTION
+*   Presente les listes des sites, des machines d'un site choisi et des types
+*   d'equipements.
+*   Permet la saisie de criteres et la demande d'arret d'une machine, de
+*   redemarrage ou de reconfiguration pour un type d'equipement donne.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_site, vl_machine, vl_type	' Selections dans les listes
+    VAR     vl_cmd, vl_arguments		' Commande a envoyer, arguments
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Reconfiguration Machine"
+ * --------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TRM")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TRM_Reconfig_Machine")
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Sites", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Sites", -1)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Machines", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Machines", -1)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Types_Eqt", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Types_Eqt", 0)
+
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Arreter", TRUE)
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Redemarrer", TRUE)
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Reconfigurer", TRUE)
+
+
+/*A
+ * Initialiser la visualisation (liste des sites et des types d'equipements)
+ * -------------------------------------------------------------------------
+ */
+
+IF TRM_Init_Sites_Et_Types_Eqt (vl_fenetre) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur selection d'un site, lire et afficher la liste de ses machines
+     * ------------------------------------------------------------------
+     */
+
+    CASE "BL_Sites"
+	vl_site = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Sites")
+	TRM_Machines_Du_Site (vl_fenetre, vm_l_sites[vl_site].numero)
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Arreter", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Redemarrer", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Reconfigurer", FALSE)
+
+
+    /*A
+     * Sur selection d'une machine ou d'un type d'equipement,
+     * mettre a jour les droits d'arret / redemarrage de machine
+     * ---------------------------------------------------------
+     */
+
+    CASE "BL_Machines"
+    CASE "BL_Types_Eqt"
+	vl_machine = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Machines")
+	vl_type = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Types_Eqt")
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Arreter", vl_machine * vl_type <= 0)
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Redemarrer", vl_machine * vl_type <= 0)
+
+
+    /*A
+     * Sur choix "Arreter", "Redemarrer" ou "Reconfigurer" envoyer la commande
+     * -----------------------------------------------------------------------
+     */
+
+    CASE "BP_Arreter"
+    CASE "BP_Redemarrer"
+    CASE "BP_Reconfigurer"
+	vl_site = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Sites")
+	vl_machine = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Machines")
+	vl_type = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Types_Eqt")
+
+	IF vl_objet_selecte = "BP_Reconfigurer"
+	    vl_cmd = MTAR_FCT_XZEC01
+	ELSE vl_cmd = MTAR_FCT_XZEC05
+	IF vl_objet_selecte = "BP_Redemarrer"
+	    vl_arguments = XDC_EQT_MARCHE
+	ELSE vl_arguments = XDC_EQT_ARRET
+
+	vl_arguments = vl_cmd, vm_l_sites[vl_site].code,
+				vm_l_machines[vl_machine].nom,
+				vm_l_types_equip[vl_type],
+				vl_arguments
+	vl_cmd = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEC00,
+		    ARRAY_TO_STRING@ (vl_arguments, MTAR_CAR_SEPAR)
+	DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des sites et des types d'equipements.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRM_Init_Sites_Et_Types_Eqt (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRM_Reconfig_Machine
+*
+* FONCTION
+*   Initialise les valeurs de la liste des sites et des types d'equipements.
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_lib_types_equip
+
+
+/*A
+ * Lire et afficher la liste des sites et des types d'equipement
+ * -------------------------------------------------------------
+ */
+
+vm_l_sites = SYSTEM_VAR@ (vg_les_districts)
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Sites",
+		     ARRAY_COLUMN@ (vm_l_sites, TDO_NOM_DISTRICT))
+
+
+vm_l_types_equip = XDC_EQTALL,
+			XDC_EQT_NAV,
+			XDC_EQT_PMV,
+			XDC_EQT_DAI,
+			XDC_EQT_SYV,
+			XDC_EQT_MAA,
+			XDC_EQT_RAU,
+			XDC_EQT_NIC,
+			XDC_EQT_GTC,
+			XDC_EQT_RAD,
+			XDC_EQT_OPE,
+			XDC_EQT_GEN_LCR,
+			XDC_EQT_TDP,
+			XDC_EQT_PAL,
+			XDC_EQT_PMVA,
+			XDC_EQT_BAF,
+			XDC_EQT_BAD,
+			XDC_EQT_PRV,
+			XDC_EQT_CFE,
+			XDC_EQT_IMU
+
+
+vl_lib_types_equip = "Tous",
+			XDC_LIB_NAV,
+			XDC_LIB_PMV,
+			XDC_LIB_DAI,
+			XDC_LIB_SYV,
+			XDC_LIB_MAA,
+			XDC_LIB_RAU,
+			XDC_LIB_NIC,
+			XDC_LIB_GTC,
+			XDC_LIB_RAD,
+			XDC_LIB_OPE,
+			XDC_LIB_GEN_LCR,
+			XDC_LIB_TDP,
+			XDC_ACT_LIB_PAL,
+			XDC_LIB_PMVA,
+			XDC_LIB_BAF,
+			XDC_LIB_BAD,
+			XDC_LIB_PRV,
+			XDC_LIB_CFE,
+			XDC_LIB_IMU
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Types_Eqt", vl_lib_types_equip)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit en base de donnees la liste des machines d'un site.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRM_Machines_Du_Site (va_fenetre, va_num_site)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_num_site       : Id. du site dont on demande la liste des machines.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRM_Reconfig_Machine
+*
+* FONCTION
+*   Lit en base de donnees la liste des machines du site indique, ajoute un
+*   element fictif "Toutes" et value la liste a l'ecran.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT COM_Donnees_Equipements vl_machine
+
+
+/*A
+ * Lire la liste des machines et y ajouter un element "Toutes"
+ * -----------------------------------------------------------
+ */
+
+IF ITMA_COM_Lire_Equipements (XDC_EQT_MAC, va_num_site,
+				 0, XDC_EQT_NON_HS, 0, 0,
+				 vm_l_machines, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * (Re)initialiser la liste des machines
+ * -------------------------------------
+ */
+
+vl_machine.nom = XDC_TOUTES_MACHINES
+vm_l_machines = ARRAY_INSERT@ (vm_l_machines, vl_machine, 0)
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Machines",
+		     ARRAY_COLUMN@ (vm_l_machines, COM_NOM_EQUIPEMENT))
+
+DB_CTRL_VALUE@ (va_fenetre, "BL_Machines", 0)
+
+
+RETURN (COM_OK)
+
+ENDMACRO

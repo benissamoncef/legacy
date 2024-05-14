@@ -1,0 +1,813 @@
+/*E*/
+/* Fichier : $Id: ITMA_TBL_Bon_De_Livraison.am,v 1.7 1996/03/08 10:08:20 gaborit Exp $      Release : $Revision: 1.7 $        Date : $Date: 1996/03/08 10:08:20 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TBL * FICHIER ITMA_TBL_Bon_De_Livraison.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Menu de diffusion de versions des composants logiciels Migrazur.
+*
+*   Non decrit dans le DCG
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 19 Dec 1994	: Creation                                         V1.1
+* Lecrivain 12 Jan 1995	: Ajout de la table des versions de reference      V1.3
+* Lecrivain 25 Avr 1995	: Prise en compte de commentaires                  V1.6
+* Torregrossa 08 Mar 1996	: Ajout l'incrementation et la decrementation 
+*                               du majeur et modif de celles du mineur       V1.7
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xdf_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTBL"					' Nom du module
+
+
+
+/*A
+ * Repertoire des fichiers relatifs a la diffusion
+ * -----------------------------------------------
+ */
+
+DEFINE	TBL_PATHREFFICDYN     "/users/gesconf/migrazur/reference/fichiers/dyn/"
+
+
+
+/*A
+ * Sous-chaine identifiant un type executable
+ * ------------------------------------------
+ */
+
+DEFINE	C_PREFX_EXEC	"EXEC_"
+
+
+
+/*A
+ * Nom des images digitalisees particularisant les elements
+ * --------------------------------------------------------
+ */
+
+DEFINE	C_PICTO_SELECTE		"pix_designer"
+DEFINE	C_PICTO_NON_SELECTE	NULL
+DEFINE	C_PICTO_COMMENTAIRE	"pix_separation"
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_LIB_DEVERROUILLER	"Déverrouiller avant la diffusion d'exécutables"
+
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	TBL_Reference
+	type,					' Type du fichier (15 car)
+	version					' Numero de version
+
+FORMAT	TBL_Fichier
+	type,					' Type du fichier (15 car)
+	commentaire,				' Commentaire (15 car)
+	machine,				' Nom de la machine (10 car)
+	nom,					' Nom du fichier (32 car)
+	version,				' Numero de version
+	horodate,				' Horodate diffusion (16 car)
+	heure					' Initialement (lecture fichier)
+
+
+VAR	vm_fichier_reference			' Nom du fichier de reference
+VAR	vm_fichier_modele			' Nom du fichier origine
+VAR	vm_fichier_bon_livraison		' Nom du fichier produit
+
+VAR FORMAT TBL_Reference vm_t_reference		' Reference des composants
+VAR     vm_l_types_ref				' Liste des types de reference
+VAR     vm_l_versions_ref			' Versions initiales reference
+VAR     vm_l_nb_diffusions			' Nb. de diffusions du composant
+VAR     vm_l_picto_ref				' Noms pictogrammes table ref.
+
+VAR FORMAT TBL_Fichier vm_t_fichiers		' Versions fichiers diffusees
+VAR     vm_l_versions				' Versions initiales
+VAR     vm_l_picto				' Noms picto. table diffusions
+
+VAR     vm_verrou_diff_exec			' Verrou diffusion d'executables
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Gestion de la liste des fichiers a diffuser.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBL_Bon_De_Livraison (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option "Configurer -> Editer Bon de Livraison" dans MTMT
+*
+* FONCTION
+*   Permet a l'operateur de selectionner dans la liste complete des fichiers
+*   ou des composants livrables un sous-ensemble a diffuser.
+*   Construit la liste de ces fichiers et produit un fichier decrivant le
+*   contenu de la diffusion.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_select					' Selections
+    VAR     vl_ligne					' Ligne selectee
+    VAR     vl_tab, vl_tab_ref			' tableau contenant majeur et mineur
+    VAR     i, j, k
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Diffusion de fichiers"
+ * ------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TBL")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@(vl_fenetre, 0)
+DB_YPOS@(vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TBL_Bon_De_Livraison")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre, "TA_Reference", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_Reference", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_Reference", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "TA_Reference", TRUE)
+
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre, "TA_Fichiers", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_Fichiers", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_Fichiers", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "TA_Fichiers", TRUE)
+DB_CTRL_MULTI_SELECT@ (vl_fenetre, "TA_Fichiers", TRUE)
+
+
+/*A
+ * Initialiser les donnees a visualiser (liste des fichiers)
+ * ---------------------------------------------------------
+ */
+
+IF TBL_Init_Liste_Fichiers (vl_fenetre) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur selection d'une version de reference,
+     * si elle n'est pas deja diffusee alors autoriser
+     * l'incrementation / decrementation de la version
+     * -----------------------------------------------
+     */
+
+    CASE "TA_Reference"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Reference")
+	i = vl_select[0]
+
+	DB_CTRL_GRAYED@(vl_fenetre, "BP_Plus_Mineur_Version", vm_l_nb_diffusions[i] >0)
+	DB_CTRL_GRAYED@(vl_fenetre, "BP_Plus_Majeur_Version", vm_l_nb_diffusions[i] >0)
+
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Majeur_Version",
+			    vm_l_nb_diffusions[i] > 0  OR
+			    vm_t_reference[i].version = vm_l_versions_ref[i])
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Mineur_Version",
+			    vm_l_nb_diffusions[i] > 0  OR
+			    vm_t_reference[i].version = vm_l_versions_ref[i])
+
+
+    /*A
+     * Sur choix "Incrementer Version", calculer la version suivante
+     * et si la version etait l'initiale, autoriser la decrementation
+     * --------------------------------------------------------------
+     */
+
+    CASE "BP_Plus_Majeur_Version"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Reference")
+	i = vl_select[0]
+
+	IF vm_t_reference[i].version = vm_l_versions_ref[i] {
+	    vl_tab = ARRAY_FROM_STRING@(vm_t_reference[i].version, ".")
+		/*! autorisation de décrémenter le mineur s'il n'est pas à 0 */
+	    IF ((vl_tab[1]+0) > 0)
+	   	 DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Mineur_Version", FALSE)
+	    ELSE DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Mineur_Version", TRUE)
+
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Majeur_Version", FALSE)
+	    vm_l_picto_ref[i] = C_PICTO_SELECTE, NULL
+	    DB_TABLE_MARKER_PIXMAPS@(vl_fenetre,"TA_Reference",0,vm_l_picto_ref)
+	}
+	ELSE  {
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Majeur_Version", FALSE)
+	}
+
+	vm_t_reference[i].version = TBL_Version_Suivante
+					(vm_t_reference[i].version, 1)
+	DB_TABLE_SET_NEW_DATA@ (vl_fenetre, "TA_Reference", vm_t_reference, 0)
+	DB_TABLE_SET_SELECTIONS@ (vl_fenetre, "TA_Reference", vl_select)
+
+
+
+    /*A
+     * Sur choix "Decrementer Version", calculer la version precedente
+     * et si c'est la version initiale, interdire la decrementation
+     * ---------------------------------------------------------------
+     */
+
+    CASE "BP_Moins_Majeur_Version"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Reference")
+	i = vl_select[0]
+
+	vm_t_reference[i].version = TBL_Version_Suivante
+					(vm_t_reference[i].version, -1)
+	DB_TABLE_SET_NEW_DATA@ (vl_fenetre, "TA_Reference", vm_t_reference, 0)
+	DB_TABLE_SET_SELECTIONS@ (vl_fenetre, "TA_Reference", vl_select)
+
+	IF vm_t_reference[i].version = vm_l_versions_ref[i] {
+'	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Majeur_Version", TRUE)
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Mineur_Version", TRUE)
+	    vm_l_picto_ref[i] = C_PICTO_NON_SELECTE, NULL
+	    DB_TABLE_MARKER_PIXMAPS@(vl_fenetre,"TA_Reference",0,vm_l_picto_ref)
+	}
+	/*! autorisation de décrémenter le majeur s'il est superieur */
+	/*! d'au moins de 1 a celui de ref */
+	IF ((vm_t_reference[i].version-1) >= (vm_l_versions_ref[i]+0))
+	   	 DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Majeur_Version", FALSE)
+	ELSE	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Majeur_Version", TRUE)
+
+
+    /*A
+  
+    /*A
+     * Sur choix "Incrementer Version", calculer la version suivante
+     * et si la version etait l'initiale, autoriser la decrementation
+     * --------------------------------------------------------------
+     */
+
+    CASE "BP_Plus_Mineur_Version"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Reference")
+	i = vl_select[0]
+
+	IF vm_t_reference[i].version >= vm_l_versions_ref[i] {
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Mineur_Version", FALSE)
+	    vm_l_picto_ref[i] = C_PICTO_SELECTE, NULL
+	    DB_TABLE_MARKER_PIXMAPS@(vl_fenetre,"TA_Reference",0,vm_l_picto_ref)
+	}
+	vm_t_reference[i].version = TBL_Version_Suivante
+					(vm_t_reference[i].version, 0.1)
+
+	/*! autorisation de décrémenter le majeur s'il est superieur a celui de ref */
+	IF ((vm_t_reference[i].version-1) >= (vm_l_versions_ref[i]+0))
+	   DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Majeur_Version", FALSE)
+
+	DB_TABLE_SET_NEW_DATA@ (vl_fenetre, "TA_Reference", vm_t_reference, 0)
+	DB_TABLE_SET_SELECTIONS@ (vl_fenetre, "TA_Reference", vl_select)
+
+
+    /*A
+     * Sur choix "Decrementer Version", calculer la version precedente
+     * et si c'est la version initiale, interdire la decrementation
+     * ---------------------------------------------------------------
+     */
+
+    CASE "BP_Moins_Mineur_Version"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Reference")
+	i = vl_select[0]
+
+	vm_t_reference[i].version = TBL_Version_Suivante
+					(vm_t_reference[i].version, -0.1)
+	DB_TABLE_SET_NEW_DATA@ (vl_fenetre, "TA_Reference", vm_t_reference, 0)
+	DB_TABLE_SET_SELECTIONS@ (vl_fenetre, "TA_Reference", vl_select)
+
+	IF vm_t_reference[i].version = vm_l_versions_ref[i] {
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Mineur_Version", TRUE)
+	    vm_l_picto_ref[i] = C_PICTO_NON_SELECTE, NULL
+	    DB_TABLE_MARKER_PIXMAPS@(vl_fenetre,"TA_Reference",0,vm_l_picto_ref)
+	}
+	ELSE {
+	    vl_tab = ARRAY_FROM_STRING@(vm_t_reference[i].version, ".")
+		/*! autorisation de décrémenter le mineur s'il n'est pas à 0 */
+	    IF ((vl_tab[1]+0) = 0)
+	   	 DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Mineur_Version", TRUE)
+	}
+
+	IF ((vm_t_reference[i].version -1) < (vm_l_versions_ref[i]+0)) {
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Majeur_Version", TRUE)
+	}
+
+
+    /*A
+     * Sur choix "Deverrouiller Diffusion Executables", je le note ... (FL, JMG)
+     * -------------------------------------------------------------------------
+     */
+
+    CASE "BP_Diffuser_Exec"
+	vm_verrou_diff_exec = FALSE
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Diffuser_Exec", TRUE)
+
+
+    /*A
+     * Sur selection dans la table de diffusions, pour chaque fichier selecte
+     * ----------------------------------------------------------------------
+     */
+
+    CASE "TA_Fichiers"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Fichiers")
+	FOR i = 0  TO ARRAY_SIZE@ (vl_select) - 1
+	  j = vl_select[i]
+
+	  /*B Si ce n'est pas une ligne de commentaire alors */
+	  IF NOT IS_NULL@ (vm_l_versions[j]) {
+	    k = ARRAY_INDEX@ (vm_l_types_ref, vm_t_fichiers[j].type)
+	    IF k < 0 {
+		BEEP@ ()
+		INFO_MESSAGE@ ("Référence du type \"" ++
+				  vm_t_fichiers[j].type ++ "\" non trouvée")
+	    }
+
+	    /*A
+	     * si sa version est la derniere diffusee alors
+	     * si une nouvelle version de reference existe alors
+	     * l'installer et marquer le fichier pour diffusion
+	     * (sauf diffusion d'executables sans deverrouillage) ;
+	     * interdire dorenavant les modifications de reference
+	     * ----------------------------------------------------
+	     */
+
+	    ELSE IF vm_t_fichiers[j].version = vm_l_versions[j] {
+		IF vm_t_reference[k].version <> vm_t_fichiers[j].version {
+		    IF vm_verrou_diff_exec  AND
+		       SUBSTRING@(vm_t_reference[k].type, 1, 5) = C_PREFX_EXEC {
+			BEEP@ ()
+			INFO_MESSAGE@ (C_LIB_DEVERROUILLER)
+		    } ELSE {
+			vm_t_fichiers[j].version = vm_t_reference[k].version
+			vm_l_nb_diffusions[k] = vm_l_nb_diffusions[k] + 1
+			vm_l_picto[j] = C_PICTO_SELECTE, NULL
+
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_Plus_Mineur_Version", TRUE)
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moins_Mineur_Version", TRUE)
+		    }
+		}
+	    }
+
+	    /*A
+	     * sinon (version de reference diffusee), annuler en restaurant
+	     * la derniere version diffusee et en deselectionnant le composant
+	     * ---------------------------------------------------------------
+	     */
+
+	    ELSE {
+		vm_t_fichiers[j].version = vm_l_versions[j]
+		vm_l_nb_diffusions[k] = vm_l_nb_diffusions[k] - 1
+		vm_l_picto[j] = C_PICTO_NON_SELECTE, NULL
+	    }
+	    vl_ligne[0] = vm_t_fichiers[j]
+	    DB_TABLE_SET_NEW_DATA@ (vl_fenetre, "TA_Fichiers", vl_ligne, j)
+	  }
+	NEXT i
+	DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre, "TA_Fichiers", 0, vm_l_picto)
+
+
+    /*A
+     * Sur choix "Annuler Selection", reinitialiser la selection des diffusions
+     * ------------------------------------------------------------------------
+     */
+
+    CASE "BP_Annuler_Selection"
+	FOR i = 0  TO ARRAY_SIZE@ (vm_t_fichiers) - 1
+	    IF NOT IS_NULL@ (vm_l_versions[i]) {
+		vm_t_fichiers[i].version = vm_l_versions[i]
+		vm_l_nb_diffusions[i] = 0
+		vm_l_picto[i] = C_PICTO_NON_SELECTE, NULL
+	    }
+	NEXT i
+	DB_TABLE_SET_NEW_DATA@ (vl_fenetre, "TA_Fichiers", vm_t_fichiers, 0)
+	DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre, "TA_Fichiers", 0, vm_l_picto)
+
+
+    /*A
+     * Sur choix "Valider", verifier qu'un fichier au moins est selectionne
+     * puis construire la liste des fichiers selectionnes, mettre a jour
+     * leur date de diffusion a la date courante et les ecrire en fichier
+     * --------------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	IF TBL_Editer_Bon_De_Livraison () = COM_OK
+	    vl_la_fenetre_est_active = FALSE
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des versions de reference et des fichiers diffusables.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TBL_Init_Liste_Fichiers (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TBL_Bon_De_Livraison
+*
+* FONCTION
+*   Lit les fichiers contenant la liste des versions de reference et celle
+*   des composants diffusables et value les tables a l'ecran.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_l_texte					' Lignes fichier entree
+    VAR     vl_t_titres					' Titres colonnes table
+    VAR     vl_ligne, i, j
+
+
+vm_fichier_reference = TBL_PATHREFFICDYN ++ XDF_TYPEFIC_BL_MODELE
+vm_fichier_modele = TBL_PATHREFFICDYN ++ XDF_BON_LIVRAISON_MODELE
+vm_fichier_bon_livraison = TBL_PATHREFFICDYN ++ XDF_BON_LIVRAISON
+
+
+/*A
+ * Lire et afficher le fichier des versions de reference
+ * -----------------------------------------------------
+ */
+
+vl_l_texte = READ_ASCII_FILE@ (vm_fichier_reference)
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_l_texte) - 1
+    vm_t_reference[i] = ARRAY_FROM_STRING@ (vl_l_texte[i], " ")
+    vm_l_types_ref[i] = vm_t_reference[i].type
+    vm_l_versions_ref[i] = vm_t_reference[i].version
+    vm_l_nb_diffusions[i] = 0
+    vm_l_picto_ref[i] = C_PICTO_NON_SELECTE, NULL
+NEXT i
+
+
+/*A
+ * Lire le fichier decrivant l'etat des diffusions
+ * et construire la table des fichiers a afficher
+ * -----------------------------------------------
+ */
+
+vl_l_texte = READ_ASCII_FILE@ (vm_fichier_modele)
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_l_texte) - 1
+    vl_ligne = ARRAY_FROM_STRING@ (TRIM@ (vl_l_texte[i]), " ")
+
+    /*B Traiter differemment les lignes de commentaires */
+    IF SUBSTRING@ (vl_ligne[0], 1, 1) = "#" {
+	vm_t_fichiers[i] = vl_ligne[0], vl_ligne[0], vl_ligne[0], vl_ligne[0], vl_ligne[0], vl_ligne[0]
+	vl_ligne = SUBARRAY@ (vl_ligne, 1, ARRAY_SIZE@ (vl_ligne) - 2)
+	vm_t_fichiers[i].commentaire = ARRAY_TO_STRING@ (vl_ligne, " ")
+
+	vm_l_versions[i] = NULL
+	vm_l_picto[i] = C_PICTO_COMMENTAIRE, NULL
+    } ELSE {
+	vm_t_fichiers[i] = vl_ligne
+
+	/*B Regrouper date et heure dans la meme colonne */
+	vm_t_fichiers[i].horodate = vm_t_fichiers[i].horodate ++ " " ++
+					vm_t_fichiers[i].heure
+	vm_t_fichiers[i].heure = NULL
+
+	vm_l_versions[i] = vm_t_fichiers[i].version
+	vm_l_picto[i] = C_PICTO_NON_SELECTE, NULL
+    }
+NEXT i
+
+
+/*A
+ * Definir les titres des colonnes des tables
+ * de reference et de diffusion et les afficher
+ * --------------------------------------------
+ */
+
+vl_t_titres[0] = "Type",        145	' Titre colonne et taille en pixels
+vl_t_titres[1] = "Version",     55
+vl_t_titres[2] = "", 0
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)			' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)				'  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Reference",
+			vm_t_reference, vl_t_titres, vm_l_picto_ref)
+
+
+vl_t_titres = NULL
+
+vl_t_titres[0] = "Type",        145
+vl_t_titres[1] = "Commentaire", 210
+vl_t_titres[2] = "Machine",     100
+vl_t_titres[3] = "Nom Fichier", 0	' 300
+vl_t_titres[4] = "Version",     55
+vl_t_titres[5] = "Horodate",    106
+vl_t_titres[6] = "", 0
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Fichiers",
+			vm_t_fichiers, vl_t_titres, vm_l_picto)
+
+
+/*A
+ * Initialement, verrouiller la diffusion d'executables
+ * ----------------------------------------------------
+ */
+
+vm_verrou_diff_exec = TRUE
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Incremente un indicateur de version.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TBL_Version_Suivante (va_version, va_increment)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_version        : Numero de version a incrementer (ou decrementer) ;
+*   va_increment      : Valeur algebrique a ajouter au numero de version.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Le numero de version suivant celui indique.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TBL_Bon_De_Livraison
+*
+* FONCTION
+*   Determine le suffixe entier de la chaine de version indiquee et
+*   l'incremente de la valeur indiquee ;
+*   construit et retourne la chaine representant la version suivante.
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_tab
+	VAR vl_increment
+
+	vl_increment = va_increment + 0.0
+	vl_tab = ARRAY_FROM_STRING@(va_version,".")
+
+	IF vl_increment = 1 
+		vl_tab[0] = vl_tab[0] + 1
+	ELSE IF vl_increment = -1
+		vl_tab[0] = vl_tab[0] - 1
+	ELSE IF vl_increment < 0 
+	{
+		IF (vl_tab[1]+0) > 0
+			vl_tab[1] = vl_tab[1] - 1
+	}
+	ELSE	vl_tab[1] = vl_tab[1] + 1
+
+	IF LEN@ (vl_tab[1]++"") = 0
+		vl_tab[1] = "0"
+
+	RETURN (vl_tab[0]++"."++ vl_tab[1])
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Produit le fichier bon de livraison.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TBL_Editer_Bon_De_Livraison ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte ;
+*                     : COM_NOK si aucune selection n'a ete effectuee.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TBL_Bon_De_Livraison
+*
+* FONCTION
+*   Extrait de la liste des fichiers les fichiers selectionnes, met a jour
+*   l'horodate de livraison a l'horodate courante et produit le bon de
+*   livraison.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TBL_Fichier vl_l_fichiers		' Fichiers selectes
+
+    VAR vl_maintenant, vl_date_courante
+    VAR i, j
+
+
+/*A
+ * Lire l'horodate courante
+ * ------------------------
+ */
+
+vl_maintenant = CURRENT_TIME@ ()
+vl_date_courante = COM09_Date_Courante ()
+
+
+/*A
+ * Ecrire les nouvelles versions de reference (si modifiees)
+ * ---------------------------------------------------------
+ */
+
+IF ARRAY_COLUMN@ (vm_t_reference, 1) <> vm_l_versions_ref {
+    FOR i = 0  TO ARRAY_SIZE@ (vm_t_reference) - 1
+	vl_l_fichiers[i] = ARRAY_TO_STRING@ (vm_t_reference[i], " ")
+    NEXT i
+    WRITE_ASCII_FILE@ (vm_fichier_reference, vl_l_fichiers)
+}
+
+
+/*A
+ * Extraire la liste des composants dont la version a ete
+ * modifiee et valuer leur horodate a l'horodate courante
+ * ------------------------------------------------------
+ */
+
+vl_l_fichiers = NULL
+
+j = 0
+FOR i = 0  TO ARRAY_SIZE@ (vm_t_fichiers) - 1
+    IF (NOT IS_NULL@ (vm_l_versions[i]))  AND
+	vm_t_fichiers[i].version <> vm_l_versions[i] {
+	vl_l_fichiers[j] = vm_t_fichiers[i]
+	vl_l_fichiers[j].horodate = vl_maintenant
+	vl_l_fichiers[j].commentaire = NULL
+	vl_l_fichiers[j] = ARRAY_TO_STRING@ (vl_l_fichiers[j], " ")
+	j = j + 1
+    }
+NEXT i
+
+
+/*A
+ * Si un composant au moins a ete selectionne, produire
+ * le bon de livraison et mettre a jour le fichier modele
+ * ------------------------------------------------------
+ */
+
+IF ARRAY_SIZE@ (vl_l_fichiers) > 0 {
+    WRITE_ASCII_FILE@ (vm_fichier_bon_livraison, vl_l_fichiers)
+
+    FOR i = 0  TO ARRAY_SIZE@ (vm_t_fichiers) - 1
+	IF IS_NULL@ (vm_l_versions[i]) {
+	    vl_l_fichiers[i] = FORMAT@("%s %s %s", vm_t_fichiers[i, 0],
+						   vm_t_fichiers[i].commentaire,
+						   vm_t_fichiers[i, 0])
+	} ELSE {
+	    vl_l_fichiers[i] = vm_t_fichiers[i]
+	    IF vm_t_fichiers[i].version <> vm_l_versions[i]
+		vl_l_fichiers[i].horodate = vl_date_courante
+	    vl_l_fichiers[i] = ARRAY_TO_STRING@ (vl_l_fichiers[i], " ")
+	}
+    NEXT i
+
+    WRITE_ASCII_FILE@ (vm_fichier_modele, vl_l_fichiers)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO

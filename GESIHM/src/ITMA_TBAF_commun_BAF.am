@@ -1,0 +1,1645 @@
+/*E*/
+/* Fichier : $Id: ITMA_TBAF_commun_BAF.am,v 1.8 2021/05/19 06:33:50 gesconf Exp $      Release : $Revision: 1.8 $        Date : $Date: 2021/05/19 06:33:50 $
+------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE MTPM * FICHIER  ITMA_TBAF_commun_BAF.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de commande des BAF.
+*
+*
+------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG	28/11/05	creation
+* JMG   31/10/07        : ajout site de gestion 
+* PNI	03/06/08	: raz de la barriere (nouveau état) si état terrain incoherent v1.3 DEM778
+* PNI	08/01/09	: identifiant baf = nom de eqt baf DEM874 v1.4
+* JMG   29/09/09        : SECTO DEM 887
+* JPL	23/03/17	: Changement du terme Secteur en Region (DEM 1173)  1.5
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+* LCL	23/11/20	: Correction sit equipement pour fin de commande 1.7
+* RGR	17/05/2021	: Correction pilotage BAF Saint Maximin - SAE-281 - 1.8
+--------------------------------------------------------------------- */
+
+
+/*A Description des modules a inclures 
+* ------------------------------------ */
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_TBAF.h"
+
+
+ /*A Description des procedures sotckees a appeler
+* ------------------------------------------------ */
+INCLUDE	"../inc/xzao162sp.h"
+INCLUDE	"../inc/xzao163sp.h"
+INCLUDE	"../inc/xzao164sp.h"
+INCLUDE	"../inc/xzae72sp.h"
+INCLUDE	"../inc/xzac94sp.h"
+INCLUDE	"../inc/xzac98sp.h"
+INCLUDE	"../inc/xzac92sp.h"
+INCLUDE	"../inc/xzac90sp.h"
+INCLUDE	"../inc/xzat35sp.h"
+INCLUDE	"../inc/xzat01sp.h"
+INCLUDE	"../inc/xzat06sp.h"
+INCLUDE	"../inc/xzao05sp.h"
+INCLUDE	"../inc/xzap31sp.h"
+INCLUDE	"../inc/xzao454sp.h"
+
+DEFINE  C_PIX_M11_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m11_eteint.im"
+DEFINE  C_PIX_M11_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m11_allume.im"
+DEFINE  C_PIX_M21_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m21_eteint.im"
+DEFINE  C_PIX_M21_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m21_allume.im"
+DEFINE  C_PIX_M15_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m15_eteint_vertical2.im"
+DEFINE  C_PIX_M15_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m15_allume_vertical.im"
+DEFINE  C_PIX_M25_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m15_eteint_vertical2.im"
+DEFINE  C_PIX_M25_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m25_allume_vertical180.im"
+DEFINE  C_PIX_M12_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_eteint_vertical.im"
+DEFINE  C_PIX_M12_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_allume_vertical.im"
+DEFINE  C_PIX_M22_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_eteint_vertical.im"
+DEFINE  C_PIX_M22_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_allume_vertical.im"
+
+var	vm_indice_objet_consultation
+var	vm_indice_objet_pilotage
+var	vm_chrono_dessin
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Initialisation de la BAF
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBAF_commun_BAF()
+
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	MAJ du panneau dans la vue actuelle
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBAF_MAJ_BAF(va_equipement,va_module11,va_module12,va_module15,va_module21,va_module22,va_module25,va_fenetre_TBAF,va_type_baf,va_type_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+*	va_equipement	:	l'equipement dans la BAF
+*	va_etat		:	l'etat a positionner
+*	va_fenetre_TBAF	:	Item de la fenetre module
+*	va_ST_aff_msg	:	Structure contenant les donnees d'affichage
+*					et de messages vers les equipements
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   appel de la reception de socket
+*
+* FONCTION
+*    MAJ du panneau dans la vue actuelle
+*
+--------------------------------------------------------------------- */
+
+var		vl_nom_fichier_pix
+var		vl_etat_objet
+var		vl_objet
+var 		i
+var		vl_extension
+var		vl_mod15_1
+
+	if va_type_fenetre="sad"
+	{
+		vl_extension="_nouveau"
+		if (va_Module15<>0) and (va_Module11=0) then va_Module15=0
+		if (va_Module25<>0) and (va_Module11=0) then va_Module25=0
+	}
+	else
+		vl_extension="_terrain"
+		
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module11"++vl_extension,FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module12"++vl_extension,FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module15"++vl_extension,FALSE)
+	if va_module11=0 
+	{
+
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module11"++vl_extension,C_PIX_M11_ETEINT)
+	}
+	else
+	{
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module11"++vl_extension,C_PIX_M11_ALLUME)
+	}
+	if va_module12=0 
+	{
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module12"++vl_extension,C_PIX_M12_ETEINT)
+	}
+	else
+	{
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module12"++vl_extension,C_PIX_M12_ALLUME)
+	}
+	if va_module15=0 
+	{
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module15"++vl_extension,C_PIX_M15_ETEINT)
+		if va_type_fenetre="pilotage"
+			DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15"++vl_extension, 320)
+		else if va_type_fenetre="consultation"
+			DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15"++vl_extension, 347)
+		else
+			DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15"++vl_extension, 690)
+/*
+	DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15", 680)
+*/
+	}
+	else
+	{
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module15"++vl_extension,C_PIX_M15_ALLUME)
+		if va_type_fenetre="pilotage"
+			DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15"++vl_extension, 218)
+		else if va_type_fenetre="consultation"
+			DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15"++vl_extension, 235)
+		else
+			DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15"++vl_extension,580)
+/*
+	DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15", 580)
+*/
+	}
+	DB_REFRESH@(va_fenetre_TBAF)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module11"++vl_extension,TRUE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module12"++vl_extension,TRUE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module15"++vl_extension,TRUE)
+
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module21"++vl_extension,FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module22"++vl_extension,FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module25"++vl_extension,FALSE)
+	DB_REFRESH@(va_fenetre_TBAF)
+	/*si BAF a une seule barriere*/
+	if (va_type_baf=1)
+		Return(COM_OK)
+
+	/*traitement de la seconde barriere*/
+	if va_module21=0 
+	{
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module21"++vl_extension,C_PIX_M21_ETEINT)
+	}
+
+	else
+	{
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module21"++vl_extension,C_PIX_M21_ALLUME)
+	}
+	if va_module22=0 
+	{
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module22"++vl_extension,C_PIX_M22_ETEINT)
+	}
+	else
+	{
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module22"++vl_extension,C_PIX_M22_ALLUME)
+	}
+	if va_module25=0 
+	{
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module25"++vl_extension,C_PIX_M25_ETEINT)
+		if va_type_fenetre="pilotage"
+			DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module25"++vl_extension, 125)
+	}
+	else
+	{
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module25"++vl_extension,C_PIX_M25_ALLUME)
+		if va_type_fenetre="pilotage"
+			DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module25"++vl_extension, 125)
+	}
+	DB_REFRESH@(va_fenetre_TBAF)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module21"++vl_extension,TRUE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module22"++vl_extension,TRUE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module25"++vl_extension,TRUE)
+
+
+	/*A retour OK */
+	Return(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Affiche les differents pictos d'un panneau
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBAF_modif_picto(va_objet_active,va_fenetre_TBAF,
+					FORMAT ST_affichage_et_message va_ST_aff_msg)
+	
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_objet_active: 	Nom du panneau a modifier.
+*	va_fenetre_TBAF	:	Item de la fenetre module
+*	va_ST_aff_msg	:	Structure contenant les donnees d'affichage
+*					et de messages vers les equipements
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant resultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> BAF dans MTMT
+*
+* FONCTION
+*    affiche les differents pictos d'un panneau
+*
+--------------------------------------------------------------------- */
+
+var	i
+var	vl_status
+var	vl_num_equipement_BAF 
+
+
+/*A Activer le bouton Executer */
+
+DB_CTRL_GRAYED@(va_fenetre_TBAF,"BP_executer",False)
+
+
+/*A recherche du n° de l'equipement dans la BAF */
+
+vl_num_equipement_BAF=-1
+
+for i = 0 to 50
+	if va_ST_aff_msg[i].nom_objet_etat_actuel=va_objet_active
+	{
+
+		vl_num_equipement_BAF=i
+	}
+next i
+
+/*A si pas de config pour ce tableau : retour NOK */
+
+if vl_num_equipement_BAF=-1
+{
+	RETURN(COM_NOK)
+}
+
+if va_ST_aff_msg[vl_num_equipement_BAF].equipement_present=FALSE
+{
+	RETURN(COM_NOK)
+}
+
+/*A Boucle sur l'ensemble des etats sauf le dernier etat
+					qui ne depend que des BAF (BAF en mouvement) */
+
+for i = va_ST_aff_msg[vl_num_equipement_BAF].etat_actuel_equipement
+										to (50-1)
+
+	/*A Si panneau en cours existe */
+	if va_ST_aff_msg[vl_num_equipement_BAF].nom_fichier_pix[i]<>""
+
+	{
+		/*A Si panneau suivant existant */
+
+		if va_ST_aff_msg[vl_num_equipement_BAF]
+									.nom_fichier_pix[i+1]<>""
+		{
+			DB_CTRL_TITLE@(
+				va_fenetre_TBAF,va_objet_active,
+					va_ST_aff_msg[vl_num_equipement_BAF]
+										.nom_fichier_pix[i+1])
+			
+			va_ST_aff_msg[vl_num_equipement_BAF]
+									.etat_actuel_equipement=i+1
+
+		}
+		else
+		{
+			/*A Sinon prendre celui en debut de liste */
+
+			DB_CTRL_TITLE@(
+				va_fenetre_TBAF,va_objet_active,
+					va_ST_aff_msg[vl_num_equipement_BAF]
+										.nom_fichier_pix[0])
+			
+			va_ST_aff_msg[vl_num_equipement_BAF]
+									.etat_actuel_equipement=0
+		}
+
+		vl_status="'"++ SUBSTRING@(va_objet_active,4,7) ++ "'"
+
+		/*A MAJ du status */
+		DB_CTRL_TITLE@(va_fenetre_TBAF,"LI_status",
+					"Status : Modification de l'etat du module")
+
+
+		/*A Retourner OK */
+		RETURN(COM_OK)
+	}
+	/*A Finsi */
+next i
+
+/*A Retourner OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Commander le sequence d'une voie vers SYBASE
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TBAF_Commande_BAF(va_PosteOperateur,
+		va_Manuelle,va_Module11,va_Module12,va_Module15,va_Module21,va_Module22,va_Module25,va_mode_formation,va_NumEvt,
+			va_CleEvt,va_NumBAF,FORMAT PA_BAF va_BAF,va_NumAction,va_NomSite)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+* 
+*		va_PosteOperateur		:	le nom du poste operateur
+*		va_Manuelle			:	le type manuel ou auto
+*		va_NomScenario			:	Nom du scenario
+*		va_mode_formation		:	Indicateur du mode formation
+*		va_NumEvt				:	Numero de l'evenement
+*		va_CleEvt				:	Cle de l'evenement
+*		va_NumBAF				:	Numero de la BAF en cours
+*		va_BAF				: 	La structure action BAF
+*		va_NumAction			:	Numero d'action
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TBAF_pilotage_BAF
+*
+* FONCTION
+*   		Commander le sequence d'une voie vers SYBASE.
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_Heure			' heure courante base
+	var	vl_text
+
+	vl_Heure = COM09_Date_Courante()
+
+	if NOT va_mode_formation
+	{
+		/*A trace de l'appel de la procedure */
+		vl_text = " ---> Appel de la procedure 'XZAC92_Commande_BA("
+		COM01_Trace(0,vl_text)
+
+		/*A parametrage de vl_parametres */
+		vl_parametres[0].type = SYB#INT4_
+		vl_parametres[0].data = va_NumEvt			' NumEvt
+		vl_parametres[0].output = FALSE
+	
+		vl_parametres[1].type = SYB#INT1_
+		vl_parametres[1].data = va_CleEvt			' CleEvt
+		vl_parametres[1].output = FALSE
+	
+		vl_parametres[2].type = SYB#INT4_
+		vl_parametres[2].data = va_PosteOperateur	' Poste Operateur
+		vl_parametres[2].output = FALSE
+
+		vl_parametres[3].type = SYB#INT4_
+		vl_parametres[3].data = va_NumBAF			' NumEqt
+		vl_parametres[3].output = FALSE
+
+		vl_parametres[4].type = SYB#DATETIME_
+		vl_parametres[4].data = vl_heure		' Heure de lancement
+		vl_parametres[4].output = FALSE
+
+		vl_parametres[5].type = SYB#BIT_
+		vl_parametres[5].data = va_Manuelle		' Manu ou Auto
+		vl_parametres[5].output = FALSE
+	
+		vl_parametres[6].type = SYB#INT1_
+		vl_parametres[6].data = va_BAF.Priorite		' Priorite
+		vl_parametres[6].output = FALSE
+
+		vl_parametres[7].type = SYB#INT4_
+		vl_parametres[7].data = va_BAF.DistanceEvt	' DistanceEvt
+		vl_parametres[7].output = FALSE
+
+		vl_parametres[8].type = SYB#INT1_
+		vl_parametres[8].data = va_Module11		 
+		vl_parametres[8].output = FALSE
+
+		vl_parametres[9].type = SYB#INT1_
+		vl_parametres[9].data = va_Module12		 
+		vl_parametres[9].output = FALSE
+
+		vl_parametres[10].type = SYB#INT1_
+		vl_parametres[10].data = va_Module15		 
+		vl_parametres[10].output = FALSE
+
+		vl_parametres[11].type = SYB#INT1_
+		vl_parametres[11].data = va_Module21		 
+		vl_parametres[11].output = FALSE
+
+		vl_parametres[12].type = SYB#INT1_
+		vl_parametres[12].data = va_Module22		 
+		vl_parametres[12].output = FALSE
+
+		vl_parametres[13].type = SYB#INT1_
+		vl_parametres[13].data = va_Module25		 
+		vl_parametres[13].output = FALSE
+
+		vl_parametres[14].type = SYB#INT1_
+		vl_parametres[14].data = va_NomSite			' Nom du site
+		vl_parametres[14].output = FALSE
+
+		vl_parametres[15].type = SYB#INT4_
+		vl_parametres[15].data = SYSTEM_VAR@(vg_site)  		'site local
+		vl_parametres[15].output = FALSE
+
+		vl_parametres[16].type = SYB#INT4_
+		vl_parametres[16].data = NULL				' NumAction
+		vl_parametres[16].output = True
+
+		IF COM05_SQL_Procedure (XZAC92_Commande_BAF,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+		{
+			RETURN (COM_NOK)
+		}
+		va_NumAction = vl_resultats.return_parameters[0]
+		COM01_Trace(0," ")
+	}
+
+	/*A retour du N° d'action */
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Retour a l'etat normal de la BAF
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TBAF_Commande_fin_BAF(va_NumEqt,va_NomSite,va_Manuelle,
+		va_NomOperateur,va_mode_formation,va_Module11,va_Module12,va_Module15, va_Module21,
+		va_Module22,va_Module25,va_NumAction)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+* 
+*		va_NumEqt				:	le numero d'equipement
+*		va_NomSite			:	Nom du site
+*		va_Manuelle			:	le type manuel ou auto
+*		va_NomOperateur		:	Le nom de l'operateur
+*		va_mode_formation		:	Indicateur du mode formation
+*		va_NomScenario			:	Nom du scenario
+*		va_NumAction			:	Numero d'action
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TBAF_pilotage_BAF
+*
+* FONCTION
+*   		Retour a l'etat normal de la BAF.
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_Heure			' heure courante
+	var	vl_text
+
+	
+	if NOT(COM04_Operateur_A_Le_Droit_De( XDC_FAM_EXPLOITATION_DISTRICT)) and 
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI))
+	{
+		ITMA_TBAF_Acces_interdit("ITMA_TBAF_Commande_fin_BAF",
+											va_NomOperateur)
+		RETURN(COM_NOK)
+	}
+
+	if NOT va_mode_formation
+	{
+		vl_Heure = COM09_Date_Courante()
+
+		/*A trace de l'appel de la procedure */
+		vl_text =
+		" ---> Appel de la procedure'XZAC98_Commande_Fin_BAF("
+						++va_NumEqt++","++va_NomSite++","
+							++vl_Heure++","++va_Manuelle++")'"
+		COM01_Trace(0,vl_text)
+
+		/*A parametrage de vl_parametres */
+		vl_parametres[0].type = SYB#INT4_
+		vl_parametres[0].data = va_NumEqt		' NumEqt
+		vl_parametres[0].output = FALSE
+	
+		vl_parametres[1].type = SYB#INT1_
+		vl_parametres[1].data = va_NomSite		' NomSite
+		vl_parametres[1].output = FALSE
+	
+		vl_parametres[2].type = SYB#DATETIME_
+		vl_parametres[2].data = vl_Heure		' Heure de Fin
+		vl_parametres[2].output = FALSE
+
+		vl_parametres[3].type = SYB#BIT_
+		vl_parametres[3].data = va_Manuelle	' Manuelle
+		vl_parametres[3].output = FALSE
+
+		vl_parametres[4].type = SYB#INT1_
+		vl_parametres[4].data = va_Module11	
+		vl_parametres[4].output = FALSE
+
+		vl_parametres[5].type = SYB#INT1_
+		vl_parametres[5].data = va_Module12	
+		vl_parametres[5].output = FALSE
+
+		vl_parametres[6].type = SYB#INT1_
+		vl_parametres[6].data = va_Module15	
+		vl_parametres[6].output = FALSE
+
+		vl_parametres[7].type = SYB#INT1_
+		vl_parametres[7].data = va_Module21	
+		vl_parametres[7].output = FALSE
+
+		vl_parametres[8].type = SYB#INT1_
+		vl_parametres[8].data = va_Module22	
+		vl_parametres[8].output = FALSE
+
+		vl_parametres[9].type = SYB#INT1_
+		vl_parametres[9].data = va_Module25	
+		vl_parametres[9].output = FALSE
+
+		vl_parametres[10].type = SYB#INT4_
+		vl_parametres[10].data = NULL			' NumAction
+		vl_parametres[10].output = True
+
+		vl_parametres[11].type = SYB#CHAR_
+		vl_parametres[11].data = SYSTEM_VAR@(vg_nom_site)
+		vl_parametres[11].output = FALSE
+
+		IF COM05_SQL_Procedure(XZAC98_Commande_Fin_BAF,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+		{
+			RETURN (COM_NOK)
+		}
+		va_NumAction = vl_resultats.return_parameters[0]
+	}
+
+	/*A retour OK */
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Affichage d'un panneau dans la position desiree
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBAF_pos_picto(va_equipement,va_etat_equipement,
+		va_fenetre_TBAF,FORMAT ST_affichage_et_message va_ST_aff_msg)
+
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*	va_equipement		:	N° du module.
+*	va_etat_equipement	:	N° de la position desire
+*	va_fenetre_TBAF		:	Item de la fenetre module
+*	va_ST_aff_msg		:	Structure contenant les donnees
+*						d'affichage et de messages
+*						vers les equipements
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant resultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> BAF dans MTMT
+*
+* FONCTION
+*    affichage d'un panneau dans la position desiree
+*
+--------------------------------------------------------------------- */
+
+var	vl_nom_fichier_pix
+var	vl_objet
+
+/*A Si mauvaises conditions */
+
+if va_etat_equipement < 0 or va_etat_equipement > 50 or
+		va_ST_aff_msg[va_equipement].equipement_present=FALSE or
+				va_equipement > 50
+{
+	/*A Alors */
+	/*A Retourner NOK */
+
+	RETURN(COM_NOK)
+}
+/*A Finsi */
+
+vl_nom_fichier_pix=
+	va_ST_aff_msg[va_equipement].nom_fichier_pix[va_etat_equipement]
+
+vl_objet = va_ST_aff_msg[va_equipement].nom_objet_etat_actuel
+
+va_ST_aff_msg[va_equipement].etat_actuel_equipement=va_etat_equipement
+
+/*A positionnement du panneau */
+
+DB_CTRL_TITLE@(va_fenetre_TBAF,vl_objet,vl_nom_fichier_pix)
+
+/*A Retour : OK */
+
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner a l'etat des panneaux de la base.
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TBAF_Abt_Etat_Panneaux_Baf(va_Abonnement,va_NomSite)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*
+*		va_Abonnement	:	Type d'abonnement (debut ou fin)
+*		va_NomSite		:	Nom du site
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet de s'abonner a l'etat des panneaux de la BAF.
+* ------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+
+	/*A trace de l'appel de procedure */
+	vl_text = " --> XZEA40_Abt_Etat_Panneaux_Baf "
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA40  
+
+	/*B arguments */
+	vl_cmd[3]= va_Abonnement ++ MTAR_CAR_SEPAR ++ va_NomSite
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'emmission */
+	vl_text = " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+ 
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture d'une action BAF a partir du n° de PA
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TBAF_Lecture_PA_BAF(va_NumPA,va_site)
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*   va_NumPA       	: N° du Plan d'action 
+*   va_site    	: le numero du site 
+*
+*
+* ARGUMENTS EN SORTIE	: 
+*	BAF[va_type]	: etat du BAF
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_BAF
+*
+*
+--------------------------------------------------------------------- */
+
+
+	VAR 	i,j				' index de boucle
+	VAR	va_text
+	VAR	vl_retour
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	
+
+	/*A trace de l'appel de procedure */
+	va_text = "--> XZAC94_Lire_Commande_BAF"
+	COM01_Trace(0,va_text)
+
+
+	/*A Definition de vl_parametres */
+	vl_parametres[0].type	= SYB#INT4_
+	vl_parametres[0].data	= va_NumPA
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type	= SYB#INT2_
+	vl_parametres[1].data	= va_site
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT4_
+	vl_parametres[2].data	= 0			' NumEqt
+	vl_parametres[2].output	= TRUE
+
+	vl_parametres[3].type	= SYB#DATETIME_
+	vl_parametres[3].data	= 0			' heure lancement
+	vl_parametres[3].output	= TRUE
+
+	vl_parametres[4].type	= SYB#DATETIME_
+	vl_parametres[4].data	= 0			' heure lancement fin
+	vl_parametres[4].output	= TRUE
+
+	vl_parametres[5].type	= SYB#DATETIME_
+	vl_parametres[5].data	= 0			' heure succes
+	vl_parametres[5].output	= TRUE
+
+	vl_parametres[6].type	= SYB#DATETIME_
+	vl_parametres[6].data	= 0			' heure echec
+	vl_parametres[6].output	= TRUE
+
+	vl_parametres[7].type	= SYB#DATETIME_
+	vl_parametres[7].data	= 0			' heure fin
+	vl_parametres[7].output	= TRUE
+
+	vl_parametres[8].type	= SYB#BIT_
+	vl_parametres[8].data	= 0			' flag manuel
+	vl_parametres[8].output	= TRUE
+
+	vl_parametres[9].type	= SYB#INT1_
+	vl_parametres[9].data	= 0			' module
+	vl_parametres[9].output	= TRUE
+
+	vl_parametres[10].type	= SYB#INT1_
+	vl_parametres[10].data	= 0			' module
+	vl_parametres[10].output	= TRUE
+
+	vl_parametres[11].type	= SYB#INT1_
+	vl_parametres[11].data	= 0			' module
+	vl_parametres[11].output	= TRUE
+
+	vl_parametres[12].type	= SYB#INT1_
+	vl_parametres[12].data	= 0			' module
+	vl_parametres[12].output	= TRUE
+
+	vl_parametres[13].type	= SYB#INT1_
+	vl_parametres[13].data	= 0			' module
+	vl_parametres[13].output	= TRUE
+
+	vl_parametres[14].type	= SYB#INT1_
+	vl_parametres[14].data	= 0			' module
+	vl_parametres[14].output	= TRUE
+
+	vl_retour[0] = COM_NOK
+	
+	/*A Execution de la procedure XZAC94_Lire_Commande_BAF */
+	IF COM05_SQL_Procedure (XZAC94_Lire_Commande_BAF,
+				vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+	{
+		RETURN (vl_retour)
+
+	}
+
+	/*A MAJ des retours de parametres */
+	vl_retour[0]	=	vl_resultats.return_parameters[0]	' n° eqt
+	vl_retour[1]	=	vl_resultats.return_parameters[6]	' manuel
+	vl_retour[2]	=	vl_resultats.return_parameters[7]	'  module 11
+	vl_retour[4]	=	vl_resultats.return_parameters[8]	'  module 12
+	vl_retour[5]	=	vl_resultats.return_parameters[9]	'  module 15
+	vl_retour[6]	=	vl_resultats.return_parameters[10]	'  module 21
+	vl_retour[7]	=	vl_resultats.return_parameters[11]	'  module 22
+	vl_retour[8]	=	vl_resultats.return_parameters[12]	'  module 25
+
+	if LEN@(vl_resultats.return_parameters[3])<=
+					 	LEN@(vl_resultats.return_parameters[4])
+	{
+		vl_retour[3] = "Horodate Echec : "
+		++COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[4])
+	}
+
+	if LEN@(vl_resultats.return_parameters[4])<=
+						LEN@(vl_resultats.return_parameters[3])
+	{
+		vl_retour[3] = "Horodate Succes : "
+		++ COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[3])
+	}
+
+	
+	if LEN@(TRIM@(vl_retour[3]))<20
+	{
+		vl_retour[3] = " "
+	}
+	RETURN (vl_retour)
+
+ENDMACRO
+
+
+
+/*X*/
+/* --------------------------------------------------------------------
+* SERVICE RENDU :	Indique la fin de la commande individuelle par l'operateur
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TBAF_Fin_Cmd_Manu_BAF(va_NumAction,va_Validation,
+								va_Module11,va_Module12, va_Module15,va_Module21,va_Module22,va_Module25,va_NomOperateur,va_CleAction)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NumAction	:	le numero de l'action
+*		va_Validation	:	Validation de l'operateur
+*		va_NomScenario	:	Nom du Scenario
+*		va_NomOperateur :	Nom de l'operateur
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TBAF_pilotage_BAF
+*
+* FONCTION
+*   		Indique la fin de la commande individuelle par l'operateur.
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_heure1			' heure courante
+	var	vl_heure2			' heure courante
+	var	va_text			' Chaine de la trace
+
+	if NOT(COM04_Operateur_A_Le_Droit_De( XDC_FAM_EXPLOITATION_DISTRICT)) and 
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI))
+	{
+		ITMA_TBAF_Acces_interdit("ITMA_TBAF_Fin_Cmd_Manu_BAF",
+											va_NomOperateur)
+		RETURN(COM_NOK)
+	}
+
+	/*A si retour OK de l'operateur */
+	if va_Validation  = XDC_VRAI
+	{
+		vl_heure1 = COM09_Date_Courante()
+		vl_heure2 = 0
+	}
+	/*A sinon */
+	else
+	{
+		vl_heure1 = 0
+		vl_heure2 = COM09_Date_Courante()
+	}
+
+	/*A trace de l'appel de la procedure */
+	va_text =" ---> Appel de la procedure'XZAC02_Fin_Cmd_Manuelle_BAF'"
+	COM01_Trace(0,va_text)
+
+	/*A parametrage de vl_parametres */
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = va_NumAction
+	vl_parametres[0].output = FALSE
+	
+	vl_parametres[1].type = SYB#DATETIME_
+	vl_parametres[1].data = vl_heure1
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type = SYB#DATETIME_
+	vl_parametres[2].data = vl_heure2
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type = SYB#INT1_
+	vl_parametres[3].data = va_Module11
+	vl_parametres[3].output = FALSE
+
+	vl_parametres[4].type = SYB#INT1_
+	vl_parametres[4].data = va_Module12
+	vl_parametres[4].output = FALSE
+
+	vl_parametres[5].type = SYB#INT1_
+	vl_parametres[5].data = va_Module15
+	vl_parametres[5].output = FALSE
+
+	vl_parametres[6].type = SYB#INT1_
+	vl_parametres[6].data = va_Module21
+	vl_parametres[6].output = FALSE
+
+	vl_parametres[7].type = SYB#INT1_
+	vl_parametres[7].data = va_Module22
+	vl_parametres[7].output = FALSE
+
+	vl_parametres[8].type = SYB#INT1_
+	vl_parametres[8].data = va_Module25
+	vl_parametres[8].output = FALSE
+
+	vl_parametres[9].type = SYB#INT1_
+	vl_parametres[9].data = va_CleAction
+	vl_parametres[9].output = FALSE
+
+	IF COM05_SQL_Procedure (XZAC90_Fin_Cmd_Manu_BAF,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+ 	{
+   		RETURN (COM_NOK)
+	}
+
+	COM01_Trace(0," ")
+
+	/*A retour OK */
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture de la proposition d'affichage d'une BAF
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TBAF_Lire_Prop_BAF(va_NumPA,va_Ordre,FORMAT PA_BAF va_BAF)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		va_NumPA			:	le numero du Plan d'action
+*		va_Ordre			:	le numero d'ordre
+*		va_BAF			: 	La structure action BAF
+*
+* ARGUMENTS EN SORTIE : 
+*		va_BAF.Priorite	:	la priorite de l'evenement
+*		va_BAF.DistanceEvt	:	la distance de l'evenement
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PNA
+*
+*
+* FONCTION
+*   	Lecture de la proposition d'affichage d'une BAF.
+*
+--------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR	vl_select
+	VAR	vl_indice	'Indice de parcours des parametres d'entree d'une procedure stockee
+	var	vl_tptext	' zone de text tampon
+
+
+	/*A trace de l'appel de procedure */
+	vl_tptext = "--> XZAP31_Lire_Prop_BAF"
+	COM01_Trace(0,vl_tptext)
+
+	IF (va_Ordre=0)
+ 	{
+		RETURN (COM_NOK)
+	}
+
+	vl_indice = 0
+	vl_parametres[vl_indice].type	= SYB#INT4_
+	vl_parametres[vl_indice].data	= va_NumPA+0
+	vl_parametres[vl_indice].output	= FALSE
+	
+	vl_indice = vl_indice +1
+	vl_parametres[vl_indice].type	= SYB#INT2_
+	vl_parametres[vl_indice].data	= va_Ordre+0
+	vl_parametres[vl_indice].output	= FALSE
+
+
+
+	IF COM05_SQL_Procedure(XZAP31_Lire_Prop_BAF,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+  	{
+   		RETURN (COM_NOK)
+	}
+
+	vl_select = vl_resultats.select_results[0,0]
+	va_BAF.Remarque	= vl_select[0]
+	va_BAF.NumEqt 		= vl_select[1]+0
+	va_BAF.Explication	= vl_select[2]
+	va_BAF.Module11 	= vl_select[3]
+	va_BAF.Module12 	= vl_select[4]
+	va_BAF.Module15 	= vl_select[5]
+	va_BAF.Module21 	= vl_select[6]
+	va_BAF.Module22 	= vl_select[7]
+	va_BAF.Module25 	= vl_select[8]
+	va_BAF.Priorite	= vl_select[9]
+	va_BAF.DistanceEvt	= vl_select[10]
+
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Retourne un message a l'operateur et
+*	 					trace l'accès interdit a une macro.
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TBAF_Acces_interdit(va_NomMacro,va_NomOperateur)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+* 
+*	va_NomMacro : le nom de la macro interdite
+*	va_NomOperateur : Nom de l'operateur
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: 
+
+* CONDITION D'UTILISATION :
+*   appel d'une macro avec les droits d'accès insuffisant.
+*
+* FONCTION :
+*	Retourne un message a l'operateur et trace l'accès interdit
+*	a une macro
+*
+-------------------------------------------------------------------- */
+
+	/*A message d'info a l'operateur */
+
+	var	vl_tptext			' zone de text tampon
+	
+	if NOT (SYSTEM_VAR@ (vg_formation) <> NULL)
+	{
+		vl_tptext = "L'utilisateur " ++va_NomOperateur ++ 
+		" n'a pas les droits suffisants" ++ NUM_TO_STRING@(10) ++
+						"pour la fonction : " ++ va_NomMacro
+		info_message@(vl_tptext)
+
+		/*A trace de l'appel de procedure */
+		vl_tptext = " Accès Macro "
+				++ va_NomMacro ++ " refuse pour " ++ va_NomOperateur
+		COM01_Trace(0,vl_tptext)
+	}
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture de l'etat d'une BAF a une horodate donnee
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TBAF_Lecture_BAF(va_NumBAF,FORMAT PA_BAF va_BAF)
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*
+*	va_NumBAF : N° d'eqt de la BAF ;
+*	va_BAF : La structure action BAF
+*
+* ARGUMENTS EN SORTIE	: 
+*
+*	va_BAF : La structure action BAF
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TBAF
+*
+*
+* FONCTION
+*	Lecture de l'etat d'une BAF a une horodate donnee
+*
+--------------------------------------------------------------------- */
+
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR	vl_lib_fmc						' libelle fmc
+	var	vl_tptext							' zone de text tampon
+	VAR	i,j								' index de boucle
+
+	
+	/*A trace de l'appel de procedure */
+	vl_tptext = "--> XZAT35_Utilisation_BAF"
+	COM01_Trace(0,vl_tptext)
+
+
+	/*A si n° Eqt du BAF nul : sortir */
+	if va_NumBAF=NULL or va_NumBAF=0
+	{
+		vl_tptext = "ITMA_TPM_Lecture_BAF("++va_NumBAF++") refusee"
+		COM01_Trace(0,vl_tptext)
+		RETURN(COM_NOK)
+	}
+
+	va_BAF.NumEqt = va_NumBAF
+
+	/*A Definition de vl_parametres */
+	vl_parametres[0].type	= SYB#DATETIME_
+	vl_parametres[0].data	= XDC_DATE_NULLE
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type	= SYB#INT1_
+	vl_parametres[1].data	= va_BAF.NumEqt+0
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT2_
+	vl_parametres[2].data	= 0			' Dispo BAF
+	vl_parametres[2].output	= TRUE
+
+	vl_parametres[3].type	= SYB#INT1_
+	vl_parametres[3].data	= 0	
+	vl_parametres[3].output	= TRUE
+
+	vl_parametres[4].type	= SYB#INT1_
+	vl_parametres[4].data	= 0	
+	vl_parametres[4].output	= TRUE
+
+	vl_parametres[5].type	= SYB#INT1_
+	vl_parametres[5].data	= 0	
+	vl_parametres[5].output	= TRUE
+
+	vl_parametres[6].type	= SYB#INT1_
+	vl_parametres[6].data	= 0	
+	vl_parametres[6].output	= TRUE
+
+	vl_parametres[7].type	= SYB#INT1_
+	vl_parametres[7].data	= 0	
+	vl_parametres[7].output	= TRUE
+
+	vl_parametres[8].type	= SYB#INT1_
+	vl_parametres[8].data	= 0	
+	vl_parametres[8].output	= TRUE
+
+	vl_parametres[9].type	= SYB#INT4_
+	vl_parametres[9].data	= 0			' N° Evt
+	vl_parametres[9].output	= TRUE
+
+	vl_parametres[10].type	= SYB#INT2_
+	vl_parametres[10].data	= 0			' Cle Evt
+	vl_parametres[10].output	= TRUE
+
+	vl_parametres[11].type	= SYB#INT2_
+	vl_parametres[11].data	= 0			' Priorite
+	vl_parametres[11].output	= TRUE
+
+	vl_parametres[12].type	= SYB#INT4_
+	vl_parametres[12].data	= 0			' Distance Evt
+	vl_parametres[12].output	= TRUE
+
+	vl_parametres[13].type	= SYB#INT4_
+	vl_parametres[13].data	= 0			' N° Action
+	vl_parametres[13].output	= TRUE
+
+	vl_parametres[14].type	= SYB#INT1_
+	vl_parametres[14].data	= 0			' N° Site Action
+	vl_parametres[14].output	= TRUE
+
+	
+	/*A Execution de la procedure XZAT35_Utilisation_BAF */
+	IF COM05_SQL_Procedure(XZAT35_Utilisation_BAF,vl_parametres,
+							vl_resultats,C_MODULE) <> COM_OK
+	{
+    			RETURN (COM_NOK)
+	}
+
+	/*A MAJ de la table BAF avec les arguments de sorties */
+	va_BAF.Dispo	 		=	vl_resultats.return_parameters[0]
+	va_BAF.Module11		=	vl_resultats.return_parameters[1]	va_BAF.Module12		=	vl_resultats.return_parameters[2]
+	va_BAF.Module15		=	vl_resultats.return_parameters[3]
+	va_BAF.Module21		=	vl_resultats.return_parameters[4]
+	va_BAF.Module22		=	vl_resultats.return_parameters[5]
+	va_BAF.Module25		=	vl_resultats.return_parameters[6]
+
+	va_BAF.NumEvt			=	vl_resultats.return_parameters[7]+0
+	va_BAF.CleEvt			=	vl_resultats.return_parameters[8]+0
+	va_BAF.Priorite		=	vl_resultats.return_parameters[9]
+	va_BAF.DistanceEvt		=	vl_resultats.return_parameters[10]
+	va_BAF.NumeroAction		=	vl_resultats.return_parameters[11]
+	va_BAF.NomSite			=	vl_resultats.return_parameters[12]
+
+	if va_BAF.NumEvt<>0 and  va_BAF.CleEvt<>0
+	{
+		/*A MAJ du libelle fmc */
+		ITMA_COM_Lire_Evenement(va_BAF.NumEvt,
+						va_BAF.CleEvt,vl_lib_fmc,C_MODULE)
+		va_BAF.fmc_liee = COM11_Libelle_FMC(vl_lib_fmc)
+	}
+	else
+	{
+		va_BAF.fmc_liee = "Pas de libelle FMC."
+	}
+
+	
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture de la configuration des BRA
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TBAF_Init_Config_BAF ( FORMAT Config_BAF va_liste_BAF )
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		aucun
+*
+* ARGUMENTS EN SORTIE :
+* 
+*		va_liste_BRA 		: liste des BRA
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TBAF
+*
+*
+* FONCTION
+*   	Lecture de la configuration des BRA.
+*
+--------------------------------------------------------------------- */
+
+VAR	vl_liste_indice
+VAR	vl_machine_LT
+VAR 	vl_liste
+VAR	i,j, vl_nb_eqt
+VAR	vl_Index_Site
+VAR	FORMAT	COM_Localisation 		vl_localisation
+VAR	FORMAT 	COM_Donnees_Equipements 	vl_info_equip
+VAR	FORMAT 	COM_Donnees_Equipements 	vl_info_equip_suite
+VAR 	FORMAT 	TDO_District			vl_les_districts
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+va_liste_BAF 		= SYSTEM_VAR@ (vg_Config_BAF)
+
+/*A Si les liste sont deja a jour alors retourne */
+if ( va_liste_BAF <> NULL )
+{
+   	RETURN (COM_OK)
+}
+
+/*A
+ * Listes des BAF
+ * -----------------------------------
+ */
+ITMA_COM_Lire_Equipements (	XDC_EQT_BAF, 
+					 	NULL,
+				 	 	XDC_EQT_HS,		' Conditions niees
+				 	 	XDC_EQT_NON_HS, 	' Conditions 
+				 	 	0,				' Exclusions
+					 	0,
+					 	vl_info_equip,
+					 	C_MODULE )
+
+/*A si le resultat du select n'est pas nul */
+if ARRAY_SIZE@(vl_info_equip_suite)>0 
+{
+	/*A pour chaque enregistrement */
+	vl_nb_eqt = ARRAY_SIZE@(vl_info_equip)
+  	for  i=0 to ARRAY_SIZE@(vl_info_equip_suite)-1
+		vl_info_equip[vl_nb_eqt] = vl_info_equip_suite[i]
+		vl_nb_eqt = vl_nb_eqt + 1
+	next i
+}
+
+vl_les_districts = SYSTEM_VAR@ (vg_les_districts)
+/*A si le resultat du select n'est pas nul */
+if ARRAY_SIZE@(vl_info_equip)>0 
+{
+	/*A pour chaque enregistrement */
+	for  i=0 to ARRAY_SIZE@(vl_info_equip)-1
+
+		vl_localisation.NumAuto 	= vl_info_equip[i].autoroute
+
+		vl_localisation.PR 		= vl_info_equip[i].PR
+
+		vl_localisation.sens_circulation = vl_info_equip[i].sens
+	  	va_liste_BAF [vl_info_equip[i].numero].Identifiant =vl_info_equip[i].nom
+
+				/*	"BAF" ++ COM10_Localisation(vl_localisation)*/
+
+
+		va_liste_BAF[vl_info_equip[i].numero].Autoroute =  vl_info_equip[i].autoroute
+
+		va_liste_BAF [vl_info_equip[i].numero].PR =  
+									vl_info_equip[i].PR
+
+		va_liste_BAF [vl_info_equip[i].numero].sitegestion =  
+									vl_info_equip[i].sitegestion
+
+		va_liste_BAF [vl_info_equip[i].numero].Sens =  
+									vl_info_equip[i].Sens
+
+		vl_Index_Site = ARRAY_INDEX@ (ARRAY_COLUMN@ 
+				(vl_les_districts,TDO_NUMERO_DISTRICT),
+					ITMA_COM_Site_PR(vl_localisation.NumAuto,
+								vl_localisation.PR,C_MODULE))
+		if vl_Index_Site >= 0
+		{
+			/*va_liste_BAF [vl_info_equip[i].numero].NumSite = 
+						vl_les_districts[vl_Index_Site].numero*/
+
+			va_liste_BAF [vl_info_equip[i].numero].NumSite = 
+						vl_info_equip[i].sitegestion
+
+
+			va_liste_BAF [vl_info_equip[i].numero].NomSite = 
+							vl_les_districts[vl_Index_Site].code
+		}
+		ITMA_TBAF_Nom_Machine_LT(vl_info_equip[i].numero,
+				vl_info_equip[i].type,	vl_machine_LT)
+
+		va_liste_BAF[vl_info_equip[i].numero].numero = vl_info_equip[i].numero
+		va_liste_BAF[vl_info_equip[i].numero].nom_machine_LT=
+  											vl_machine_LT
+
+
+
+		vl_parametres[0].type	= SYB#INT4_
+		vl_parametres[0].data	= va_liste_BAF[vl_info_equip[i].numero].numero 			' numero equipement
+		vl_parametres[0].output	= FALSE
+	
+		vl_parametres[1].type	= SYB#INT4_
+		vl_parametres[1].output	= TRUE
+
+		IF COM05_SQL_Procedure (XZAO454_Type_BAF,
+					vl_parametres,vl_resultats,C_MODULE) = COM_OK
+			va_liste_BAF[vl_info_equip[i].numero].type = vl_resultats.return_parameters[0]
+		ELSE
+			va_liste_BAF[vl_info_equip[i].numero].type = 2
+
+
+	next i
+
+}
+
+SET_SYSTEM_VAR@ (vg_Config_BAF, va_liste_BAF)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture du nom de machine LT d'un equipement 
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TBAF_Nom_Machine_LT(va_NumEqt,va_TypeEqt,va_machine_LT)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+*		va_NumEqt		:	le numero d'equipement
+*		va_machine_LT	:	le nom de la machine du LT
+*
+* ARGUMENTS EN SORTIE : 
+*		NomMachineLT	: Nom de la machine LT
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_
+*
+*
+* FONCTION
+*   	Lecture Du Nom du LT de l'equipement
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	i,j				' index de loop
+	var vl_text
+
+	vl_parametres[0].type	= SYB#INT4_
+	vl_parametres[0].data	= va_NumEqt			' numero equipement
+	vl_parametres[0].output	= FALSE
+	
+	vl_parametres[1].type	= SYB#INT4_
+	vl_parametres[1].data	= va_TypeEqt			' type equipement	
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#CHAR_			' NomMachineLT
+	vl_parametres[2].data	= 0
+	vl_parametres[2].output	= TRUE
+
+
+	IF COM05_SQL_Procedure (XZAO05_Nom_Machine_LT,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+	{
+		RETURN (COM_NOK)
+	}
+	/*A recuperation du nom de la machine LT */
+	va_machine_LT = SUBSTRING@(vl_resultats.return_parameters[0],1,7)
+	
+	/*B trace du nom de machine LT */
+	vl_text = " Pilotage BAF " ++ va_NumEqt ++ " - Nom machine LT "
+										 ++ va_machine_LT 
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des equipements disponibles
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TBAF_Liste_Eqt_Disponibles( va_District, 
+						FORMAT Config_BAF va_Config_BAF )
+
+/*
+* ARGUMENTS EN ENTREE :
+* 
+*		va_District : le numero du district
+*
+* ARGUMENTS EN SORTIE :
+* 
+*		ListeEqts		: la liste des equipements correspondants
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TBAF
+*
+*
+* FONCTION
+*   	Lecture des equipements en disponibilites.
+*
+--------------------------------------------------------------------- */
+
+	var	FORMAT COM_Donnees_Equipements vl_info_equip
+	var	FORMAT COM_Donnees_Equipements vl_info_equip_suite
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	var	vl_Liste		' liste formattée
+	var	i, k			' index de loop
+	var vl_district
+	var vl_nb_eqt
+
+	if va_District = XDC_CI
+
+	{	vl_District=NULL }
+	else
+	{	vl_District=va_District }
+
+	ITMA_COM_Lire_Equipements(XDC_EQT_BAF, 
+		vl_District,XDC_EQT_MINEUR, 		' Conditions niees
+				XDC_EQT_MINEUR,		' Conditions
+				 XDC_EQT_HS + XDC_EQT_MAJEUR + XDC_EQT_CRITIQUE + XDC_EQT_DESACTIVE + XDC_EQT_INHIBE,	' Exclusions	
+						0,
+						vl_info_equip,
+					     C_MODULE )
+	/*A si le resultat du select n'est pas nul */
+	if ARRAY_SIZE@(vl_info_equip_suite)>0 
+	{
+		/*A pour chaque enregistrement */
+		vl_nb_eqt = ARRAY_SIZE@(vl_info_equip)
+  		for  i=0 to ARRAY_SIZE@(vl_info_equip_suite)-1
+			vl_info_equip[vl_nb_eqt] = vl_info_equip_suite[i]
+			vl_nb_eqt = vl_nb_eqt + 1
+		next i
+	}
+
+	/*A RAZ indicateurs de disponibilite de l'equipement */
+	for i=0 to ARRAY_SIZE@(va_Config_BAF)
+
+		va_Config_BAF[i].Disponible=FALSE
+	next i
+
+	/*A Construction de la liste des équipements */
+	if  IS_ARRAY@(vl_info_equip)
+	{
+	    
+		for i = 0 to ARRAY_SIZE@(vl_info_equip) - 1	
+	   		if (vl_info_equip[i].sitegestion = va_District) OR
+				((va_District = XDC_CI) and  
+	 	  			 (ITMA_COM_District_pilotable(
+						vl_info_equip[i].sitegestion, 
+							XDC_LIB_BAF,FALSE,NULL)) )
+			{
+				vl_Liste[k] = 
+					va_Config_BAF[vl_info_equip[i].numero].Identifiant
+
+				va_Config_BAF[vl_info_equip[i].numero].Disponible=TRUE
+				k= k + 1
+			}
+
+	vl_parametres[0].type	= SYB#INT4_
+	vl_parametres[0].data	= va_Config_BAF[vl_info_equip[i].numero].numero 			' numero equipement
+	vl_parametres[0].output	= FALSE
+	
+	vl_parametres[1].type	= SYB#INT4_
+	vl_parametres[1].output	= TRUE
+
+	IF COM05_SQL_Procedure (XZAO454_Type_BAF,
+					vl_parametres,vl_resultats,C_MODULE) = COM_OK
+		va_Config_BAF[vl_info_equip[i].numero].type = vl_resultats.return_parameters[0]
+	ELSE
+		va_Config_BAF[vl_info_equip[i].numero].type = 2
+		next i
+	}
+	else
+	{
+		vl_Liste[0]		= 	""
+		info_message@("Pas de BAF diponible dans cette région ...")
+	}
+
+	RETURN(vl_Liste)
+
+ENDMACRO
+
+
+

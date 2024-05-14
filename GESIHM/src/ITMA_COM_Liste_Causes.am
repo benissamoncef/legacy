@@ -1,0 +1,401 @@
+/*E*/
+/* Fichier : $Id: ITMA_COM_Liste_Causes.am,v 1.12 2020/11/03 17:37:12 pc2dpdy Exp $      $Revision: 1.12 $        $Date: 2020/11/03 17:37:12 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLT * FICHIER ITMA_COM_Liste_Causes.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* affiche la liste des fiches mc a traiter dans une liste dans la fiche 
+* main courante ouverte.
+*
+*   Cf. DCG 2.4.49
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	15 dec 1994	: Creation
+* Guilhou	13 sep 1996	: adaptation PC simplifie (RADT) V1.4
+* Guilhou	25 sep 1996	: correction localisation sur pc simplifie (1.5)
+* Guilhou	13 jan 1997	: ajout droit d'enrichir (DEM/1358) 1.6
+* Guilhou	05 sep 1997 	: tri de la liste des FMC causes 1.7
+* Guilhou 03 oct 1997	: meme look que la liste des FMC a traiter 1.8
+* Niepceron 24 fev 1999	: Modif intergest. dem/1723 v1.8
+* JPL		26/01/2009	: Tri plus fin de la liste des Fmc: espacement des groupes (DEM 833) 1.9
+* JPL		27/01/2009	: Calcul des droits d'enrichir du poste selon ceux du site (DEM 848) 1.10
+* JPL		10/09/2019	: Changement de structure des données extraites en base (DEM 1325)  1.11
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+
+INCLUDE "xdc_ax.h"
+INCLUDE	"xzaec_ax.h"
+INCLUDE	"xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/xzae17sp.h"
+INCLUDE	"xzae104sp.h"
+
+INCLUDE	"ITMA_COM.h"
+INCLUDE	"ITMA_TDO.h"
+INCLUDE	"ITMA_TLV.h"
+
+
+
+DEFINE	C_MODULE	"MTMC"			' Nom du module
+
+
+DEFINE  C_PICTO_REVEILLE                        "pix_reveil"
+DEFINE  C_PICTO_EN_PREV_ENRICHIR                "pix_crayon_gris"
+DEFINE  C_PICTO_EN_COURS_ENRICHIR       "pix_crayon_vert"
+DEFINE  C_PICTO_FIN_ENRICHIR            "pix_crayon_rouge"
+DEFINE  C_PICTO_EN_PREV_PAR_DEFAUT      "pix_designer_gris"
+DEFINE  C_PICTO_EN_COURS_PAR_DEFAUT     "pix_designer_vert"
+DEFINE  C_PICTO_FIN_PAR_DEFAUT          "pix_designer_rouge"
+DEFINE  C_PICTO_SURCHARGE                       "pix_designer"
+
+
+/*
+DEFINE	C_PICTO_DATEX				"pix_designer_datex"
+DEFINE	C_PICTO_DATEX_FIN			"pix_designer_datex_fin"
+*/
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	TLT_Evenement
+	numero,					' Numero evenement
+	createur,				' Site createur
+	type,					' Type evenement (25 car)
+	date_debut,				' Date debut (16 car)
+	localisation,				' Localisation event. (28 car)
+	FORMAT COM_Intitule_FMC info_evt,	' Informations evenement,
+	droit_enrichir				' Droits d'enrichir DU POSTE
+
+
+FORMAT TLT_Evenement_Affiche
+       numero,                                 ' Numero evenement
+       createur,                               ' Site createur
+       type,                                   ' Type evenement (25 car)
+       date_debut,                             ' Date debut (16 car)
+       localisation                            ' Localisation event. (28 car)
+
+/*A
+ * Description du format des donnees lues en base
+ * ----------------------------------------------
+ */
+
+DEFINE	CM_COL_TYPE		5
+DEFINE	CM_COL_DEBUT		16
+DEFINE	CM_COL_OPERATION	6
+DEFINE	CM_COL_SITE		7
+
+FORMAT	TLT_Donnees_Evenement
+	liste,					' Numero de la liste des FMC à traiter
+	position,				' Position du bloc dans la liste
+	espace,					' Espacement du bloc par rapport au precedent
+	cle_evt,				' Cle evenement
+	num_evt,				' Numero d'evenement
+	type,					' Numero de type evenement
+        operation,
+	site,
+	poste_enrichisseur,
+	enrichir,				' Droits d'enrichir DU SITE
+	autoroute,
+	PR,
+	sens_circul,
+	date,
+        date_debut_prevu,
+        date_fin_prevue,
+        date_debut,
+        date_fin,
+	ordre
+
+
+
+VAR FORMAT TLT_Evenement	tm_evts		' Table des evenements affichee
+VAR				tm_pictos
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation de la liste des fiches Main Courante a traiter pour le poste
+*  operateur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_COM_Liste_Causes (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fenetre		: id de la fenetre fiche main courante
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation par MTMT.
+*
+* FONCTION
+*   Lit en base de donnees puis affiche la liste des fiches Main Courante
+*   a traiter associee au poste operateur.
+---------------------------------------------------------------------------- */
+    VAR FORMAT TLT_Donnees_Evenement	tl_data
+
+    VAR FORMAT TDO_Type_FMC		tl_types_FMC
+	VAR 				vl_fmc_operateur
+	VAR				vl_pos_operateur
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR FORMAT COM_Intitule_FMC vl_FMC
+    VAR     vl_site, vl_mon_poste
+    VAR     i, vl_idx_type
+    VAR FORMAT TLT_Evenement_Affiche tl_liste_affichee
+    VAR tl_retour
+
+/*sur PC simplifie*/
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) {
+  tl_retour=liste_causes_pcs()
+  return (tl_retour)
+}
+
+
+vl_site = SYSTEM_VAR@ (vg_site)
+vl_mon_poste = SYSTEM_VAR@ (vg_numero_poste)
+
+
+/*A
+** Lire en base de donnees la nouvelle liste d'evenements pour le poste local
+** --------------------------------------------------------------------------
+*/
+
+vl_parametres[0].type = COM_Identifiant_Poste_Oper	' Numero du poste local
+vl_parametres[0].data = SYSTEM_VAR@ (vg_numero_poste)
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Operateur	' Numero de l'operateur
+vl_parametres[1].data = SYSTEM_VAR@ (vg_numero_operateur)
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT1_			' Numero de liste
+vl_parametres[2].data = NULL
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#CHAR_                               ' Site local
+vl_parametres[3].data = SYSTEM_VAR@(vg_nom_site)
+vl_parametres[3].output = FALSE
+
+IF COM05_SQL_Procedure (XZAE17_Liste_Evt_Traiter,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+** Effacer les structures de donnees (pour reinitialisation)
+** ---------------------------------------------------------
+*/
+
+tm_evts = NULL
+tl_liste_affichee = NULL
+
+
+/*A
+** Lire dans l'environnement les listes des types FMC
+** --------------------------------------------------
+*/
+
+tl_types_FMC = SYSTEM_VAR@ (vg_les_types_FMC)
+
+
+/*A
+** Convertir les dates au format SGBD en version affichable
+** et rechercher la presence de la fiche operateur de ce poste
+** -----------------------------------------------------------
+*/
+
+tl_data = vl_resultats.select_results[0]
+vl_pos_operateur = -1
+
+FOR i=0 TO ARRAY_SIZE@(tl_data) - 1
+        tl_data[i].date = COM18_Date_SGBD_Formatee(tl_data[i].date)
+
+        tl_data[i].date_debut_prevu = COM18_Date_SGBD_Formatee(tl_data[i].date_debut_prevu)
+        tl_data[i].date_fin_prevue = COM18_Date_SGBD_Formatee(tl_data[i].date_fin_prevue)
+        tl_data[i].date_debut = COM18_Date_SGBD_Formatee(tl_data[i].date_debut)
+        tl_data[i].date_fin = COM18_Date_SGBD_Formatee(tl_data[i].date_fin)
+
+	tl_data[i].poste_enrichisseur = tl_data[i].poste_enrichisseur + 0
+
+        /*A si la fmc est ma fiche operateur alors memoriser son rang */
+	IF (tl_data[i].type = XZAEC_FMC_PosteOperateur) AND (tl_data[i].poste_enrichisseur = vl_mon_poste) {
+		vl_pos_operateur = i
+	}
+NEXT i
+
+/*A si ma fiche operateur est dans la liste alors l'extraire et la supprimer */
+IF vl_pos_operateur >= 0
+{
+	vl_fmc_operateur = tl_data[vl_pos_operateur]
+	tl_data = ARRAY_DELETE@ (tl_data, vl_pos_operateur)
+}
+
+
+/*A
+** Inserer une lignes separatrice entre les listes de Fmc
+** et avant les blocs ayant un espacement configure
+** ------------------------------------------------------
+*/
+
+i = ARRAY_SIZE@ (tl_data) - 1
+WHILE (i >= 1)
+	IF (tl_data[i].liste <> tl_data[i-1].liste)  OR
+	   ( (tl_data[i].espace <> 0)  AND  (tl_data[i].position <> tl_data[i-1].position) )
+	{
+		tl_data = ARRAY_INSERT@ (tl_data, NULL, i)
+	}
+	i = i - 1
+WEND
+
+
+/*A la liste contenait ma fiche operateur alors */
+IF vl_pos_operateur >= 0
+{
+	/*A la re-inserer en tete de liste */
+	IF ARRAY_SIZE@ (tl_data) = 0
+        {
+		tl_data = { vl_fmc_operateur }
+        } ELSE {
+		tl_data = ARRAY_INSERT@ (tl_data, vl_fmc_operateur, 0)
+		/*A et inserer une ligne vide de separation apres */
+		tl_data = ARRAY_INSERT@ (tl_data, NULL, 1)
+        }
+}
+
+
+/*A
+** Pour chaque Fmc a traiter lue en base :
+** ---------------------------------------
+**/
+
+FOR i = 0  TO ARRAY_SIZE@ (tl_data) - 1
+	IF tl_data[i] = NULL
+	{
+		/* ligne separatrice */
+		tm_evts[i] = NULL
+		tl_liste_affichee[i]=NULL
+	}
+	ELSE
+	{
+		/*A extraire les donnees de la Fmc */
+		vl_FMC.IdFMC.numero = tl_data[i].num_evt
+		vl_FMC.IdFMC.cle = tl_data[i].cle_evt
+		vl_FMC.Numtype = tl_data[i].type
+		vl_FMC.localisation.NumAuto = tl_data[i].autoroute
+		vl_FMC.localisation.PR = tl_data[i].PR
+		vl_FMC.localisation.sens_circulation = tl_data[i].sens_circul
+		vl_FMC.date = tl_data[i].date
+
+		/*A extraire et calculer les donnees internes et les donnees affichees de la Fmc */
+		tm_evts[i].numero = tl_data[i].num_evt
+		tm_evts[i].createur = tl_data[i].cle_evt
+		tm_evts[i].date_debut = vl_FMC.date
+		tm_evts[i].localisation = COM10_Localisation (vl_FMC.localisation)
+		tm_evts[i].info_evt = vl_FMC
+
+		/*B calculer les droits d'enrichissement du poste */
+		tm_evts[i].droit_enrichir = tl_data[i].enrichir
+		IF (tl_data[i].poste_enrichisseur <> 0)  AND  (tl_data[i].poste_enrichisseur <> vl_mon_poste)
+			tm_evts[i].droit_enrichir = 0
+
+		vl_idx_type = COM45_IndexEnColonne (tl_types_FMC, TDO_NUMERO_FMC, tl_data[i].type)
+		IF vl_idx_type >= 0
+			tm_evts[i].type = tl_types_FMC[vl_idx_type].abbrev
+
+		tl_liste_affichee[i].numero = tm_evts[i].numero
+		tl_liste_affichee[i].createur = tm_evts[i].createur
+		tl_liste_affichee[i].type = tm_evts[i].type
+		tl_liste_affichee[i].date_debut = tm_evts[i].date_debut
+		tl_liste_affichee[i].localisation = tm_evts[i].localisation
+
+		/*A attacher le pictogramme voulu a l'evenement */
+			IF (tl_data[i].enrichir <> 0  AND  tl_data[i].poste_enrichisseur = 0) OR
+			      (tl_data[i].poste_enrichisseur = vl_mon_poste)
+			{
+				IF tl_data[i].date_fin <> NULL  AND  tl_data[i].date_debut <> NULL {
+					tm_pictos[i] = { C_PICTO_FIN_ENRICHIR }
+				} ELSE IF tl_data[i].date_debut <> NULL {
+					tm_pictos[i] = { C_PICTO_EN_COURS_ENRICHIR }
+				} ELSE {
+					tm_pictos[i] = { C_PICTO_EN_PREV_ENRICHIR }
+				}
+			}
+			ELSE
+			{
+				IF tl_data[i].date_fin <> NULL  AND  tl_data[i].date_debut <> NULL {
+					tm_pictos[i] = { C_PICTO_FIN_PAR_DEFAUT }
+				} ELSE IF tl_data[i].date_debut <> NULL {
+					tm_pictos[i] = { C_PICTO_EN_COURS_PAR_DEFAUT }
+				} ELSE {
+					tm_pictos[i] = { C_PICTO_EN_PREV_PAR_DEFAUT }
+				}
+			}
+	}
+NEXT i
+
+tl_retour[0]=tm_evts
+tl_retour[1]=tl_liste_affichee
+tl_retour[2]=tm_pictos
+
+RETURN (tl_retour)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation de la liste des fiches Main Courante a traiter pour le poste
+*  operateur sur PC simplifie
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION Liste_Causes_pcs (FORMAT TLT_Evenement_Affiche ta_liste_affichee)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation par MTMT.
+*
+* FONCTION
+*   Lit en base de donnees puis affiche la liste des fiches Main Courante
+*   a traiter associee au poste operateur.
+---------------------------------------------------------------------------- */
+
+VAR tl_retour
+
+tl_retour=SYSTEM_VAR@(vg_t_info_pcs),
+	  SYSTEM_VAR@(vg_t_evt_pcs),
+	  SYSTEM_VAR@(vg_t_picto_pcs)
+return (tl_retour)
+
+ENDFUNCTION

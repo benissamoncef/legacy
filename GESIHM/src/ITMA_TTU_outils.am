@@ -1,0 +1,917 @@
+/*E*/
+/*Fichier :  @(#)ITMA_TTU_outils.am	1.9      Release : 1.9        Date : 03/24/14
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER ITMA_TTU_outils.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Outils divers
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* A.Bertola 22/02/2007    : IHM supervision NICE en mode dégradé DEM 665
+* A.Bertola 10/08/2008    : correction ITMA_TTU_griser_bandeau pour FT 1669 : 
+*                           fichiers/renov/MC_2/ConfigEqtVentilation_MC_2.cfg introuvable
+* A.Bertola 02/08/2013    : intégration BP HT Centrale La Turbie
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes générales
+ * ------------------------------------- */
+DEFINE	C_MODULE			"MTTU"	' Nom du module
+
+
+/*A Description des modules à inclures 
+* ---------------------------------------*/
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+/*A Description des variables globales
+ * ----------------------------------- */
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_confirmation(ta_param)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : bouton selectionne
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*    gestion fenetre de commandes
+*
+---------------------------------------------------------------------------- */
+
+
+/*A Déclaration des variables statiques */
+var		vl_fenetre_TEC
+var		i,j				/* index de loop */
+var		vl_taille			/* taille d'une table */
+var		vl_rang			/* rang selectionné dans la liste */
+var		vl_controle_sortie
+var		vl_choix			/*  selection dans la liste */
+var		vl_xpos 			/* position X de la fenetre */
+var		vl_ypos 			/* position Y de la fenetre */ 
+var		vl_largeur_BP		/* largeur bouton poussoir */
+var		vl_hauteur		/* hauteur fenetre */
+var		vl_largeur		/* largeur fenetre */
+var		vl_titre_bouton1  	/* titre bouton */
+var		vl_titre_bouton11  	/* titre bouton */
+var		vl_nom_bouton1  	/* nom bouton */
+var		vl_nom_bouton11  	/* nom bouton */
+var		vl_etat_bouton1	/* etat bouton grise ou non */
+var		vl_titre_fen		/*  titre de la fenetre */
+var		vl_nb_bouton		/*nombre de boutons */
+var		vl_fenetre_active
+var		tl_param
+
+vl_nb_bouton = ta_param[0]
+vl_xpos = ta_param[1]
+vl_ypos = ta_param[2]
+vl_titre_fen = ta_param[3]
+vl_titre_bouton1 = ta_param[4]
+vl_nom_bouton1 = ta_param[5]
+
+vl_etat_bouton1	=  False
+
+vl_titre_bouton11 = "ANNULER"
+vl_nom_bouton11 = "BP_ANNULER"
+
+vl_largeur_BP = ta_param[24]
+vl_largeur = ta_param[25]
+
+vl_fenetre_TEC = 80
+vl_hauteur = 25 * vl_nb_bouton + 40
+
+'DB_CREATE_DIALOG@(vl_fenetre_TEC, vl_titre_fen,vl_hauteur, vl_largeur) 
+
+/*A Ouvertue de la liste des sequences */
+vl_fenetre_TEC = DB_LOAD@("ITMA_TTU_liste_commande")
+
+/*A Positionnement de la fenetre  
+*   ------------------------------------------------------------- */
+DB_TITLE@(vl_fenetre_TEC, ta_param[3])
+DB_XPOS@(vl_fenetre_TEC,vl_xpos)
+DB_YPOS@(vl_fenetre_TEC, vl_ypos)
+
+DB_DISPLAY_ONLY@(vl_fenetre_TEC,True)
+DB_DISPLAY@(vl_fenetre_TEC)
+DB_DISPLAY_ONLY@(vl_fenetre_TEC,False)
+
+DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton1, vl_titre_bouton1, 10, 10)
+DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton1, 0)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton1,True)
+DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton1, vl_largeur_BP)
+'' griser/dégriser le bouton 
+DB_CTRL_GRAYED@(vl_fenetre_TEC,vl_nom_bouton1,vl_etat_bouton1)
+
+DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton11, vl_titre_bouton11, 10, 
+				25 * vl_nb_bouton + 10)
+DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton11, 0)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton11,True)
+DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton11, vl_largeur_BP)
+
+DB_WIDTH@(vl_fenetre_TEC,vl_largeur) 
+DB_HEIGHT@(vl_fenetre_TEC,vl_hauteur)
+
+/*A Boucle de capture des événements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_TEC)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_TEC)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+
+	/* selon l'evenement */
+	if  vl_controle_sortie = "BP_ANNULER" 
+	{
+		vl_choix = -1
+	}
+	else
+	{
+		vl_choix = vl_controle_sortie
+	}
+
+	vl_fenetre_active=false
+
+/*A fin tant que */
+WEND
+
+DB_CLOSE@(vl_fenetre_TEC)
+
+RETURN(vl_choix)
+
+ENDMACRO
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_affiche_liste(ta_param)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : bouton selectionne
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*    gestion fenetre de commandes
+*
+---------------------------------------------------------------------------- */
+
+
+/*A Déclaration des variables statiques */
+var		vl_fenetre_TEC
+var		i,j				/* index de loop */
+var		vl_taille			/* taille d'une table */
+var		vl_rang			/* rang selectionné dans la liste */
+var		vl_controle_sortie
+var		vl_choix			/*  selection dans la liste */
+
+var		vl_xpos 			/* position X de la fenetre */
+var		vl_ypos 			/* position Y de la fenetre */ 
+var		vl_largeur_BP		/* largeur bouton poussoir */
+var		vl_hauteur		/* hauteur fenetre */
+var		vl_largeur		/* largeur fenetre */
+var		vl_titre_bouton1  	/* titre bouton */
+var		vl_titre_bouton2  	/* titre bouton */
+var		vl_titre_bouton3  	/* titre bouton */
+var		vl_titre_bouton4  	/* titre bouton */
+var		vl_titre_bouton5  	/* titre bouton */
+var		vl_titre_bouton6  	/* titre bouton */
+var		vl_titre_bouton7  	/* titre bouton */
+var		vl_titre_bouton8  	/* titre bouton */
+var		vl_titre_bouton9  	/* titre bouton */
+var		vl_titre_bouton10  	/* titre bouton */
+var		vl_titre_bouton11  	/* titre bouton */
+var		vl_nom_bouton1  	/* nom bouton */
+var		vl_nom_bouton2  	/* nom bouton */
+var		vl_nom_bouton3  	/* nom bouton */
+var		vl_nom_bouton4  	/* nom bouton */
+var		vl_nom_bouton5  	/* nom bouton */
+var		vl_nom_bouton6  	/* nom bouton */
+var		vl_nom_bouton7  	/* nom bouton */
+var		vl_nom_bouton8  	/* nom bouton */
+var		vl_nom_bouton9  	/* nom bouton */
+var		vl_nom_bouton10  	/* nom bouton */
+var		vl_nom_bouton11  	/* nom bouton */
+var		vl_etat_bouton1	/* etat bouton grise ou non */
+var		vl_etat_bouton2	/* etat bouton grise ou non */
+var		vl_etat_bouton3	/* etat bouton grise ou non */
+var		vl_etat_bouton4	/* etat bouton grise ou non */
+var		vl_etat_bouton5	/* etat bouton grise ou non */
+var		vl_etat_bouton6	/* etat bouton grise ou non */
+var		vl_etat_bouton7	/* etat bouton grise ou non */
+var		vl_etat_bouton8	/* etat bouton grise ou non */
+var		vl_etat_bouton9	/* etat bouton grise ou non */
+var		vl_etat_bouton10	/* etat bouton grise ou non */
+var		vl_titre_fen		/*  titre de la fenetre */
+var		vl_nb_bouton		/*nombre de boutons */
+var		vl_fenetre_active
+var		tl_param
+
+vl_nb_bouton = ta_param[0]
+vl_xpos = ta_param[1]
+vl_ypos = ta_param[2]
+vl_titre_fen = ta_param[3]
+vl_titre_bouton1 = ta_param[4]
+vl_nom_bouton1 = ta_param[5]
+vl_titre_bouton2 = ta_param[6]
+vl_nom_bouton2 = ta_param[7]
+vl_titre_bouton3 = ta_param[8]
+vl_nom_bouton3 = ta_param[9]
+vl_titre_bouton4 = ta_param[10]
+vl_nom_bouton4 = ta_param[11]
+vl_titre_bouton5 = ta_param[12]
+vl_nom_bouton5 = ta_param[13]
+vl_titre_bouton6 = ta_param[14]
+vl_nom_bouton6 = ta_param[15]
+vl_titre_bouton7 = ta_param[16]
+vl_nom_bouton7 = ta_param[17]
+vl_titre_bouton8 = ta_param[18]
+vl_nom_bouton8 = ta_param[19]
+vl_titre_bouton9 = ta_param[20]
+vl_nom_bouton9 = ta_param[21]
+vl_titre_bouton10 = ta_param[22]
+vl_nom_bouton10 = ta_param[23]
+
+vl_etat_bouton1	=  True
+vl_etat_bouton2	=  True
+vl_etat_bouton3	=  True
+vl_etat_bouton4	=  True
+vl_etat_bouton5	=  True
+vl_etat_bouton6	=  True
+vl_etat_bouton7	=  True
+vl_etat_bouton8	=  True
+vl_etat_bouton9	=  True
+vl_etat_bouton10 = True
+
+vl_etat_bouton1	= ta_param[30]
+vl_etat_bouton2	= ta_param[31]
+vl_etat_bouton3	= ta_param[32]
+vl_etat_bouton4	= ta_param[33]
+vl_etat_bouton5	= ta_param[34]
+vl_etat_bouton6	= ta_param[35]
+vl_etat_bouton7	= ta_param[36]
+vl_etat_bouton8	= ta_param[37]
+vl_etat_bouton9	= ta_param[38]
+vl_etat_bouton10	= ta_param[39]
+
+vl_etat_bouton10 = ta_param[39]
+vl_largeur_BP = ta_param[24]
+vl_largeur = ta_param[25]
+
+vl_titre_bouton11 = "ANNULER"
+vl_nom_bouton11 = "BP_ANNULER"
+
+
+vl_fenetre_TEC = 81
+vl_hauteur = 25 * vl_nb_bouton + 40
+
+'DB_CREATE_DIALOG@(vl_fenetre_TEC, vl_titre_fen,vl_hauteur, vl_largeur) 
+
+/*A Ouvertue de la liste des sequences */
+vl_fenetre_TEC = DB_LOAD@("ITMA_TTU_liste_commande")
+
+/*A Positionnement de la fenetre  
+*   ------------------------------------------------------------- */
+DB_TITLE@(vl_fenetre_TEC, ta_param[3])
+DB_XPOS@(vl_fenetre_TEC,vl_xpos)
+DB_YPOS@(vl_fenetre_TEC, vl_ypos)
+
+DB_DISPLAY_ONLY@(vl_fenetre_TEC,True)
+DB_DISPLAY@(vl_fenetre_TEC)
+DB_DISPLAY_ONLY@(vl_fenetre_TEC,False)
+
+DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton1, vl_titre_bouton1, 10, 10)
+DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton1, 0)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton1,True)
+DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton1, vl_largeur_BP)
+'' griser/dégriser le bouton 
+DB_CTRL_GRAYED@(vl_fenetre_TEC,vl_nom_bouton1,vl_etat_bouton1)
+
+if vl_nb_bouton >= 2
+{
+	DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton2, vl_titre_bouton2, 10, 35)
+	DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton2, 0)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton2,True)
+	DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton2, vl_largeur_BP)
+	'' griser/dégriser le bouton 
+	DB_CTRL_GRAYED@(vl_fenetre_TEC,vl_nom_bouton2,vl_etat_bouton2)
+
+}
+
+if vl_nb_bouton >= 3
+{
+	DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton3, vl_titre_bouton3, 10, 60)
+	DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton3, 0)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton3,True)
+	DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton3, vl_largeur_BP)
+	'' griser/dégriser le bouton 
+	DB_CTRL_GRAYED@(vl_fenetre_TEC,vl_nom_bouton3,vl_etat_bouton3)
+}
+if vl_nb_bouton >= 4
+{
+	DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton4, vl_titre_bouton4, 10, 85)
+	DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton4, 0)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton4,True)
+	DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton4, vl_largeur_BP)
+	'' griser/dégriser le bouton 
+	DB_CTRL_GRAYED@(vl_fenetre_TEC,vl_nom_bouton4,vl_etat_bouton4)
+}
+if vl_nb_bouton >= 5
+{
+	DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton5, vl_titre_bouton5, 10, 110)
+	DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton5, 0)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton5,True)
+	DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton5, vl_largeur_BP)
+	'' griser/dégriser le bouton 
+	DB_CTRL_GRAYED@(vl_fenetre_TEC,vl_nom_bouton5,vl_etat_bouton5)
+}
+if vl_nb_bouton >= 6
+{
+	DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton6, vl_titre_bouton6, 10, 135)
+	DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton6, 0)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton6,True)
+	DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton6, vl_largeur_BP)
+	'' griser/dégriser le bouton 
+	DB_CTRL_GRAYED@(vl_fenetre_TEC,vl_nom_bouton6,vl_etat_bouton6)
+}
+if vl_nb_bouton >= 7
+{
+	DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton7, vl_titre_bouton7, 10, 160)
+	DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton7, 0)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton7,True)
+	DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton7, vl_largeur_BP)
+	'' griser/dégriser le bouton 
+	DB_CTRL_GRAYED@(vl_fenetre_TEC,vl_nom_bouton7,vl_etat_bouton7)
+}
+if vl_nb_bouton >= 8
+{
+	DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton8, vl_titre_bouton8, 10, 185)
+	DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton8, 0)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton8,True)
+	DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton8, vl_largeur_BP)
+	'' griser/dégriser le bouton 
+	DB_CTRL_GRAYED@(vl_fenetre_TEC,vl_nom_bouton8,vl_etat_bouton8)
+}
+if vl_nb_bouton >= 9
+{
+	DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton9, vl_titre_bouton9, 10, 210)
+	DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton9, 0)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton9,True)
+	DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton9, vl_largeur_BP)
+	'' griser/dégriser le bouton 
+	DB_CTRL_GRAYED@(vl_fenetre_TEC,vl_nom_bouton9,vl_etat_bouton9)
+}
+if vl_nb_bouton >= 10
+{
+	DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton10, vl_titre_bouton10, 10, 235)
+	DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton10, 0)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton10,True)
+	DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton10, vl_largeur_BP)
+	'' griser/dégriser le bouton 
+	DB_CTRL_GRAYED@(vl_fenetre_TEC,vl_nom_bouton10,vl_etat_bouton10)
+}
+
+DB_CREATE_CTRL@(vl_fenetre_TEC, 3, vl_nom_bouton11, vl_titre_bouton11, 10, 
+				25 * vl_nb_bouton + 10)
+DB_CTRL_BUTTON_TYPE@(vl_fenetre_TEC, vl_nom_bouton11, 0)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,vl_nom_bouton11,True)
+DB_CTRL_WIDTH@ (vl_fenetre_TEC, vl_nom_bouton11, vl_largeur_BP)
+
+DB_WIDTH@(vl_fenetre_TEC,vl_largeur) 
+DB_HEIGHT@(vl_fenetre_TEC,vl_hauteur)
+
+/*A Boucle de capture des événements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_TEC)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_TEC)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+
+	/* selon l'evenement */
+	if  vl_controle_sortie = "BP_ANNULER"
+	{
+		vl_controle_sortie = -1
+	}
+	else
+	{
+		vl_choix = vl_controle_sortie
+
+		/*A appel la liste des commandes possibles */
+		tl_param[0] = 1	'nombre de boutons
+		tl_param[1] = 0	'position X fenetre
+		tl_param[2] = 0	'position y fenetre
+		tl_param[3] = "Confirmation"	'titre de la fenetre
+		tl_param[4] = "CONFIRMER"	'titre bouton 6
+		tl_param[5] = "BP_CONFIRME"	'nom bouton 6
+
+		tl_param[24] = 170	'largeur bouton poussoir
+		tl_param[25] = 190	'largeur fenetre
+
+		vl_choix = PEND_FOR_NEW_TASK@("ITMA_TTU_confirmation", tl_param)
+		if vl_choix = -1 or vl_choix = NULL
+			vl_controle_sortie = -1
+		
+	}
+
+	vl_fenetre_active=false
+
+/*A fin tant que */
+WEND
+
+DB_CLOSE@(vl_fenetre_TEC)
+
+RETURN(vl_controle_sortie)
+
+ENDMACRO
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_maj_aff_mode_regime(va_fenetre, ta_param)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*    gestion affichage fenetre mode et regime ventilation et eclairage
+*
+---------------------------------------------------------------------------- */
+
+
+/*A Déclaration des variables statiques */
+var		tl_color
+
+
+tl_color[0] = 1
+tl_color[1] = 0,255,0
+tl_color[2] = "vert"
+
+/* mode_ventilation  */
+'DB_CTRL_TITLE@(va_fenetre,"Li_mode_ventilation","Manuel")
+
+/* regime_ventilation */
+DB_CTRL_TITLE@(va_fenetre,"Li_regime_ventilation","Desenfumage")
+
+/* mode_eclairage */
+'DB_CTRL_TITLE@(va_fenetre,"Li_mode_eclairage","Manuel")
+
+/* regime_eclairage */
+DB_CTRL_TITLE@(va_fenetre,"Li_regime_eclairage","Diurne")
+
+tl_color[0] = 1
+tl_color[1] = 0,255,0
+tl_color[2] = "vert"
+/* couleur texte */
+
+'DB_CTRL_WIDGET_COLOR@(va_fenetre,"Ta_mode_ventilation",tl_color)
+'DB_CTRL_WIDGET_COLOR@(va_fenetre,"Ta_mode_eclairage",tl_color)
+DB_CTRL_WIDGET_COLOR@(va_fenetre,"Ta_regime_ventilation",tl_color)
+DB_CTRL_WIDGET_COLOR@(va_fenetre,"Ta_regime_eclairage",tl_color)
+
+RETURN
+
+ENDMACRO
+
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+MACRO ITMA_TTU_maj_aff_BP(va_fenetre, va_bouton, va_picto,
+					va_type_ctrl,va_type_bouton)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*va_fenetre : fenetre de dialogue	
+*va_bouton : nom du bouton poussoir
+*va_picto : nom du picto
+*va_type_ctrl : type du controle créé
+*va_type_bouton : type du bouton créé
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*	gestion affichage Bouton poussoir avec picto affiché
+*	on change de picto en supprimant le BP et le recréant
+---------------------------------------------------------------------------- */
+
+
+/*A Déclaration des variables statiques */
+var vl_posX
+var vl_posY
+
+vl_posX = DB_CTRL_GET_XPOS@(va_fenetre,va_bouton)
+vl_posY = DB_CTRL_GET_YPOS@(va_fenetre,va_bouton)
+
+DB_CTRL_DISPLAY@(va_fenetre,va_bouton,TRUE)
+DB_DESTROY_CTRL@(va_fenetre,va_bouton)
+DB_CREATE_CTRL@(va_fenetre,va_type_ctrl,va_bouton,va_picto,
+			 vl_posX,vl_posY,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,va_bouton,va_type_bouton)
+
+RETURN
+
+ENDMACRO
+
+MACRO ITMA_TTU_griser_bandeau(va_fenetre, va_tunnel)
+
+var vl_nb_vue_ventilation
+var vl_nb_poste_BT
+
+	vl_nb_vue_ventilation =  SYSTEM_VAR@ ( vg_nb_vue_ventilation )
+	vl_nb_poste_BT =  SYSTEM_VAR@ ( vg_nb_poste_BT )
+	
+	DB_CTRL_GRAYED@(va_fenetre, "BP_sens", True)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_signalisation", True)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_eclairage", True)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_ventilation", True)
+	if vl_nb_vue_ventilation = 2
+		DB_CTRL_GRAYED@(va_fenetre, "BP_ventilation2", True)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_LT", True)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Exploitation", True)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_BTOUEST", True)
+	if vl_nb_poste_BT = 2
+		DB_CTRL_GRAYED@(va_fenetre, "BP_BTEST", True)
+
+
+	DB_CTRL_GRAYED@(va_fenetre, "BP_systeme", True)
+
+	DB_CTRL_GRAYED@(va_fenetre, "Tableau_haut", True)
+	DB_CTRL_GRAYED@(va_fenetre, "Ta_ventilation", True)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_mode_ventilation", True)
+	'DB_CTRL_GRAYED@(va_fenetre, "Li_titre_mode_ventilation", True)
+	DB_CTRL_GRAYED@(va_fenetre, "Ta_eclairage", True)
+	DB_CTRL_GRAYED@(va_fenetre, "Ta_regime_eclairage", True)
+
+	DB_CTRL_GRAYED@(va_fenetre, "BP_actuel", True)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_cde_incendie", True)
+	
+	if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+	{ '' hors toulon
+		DB_CTRL_GRAYED@(va_fenetre, "BP_gauche", True)
+		DB_CTRL_GRAYED@(va_fenetre, "BP_droite", True)
+		DB_CTRL_GRAYED@(va_fenetre, "BP_ltn", True)	
+		DB_CTRL_GRAYED@(va_fenetre, "BP_litarret", True)
+		DB_CTRL_GRAYED@(va_fenetre, "BP_HT", True)
+		DB_CTRL_GRAYED@(va_fenetre, "BP_HT_TU", True)
+		DB_CTRL_GRAYED@(va_fenetre, "BP_mode_eclairage", True)	
+	}	
+	else
+	{ '' tunnel toulon
+		DB_CTRL_GRAYED@(va_fenetre, "BP_signalisation2", True)
+		DB_CTRL_GRAYED@(va_fenetre, "BP_signalisation3", True)
+		
+		if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON S1") <> 0
+			DB_CTRL_GRAYED@(va_fenetre, "BP_eclairage2", True)
+				
+		DB_CTRL_GRAYED@(va_fenetre, "BP_Exploitation2", True)	
+		DB_CTRL_GRAYED@(va_fenetre, "BP_Exploitation3", True)
+	}	
+ENDMACRO
+
+MACRO ITMA_TTU_degriser_bandeau(va_fenetre, va_tunnel, va_numvue)
+var vl_nb_vue_ventilation
+var vl_nb_poste_BT
+var domaine_existe
+var vl_domaine_courant
+
+	vl_domaine_courant = SYSTEM_VAR@("vg_domaine_courant")
+	vl_nb_vue_ventilation =  SYSTEM_VAR@ ( vg_nb_vue_ventilation )
+	vl_nb_poste_BT =  SYSTEM_VAR@ ( vg_nb_poste_BT )
+
+	if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+	{ '' hors toulon
+		DB_CTRL_GRAYED@(va_fenetre, "BP_gauche", False)
+		DB_CTRL_GRAYED@(va_fenetre, "BP_droite", False)
+		DB_CTRL_GRAYED@(va_fenetre, "BP_mode_eclairage", False)	
+	}		
+
+	DB_CTRL_GRAYED@(va_fenetre, "BP_sens", False)
+	
+	if vl_domaine_courant <> "signalisation"	
+	{
+		DB_CTRL_GRAYED@(va_fenetre, "BP_signalisation", False)
+		
+		if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") <> 0
+		{ '' toulon
+			DB_CTRL_GRAYED@(va_fenetre, "BP_signalisation2", False)
+			DB_CTRL_GRAYED@(va_fenetre, "BP_signalisation3", False)
+		}				
+	}
+	else
+	{
+		if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") <> 0 and va_numvue = 1
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_signalisation2", False)
+			DB_CTRL_GRAYED@(va_fenetre, "BP_signalisation3", False)
+		}				
+		if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") <> 0 and va_numvue = 2
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_signalisation", False)
+			DB_CTRL_GRAYED@(va_fenetre, "BP_signalisation3", False)
+		}				
+		if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") <> 0 and va_numvue = 3
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_signalisation", False)
+			DB_CTRL_GRAYED@(va_fenetre, "BP_signalisation2", False)
+		}				
+	}
+	domaine_existe = SYSTEM_VAR@ ("vg_domaine_eclairage_existe")
+	if domaine_existe = true and vl_domaine_courant <> "eclairage"
+	{
+		DB_CTRL_GRAYED@(va_fenetre, "BP_eclairage", False)
+		if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON S1") <> 0
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_eclairage2", False)
+		}				
+	}
+	else
+	{
+		if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON S1") <> 0 and va_numvue = 1
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_eclairage2", False)
+		}				
+		if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") <> 0 and va_numvue = 2
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_eclairage", False)
+		}				
+	}
+	
+	domaine_existe = SYSTEM_VAR@ ("vg_domaine_ventilation_existe")
+	if domaine_existe = true
+	{
+		if vl_domaine_courant <> "ventilation" 
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_ventilation", False)
+		}
+		if vl_nb_vue_ventilation = 2 and vl_domaine_courant <> "ventilation2"
+		{
+		
+			DB_CTRL_GRAYED@(va_fenetre, "BP_ventilation2", False)
+		}
+	}
+		
+	domaine_existe = SYSTEM_VAR@ ("vg_domaine_lt_existe")
+	if domaine_existe = true and vl_domaine_courant <> "lt"
+	{
+		DB_CTRL_GRAYED@(va_fenetre, "BP_LT", False)
+	}
+	
+	domaine_existe = SYSTEM_VAR@ ("vg_domaine_exploitation_existe")
+	if domaine_existe = true and vl_domaine_courant <> "exploitation"
+	{
+		DB_CTRL_GRAYED@(va_fenetre, "BP_Exploitation", False)
+
+		if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") <> 0
+		{ '' toulon
+			DB_CTRL_GRAYED@(va_fenetre, "BP_Exploitation2", False)
+			DB_CTRL_GRAYED@(va_fenetre, "BP_Exploitation3", False)
+		}				
+		
+	}
+	else
+	{
+		if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") <> 0 and va_numvue = 1
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_Exploitation2", False)
+			DB_CTRL_GRAYED@(va_fenetre, "BP_Exploitation3", False)
+		}				
+		if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") <> 0 and va_numvue = 2
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_Exploitation", False)
+			DB_CTRL_GRAYED@(va_fenetre, "BP_Exploitation3", False)
+		}				
+		if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") <> 0 and va_numvue = 3
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_Exploitation", False)
+			DB_CTRL_GRAYED@(va_fenetre, "BP_Exploitation2", False)
+		}				
+	}
+	
+	domaine_existe = SYSTEM_VAR@ ("vg_domaine_bt_existe")
+	if domaine_existe = true and vl_domaine_courant <> "bt"
+	{
+		if vl_domaine_courant <> "bt"
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_BTOUEST", False)
+		}
+		if vl_nb_poste_BT = 2 and vl_domaine_courant <> "bt2"
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_BTEST", False)
+		}
+	}
+
+	if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+	{ '' hors toulon
+	
+		domaine_existe = SYSTEM_VAR@ ("vg_domaine_ltn_existe")
+		if domaine_existe = true and vl_domaine_courant <> "ltn"
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_ltn", False)
+		}
+	
+		domaine_existe = SYSTEM_VAR@ ("vg_domaine_litarret_existe")
+		if domaine_existe = true and vl_domaine_courant <> "litarret"
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_litarret", False)
+		}
+		
+		domaine_existe = SYSTEM_VAR@ ("vg_domaine_ht_existe")
+		if domaine_existe = true and vl_domaine_courant <> "ht"
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_HT", False)
+		}
+		
+		/* A.Bertola 02/08/2013 : intégration BP HT Centrale La Turbie */
+		domaine_existe = SYSTEM_VAR@ ("vg_domaine_ht_turbie_existe")
+		if domaine_existe = true and vl_domaine_courant <> "ht"
+		{
+			DB_CTRL_GRAYED@(va_fenetre, "BP_HT_TU", False)
+		}
+	}
+			
+	domaine_existe = SYSTEM_VAR@ ("vg_domaine_systeme_existe")
+	if domaine_existe = true and vl_domaine_courant <> "systeme"
+	{
+		DB_CTRL_GRAYED@(va_fenetre, "BP_systeme", False)
+	}
+	
+	DB_CTRL_GRAYED@(va_fenetre, "Tableau_haut", False)
+	DB_CTRL_GRAYED@(va_fenetre, "Ta_ventilation", False)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_mode_ventilation", False)
+	DB_CTRL_GRAYED@(va_fenetre, "Ta_eclairage", False)
+	DB_CTRL_GRAYED@(va_fenetre, "Ta_regime_eclairage", False)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_actuel", False)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_cde_incendie", False)
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourner le trigramme d'un tube
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TTU_recuperer_trigramme(va_tube)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		va_tube		:	nom tube
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*	retourner trigramme tube en fonction du nom du tube.
+*
+---------------------------------------------------------------------------- */
+var tl_BP_menu
+var vl_rep
+var vl_taille
+var i
+
+tl_BP_menu = SYSTEM_VAR@ ("vg_les_donnees_menu_principal")
+
+vl_rep = null
+vl_taille = ARRAY_SIZE@(tl_BP_menu) -1
+for i = 0 to vl_taille
+	if tl_BP_menu[i,0] = va_tube
+	{
+		vl_rep = tl_BP_menu[i,1]
+	}
+next i
+
+return(vl_rep)
+
+endmacro
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner à l'état des panneaux.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Abt_Etat_Eqp_exploitation(va_Abonnement,va_NumTube)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_Abonnement	:	Type d'abonnement (debut ou fin)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   
+*
+* FONCTION :
+*	Permet de s'abonner à l'état des panneaux.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_TypeEqt
+
+	vl_TypeEqt = XDC_EQT_TUBE
+
+	/*A trace de l'appel de procedure */
+	vl_text = COM09_Date_Courante()  
+	vl_text =  vl_text ++ " --> XZEA18_Abt_Eqp_exploitation "
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B Identifiant de la fonction exploitation */
+	vl_cmd[1]=MTTU_FCT_EXP			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA18  
+
+	/*B arguments */
+	vl_cmd[3]= va_Abonnement ++ MTAR_CAR_SEPAR ++ "DM"   ++ MTAR_CAR_SEPAR ++ vl_TypeEqt ++ MTAR_CAR_SEPAR ++ (va_NumTube+0) 
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émission */
+	vl_text = COM09_Date_Courante() ++ " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[0]++ ","++vl_cmd[1]++","++vl_cmd[2]++","++vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO

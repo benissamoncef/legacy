@@ -1,0 +1,297 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_annuler_fmc_prevue.am,v 1.3 2020/11/03 17:41:26 pc2dpdy Exp $        Release : $Revision: 1.3 $        Date : $Date: 2020/11/03 17:41:26 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TMC * FICHIER ITMA_TMC_annuler_fmc_prevue.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*	Permet d'annuler une FMC en prévision (quel que soit le type FMC)
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Torregrossa    	  Creation  ITMA_TMC_annuler_trav            	V1.1
+* Noel          22 Sep 1995  Suppression de chcrogneugneu !		V1.4
+*
+* Torregrossa                Suppression info message                  	V1.5
+* Torregrossa  10/10/96 : modif interface proc (FMC3)			V1.6
+* =============================================================================
+* JPL		30/05/07 : Renommee ITMA_TMC_annuler_fmc_prevue (conforme xzae10);
+* 		           Plus d'arg. de longueur; messages d'erreur generaux 1.1
+* JPL		28/08/07 : Conversion dates en numerique (DEM 692) 1.2
+---------------------------------------------------------------------------- */
+
+include	"dbase_.am"
+
+include	"../../XDMICG/inc/xdc_ax.h"
+include	"../../XDMICG/inc/xzic_ax.h"
+include	"../../XDMICG/inc/xzaec_ax.h"
+
+include	"../inc/xzae10sp.h"
+
+include "../inc/ITMA_COM.h"
+include "../inc/ITMA_TDO.h"
+include	"../inc/ITMA_TAR.h"
+include	"../inc/ITMA_TMC.h"
+
+
+/*X*/
+/*-----------------------------------------------------------------------------
+* SERVICE RENDU : 
+*
+*  Annulation d'une FMC en prevision
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_annuler_fmc_prevue (va_horodate, FORMAT TMC_fmc va_fiche, va_mode, ta_config)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_horodate	:horodate validation
+*
+* ARGUMENTS EN SORTIE :
+* aucun
+*
+* CODE RETOUR : 
+* aucun
+*
+*
+*
+---------------------------------------------------------*/
+VAR vl_cmd, vl_duree, vl_args					' Commande a envoyer, arguments
+VAR FORMAT sql_procedure_params@ param_in,vl_parametres
+var 	i
+var FORMAT sql_procedure_result@ vl_resultats
+VAR vl_msg,vl_indice
+
+	MACRO_WINS_BUSY@()
+
+	i=0
+	vl_parametres[i].type = SYB#INT4_     
+	vl_parametres[i].data=va_fiche.numero
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = va_fiche.cle
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+		vl_parametres[i].data = SYSTEM_VAR@(vg_numero_poste_surcharge)
+	ELSE
+		vl_parametres[i].data = SYSTEM_VAR@(vg_numero_poste)
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_mode 'prevision 1 traiter 2 clos 3
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_fiche.type
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	/*! Les dates proviennent pour la plupart directement de la base : */
+	/*! s'assurer qu'elles sont toutes traduites en numerique */
+	/*! avant de les reecrire afin d'eviter toute erreur de conversion */
+
+	vl_parametres[i].data=COM18_Date_SGBD_Formatee (va_fiche.debut_prevu) 'deb prev
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=COM18_Date_SGBD_Formatee (va_fiche.debut)
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=COM18_Date_SGBD_Formatee (va_fiche.fin_prevu)
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=COM18_Date_SGBD_Formatee (va_fiche.fin)
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=COM18_Date_SGBD_Formatee (va_horodate)
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_fiche.numero_cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_fiche.cle_cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_fiche.numero_alerte
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_fiche.origine 'origine
+	vl_parametres[i].type = SYB#CHAR_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	/*! si en prevision*/
+	vl_parametres[i].data=null 'enrichisseur a null
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_fiche.confirme 'confirme
+	vl_parametres[i].type = SYB#INT4_                     
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_fiche.autoroute
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_fiche.pr
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_fiche.sens
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_fiche.nom_point_car
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_fiche.point_car
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_fiche.position
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=ta_config[9][1]		'va_fiche.vr
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[8][1]	'va_fiche.vm2
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[7][1]	'va_fiche.vm1
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[6][1]	'va_fiche.vl
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[5][1]	'va_fiche.bau
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[4][1]	'va_fiche.vr_i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[3][1]	'va_fiche.vm2_i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=ta_config[2][1]		'va_fiche.vm1_i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=ta_config[1][1]		'va_fiche.vl_i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[0][1]		'va_fiche.bau_i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= va_fiche.degatsdom
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data = SYSTEM_VAR@(vg_nom_site)
+	vl_parametres[i].type = SYB#CHAR_                               ' Site local
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	IF COM05_SQL_Procedure (XZAE10_Annuler_FMC_En_Prevision,
+				  vl_parametres, vl_resultats, "ITMA_TMC") <> COM_OK
+	{
+		INFO_MESSAGE@("Annulation fmc impossible")
+		RETURN (COM_NOK)
+	}
+	ELSE IF vl_resultats.status <> XDC_OK
+	{
+		vl_msg="Erreur système inconnue, opération impossible....."
+		/*A suivant le code d'erreur renvoye par la procedure*/
+		CASE OF (vl_resultats.status)
+			CASE XDC_ARG_INV
+				vl_msg="Annulation FMC: arguments invalides"
+
+			CASE XDC_PRC_INC
+				vl_msg="Procédure stockée inexistante en base"
+
+			CASE XZAEC_FMC_PAS_ENR
+				vl_msg="Pas le droit d'enrichir"
+
+			CASE XZAEC_FMC_ETAT_INC
+				vl_msg="Annulation FMC : l'événement n'est pas dans l'état supposé"
+
+			CASE XZAEC_FMC_DEB_PRV_INC
+				vl_msg="L'événement est prévu dans un délai trop court pour être annulé"
+
+			CASE XZAEC_FMC_VOIE_INC
+				vl_msg="Description des voies incorrecte"
+
+			CASE XZAEC_FMC_LOC_INC
+				vl_msg="Localisation incorrecte"
+
+			CASE XZAEC_FMC_ACT_NON_FIN
+			CASE XZAEC_FMC_A_TRT
+			CASE XZAEC_FMC_NON_FIN
+				vl_msg="Achèvement de l'événement refusé"
+		ENDCASE
+		
+		INFO_MESSAGE@(vl_msg)
+		RETURN (COM_NOK)
+	}
+
+	RETURN (COM_OK)
+ENDMACRO

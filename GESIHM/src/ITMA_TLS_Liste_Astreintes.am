@@ -1,0 +1,1335 @@
+/*E*/
+/* Fichier : $Id: ITMA_TLS_Liste_Astreintes.am,v 1.33 2017/04/25 11:08:22 devgfi Exp $     Release : $Revision: 1.33 $      Date :  $Date: 2017/04/25 11:08:22 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLS * FICHIER ITMA_TLS_Liste_Astreintes.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Liste des astreintes.
+*
+*   Cf. DCG 2.4.48
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	25 Oct 1994 : Creation
+* Lecrivain	08 Dec 1994 : Ajout heure et minute a la date              V1.4
+* Lecrivain	13 Dec 1994 : Interface differente appel depuis MSOP       V1.6
+* Lecrivain	15 Dec 1994 : Modif. fonctions de traitements de dates     V1.8
+* Guilhou   23 dec 1994 : ajout aide composition de l'heure               V1.11
+* Lecrivain 18 Avr 1995 : Passage fenetre en avant-plan sur reception msg V1.14
+* Lecrivain 06 Jun 1995 : Ajout montre sur requetes en base               V1.15
+* Guilhou 	19 sep 1996 : ne rien faire sur pc simplifie (RADT)	V1.16
+* Guilhou	14 nov 1996 : refonte pour la gestion des astreintes (DEM/1306) 	1.17
+* Guilhou	10 dec 1996 : supprimer demande de confirmation sur supprimer comp. (DEM/1306) 1.18
+* Guilhou	18 dec 1996 : correction gestion des numeros d'interlocuteurs 1.19
+* Guilhou	21 jan 1997 : correction recup site responsable calendrier (DEM/1383) 1.20
+* Guilhou	26 mai 1997 : fonctionne si famille exploitation 1.21
+* Niepceron	24 jun 1997 : acces si pas poste peage 1.23 (dem/1429 suite)
+* Niepceron	24 jun 1998 : horodate renseignee  1.24 (dem/1386)
+* Niepceron   2 fev 1999 : vg_toutes_les_autoroutes remplace vg_les_autoroutes dem/1723 1.26
+* ESCOTA	25 fev 1999 : ajout Peyruis et Meyrargues 1.27
+* Claudel       09 Jul 2007 : Suppression DY 1.28
+* JMG           29/09/09    : SECTO DEM 887
+* JPL		07/10/2014 :  Affichage sens dans libelles de zones de competence (DEM 1100)  1.31
+* JMG   09/03/17        : REGIONALISATION - DEM1220 1.32
+* JPL	27/03/17	: Liste des sites lue en variable publique ; Changement terme Secteur en Region (DEM 1173)  1.33
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TFC.h"
+INCLUDE	"../inc/ITMA_TFS.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzanc.h"
+
+INCLUDE "../inc/xzan08sp.h"
+INCLUDE "../inc/xzan25sp.h"
+INCLUDE "../inc/xzan35sp.h"
+
+
+
+DEFINE	C_MODULE	"MTLS"					' Nom du module
+
+DEFINE	C_MODELE_TLS	"ITMA_TLS_Astreintes.aw"
+
+
+
+/*A
+ * Definition des codes et libelles
+ * des erreurs specifiques au module
+ * ---------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+DEFINE	C_LIB_CHOISIR_COMP	"Choisir d'abord une compétence"
+DEFINE	C_LIB_DATE_HORS_BORNES	"La date choisie est hors bornes"
+DEFINE	C_LIB_CALEND_NON_VIDE	"Non supprimée : le calendrier n'est pas vide"
+DEFINE	C_LIB_CHOISIR_TYPE_ASTR	"Choisir d'abord un type d'astreinte"
+
+
+
+/*A
+ * Nombre de jours de prevision du calendrier d'astreinte
+ * ------------------------------------------------------
+ */
+
+DEFINE	C_NB_JOURS_CALENDRIER	400
+
+
+
+/*A
+ * Format des donnees d'astreintes affichees
+ * -----------------------------------------
+ */
+
+FORMAT	TLS_Astreintes
+	type_astreinte,
+	sous_type_astreinte,
+	district,
+	site_responsable,
+	zone_geo,
+	interlocuteur,
+	competence,
+	fiche_annuaire
+
+
+/*A
+ * Format des donnees d'astreintes lues en base de donnees
+ * -------------------------------------------------------
+ */
+
+FORMAT	TLS_Donnees_Astreintes
+	num_competence,
+	type_astreinte,
+	sous_type_astreinte,
+	district,
+	site_responsable,
+	autoroute,
+	PR_debut,
+	PR_fin,
+	nom_interlocuteur,
+	num_fiche_annuaire,
+	sens
+
+
+/*A
+ * Format des donnees calendrier d'astreinte lues en base de donnees
+ * -----------------------------------------------------------------
+ */
+
+FORMAT	TLS_Donnees_Calendrier
+	num_competence,
+	type_astreinte,
+	autoroute,
+	PR_debut,
+	PR_fin,
+	nom,
+	numint,
+	sens
+
+
+/*VAR FORMAT TLS_Donnees_Astreintes	vm_t_comp_base 	'Liste d'astreintes lue en base*/
+
+VAR FORMAT TLS_Astreintes vm_t_competences	' Liste d'astreintes affichee
+
+VAR	vm_l_num_comp		 		' Liste numeros de competence
+VAR	vm_l_num_interlo	 		' Liste numeros d'interlocuteurs
+
+VAR FORMAT TDO_Type_Astreinte vm_l_types_astreintes	 ' Liste types astr.
+VAR FORMAT TDO_District vm_l_districts 			' Liste districts
+VAR FORMAT TDO_Autoroute vm_l_autoroutes		 ' Liste autoroutes
+
+VAR FORMAT TDO_District vm_l_sites			' Liste des sites responsables
+
+VAR     vm_maintenant					 ' Horodate courante
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Liste des astreintes a une date donnee.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLS_Liste_Astreintes (va_appelant, va_arg1, va_arg2, va_arg3)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_appelant       : Nom de la macro Applix ayant invoque la presente.
+*
+* . Si activation depuis MTAT ou MTFX :
+*   va_type_astr      : Numero du type d'astreinte ;
+*   va_num_auto       : Numero d'autoroute ;
+*   va_PR             : PR de la localisation astreinte.
+*
+* . Si activation depuis MSOP :
+*   va_arg1[] Liste d'arguments :
+*    va_type_astr     : Numero du type d'astreinte ;
+*    va_num_auto      : Numero d'autoroute ;
+*    va_PR            : PR de la localisation astreinte.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMN (main courante maintenance)
+*   Selection de Consulter -> Calendrier  dans MTMT
+*   MSOP
+*   Selection du choix "Rechercher Astreinte"  dans MTAT ou MTFX
+*
+* FONCTION
+*   Visualise les astreintes repondant a des criteres saisis par l'operateur ;
+*   permet de creer, modifier ou supprimer des competences ;
+*   permet de consulter le detail de fiches astreintes.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_astreintes		' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_appelant
+    VAR     va_type_astr, va_num_auto, va_PR	' Arguments
+
+    VAR FORMAT TDO_Type_Astreinte vl_type_astr	' Type astreinte
+    VAR     vl_auto, vl_PR			' Localisation de l'astreinte
+
+    VAR     vl_message				' Message recu de MTAT
+    VAR     vl_index, vl_index2			'Rangs lignes selectees en table
+    VAR     vl_type, vl_categ
+    VAR     vl_date, vl_diff_dates
+    VAR     vl_tache, vl_status
+    VAR	    vl_district
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    IF ERROR_NUMBER@() <> COM_ERR_DEJA_OUVERTE
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  return
+
+if COM04_Operateur_A_Le_Droit_De(XDC_FAM_HISTO_PEAGE)
+{
+     COM01_Trace(0," Appel par un utilisateur non autorisé")
+  RETURN(COM_OK)
+}
+
+/*A
+ * Determiner l'origine de l'invocation et le fonctionnement associe
+ * -----------------------------------------------------------------
+ */
+
+vl_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+IF vl_appelant = "MSOP" {
+    va_type_astr = va_arg1[0] + 0
+    va_num_auto = va_arg1[1] + 0
+    va_PR = va_arg1[2]
+} ELSE {
+    va_type_astr = va_arg1
+    va_num_auto = va_arg2
+    va_PR = va_arg3
+}
+
+
+/*A
+ * Charger la fenetre "Liste astreintes"
+ * -------------------------------------
+ */
+
+vl_fenetre_astreintes = DB_LOAD@ ("ITMA_TLC")
+DB_WINDOW_REMAIN@ (vl_fenetre_astreintes, TRUE)
+
+DB_WIDTH@(vl_fenetre_astreintes, 1264)
+DB_XPOS@(vl_fenetre_astreintes, 0)
+DB_YPOS@(vl_fenetre_astreintes, 93)
+
+COM02_Attacher_Aide (vl_fenetre_astreintes, "ITMA_TLS_Liste_Astreintes")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_MTLS
+IF vl_appelant = "MTAT"  OR  vl_appelant = "MTFX"		' Pour terminer
+    vl_les_messages_acceptes[2] = COM_CANAL_ASTREINTES		' dialogue appel
+
+DB_ACCEPT_POKES@ (vl_fenetre_astreintes, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+IF vl_appelant = "MSOP"  OR  vl_appelant = "MTAT"  OR  vl_appelant = "MTFX"  OR
+      NOT COM04_Operateur_A_Le_Droit_De (XDC_FAM_ADM_ANNUAIRE) {
+    DB_CTRL_DISPLAY@ (vl_fenetre_astreintes, "BP_Creer_Competence", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_astreintes, "BP_Modif_Competence", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_astreintes, "BP_Suppr_Competence", FALSE)
+}
+
+
+IF vl_appelant = "MSOP"  OR  vl_appelant = "MTAT"  OR  vl_appelant = "MTFX"
+    DB_CTRL_DISPLAY@ (vl_fenetre_astreintes, "BP_visu_calendrier", FALSE)
+
+/*
+IF vl_appelant = "MTFX" OR  vl_appelant = "MTAS"  OR  vl_appelant = "MSOP"
+{
+*/
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre_astreintes,
+				    "BS_Jour", "BS_Mois", "BS_Annee",
+				    "BS_Heure", "BS_Minute")
+/*}*/
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_astreintes, "TA_competences", TRUE)
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre_astreintes, "BS_PR", COM_CHIFFRES ++ ".,")
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre_astreintes, "BS_Jour", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_astreintes, "BS_Mois", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_astreintes, "BS_Annee", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_astreintes, "BS_Heure", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_astreintes, "BS_Minute", COM_CHIFFRES)
+
+
+/*A
+ * Initialiser la visualisation et les criteres de recherche
+ * ---------------------------------------------------------
+ */
+
+TLS_Init_Visualisation (vl_fenetre_astreintes)
+IF TLS_Init_Listes_Criteres (vl_fenetre_astreintes,
+			     va_type_astr, va_num_auto, va_PR) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM  AND
+	   ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> COM_ERR_VAL_INVAL
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY_ONLY@ (vl_fenetre_astreintes, FALSE)
+    DB_DISPLAY@ (vl_fenetre_astreintes)
+    DB_DISPLAY_ONLY@ (vl_fenetre_astreintes, TRUE)
+
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_astreintes)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_astreintes)
+        CASE COM_CANAL_FIN
+        CASE COM_CANAL_ASTREINTES
+            vl_la_fenetre_est_active = FALSE
+
+	/*A
+	 * Sur reception d'un message de MTAT ou MTFX,
+	 * reinitialiser les criteres de recherche
+	 * -------------------------------------------
+	 */
+
+        CASE COM_CANAL_MTLS
+	    vl_message = DB_GET_POKE_DATA@ (vl_fenetre_astreintes)
+	    vl_message = ARRAY_FROM_STRING@ (vl_message, COM_SEPAR_CHAMPS)
+	    IF TLS_Init_Listes_Criteres (vl_fenetre_astreintes,
+					    vl_message[0] + 0,
+					    vl_message[1] + 0,
+					    vl_message[2]) <> COM_OK
+		vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+	CASE "BP_imprimer"
+		TLS_imprimer(vl_fenetre_astreintes)
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+	/*selection d'une competence dans la liste*/
+	CASE "TA_competences"
+		vl_index=DB_TABLE_GET_SELECTIONS@(vl_fenetre_astreintes,"TA_competences")
+		vl_index=vl_index[0]
+
+		vl_index2 = vl_index
+		WHILE vm_t_competences[vl_index2].type_astreinte = NULL
+	    		vl_index2 = vl_index2 - 1
+		WEND
+
+		/*si une competence est bien selectionnee*/
+		if (vl_index++"")<>null {
+			/*degriser les boutons suivants*/
+			DB_CTRL_GRAYED@(vl_fenetre_astreintes,"BP_Consult_Astreinte", FALSE)
+			DB_CTRL_GRAYED@(vl_fenetre_astreintes,"BP_Modif_Competence", FALSE)
+			DB_CTRL_GRAYED@(vl_fenetre_astreintes,"BP_Suppr_Competence", FALSE)
+			DB_CTRL_GRAYED@(vl_fenetre_astreintes,"BP_visu_calendrier", FALSE)
+
+			/*on ne peut configurer le calendrier que si on est sur le site responsable*/
+			vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_sites,TDO_NOM_DISTRICT),
+						vm_t_competences[vl_index2].site_responsable)
+
+			/*if (vm_t_comp_base[vl_index2].site_responsable=SYSTEM_VAR@(vg_site))*/
+			if (vm_l_sites[vl_index][TDO_NUMERO_DISTRICT]=SYSTEM_VAR@(vg_site))
+			  DB_CTRL_GRAYED@(vl_fenetre_astreintes,"BP_modif_calendrier", FALSE)
+			else
+			  DB_CTRL_GRAYED@(vl_fenetre_astreintes,"BP_modif_calendrier", TRUE)
+		}
+
+    /*A Appui sur le bouton d'aide a la composition de l'horodate */
+    CASE "BP_horohelp"
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre_astreintes,
+				    "BS_Jour", "BS_Mois", "BS_Annee",
+				    "BS_Heure", "BS_Minute")
+
+	
+    /*A
+     * Sur choix "Recherche" verifier qu'une date valide est choisie
+     * (entre la date du jour et l'horizon de prevision du calendrier)
+     * ---------------------------------------------------------------
+     */
+
+    CASE "BP_Recherche"
+	vl_date = COM23_Horodate (vl_fenetre_astreintes, "BS_Jour", "BS_Mois",
+				     "BS_Annee", "BS_Heure", "BS_Minute")
+if (vl_date<>null){
+
+	vl_diff_dates = COM17_Difference_Dates (vl_date, vm_maintenant)
+	IF vl_diff_dates < 0 OR vl_diff_dates > (C_NB_JOURS_CALENDRIER-1) * 1440
+	    ERROR@ (C_ERR_IHM, C_LIB_DATE_HORS_BORNES)
+
+		}
+	/*A
+	 * puis lire et verifier les criteres de type et categorie d'astreinte
+	 * et de zone geographique, enfin rechercher et afficher les astreintes
+	 * --------------------------------------------------------------------
+	 */
+
+	vl_auto = DB_CTRL_GET_VALUE@ (vl_fenetre_astreintes, "BL_Autoroutes")
+	vl_auto = vm_l_autoroutes[vl_auto].numero
+	IF IS_NULL@ (vl_auto)
+	    vl_PR = XDC_PR_INCONNU
+	ELSE {
+	    vl_PR = COM26_Valeur_PR (vl_fenetre_astreintes, "BS_PR")
+	    IF vl_PR = XDC_PR_INCONNU
+		ERROR@ (COM_ERR_VAL_INVAL, COM_LIB_VAL_INVAL, "PR")
+	}
+	vl_type =DB_CTRL_GET_VALUE@(vl_fenetre_astreintes,"BL_types")
+	vl_categ = DB_CTRL_GET_VALUE@ (vl_fenetre_astreintes, "BL_districts")
+
+	MACRO_WINS_BUSY@()
+	if (TLS_Liste_Astreintes (vm_l_districts[vl_categ].numero,
+				 vm_l_types_astreintes[vl_type].numero,
+				 vl_auto, vl_PR, vl_date, vl_fenetre_astreintes)=COM_NOK)
+		INFO_MESSAGE@("Problème dans la recherche en base")
+
+
+    /*A
+     * Sur choix "Controle Exhaustivite", verifier qu'une date valide et
+     * des criteres valides de type et categorie d'astreinte et de zone
+     * geographique sont choisis, puis lire et afficher les astreintes
+     * -----------------------------------------------------------------
+     */
+
+    CASE "BP_Controle_Exhaust"
+	vl_date = COM23_Horodate (vl_fenetre_astreintes,
+				   "BS_Jour", "BS_Mois", "BS_Annee", NULL, NULL)
+	vl_diff_dates = COM17_Difference_Dates (vl_date, vm_maintenant)
+	IF vl_diff_dates < 0
+	    ERROR@ (C_ERR_IHM, C_LIB_DATE_HORS_BORNES)
+
+	vl_auto = DB_CTRL_GET_VALUE@ (vl_fenetre_astreintes, "BL_Autoroutes")
+	vl_auto = vm_l_autoroutes[vl_auto].numero
+	IF IS_NULL@ (vl_auto)
+	    vl_PR = XDC_PR_INCONNU
+	ELSE {
+	    vl_PR = COM26_Valeur_PR (vl_fenetre_astreintes, "BS_PR")
+	    IF vl_PR = XDC_PR_INCONNU
+		ERROR@ (COM_ERR_VAL_INVAL, COM_LIB_VAL_INVAL, "PR")
+	}
+	vl_type =DB_CTRL_GET_VALUE@(vl_fenetre_astreintes,"BL_types")
+	vl_categ = DB_CTRL_GET_VALUE@ (vl_fenetre_astreintes, "BL_districts")
+
+	MACRO_WINS_BUSY@ ()
+	TLS_Controle_Exhaustivite (vm_l_districts[vl_categ].numero,
+				   vm_l_types_astreintes[vl_type].numero,
+				   vl_auto, vl_PR,vl_date,vl_fenetre_astreintes)
+
+
+    /*A
+     * Sur choix "Consulter Fiche Astreinte", verifier
+     * qu'une competence et une date valide sont choisies
+     * puis invoquer le module MTFS avec ces criteres
+     * --------------------------------------------------
+     */
+
+    CASE "BP_Consult_Astreinte"
+	vl_index=DB_TABLE_GET_SELECTIONS@(vl_fenetre_astreintes,"TA_competences")
+	IF ARRAY_SIZE@ (vl_index) = 0
+	    ERROR@ (C_ERR_IHM, C_LIB_CHOISIR_COMP)
+	vl_index = vl_index[0]
+	vl_index2 = vl_index
+	WHILE vm_t_competences[vl_index2].type_astreinte = NULL
+	    vl_index2 = vl_index2 - 1
+	WEND
+
+	vl_date = COM23_Horodate (vl_fenetre_astreintes, "BS_Jour", "BS_Mois",
+				     "BS_Annee", "BS_Heure", "BS_Minute")
+
+	vl_tache = COM21_Tache_De_La_Macro ("ITMA_TFS_Fiche_Astreinte")
+	IF vl_tache = NULL
+	    NEW_TASK@ ("ITMA_TFS_Fiche_Astreinte",
+			  "ITMA_TLS_Liste_Astreintes",
+			  vm_t_competences[vl_index2].competence,
+			  vl_date,
+			  /*vm_l_num_interlo[vl_index],*/
+			  vm_t_competences[vl_index].fiche_annuaire,
+			  null,
+			  vl_appelant)
+	ELSE {
+	    /*vl_message = vm_l_num_comp[vl_index], vl_date, vm_l_num_interlo[vl_index]*/
+	    vl_message = vm_l_num_comp[vl_index], vl_date, vm_t_competences[vl_index].fiche_annuaire
+	    DB_SEND_POKE@ (COM_CANAL_MTFS,
+			      ARRAY_TO_STRING@ (vl_message, COM_SEPAR_CHAMPS))
+	    SELECT_WINDOW@ (COM22_Fenetre_De_La_Tache (vl_tache), TRUE)
+	}
+
+	/*demande de modif du calendrier*/
+	CASE "BP_modif_calendrier"
+	vl_index=DB_TABLE_GET_SELECTIONS@(vl_fenetre_astreintes,"TA_competences")
+	IF ARRAY_SIZE@ (vl_index) = 0
+	    ERROR@ (C_ERR_IHM, C_LIB_CHOISIR_COMP)
+	vl_index = vl_index[0]
+	vl_index2 = vl_index
+	WHILE vm_t_competences[vl_index2].type_astreinte = NULL
+	    vl_index2 = vl_index2 - 1
+	WEND
+
+	vl_type_astr.nom = vm_t_competences[vl_index2].type_astreinte
+	vl_type=ARRAY_INDEX@(
+			ARRAY_COLUMN@(vm_l_types_astreintes,TDO_NOM_TYPE_ASTREINTE), 
+						vl_type_astr.nom)
+	vl_district=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_districts, TDO_NOM_DISTRICT), 
+						vm_t_competences[vl_index2].district)
+	PEND_FOR_NEW_TASK@ ("ITMA_TAS_Modification_Calendrier",
+				"ITMA_TLS_Liste_Astreintes",
+				vm_t_competences[vl_index2].competence, 
+				vm_l_types_astreintes[vl_type],
+				vm_t_competences[vl_index2].sous_type_astreinte,
+				vm_l_districts[vl_district],
+				vm_t_competences[vl_index2],
+				vm_t_competences[vl_index2].site_responsable)
+		
+
+	/*demande de visualisation du calendrier*/
+	CASE "BP_visu_calendrier"
+		vl_type =DB_CTRL_GET_VALUE@(vl_fenetre_astreintes,"BL_types")
+		IF vl_type = 0
+	    		ERROR@ (C_ERR_IHM, C_LIB_CHOISIR_TYPE_ASTR)
+		PEND_FOR_NEW_TASK@ ("ITMA_TAS_Visualisation_Calendrier",
+				"ITMA_TLS_Liste_Astreintes",
+				vm_l_num_comp, 
+				vm_t_competences)
+
+
+    /*A
+     * Sur choix "Creer Competence" invoquer le module MTFC
+     * ----------------------------------------------------
+     */
+
+    CASE "BP_Creer_Competence"
+	vl_type =DB_CTRL_GET_VALUE@(vl_fenetre_astreintes,"BL_types")
+	vl_district =DB_CTRL_GET_VALUE@(vl_fenetre_astreintes,"BL_districts")
+	IF vl_type = 0
+	    ERROR@ (C_ERR_IHM, C_LIB_CHOISIR_TYPE_ASTR)
+	PEND_FOR_NEW_TASK@ ("ITMA_TFC_Fiche_Competence",
+				"ITMA_TLS_Liste_Astreintes",
+				NULL, 
+				vm_l_types_astreintes[vl_type],
+				vm_l_types_astreintes[vl_type].nom,
+				vm_l_districts[vl_district])
+
+
+    /*A
+     * Sur choix "Modifier Competence", verifier qu'une competence
+     * est choisie puis invoquer le module MTFC avec son identifiant
+     * -------------------------------------------------------------
+     */
+
+    CASE "BP_Modif_Competence"
+	vl_index=DB_TABLE_GET_SELECTIONS@(vl_fenetre_astreintes,"TA_competences")
+	IF ARRAY_SIZE@ (vl_index) = 0
+	    ERROR@ (C_ERR_IHM, C_LIB_CHOISIR_COMP)
+	vl_index = vl_index[0]
+
+	vl_index2 = vl_index
+	WHILE vm_t_competences[vl_index2].type_astreinte = NULL
+	    vl_index2 = vl_index2 - 1
+	WEND
+	vl_type_astr.nom = vm_t_competences[vl_index2].type_astreinte
+	vl_type=ARRAY_INDEX@(
+			ARRAY_COLUMN@(vm_l_types_astreintes,TDO_NOM_TYPE_ASTREINTE), 
+						vl_type_astr.nom)
+	vl_district=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_districts, TDO_NOM_DISTRICT), 
+						vm_t_competences[vl_index2].district)
+
+	PEND_FOR_NEW_TASK@ ("ITMA_TFC_Fiche_Competence",
+				"ITMA_TLS_Liste_Astreintes",
+				vm_t_competences[vl_index2].competence,
+				vm_l_types_astreintes[vl_type],
+				vm_t_competences[vl_index2].sous_type_astreinte,
+				vm_l_districts[vl_district],
+				vm_t_competences[vl_index2].site_responsable)
+
+
+    /*A
+     * Sur choix "Supprimer Competence" verifier qu'une competence
+     * est choisie et la supprimer
+     * -----------------------------------------------------------
+     */
+
+    CASE "BP_Suppr_Competence"
+	vl_index=DB_TABLE_GET_SELECTIONS@(vl_fenetre_astreintes,"TA_competences")
+	IF ARRAY_SIZE@ (vl_index) = 0
+	    ERROR@ (C_ERR_IHM, C_LIB_CHOISIR_COMP)
+	vl_index = vl_index[0]
+	vl_index2 = vl_index
+	WHILE vm_t_competences[vl_index2].type_astreinte = NULL
+	    vl_index2 = vl_index2 - 1
+	WEND
+
+	MACRO_WINS_BUSY@ ()
+    	vl_status=TLS_Supprimer_Competence (vm_t_competences[vl_index2].competence)
+    	IF vl_status = COM_QUITTE
+		ERROR@ (C_ERR_IHM, C_LIB_CALEND_NON_VIDE)
+	IF vl_status = COM_OK {
+		vl_index=vl_index2
+		WHILE vm_l_num_comp[vl_index2 + 1] = vm_l_num_comp[vl_index]
+		    vl_index2 = vl_index2 + 1
+		WEND
+		vm_l_num_comp = SUBARRAY_REMOVE@ (vm_l_num_comp, vl_index,
+						     vl_index2 + 1 - vl_index)
+		vm_t_competences = SUBARRAY_REMOVE@ (vm_t_competences, vl_index,
+						       vl_index2 + 1 - vl_index)
+		DB_TABLE_CLEAR_DATA@(vl_fenetre_astreintes,"TA_competences",0,-1)
+		DB_TABLE_SET_NEW_DATA@ (vl_fenetre_astreintes, "TA_competences",
+					   vm_t_competences, 0)
+		DB_CTRL_GRAYED@(vl_fenetre_astreintes,"BP_Consult_Astreinte", TRUE)
+		DB_CTRL_GRAYED@(vl_fenetre_astreintes,"BP_Modif_Competence", TRUE)
+		DB_CTRL_GRAYED@(vl_fenetre_astreintes,"BP_Suppr_Competence", TRUE)
+		DB_CTRL_GRAYED@(vl_fenetre_astreintes,"BP_modif_calendrier", TRUE)
+		DB_CTRL_GRAYED@(vl_fenetre_astreintes,"BP_visu_calendrier", TRUE)
+	}
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLS_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les listes a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLS_Liste_Astreintes
+*
+* FONCTION
+*   Initialise les valeurs des listes de categories d'astreintes, de types
+*   d'astreintes et d'autoroutes, les titres de la table et la date courante.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_t_titres					' Titres colonnes table
+
+/*A
+ * Lire dans l'environnement les listes de categories, de types
+ * d'astreintes et d'autoroutes et valuer les listes affichees
+ * ------------------------------------------------------------
+ */
+
+vm_l_districts[0] = NULL, "Tous"
+vm_l_districts = ARRAY_APPEND@ (vm_l_districts,
+					  SYSTEM_VAR@ (vg_les_districts))
+DB_CTRL_STRINGS@ (va_fenetre, "BL_districts",
+		  ARRAY_COLUMN@(vm_l_districts, TDO_NOM_DISTRICT))
+
+vm_l_types_astreintes[0] = NULL, "Tous"
+vm_l_types_astreintes = ARRAY_APPEND@ (vm_l_types_astreintes,
+					  SYSTEM_VAR@ (vg_les_types_astreintes))
+DB_CTRL_STRINGS@ (va_fenetre, "BL_types",
+		   ARRAY_COLUMN@(vm_l_types_astreintes, TDO_NOM_TYPE_ASTREINTE))
+
+vm_l_autoroutes[0] = NULL, "Toutes"
+vm_l_autoroutes = ARRAY_APPEND@(vm_l_autoroutes, SYSTEM_VAR@(vg_toutes_les_autoroutes))
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Autoroutes",
+		     ARRAY_COLUMN@ (vm_l_autoroutes, TDO_NOM_AUTOROUTE))
+
+vm_l_sites=SYSTEM_VAR@ (vg_les_districts)
+
+
+/*A
+ * Definir les titres des colonnes de la table d'astreintes
+ * --------------------------------------------------------
+ */
+
+vl_t_titres[0] = "Type",	      	160   ' Titre colonne et taille en pixels
+vl_t_titres[1] = "Sous type",	      	120   
+vl_t_titres[2] = "Région de validite",	120  
+vl_t_titres[3] = "Site responsable"	, 120
+vl_t_titres[4] = "Zone Géographique", 	162
+vl_t_titres[5] = "Interlocuteur",     	600
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)			' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)				'  a l'objet table
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_competences", vm_t_competences, vl_t_titres)
+DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre, "TA_competences", TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_Consult_Astreinte", TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_Modif_Competence", TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_Suppr_Competence", TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_modif_calendrier", TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_visu_calendrier", TRUE)
+
+
+/*si on n'est pas au CI*/
+if (SYSTEM_VAR@(vg_site)<>XDC_CI) {
+  DB_CTRL_DISPLAY@(va_fenetre,"BP_Modif_Competence",FALSE)
+  DB_CTRL_DISPLAY@(va_fenetre,"BP_Suppr_Competence",FALSE)
+  DB_CTRL_DISPLAY@(va_fenetre,"BP_Creer_Competence",FALSE)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  (re)initialise les criteres de recherche (type astreinte, localisation, date)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLS_Init_Listes_Criteres (va_fenetre, va_type_astr, va_num_auto, va_PR)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les listes a initialiser ;
+*   va_type_astr      : Numero du type d'astreinte ;
+*   va_num_auto       : Numero d'autoroute ;
+*   va_PR             : PR de la localisation astreinte.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLS_Liste_Astreintes
+*
+* FONCTION
+*   Reinitialise les valeurs choisies dans les listes de categories astreintes,
+*   types astreintes et autoroutes et la date a la date courante.
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_metres_PR
+
+
+/*A
+ * Lire l'horodate courante et (re)initialiser les champs date a l'ecran
+ * ---------------------------------------------------------------------
+ */
+
+vm_maintenant = COM09_Date_Courante ()
+/*COM24_Afficher_Horodate (vm_maintenant, va_fenetre, "BS_Jour", "BS_Mois",
+			    "BS_Annee", "BS_Heure", "BS_Minute")*/
+
+
+/*A
+ * (re)initialiser les criteres de recherche
+ * -----------------------------------------
+ */
+
+IF va_type_astr = NULL
+    DB_CTRL_VALUE@ (va_fenetre, "BL_types", 0)
+ELSE DB_CTRL_VALUE@ (va_fenetre, "BL_types",
+		       ARRAY_INDEX@ (ARRAY_COLUMN@(vm_l_types_astreintes,
+						     TDO_NUMERO_TYPE_ASTREINTE),
+					va_type_astr))
+
+
+IF va_num_auto = NULL
+    DB_CTRL_VALUE@ (va_fenetre, "BL_Autoroutes", 0)
+ELSE DB_CTRL_VALUE@ (va_fenetre, "BL_Autoroutes",
+		       ARRAY_INDEX@ (ARRAY_COLUMN@(vm_l_autoroutes,
+						      TDO_NUMERO_AUTOROUTE),
+					va_num_auto))
+
+
+DB_CTRL_VALUE@ (va_fenetre, "BL_districts", 0)
+
+
+DB_CTRL_VALUE@ (va_fenetre, "BS_PR", COM31_Libelle_PR (va_PR))
+
+
+/*A
+ * Reinitialiser la table d'astreintes
+ * -----------------------------------
+ */
+
+vm_t_competences = NULL
+vm_l_num_comp = NULL
+vm_l_num_interlo = NULL
+
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_competences", 0, -1)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recherche et affiche les astreintes repondant aux criteres indiques.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLS_Liste_Astreintes (va_district, va_type, va_autoroute, va_PR, va_date,
+				va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_categorie       : Identifiant du district ;
+*  va_type            : Identifiant du type d'astreinte ;
+*  va_autoroute       : Identifiant de l'autoroute ;
+*  va_PR              : PR identifiant la zone geographique ;
+*  va_date            : Date a laquelle on consulte les astreintes ;
+*  va_fenetre         : Identifiant de la fenetre pour affichage des resultats.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLS_Liste_Astreintes
+*
+* FONCTION
+*   Recherche en base de donnees la liste des astreintes a la date indiquee
+*   repondant aux criteres de type, categorie et zone geographique indiques.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TLS_Donnees_Astreintes vl_data
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     vl_idem_precedente
+    VAR     i
+	VAR 	vl_indice
+	VAR tl_zones
+	VAR tl_interlocuteurs
+	VAr vl_index
+	var vl_zone
+	var vl_index_comp
+	var vl_index_zone
+	var vl_index_interl
+	var tl_numeros
+
+
+vl_parametres=null
+vl_resultats=null
+vl_index_comp=0
+vl_index_zone=0
+vl_index_interl=0
+
+vl_parametres[0].type = SYB#DATETIME_
+vl_parametres[0].data = va_date
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFS_Numero_Type_Astreinte
+vl_parametres[1].data = va_type
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_District
+vl_parametres[2].data = va_district
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Identifiant_Autoroute
+vl_parametres[3].data = va_autoroute
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = COM_Identifiant_PR
+vl_parametres[4].data = va_PR
+vl_parametres[4].output = FALSE
+IF COM05_SQL_Procedure (XZAN25_Liste_Astreintes,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+CASE OF vl_resultats.status
+	CASE XZANC_PAS_COMP_TYPE
+		INFO_MESSAGE@("Pas de compétence pour ce type d'astreinte en base")
+		RETURN (COM_OK) 
+		
+	CASE XZANC_PAS_COMP_DISTRICT
+		INFO_MESSAGE@("Pas de compétence pour cette région en base")
+		RETURN (COM_OK)
+ENDCASE
+		
+/*A
+ * Effacer les structures de donnees (pour reinitialisation)
+ * ---------------------------------------------------------
+ */
+
+vm_t_competences = NULL
+vm_l_num_comp = NULL
+vm_l_num_interlo = NULL
+
+vl_data = vl_resultats.select_results[0]
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+    vm_l_num_comp[i] = vl_data[i].num_competence
+    vm_l_num_interlo[i] = vl_data[i].num_fiche_annuaire
+
+    IF vl_data[i].autoroute <> NULL
+		vl_zone = COM12_Libelle_Zone_Competence
+					 (vl_data[i].autoroute,
+					  vl_data[i].PR_debut,
+					  vl_data[i].PR_fin,
+					  vl_data[i].sens)
+	ELSE
+		vl_zone=null
+
+   	IF i = 0
+		vl_idem_precedente = FALSE
+    	ELSE 
+		vl_idem_precedente=
+		(vm_l_num_comp[i]= vm_l_num_comp[i - 1])
+
+    	IF vl_idem_precedente {
+		vl_index_comp=vl_index_comp+1
+		vm_t_competences[vl_index_comp].type_astreinte = NULL
+		vm_t_competences[vl_index_comp].sous_type_astreinte = NULL
+		vm_t_competences[vl_index_comp].district=null
+		vm_t_competences[vl_index_comp].site_responsable = NULL
+		vm_t_competences[vl_index_comp].competence = NULL
+	
+		/*gestion des interlocuteurs*/
+		if (ARRAY_INDEX@(tl_interlocuteurs, vl_data[i].nom_interlocuteur)=-1) {
+			vl_index_interl=vl_index_interl+1
+			vm_t_competences[vl_index_interl].interlocuteur=
+									vl_data[i].nom_interlocuteur
+			vm_t_competences[vl_index_interl].fiche_annuaire=vl_data[i].num_fiche_annuaire
+			if (IS_ARRAY@(tl_interlocuteurs)=false)
+				tl_interlocuteurs[0]=vl_data[i].nom_interlocuteur
+			else
+ 				tl_interlocuteurs[ARRAY_SIZE@(tl_interlocuteurs)]=
+							vl_data[i].nom_interlocuteur
+   		} 
+		else {
+			vm_t_competences[vl_index_comp].interlocuteur=null
+			vm_t_competences[vl_index_comp].fiche_annuaire=null
+		}
+
+		/*gestion des zones*/
+		if (ARRAY_INDEX@(tl_zones, vl_zone)=-1) {
+			vl_index_zone=vl_index_zone+1
+			vm_t_competences[vl_index_zone].zone_geo=vl_zone
+			if (IS_ARRAY@(tl_zones)=false)
+				tl_zones[0]=vl_zone
+			else
+				tl_zones[ARRAY_SIZE@(tl_zones)]=vl_zone
+		}
+		else
+			vm_t_competences[vl_index_comp].zone_geo=null
+    	} 
+	ELSE {
+		vl_index_comp=ARRAY_SIZE@(vm_t_competences)
+		vl_index_zone=vl_index_comp
+		vl_index_interl=vl_index_comp
+		vm_t_competences[vl_index_comp].type_astreinte = vl_data[i].type_astreinte
+		vm_t_competences[vl_index_comp].sous_type_astreinte = 
+								vl_data[i].sous_type_astreinte
+		vm_t_competences[vl_index_comp].interlocuteur = 
+								vl_data[i].nom_interlocuteur
+		vm_t_competences[vl_index_comp].competence = vl_data[i].num_competence
+		vm_t_competences[vl_index_comp].fiche_annuaire=vl_data[i].num_fiche_annuaire
+		vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_districts, TDO_NUMERO_DISTRICT),
+						vl_data[i].district	)
+		if (vl_indice=-1)
+			vl_indice=0
+		vm_t_competences[vl_index_comp].district=
+						vm_l_districts[vl_indice][TDO_NOM_DISTRICT]
+
+		vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_sites, TDO_NUMERO_DISTRICT),
+						vl_data[i].site_responsable)
+		if (vl_indice=-1)
+			vl_indice=0
+		vm_t_competences[vl_index_comp].site_responsable=
+								vm_l_sites[vl_indice][TDO_NOM_DISTRICT]
+		vm_t_competences[vl_index_comp].zone_geo=vl_zone
+		tl_zones=null
+		tl_interlocuteurs=null
+		tl_zones[0]=vl_zone
+		tl_interlocuteurs[0]=vl_data[i].nom_interlocuteur
+    }
+
+NEXT i
+/*vm_t_comp_base = vl_data*/
+
+/*parcourt la liste des competences et effface les eventuelles lignes vides*/
+vl_index=0
+vl_data=null
+tl_numeros=null
+for vl_indice = 0 to  ARRAY_SIZE@(vm_t_competences)-1
+  if vm_t_competences[vl_indice].zone_geo++""<>null or
+	vm_t_competences[vl_indice].interlocuteur++""<>null or
+	vm_t_competences[vl_indice].type_astreinte++""<>null or
+	vm_t_competences[vl_indice].sous_type_astreinte++""<>null or
+	vm_t_competences[vl_indice].district++""<>null or
+	vm_t_competences[vl_indice].site_responsable++""<>null or
+	vm_t_competences[vl_indice].competence+""<>null {
+		vl_data[vl_index]=vm_t_competences[vl_indice]
+		tl_numeros[vl_index]=vm_l_num_comp[vl_indice]
+		vl_index=vl_index+1
+  }
+next vl_indice
+vm_t_competences=vl_data
+vm_l_num_comp=tl_numeros
+
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_competences", 0, -1)
+DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_competences", vl_data, 0)
+DB_TABLE_SET_SELECTIONS@(va_fenetre, "TA_competences", null)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_competences", TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_Consult_Astreinte", TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_Modif_Competence", TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_Suppr_Competence", TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_modif_calendrier", TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_visu_calendrier",FALSE)
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recherche et affiche les astreintes repondant aux criteres indiques
+*  qui n'ont pas d'interlocuteur associe jusqu'a la date indiquee.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLS_Controle_Exhaustivite (va_categorie, va_type, va_autoroute, va_PR,
+				    va_date, va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_categorie       : Identifiant de la categorie d'astreinte ;
+*  va_type            : Identifiant du type d'astreinte ;
+*  va_autoroute       : Identifiant de l'autoroute ;
+*  va_PR              : PR identifiant la zone geographique ;
+*  va_date            : Date jusqu'a laquelle on controle les astreintes ;
+*  va_fenetre         : Identifiant de la fenetre pour affichage des resultats.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLS_Liste_Astreintes
+*
+* FONCTION
+*   Recherche en base de donnees la liste des astreintes repondant aux criteres
+*   de type, categorie et zone geographique indiques et pour lesquelles il
+*   existe des jours compris entre la date courante et la date indiquee
+*   ou aucune affectation d'interlocuteur n'est prevue.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TLS_Donnees_Calendrier vl_data
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     i
+
+
+vl_parametres[0].type = TFS_Numero_Categorie_Astreinte
+vl_parametres[0].data = va_categorie
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFS_Numero_Type_Astreinte
+vl_parametres[1].data = va_type
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Autoroute
+vl_parametres[2].data = va_autoroute
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Identifiant_PR
+vl_parametres[3].data = va_PR
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#DATETIME_
+vl_parametres[4].data = va_date
+vl_parametres[4].output = FALSE
+
+IF COM05_SQL_Procedure (XZAN35_Control_Exhaust_Calendr,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Effacer les structures de donnees (pour reinitialisation)
+ * ---------------------------------------------------------
+ */
+
+vm_t_competences = NULL
+vm_l_num_comp = NULL
+vm_l_num_interlo = NULL
+
+
+vl_data = vl_resultats.select_results[0]
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+    vm_l_num_comp[i] = vl_data[i].num_competence
+
+    IF i = 0
+	vm_t_competences[i].type_astreinte = vl_data[i].type_astreinte
+    ELSE IF vm_l_num_comp[i] = vm_l_num_comp[i - 1]
+	vm_t_competences[i].type_astreinte = NULL
+    ELSE vm_t_competences[i].type_astreinte = vl_data[i].type_astreinte
+	'vm_t_competences[i].district = vl_data[i].district
+    vm_t_competences[i].zone_geo = COM12_Libelle_Zone_Competence
+				      (vl_data[i].autoroute,
+					vl_data[i].PR_debut, vl_data[i].PR_fin, vl_data[i].sens)
+    vm_t_competences[i].interlocuteur = NULL
+NEXT i
+
+
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_competences", 0, -1)
+DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_competences", vm_t_competences, 0)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Supprime une competence.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLS_Supprimer_Competence (va_num_comp)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_num_comp        : Identifiant de la competence a supprimer.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK si l'action a ete effectuee correctement ;
+*		      : COM_QUITTE si calendrier non vide (non supprimee) ;
+*		      : COM_NOK en cas de probleme lors de l'execution.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLS_Liste_Astreintes
+*
+* FONCTION
+*   Execute simplement la requete adequate pour supprimer la competence de
+*   numero indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TFC_Numero_Competence
+vl_parametres[0].data = va_num_comp
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT4_			' Statut : effectue
+vl_parametres[1].output = TRUE				' ou calendrier non vide
+
+IF COM05_SQL_Procedure (XZAN08_Supprimer_Competence,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+IF vl_resultats.return_parameters[0] = XDC_OK
+    RETURN (COM_OK)
+ELSE RETURN (COM_QUITTE)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  imprime la liste des competences.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLS_imprimer(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_num_comp        : Identifiant de la competence a supprimer.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLS_Liste_Astreintes
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR FORMAT TLS_Astreintes tl_impression
+VAR vl_indice
+        var WHICHCELLS
+        var RESIZETYPE
+        var RESIZEMARGINS
+        var EXPAND
+        var USEALLSPACE
+        var NOERR
+        var STYLE
+        var COLOR
+        var TYPE
+        var SHADINGSTYLE
+        var FGCOLOR
+        var BGCOLOR
+        var FILLNAME
+        var HORIZONTALMARGIN
+        var VERTICALMARGIN
+
+WP_APPLICATION_DLG@(NULL, TRUE)
+WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+                     COM_SOUS_REP_IHM ++ C_MODELE_TLS)
+
+tl_data="Type",
+	"Sous_type",
+	"Région de validité",
+	"Site responsable",
+	"Zone géographique",
+	"Interlocuteur"
+
+tl_impression[0]=tl_data
+
+for vl_indice=0 to (ARRAY_SIZE@(vm_t_competences)-1)
+  tl_impression[vl_indice+1].type_astreinte=
+					vm_t_competences[vl_indice].type_astreinte
+  tl_impression[vl_indice+1].sous_type_astreinte=
+				vm_t_competences[vl_indice].sous_type_astreinte
+  tl_impression[vl_indice+1].district=vm_t_competences[vl_indice].district
+  tl_impression[vl_indice+1].site_responsable=
+					vm_t_competences[vl_indice+1].site_responsable
+  tl_impression[vl_indice+1].zone_geo=vm_t_competences[vl_indice].zone_geo
+  tl_impression[vl_indice+1].interlocuteur=
+					vm_t_competences[vl_indice].interlocuteur
+next vl_indice
+
+/*remplit le document*/
+WP_SET_DOC_VAR@("astreintes", tl_impression)
+WP_EVAL_FIELDS@()
+
+
+/*impression du fichier*/
+COM36_Imprimer_Texte(C_MODELE_TLS++"_"++SYSTEM_VAR@(vg_numero_poste))
+
+ENDMACRO
+
+
+

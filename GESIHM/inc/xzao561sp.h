@@ -1,0 +1,1 @@
+DEFINE	XZAO561_Liste_Conditions		"XZAO561"

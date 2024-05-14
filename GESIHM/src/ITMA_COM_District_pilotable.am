@@ -1,0 +1,156 @@
+/*E*/
+/* Fichier : $Id: ITMA_COM_District_pilotable.am,v 1.14 2017/04/25 11:07:11 devgfi Exp $     Release : $Revision: 1.14 $        Date : $Date: 2017/04/25 11:07:11 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTMT * FICHIER ITMA_COM_District_pilotable.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Mismer	26 Jan 1998	: Creation                                         V1.1
+* cluchague     13 Dec 2000     : pour pouvoir piloter les pmv A51 a partir du ci  V1.3
+* Hilmarcher    26/09/2003      : pour pouvoir piloter les BRA a partir de PODFA   V1.4 
+* JMG	31/10/07	: ajout site de gestion V1.6
+* JPL	20/11/08	: Autoriser le CI a piloter les PMV de tous les sites (DEM 817) 1.7
+* JMG   29/09/09        : SECTO  DEM 887 1.8
+* JPL	16/09/10	: Autoriser le CI a piloter les PMVA de tous les sites (DEM 944) 1.9
+* LCL	21/03/12	: Autoriser le CI a piloter les PRV de tous les sites (DEM/1016) 1.10
+* PNI	07/10/2013	: Autoriser le pilotage du site courant DEM1086 1.11
+* JMG	10/06/16 	: le CI pilote tout 1.12
+* JMG   09/03/17        : REGIONALISATION - DEM1220 1.13
+* JPL	23/03/17	: Changement du terme Secteur en Region (DEM 1173)  1.14
+-------------------------------------------------------------------------------
+*/
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+INCLUDE "XDMICG/inc/xdc_ax.h"
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Test si un district de niveau 2 ou 3 est accessible
+*-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_COM_District_pilotable  (va_District, va_TypeEqt, va_Info, va_LibEqt )
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :  Vrai si district accessible, FAUX sinon
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR vl_len
+VAR vl_mode
+VAR tl_districts
+VAR vl_indice,vl_type
+VAr vl_district
+VAR vl_numero
+  /*si on passe en entree un numero de site*/
+  if (IS_NUMERIC_STRING@(va_District) )
+  {
+   	vl_numero=va_District+0 
+
+	/*on recupere le nom du district*/
+	case of vl_numero
+		case XDC_CI 
+				 vl_district = XDC_NOM_SITE_CI
+		case XDC_VC 
+				 vl_district = XDC_NOM_SITE_VC
+		case XDC_DN 
+				 vl_district = XDC_NOM_SITE_DN
+		case XDC_DA 
+				 vl_district = XDC_NOM_SITE_DA
+		case XDC_VE 
+				vl_district = XDC_NOM_SITE_VE
+		case XDC_DP 
+				 vl_district = XDC_NOM_SITE_DP
+		case XDC_VD 
+				 vl_district = XDC_NOM_SITE_VD
+		default
+				vl_district = SYSTEM_VAR@(vg_nom_site)
+	endcase
+  }
+  else
+	vl_district = va_District
+
+
+  if (vl_District=XDC_NOM_SITE_CI)
+    return (TRUE)
+/* DEM1086 : Autoriser le pilotage du site courant */
+  if ( SYSTEM_VAR@(vg_site) = va_district )
+    return (TRUE)
+
+  /*B Au CI, les PMV et PMVA de tous les sites sont pilotables */
+  if ( (SYSTEM_VAR@(vg_site) = XDC_CI)) /*AND
+       ((va_TypeEqt = XDC_LIB_PMV) OR (va_TypeEqt = XDC_LIB_PMVA) OR (va_TypeEqt = XDC_LIB_PRV)) )*/
+       
+  { 
+    return (TRUE)
+  } 
+
+
+  /*si je suis en mode degrade avec ce site*/
+  vl_mode=SYSTEM_VAR@(vg_comm_++vl_District)
+
+ if vl_mode=XDC_NOK
+ { 
+	if ( va_Info )
+		INFO_MESSAGE@( va_LibEqt ++" non accessible actuellement" )
+    	return (FALSE)
+  }
+
+
+  /*liste des districts*/
+  tl_districts = SYSTEM_VAR@(vg_les_districts)
+
+  /*type du district*/
+  vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tl_districts,TDO_CODE_DISTRICT),
+				vl_district)
+  if (vl_indice<0)
+    return (FALSE)
+
+  vl_type=tl_districts[vl_indice][TDO_TYPE_DISTRICT]
+  if vl_type=XDC_TYPEM_SD or  vl_type=XDC_TYPEM_SC
+    return ( FALSE )
+
+/* SAE143 pour que si pmv sur A51, on retourne vrai ***************************/
+  if (vl_type = XDC_TYPEM_PCS)
+    return (TRUE)
+/* fin de la modif*************************************************************/
+
+  /*sinon, si un operateur est connecte*/
+  if (SYSTEM_VAR@(vg_operateur_++vl_District)=XDC_VRAI
+		AND SYSTEM_VAR@(vg_poste)<>XDC_PODFA)
+  {  
+	if ( va_info )
+		INFO_MESSAGE@("Activation du "++ va_LibEqt ++ " en région uniquement" )
+    	return (FALSE)
+  }
+
+  if (vl_type=XDC_TYPEM_PCS)  and  (va_TypeEqt = XDC_LIB_NAV) 
+   return (FALSE)
+
+return ( TRUE)
+      
+ENDMACRO

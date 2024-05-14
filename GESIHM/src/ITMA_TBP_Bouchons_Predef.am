@@ -1,0 +1,172 @@
+/*E*/
+/* Fichier : $Id: ITMA_TBP_Bouchons_Predef.am,v 1.2 2007/02/22 19:09:03 gesconf Exp $        Release : $Revision: 1.2 $        Date : $Date: 2007/02/22 19:09:03 $
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR PASTRE
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Fiche Main Courante Bouchon Predefinis
+* 
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Hilmarcher 05/04/05 : Creation
+* JPL        22/02/07 : Homogeneisation ordre des arguments d'appel MTMC  v1.2
+*
+-------------------------------------------------------------------------------*/
+
+INCLUDE "dbase_.am"
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzaec_ax.h"
+
+INCLUDE "../inc/ITMA_TAR.h"
+INCLUDE "../inc/ITMA_TFA.h"
+INCLUDE "../inc/ITMA_TFS.h"
+INCLUDE "../inc/ITMA_TFC.h"
+INCLUDE "../inc/ITMA_TAT.h"
+INCLUDE "../inc/ITMA_TAN_Escota.h"
+
+INCLUDE "../inc/xzao429sp.h"
+DEFINE C_MODULE "MTBP"
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Affichage de la fenetre des libelles des bouchons predefinis
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBP_Bouchons_Predef
+
+/*
+* ARGUMENTS EN ENTREE : aucun
+*
+* ARGUMENTS EN SORTIE: aucun
+*
+* FONCTION:
+*
+----------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre
+    VAR     vl_objet_selecte                    ' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes            ' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+    VAR     tl_libelles, tl_details
+    VAR     vl_lib, i
+    VAR     FORMAT SQL_Procedure_Params@    vl_parametres
+    VAR     FORMAT SQL_Procedure_Result@    vl_resultats
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "choix FMC"
+ * --------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TBP")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+/*A Déclarer l'aide en ligne */
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TBP_Bouchons_Predef")
+
+/*Affichage des libelles des bouchons en fonction du district appelant, tous si CI */
+/*Appel a proc XZAO429 */
+vl_parametres[0].type=SYB#INT4_
+vl_parametres[0].data=SYSTEM_VAR@("vg_site")
+vl_parametres[0].output=FALSE
+
+IF COM05_SQL_Procedure (XZAO429_Liste_Bouchons_predef,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+	INFO_MESSAGE@("erreur lors de l'exécution de la requete XZAO429 en base")
+	RETURN
+}
+
+/* Récupération des résultats dans une liste */
+tl_libelles = vl_resultats.select_results[0]
+DB_CTRL_STRINGS@(vl_fenetre,"BL_lib_bou",ARRAY_COLUMN@(tl_libelles,0))
+	
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+	DB_DISPLAY@ (vl_fenetre)
+	DB_DISPLAY_ONLY@(vl_fenetre,TRUE) 
+	
+	/*Attente d'un evenement */
+	vl_objet_selecte = DB_EXIT_CTRL@(vl_fenetre)
+
+	CASE OF vl_objet_selecte
+		CASE "BP_valider"
+			/* Recupere les donnees saisies */
+			i = DB_CTRL_GET_VALUE@(vl_fenetre, "BL_lib_bou")
+			vl_lib=tl_libelles[i][0]
+			
+			IF vl_lib <> "AUTRE"
+			{
+				/*Appel a proc XZAO429 */
+				vl_parametres[0].type=SYB#INT4_
+				vl_parametres[0].data=SYSTEM_VAR@("vg_site")
+				vl_parametres[0].output=FALSE
+
+				vl_parametres[1].type=SYB#CHAR_
+				vl_parametres[1].data=vl_lib
+				vl_parametres[1].output=FALSE
+
+				IF COM05_SQL_Procedure (XZAO429_Liste_Bouchons_predef,
+							vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+				{
+					INFO_MESSAGE@("erreur lors de l'exécution de la requete XZAO429 en base")
+					RETURN
+				}
+				ELSE
+				{
+				/* Récupération des résultats dans une liste */
+				tl_details = vl_resultats.select_results[0][0]
+
+				tl_details = ARRAY_INSERT@ (tl_details, XZAEC_FMC_QueueBouchon, 0)
+				NEW_TASK@("ITMA_TMC_Fiche_Main_Courante","ITMA_TBP",
+					     tl_details, 1, XDC_FMC_ETAT_TRAI)
+				}
+			}
+			ELSE
+			{
+			NEW_TASK@("ITMA_TMC_Fiche_Main_Courante","ITMA_TMT_",
+			             { XZAEC_FMC_QueueBouchon }, 1, XDC_FMC_ETAT_TRAI)
+			}
+			vl_la_fenetre_est_active = FALSE
+		CASE "BP_annuler"
+			RETURN
+
+	ENDCASE
+WEND
+
+endmacro

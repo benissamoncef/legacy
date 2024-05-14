@@ -1,0 +1,270 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPA_form_solution.am,v 1.5 1996/01/30 10:40:06 gaborit Exp $      Release : $Revision: 1.5 $       Date : %G
+---------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPA * FICHIER ITMA_TPA_form_solution.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Affiche la liste des actions choisies par l'enseignant
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	15 jan 1994	: Creation						V1.1
+* Torregrossa	29 jan 1995	: modif repertoire de stockage des fichiers V 1.5
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+DEFINE	C_MODULE	"MTPA"			' Nom du module
+
+
+
+FORMAT TPA_actions
+	libelle,
+	real
+
+VAR vm_type_formation
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Afficher la liste des actions 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPA_form_solution (va_appelant,FORMAT TPA_actions ta_actionsEtudiant,
+								ta_numeroFiche)
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR FORMAT TPA_actions tl_data
+	VAR vl_taille,vl_code
+	VAR FORMAT TPA_actions tl_actions
+	VAR tl_args,vl_indice,vl_index
+	VAR vl_message						' message receptionne d'un poke
+	VAR vl_sel
+	VAR vl_action
+	VAR vl_icone
+	VAR tl_icones
+	VAR tl_comment
+	VAR vl_horodate
+	VAR vl_fichier,vl_string
+	VAR vl_numero
+	VAR tl_listeFichiers
+	VAR tl_titres
+	VAR vl_repertoire
+	
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A
+ * Charger la fenetre 
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TPA_form_solution")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TPA_form_solution")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+
+/*A recherche la solution associee a ce plan d'actions*/
+vl_numero=SYSTEM_VAR@(vg_numero_scenario)
+
+vl_horodate=SYSTEM_VAR@(vg_horodate_formation)
+vl_string=SUBSTRING@ (vl_horodate, 7, 4)++
+					SUBSTRING@ (vl_horodate, 4, 2)++
+					SUBSTRING@ (vl_horodate, 1, 2)++
+					SUBSTRING@ (vl_horodate, 12,2)++
+					SUBSTRING@ (vl_horodate, 15,2)++
+					SUBSTRING@ (vl_horodate, 18,2)
+
+/*A genere le nom du fichier a lire*/
+vl_fichier=SYSTEM_VAR@(vg_numero_scenario)++"_"++
+						vl_string++"_"++
+						"P"++"_"++
+						ta_numeroFiche[0]++"_"++
+						ta_numeroFiche[1]++".fmt"
+
+/*A recupere la liste des fichiers .fmt du repertoire*/
+vl_repertoire=SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_DYN
+tl_listeFichiers=FILE_SYSTEM_FILES@(vl_repertoire,"*.fmt",FALSE)
+
+vl_indice=ARRAY_INDEX@(tl_listeFichiers,vl_fichier)
+IF (vl_indice=-1)
+{
+	INFO_MESSAGE@("Pas de solution associée à cet événement")
+	RETURN
+}
+
+
+/*A
+ * afficher les libelles des actions dans la boite avec une icone si realisable
+ */
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+MACRO_WINS_BUSY@()
+
+/*A lecture du fichier solution*/
+tl_actions=READ_ASCII_FILE@(vl_repertoire++vl_fichier)
+
+/*A afficher le commentaire du formateur*/
+DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_comment",
+					ARRAY_FROM_STRING@(tl_actions[0],MTAR_CAR_SEPAR))
+tl_actions=ARRAY_DELETE@(tl_actions,0)
+
+/*A afficher les actions du formateur avec les bonnes icones*/
+FOR vl_indice=0 TO (ARRAY_SIZE@(tl_actions)-1)
+	tl_data[vl_indice]=ARRAY_FROM_STRING@(tl_actions[vl_indice],MTAR_CAR_SEPAR)
+
+	/*A recherche la bonne icone*/
+	IF (tl_data[vl_indice].real=0)
+		tl_icones[vl_indice]="pix_vous",""
+	ELSE IF (tl_data[vl_indice].real=1)
+		tl_icones[vl_indice]="pix_vous_refuse",""
+	ELSE IF (tl_data[vl_indice].real=2)
+		tl_icones[vl_indice]="pix_vous_fin",""
+NEXT vl_indice
+
+tl_titres[0,0]="Actions"
+tl_titres[0,1]=700
+
+DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre,"TA_formateur",25)
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_formateur",tl_data,tl_titres,tl_icones)
+
+IF (SYSTEM_VAR@(vg_formation)=COM_FORMATION_ACTIF)
+{
+	tl_icones=null
+	/*A afficher les actions de l'etudiant avec les bonnes icones*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(ta_actionsEtudiant)-1)
+		/*A recherche la bonne icone*/
+		IF (ta_actionsEtudiant[vl_indice].real=0)
+			tl_icones[vl_indice]="pix_vous",""
+		ELSE IF (ta_actionsEtudiant[vl_indice].real=1)
+			tl_icones[vl_indice]="pix_vous_refuse",""
+		ELSE IF (ta_actionsEtudiant[vl_indice].real=2)
+			tl_icones[vl_indice]="pix_vous_fin",""
+	NEXT vl_indice
+
+	tl_titres[0,0]="Actions"
+	tl_titres[0,1]=700
+
+	DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre,"TA_etudiant",25)
+	DB_TABLE_SET_DATA@(vl_fenetre,"TA_etudiant",ta_actionsEtudiant,
+											tl_titres,tl_icones)
+}
+ELSE
+{
+	DB_TITLE@(vl_fenetre,"Solution du professeur")
+	DB_CTRL_DISPLAY@(vl_fenetre,"TA_etudiant",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"LI_etudiant",FALSE)
+}
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+
+
+						
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			RETURN
+
+		/*A
+		* reception d'un poke*/
+		CASE "poke_"
+			vl_code= DB_GET_POKE@(vl_fenetre)
+			CASE OF vl_code
+				/*A
+				* poke de fin*/
+				CASE COM_CANAL_FIN
+					RETURN				
+				
+			ENDCASE
+
+	ENDCASE
+			
+WEND
+ENDMACRO
+
+
+

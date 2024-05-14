@@ -1,0 +1,660 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_bascul.am,v 1.28 2020/11/03 17:43:06 pc2dpdy Exp $        Release : $Revision: 1.28 $        Date : $Date: 2020/11/03 17:43:06 $
+-----------------------------------------------------------------------
+*  GTIE  *  PROJET MIGRAZUR
+-----------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-----------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMC_bascul.am
+-----------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+* affiche les controles specifiques au type basculement
+* gere les actions sur ces controles
+*
+-----------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  Guilhou	14 Nov 1994	1.1	: Création
+*  Torregrossa  24 Oct 1995 : Prise en compte des sens des autoroutes au niveau
+*                             du test de cohenrence de PR (A57)           V1.11
+*  Torregrossa  23 Sep 1996 : Modif cr de sauvegarde V1.12 (CONF 4)
+*  Torregrossa  21 Oct 1996 : Suppression de la declaration du format TMC_bascul (IHM7) V1.13
+*  Torregrossa  19 Dec 1996 : Affichage des config de bascul a la creation si 
+*                             structure de config est valuee dans ITMA_TMC_bascul 
+*                             (FMC9)V1.13 
+*  Niepceron	08 Jan 1998	1.16 : Modif datex dem/1723
+*  Lizot        14 Avr 2004     1.17 : Gestion du droit de propriete ESCOTA/DDE83 (SAGA)
+*  Lecrivain	23 Mar 2007 : Afficher/effacer champs pour retypage (dem/637) 1.18
+*  JPL		22/05/2007 : Finalisation affichage/effacement champs 1.19
+*  JPL		25/05/2007 : Suppression de la visualisation des config de voies (DEM 647) 1.20
+*  JPL		29/05/2007 : Macro d'ecriture en base: accord arguments avec autres cas (travaux) 1.21
+*  JPL		31/05/2007 : Basculement pour Travaux: configs de voies seules visibles (DEM 647) 1.22
+*  JPL		09/07/2007 : Libelle identique pour les deux types Fmc (DEM 647) 1.23
+*  JPL		10/10/2008 : Controle complet du Pr de tete (DEM 814); macro de controle separee 1.24
+*  JPL		23/11/2009 : Ajout macros d'affichage / saisie / controles (vides) 1.25
+*  JPL		17/08/2010 : Macros IHM elementaires pour mecanisme general (lie a DEM 942) 1.26
+*  LCL		02/12/2011 : Ajout vitesse et vitesse opposee (DEM 1015)
+* LCL   	22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+-----------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE		"dbase_.am"
+
+INCLUDE		"XDMICG/inc/xdc_ax.h"
+INCLUDE		"XDMICG/inc/xzic_ax.h"
+INCLUDE		"XDMICG/inc/xzaec_ax.h"
+
+INCLUDE		"GESIHM/inc/xzae48sp.h"
+INCLUDE		"GESIHM/inc/xzae62sp.h"
+
+INCLUDE		"GESIHM/inc/ITMA_COM.h"
+INCLUDE		"GESIHM/inc/ITMA_TMC.h"
+INCLUDE		"GESIHM/inc/ITMA_TDO.h"
+INCLUDE		"GESIHM/inc/ITMA_TAR.h"
+
+/*A Définition des constantes */
+
+DEFINE	CM_MODULE		"MTMC"		' Nom du module
+
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* affiche les controles specifiques au type basculement
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_bascul (va_fenetre, va_type_fmc, va_visible)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : id de la boite de dialogue ou afficher les champs
+*  va_type_fmc        : type de la fmc
+*  va_visible         : indicateur de visibilite demandee
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR tl_controles
+VAR vl_indice
+VAR vl_fenetre
+VAR vl_droits
+
+
+/*A Traitements en cas d'erreur :
+ *   informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN
+}
+	INSTALL_FILE@("ITMA_TMC_trv.elo")
+
+	vl_fenetre = va_fenetre
+
+	/*A rendre visibles ou masquer les controles associes au type fmc */
+
+	/* Modif SAGA : la visibilite depend du droit de propriete */
+	vl_droits = SYSTEM_VAR@ (vg_datex_propriete)
+
+	/*B Champs non visibles sans droit de propriete */
+	IF va_type_fmc = XZAEC_FMC_Basculement {
+		tl_controles = {
+			"LI_bascul_config",
+			"PA_bascul_terreplein",
+			"BS_pr_bascul",
+			"LI_longueur_bascul",
+			"LI_titrelongueur_bascul",
+			"PA_longueur_bascul"
+		}
+	} ELSE {
+		/*A Pour un Basculement pour Travaux,                   */
+		/*A seules les configurations de voies sont visualisees */
+		tl_controles = {
+			"LI_bascul_config",
+			"PA_bascul_terreplein"
+		}
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice],
+		                     va_visible AND (vl_droits = XDC_VRAI))
+	NEXT vl_indice
+
+
+	/*B Champs non visibles sans droit de propriete ni avant une autre action IHM*/
+	tl_controles = {
+		"BP_bascul_bau_i",
+		"BP_bascul_vl_i",
+		"BP_bascul_vm1_i",
+		"BP_bascul_vm2_i",
+		"BP_bascul_vr_i",
+		"BP_bascul_bau",
+		"BP_bascul_vl",
+		"BP_bascul_vm1",
+		"BP_bascul_vm2",
+		"BP_bascul_vr"
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		IF NOT (va_visible AND (vl_droits = XDC_VRAI)) {
+			DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice], FALSE)
+		}
+		DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, tl_controles[vl_indice], TRUE)
+	NEXT vl_indice
+
+
+	/* Champs visibles vitesse selon le type de FMC Travaux, Basculement et Basculement Travaux */
+	tl_controles = {
+		"BS_vitesse_"
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice],
+		                     ((va_type_fmc = XZAEC_FMC_Travaux) OR
+		                      (va_type_fmc = XZAEC_FMC_BasculTravaux) OR
+							  (va_type_fmc = XZAEC_FMC_Basculement )) AND
+		                     va_visible )
+	NEXT vl_indice
+	DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_vitesse_", COM_CHIFFRES )
+	
+	/* Champs visibles vitesse selon le type de Basculement et Basculement Travaux */
+	tl_controles = {
+		"BS_vitesse_opposee"
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice],
+		                     ((va_type_fmc = XZAEC_FMC_BasculTravaux) OR
+							  (va_type_fmc = XZAEC_FMC_Basculement )) AND
+		                     va_visible )
+	NEXT vl_indice
+
+	RETURN (vl_fenetre)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+*
+* charge de la base les informations specifiques du type basculement
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_bascul_charge (va_fenetre, FORMAT COM_Identifiant_FMC ta_num_evt,
+                                 va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_num_evt            : numero et cle d'evenement
+* va_fenetre            : id de la boite de dialogue fiche main courante
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR vl_indice
+VAR FORMAT TMC_bascul         vl_tampon
+VAR vl_fenetre
+VAR tl_retour
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+    RETURN
+}
+
+       vl_indice=0
+       vl_fenetre=va_fenetre
+
+       vl_parametres[vl_indice].type=SYB#DATETIME_
+       vl_parametres[vl_indice].data=va_horodate
+       vl_parametres[vl_indice].output=false
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].data=ta_num_evt.numero
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=false
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].data=ta_num_evt.cle
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=false
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+    vl_parametres[vl_indice].type=SYB#INT4_			'vitesse 
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+    vl_parametres[vl_indice].type=SYB#INT4_			'vitesse opposee 
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       IF COM05_SQL_Procedure (XZAE48_Lire_Fiche_Basculement,
+				  vl_parametres, vl_resultats, CM_MODULE) <> COM_OK
+	{
+	  	INFO_MESSAGE@("Erreur lors de la lecture en base des données de basculement")
+
+		  tl_retour[0]=va_fenetre
+	       tl_retour[1]=null
+		  RETURN (tl_retour)
+	}
+
+	vl_tampon=vl_resultats.return_parameters
+
+	/*A mise a jour des controles dans la boite de dialogue*/
+	IF (vl_tampon.pr<>null)
+		DB_CTRL_VALUE@(vl_fenetre,"BS_pr_bascul",vl_tampon.pr/1000)
+	ELSE
+		DB_CTRL_VALUE@(vl_fenetre,"BS_pr_bascul",null)
+
+	DB_CTRL_VALUE@(vl_fenetre,"BS_vitesse_",vl_tampon.vitesse)		
+	DB_CTRL_VALUE@(vl_fenetre,"BS_vitesse_opposee",vl_tampon.vitesse_opposee)		
+
+	DB_CTRL_TITLE@(vl_fenetre,"LI_longueur_bascul",vl_tampon.longueur)
+
+	tl_retour[0]=vl_fenetre
+	tl_retour[1]=vl_tampon
+	RETURN (tl_retour)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* sauve en base les informations specifiques du type basculement
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_bascul_sauve (FORMAT COM_Identifiant_FMC ta_num_evt,
+                                FORMAT TMC_bascul va_tampon,
+                                va_mode, va_horodate, va_fenetre,
+                                va_autoroute, va_prdebut, va_sens,
+                                va_1)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_num_evt		: numero et cle d'evenement
+* va_tampon		: valeurs des controles
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_NOK si une erreur bloquante s'est produite,
+*                       le code de retour de la procedure sinon.
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@	vl_parametres	
+VAR FORMAT SQL_Procedure_Result@	vl_resultats
+VAR vl_indice
+VAR vl_cr
+
+/*A Traitements en cas d'erreur :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN (XDC_NOK)
+}
+
+	vl_indice=0
+	/*A preparation des parametres de la procedure stockee*/
+	vl_parametres[vl_indice].data=ta_num_evt.numero
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=ta_num_evt.cle
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.pr
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.vr
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.vm2
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.vm1
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.vl
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.bau
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.vr_i
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.vm2_i
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.vm1_i
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.vl_i
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.bau_i
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+		vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste_surcharge)
+	ELSE
+		vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste)
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.vitesse
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.vitesse_opposee
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+/*B Site local */
+        vl_parametres[vl_indice].type = SYB#CHAR_
+        vl_parametres[vl_indice].data = SYSTEM_VAR@(vg_nom_site)
+        vl_parametres[vl_indice].output = FALSE
+        vl_indice = vl_indice +1
+
+	IF COM05_SQL_Procedure (XZAE62_Ecrire_Fiche_Basculement,
+			   vl_parametres, vl_resultats, CM_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@("Erreur lors de l'écriture en base des données de basculement")
+		RETURN (XDC_NOK)
+	}
+
+	RETURN (vl_resultats.status)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche les donnees specifiques d'une fiche Basculement
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_bascul_affiche (va_fenetre, FORMAT TMC_bascul va_bascul)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*  va_bascul          : Données de la fiche Basculement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur ouverture fiche Basculement
+*
+* FONCTION
+*  Value les champs de saisie spécifiques aux FMC de classe Basculement
+*
+--------------------------------------------------------------------------------- */
+
+	DB_CTRL_VALUE@ (va_fenetre, "BS_vitesse_", va_bascul.vitesse)
+	DB_CTRL_VALUE@ (va_fenetre, "BS_vitesse_opposee", va_bascul.vitesse_opposee)
+
+	RETURN (XDC_OK)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit les donnees specifiques d'une fiche Basculement saisies dans la fenetre
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_bascul_saisie (va_fenetre, FORMAT TMC_bascul va_bascul)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_bascul          : Donnees de la fiche Basculement
+*
+*
+* CODE RETOUR         : XDC_NOK si une valeur saisie est incorrecte, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Basculement
+*
+* FONCTION
+*  Remplit la fiche avec les donnees des champs de saisie specifiques.
+*
+--------------------------------------------------------------------------------- */
+
+/*A Traitements en cas d'erreur :
+*   informer l'operateur et abandonner
+* ------------------------------------*/
+ON ERROR
+{
+	ERROR_BOX@
+	RETURN (XDC_NOK)
+}
+
+	/* Lire la valeur du PR de tete et controler sa validite */
+	va_bascul.pr = COM26_Valeur_PR (va_fenetre, "BS_pr_bascul")
+
+	IF (va_bascul.pr = XDC_PR_INCONNU)
+	{
+		INFO_MESSAGE@ ("PR de tête non renseigné")
+		RETURN (XDC_NOK)
+	}
+
+	va_bascul.vitesse = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_vitesse_")
+
+	va_bascul.vitesse_opposee = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_vitesse_opposee")
+
+	IF (va_bascul.vitesse <= 0 OR va_bascul.vitesse_opposee <= 0)
+	{
+		INFO_MESSAGE@ ( "Saisie d'une vitesse nulle non autorisee" )
+		RETURN (XDC_NOK)
+	}
+
+	RETURN (XDC_OK)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Effectue les controles de validite des donnees specifiques d'une fiche Basculement
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_bascul_controle (FORMAT TMC_fmc va_fiche, FORMAT TMC_bascul va_bascul)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fiche           : Donnees generiques de la Fmc ;
+*  va_bascul          : Donnees specifiques a la Fmc Basculement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_NOK si les donnees sont incorrectes, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Basculement
+*
+* FONCTION
+*
+--------------------------------------------------------------------------------- */
+
+VAR	vl_sitePr
+
+	/* Controler la coherence du PR de tete par rapport au sens */
+	IF (va_fiche.pr <> XDC_PR_INCONNU) AND (va_fiche.sens <> XDC_SENS_INCONNU)
+	{
+		IF ITMA_TMC_coherence_pr (va_fiche.autoroute, va_bascul.pr, va_fiche.pr, va_fiche.sens) <> COM_OK
+			RETURN (XDC_NOK)
+	}
+
+	vl_sitePr = ITMA_COM_Site_PR (va_fiche.autoroute, va_bascul.pr, CM_MODULE)
+	IF (vl_sitePr = XDC_SITE_INCONNU)
+	{
+		INFO_MESSAGE@ ("Le PR de tête est hors réseau")
+		RETURN (XDC_NOK)
+	}
+
+	IF va_bascul.vitesse > 130 va_bascul.vitesse=130
+	IF (va_fiche.type = XZAEC_FMC_Basculement OR va_fiche.type = XZAEC_FMC_BasculTravaux ) AND (IS_NULL@(va_bascul.vitesse))
+	{
+		INFO_MESSAGE@ ("La vitesse limite doit etre saisie")
+		RETURN (XDC_NOK)
+	}
+
+	IF va_bascul.vitesse_opposee > 130 va_bascul.vitesse_opposee=130
+	IF (va_fiche.type = XZAEC_FMC_Basculement OR va_fiche.type = XZAEC_FMC_BasculTravaux ) AND (IS_NULL@(va_bascul.vitesse_opposee))
+	{
+		INFO_MESSAGE@ ("La vitesse limite opposee doit etre saisie")
+		RETURN (XDC_NOK)
+	}
+	RETURN (XDC_OK)
+ENDMACRO

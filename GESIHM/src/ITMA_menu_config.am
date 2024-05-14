@@ -1,0 +1,105 @@
+/*E*/
+/* Fichier : $Id: ITMA_menu_config.am,v 1.1 1994/12/23 17:13:45 cornu Exp $      Release : $Revision: 1.1 $        Date : $Date: 1994/12/23 17:13:45 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_menu_config
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Affichag du menu principale*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Cornu 		16 Sep 1994	: Creation
+---------------------------------------------------------------------------- */
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+macro ITMA_menu_config
+
+var 	vl_fenetre
+var	vl_la_fenetre_est_active
+var 	vl_object_select
+var 	vl_objet
+var 	vl_machine
+var 	vl_operateur
+var 	vl_site
+var  i
+var  droits
+
+vl_site = SYSTEM_VAR@("vg_nom_site")
+vl_operateur = SYSTEM_VAR@("vg_operateur")
+vl_operateur = SUBSTRING@(vl_operateur, 1, 25)
+vl_machine = SYSTEM_VAR@("vg_poste")
+
+/*A
+ * Definition du traitement a realiser en cas d'erreur
+ * ---------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur ("MTLM"))
+    RETURN
+}
+
+
+
+/*A
+ * Charger la fenetre
+ * ------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_menu_config")
+
+DB_XPOS@ (vl_fenetre, 300)
+DB_YPOS@ (vl_fenetre, 150)
+
+DB_CTRL_VALUE@(vl_fenetre,"BS_machine",vl_machine)
+DB_CTRL_VALUE@(vl_fenetre,"BS_operateur",vl_operateur)
+DB_CTRL_VALUE@(vl_fenetre,"BS_site",vl_site)
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY@ (vl_fenetre)
+	vl_objet = DB_EXIT_CTRL@ (vl_fenetre)
+	IF SYSTEM_VAR@ (vg_verrou) vl_objet = NULL
+
+	CASE OF vl_objet
+
+	CASE "BP_annuler"
+		DB_SEND_POKE@(COM_CANAL_FIN,TRUE)
+		vl_la_fenetre_est_active = FALSE
+
+	CASE "BP_ok"
+	
+	vl_machine = DB_CTRL_GET_VALUE@(vl_fenetre,"BS_machine")
+	vl_operateur = DB_CTRL_GET_VALUE@(vl_fenetre,"BS_operateur")
+	vl_site = DB_CTRL_GET_VALUE@(vl_fenetre,"BS_site")
+	SET_SYSTEM_VAR@("vg_nom_site",vl_site)
+	SET_SYSTEM_VAR@("vg_operateur",vl_operateur)
+	SET_SYSTEM_VAR@("vg_poste",vl_machine)
+	vl_la_fenetre_est_active = FALSE
+
+	
+  ENDCASE
+
+WEND
+
+ENDMACRO
+
+

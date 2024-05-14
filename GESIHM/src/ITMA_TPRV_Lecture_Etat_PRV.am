@@ -1,0 +1,200 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPRV_Lecture_Etat_PRV.am,v 1.1 2012/07/04 14:58:36 pc2dpdy Exp $      Release : $Revision: 1.1 $        Date : $Date: 2012/07/04 14:58:36 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_COM * FICHIER ITMA_TPRV_Lecture_Etat_PRV.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fonctions communes au module MTPRV.
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* LCL	17 Fev 2012 	: Creation	DEM/1016			1.1
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TAR.h"
+INCLUDE "../inc/ITMA_TDO.h"
+INCLUDE "../inc/ITMA_TPRV.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE "../../XDMICG/inc/xzat51sp.h"
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture en base de l'etat d'un PRV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPRV_Lecture_Etat_PRV (FORMAT  PA_PRV va_PRV,
+								  va_maj_etat,
+				 				  va_module)
+
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*   aucun
+*
+*
+* ARGUMENTS EN SORTIE	: 
+*	va_PRV	: Etat d'affichage du PRV
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PRV
+*
+*
+* FONCTION
+*   Appel XZAT05_Utilisation_PRV.
+*
+---------------------------------------------------------------------------- */
+
+
+	VAR	vl_lib_fmc		' libelle fmc
+	var	vl_tptext			' zone de text tampon
+	VAR	vl_horodate
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	/*A Definition de vl_parametres */
+	vl_parametres[0].type	= SYB#DATETIME_
+	vl_parametres[0].data	= NULL
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type	= SYB#INT1_
+	vl_parametres[1].data	= va_PRV.NumEqt+0
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT2_
+	vl_parametres[2].data	= 0			' Dispo PRV
+	vl_parametres[2].output	= TRUE
+
+	vl_parametres[3].type	= SYB#CHAR_
+	vl_parametres[3].data	= 0			' picto
+	vl_parametres[3].output	= TRUE
+
+	vl_parametres[4].type	= SYB#CHAR_
+	vl_parametres[4].data	= 0			' bandeau
+	vl_parametres[4].output	= TRUE
+
+	vl_parametres[5].type	= SYB#INT4_
+	vl_parametres[5].data	= 0			' Num Evt
+	vl_parametres[5].output	= TRUE
+
+	vl_parametres[6].type	= SYB#INT2_
+	vl_parametres[6].data	= 0			' Cle Evt
+	vl_parametres[6].output	= TRUE
+
+	vl_parametres[7].type	= SYB#INT2_
+	vl_parametres[7].data	= 0			' Priorite
+	vl_parametres[7].output	= TRUE
+
+	vl_parametres[8].type	= SYB#INT4_
+	vl_parametres[8].data	= 0			' Distance Evt
+	vl_parametres[8].output	= TRUE
+
+	vl_parametres[9].type	= SYB#INT4_
+	vl_parametres[9].data	= 0			' Num Action
+	vl_parametres[9].output	= TRUE
+
+	vl_parametres[10].type	= SYB#INT1_
+	vl_parametres[10].data	= 0			' Num Site Action
+	vl_parametres[10].output	= TRUE
+
+	/*A Execution de la procedure XZAT51_Utilisation_PRV */
+	IF COM05_SQL_Procedure 
+			(XZAT51_Utilisation_PRV,vl_parametres,vl_resultats,va_module)
+			 <> COM_OK
+    			RETURN (COM_NOK)
+
+	va_PRV.Horodate = COM09_Date_Courante()
+	/*A MAJ de la table PRV avec les arguments de sorties */
+	va_PRV.DispoPRV 		=	vl_resultats.return_parameters[0]
+	va_PRV.Vitesse			= 	vl_resultats.return_parameters[1]
+  	va_PRV.Bandeau 			= 	vl_resultats.return_parameters[2]
+	va_PRV.NumEvt			=	vl_resultats.return_parameters[3]+0
+	va_PRV.CleEvt			=	vl_resultats.return_parameters[4]+0
+	va_PRV.Priorite			=	vl_resultats.return_parameters[5]
+	va_PRV.DistanceEvt		=	vl_resultats.return_parameters[6]
+	va_PRV.NumeroAction		=	vl_resultats.return_parameters[7]
+
+	if va_PRV.NumEvt<>0 and  va_PRV.CleEvt<>0
+	{
+		/*A MAJ du libelle fmc */
+		ITMA_COM_Lire_Evenement ( 
+					va_PRV.NumEvt,
+					va_PRV.CleEvt, 
+					vl_lib_fmc, 
+					va_module)
+		va_PRV.fmc_liee = COM11_Libelle_FMC(vl_lib_fmc)
+	}
+	else	va_PRV.fmc_liee = "Pas de libelle F.M.C"
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+ 
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner a l'etat des PRV et des PICTO.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TPRV_Abt_Etat_PRV( va_NomSite )
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomSite		:	Nom du site
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TPM
+*
+* FONCTION :
+*	Permet de s'abonner a l'etat des PRV et des PICTO.
+* ------------------------------------------------------------------------------- */
+
+	VAR	vl_cmd
+
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA70  
+
+	/*B arguments */
+	vl_cmd[3]= XDC_DEBUT_ABONNEMENT_EQUEXT ++ MTAR_CAR_SEPAR ++ va_NomSite
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+/*B code retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+

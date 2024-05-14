@@ -1,0 +1,469 @@
+/*E*/
+/* Fichier : $Id: ITMA_TLA_Liste_Interlocuteurs.am,v 1.12 2013/02/04 09:42:15 devgfi Exp $      Release : $Revision: 1.12 $        Date : $Date: 2013/02/04 09:42:15 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLA * FICHIER ITMA_TLA_Liste_Interlocuteurs.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Liste des interlocuteurs.
+*
+*   Cf. DCG 2.4.43
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	27 Oct 1994	: Creation
+* Guilhou	22 dec 1994	: modif lancement de la consultation	V1.5
+* Guilhou	12 dec 1996	: bouton creer fiche au CI uniquement  1.8
+* Guilhou	26 mai 1997	: acces que si famille exploitation 1.9
+* Niepceron	24 Juin 1997	: acces si pas poste peage 1.10 (dem/1429 suite)
+* Cluchague     02 Fev 1999     : gestion du site
+* JPL		20/12/2012	: Selection et retour d'interlocuteurs multiples (DEM 1028)  1.12
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"ITMA_COM.h"
+INCLUDE	"ITMA_TDO.h"
+INCLUDE	"ITMA_TFA.h"
+
+INCLUDE	"xzan09sp.h"
+INCLUDE	"xzan15sp.h"
+
+
+
+DEFINE	C_MODULE	"MTLA"			' Nom du module
+
+
+
+/*A
+ * Definition des codes et libelles
+ * des erreurs specifiques au module
+ * ---------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+DEFINE	C_LIB_NOM_INVALIDE	"Un nom doit commencer par une lettre majuscule"
+DEFINE	C_LIB_HOMONYMIE		"Un homonyme existe déjà"
+
+
+
+VAR FORMAT TFA_Interlocuteur tm_interlocuteurs		' Table interlocuteurs
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Annuaire des interlocuteurs.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLA_Liste_Interlocuteurs (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Informations sur l'interlocuteur selectionne.
+*
+* CONDITION D'UTILISATION
+*   Selection de Consulter -> Annuaire  dans MTMT
+*   MTFC (calendrier d'astreinte)
+*   MTFA (choix d'un interlocuteur lie a un objet synoptique)
+*
+* FONCTION
+*   Visualise une liste d'interlocuteurs ;
+*   permet de saisir un critere de nom des interlocuteurs affiches ;
+*   permet de visualiser le detail de fiches interlocuteurs et d'en creer
+*   de nouvelles.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_appelant				    ' Nom du module appelant
+    VAR     vl_mode_selection			    ' Indic. mode choix interloc
+    VAR     vl_selection_multiple		    ' Selection de plusieurs interlocuteurs
+
+    VAR     vl_nom				    ' Nom d'interlocuteur saisi
+    VAR     vl_num_fiche			    ' Num. fiche annuaire creee
+    VAR     vl_initiale				    ' Premier caractere du nom
+    VAR     tl_select				    ' Rang(s) interlocuteur(s) selectes
+    VAR     i
+
+    VAR FORMAT TFA_Contact_Interlocuteur tl_interlo ' Interlocuteur(s) choisi(s)
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (NULL)
+}
+
+if COM04_Operateur_A_Le_Droit_De(XDC_FAM_HISTO_PEAGE)
+{
+     COM01_Trace(0," Appel par un utilisateur non autorisé")
+     RETURN(COM_OK)
+}
+
+/*A
+ * Charger la fenetre "Liste Interlocuteurs"
+ * -----------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TLA")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@(vl_fenetre, 0)
+DB_YPOS@(vl_fenetre, 93)
+DB_WIDTH@(vl_fenetre, COM_LARGEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TLA_Liste_Interlocuteurs")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Determiner l'origine de l'invocation et le mode de fonctionnement associe
+ * -------------------------------------------------------------------------
+ */
+
+vl_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+IF (vl_appelant = "MTMT") {
+	vl_mode_selection = FALSE
+} ELSE {
+	vl_mode_selection = TRUE
+}
+
+IF (vl_appelant = "MTFX") {
+	vl_selection_multiple = TRUE
+} ELSE {
+	vl_selection_multiple = FALSE
+}
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+IF (vl_mode_selection)  OR  (SYSTEM_VAR@(vg_site) <> XDC_CI)  OR
+   NOT COM04_Operateur_A_Le_Droit_De (XDC_FAM_ADM_ANNUAIRE)
+{
+	DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Creer_Fiche", FALSE)
+}
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Interlocuteurs", TRUE)
+IF (vl_selection_multiple) {
+	DB_CTRL_MULTI_SELECT@ (vl_fenetre, "BL_Interlocuteurs", TRUE)
+	DB_CTRL_VALUE@ (vl_fenetre, "BL_Interlocuteurs", { })
+} ELSE {
+	DB_CTRL_MULTI_SELECT@ (vl_fenetre, "BL_Interlocuteurs", FALSE)
+	DB_CTRL_VALUE@ (vl_fenetre, "BL_Interlocuteurs", -1)
+}
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+	    tl_interlo = NULL
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    /*A
+     * Sur choix "Quitter", retourner NULL (aucun interlocuteur choisi)
+     * ----------------------------------------------------------------
+     */
+
+    CASE "BP_Quitter"
+	tl_interlo = NULL
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur choix "Rechercher" verifier qu'un format de nom d'interlocuteur
+     * est saisi (les premieres lettres - au moins une), puis rechercher
+     * et afficher les noms des interlocuteurs verifiant ce critere
+     * -------------------------------------------------------------------
+     */
+
+    CASE "BP_Rechercher"
+	vl_nom = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Nom_Interlocuteur")
+	vl_initiale = SUBSTRING@ (vl_nom, 1, 1)
+	IF (vl_initiale << "A")  OR  (vl_initiale >> "Z")
+	{
+	    ERROR@ (C_ERR_IHM, C_LIB_NOM_INVALIDE)
+	}
+	IF TLA_Rechercher_Interlocuteurs (vl_fenetre, vl_nom) = COM_OK
+	{
+		IF (vl_selection_multiple) {
+			DB_CTRL_VALUE@ (vl_fenetre, "BL_Interlocuteurs", { })
+		} ELSE {
+			DB_CTRL_VALUE@ (vl_fenetre, "BL_Interlocuteurs", -1)
+		}
+	}
+
+
+    /*A
+     * Sur choix "Valider",
+     * --------------------
+     */
+
+    CASE "BP_Valider"
+	tl_select = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Interlocuteurs")
+	/*B convertir la selection en choix multiples */
+	IF NOT IS_ARRAY@ (tl_select)
+	{
+		IF (tl_select < 0) {
+			tl_select = { }
+		} ELSE {
+			tl_select = { tl_select }
+		}
+	}
+
+	/*A si une selection a ete faite alors */
+	IF (ARRAY_SIZE@ (tl_select) = 0)
+	{
+		ERROR@ (C_ERR_IHM, "Veuillez sélectionner le ou les interlocuteur(s)")
+	}
+	ELSE
+	{
+		/*B terminer le module de choix d'interlocuteur */
+		vl_la_fenetre_est_active = FALSE
+
+		/*A en mode selection, retourner les interlocuteurs selectionnes */
+		IF (vl_mode_selection) {
+			tl_interlo = { }
+			FOR i = 0  TO (ARRAY_SIZE@ (tl_select) - 1)
+				tl_interlo[i] = tm_interlocuteurs[tl_select[i]]
+			NEXT i
+		} ELSE {
+			/*A sinon visualiser la fiche de l'interlocuteur selectionne */
+			NEW_TASK@ ("ITMA_TFA_Fiche_Annuaire",
+			           "ITMA_TLA_Liste_Interlocuteurs",
+			           tm_interlocuteurs[tl_select[0]].numero,
+			           tm_interlocuteurs[tl_select[0]].nom,
+			           FALSE)
+		}
+	}
+
+
+    /*A
+     * Sur choix "Creer Fiche" verifier qu'un nom d'interlocuteur valide
+     * est saisi puis demander la creation d'une fiche annuaire avec ce nom ;
+     * si la fiche est creee (pas d'homonymie), invoquer MTFA pour la remplir
+     * ----------------------------------------------------------------------
+     */
+
+    CASE "BP_Creer_Fiche"
+	vl_nom = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Nom_Interlocuteur")
+	vl_initiale = SUBSTRING@ (vl_nom, 1, 1)
+	IF vl_initiale << "A"  OR  vl_initiale >> "Z" {
+	    ERROR@ (C_ERR_IHM, C_LIB_NOM_INVALIDE)
+	}
+
+	IF TLA_Creer_Fiche_Annuaire (vl_nom, vl_num_fiche) = COM_OK {
+	    IF IS_NULL@ (vl_num_fiche) {
+		ERROR@ (C_ERR_IHM, C_LIB_HOMONYMIE)
+	    }
+	    PEND_FOR_NEW_TASK@ ("ITMA_TFA_Fiche_Annuaire",
+				   "ITMA_TLA_Liste_Interlocuteurs",
+				   vl_num_fiche,
+				   vl_nom,
+				   TRUE)
+	}
+    ENDCASE
+WEND
+
+RETURN (tl_interlo)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recherche d'interlocuteurs par leur nom dans l'annuaire.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLA_Rechercher_Interlocuteurs (va_fenetre, va_format_nom)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Identifiant de la fenetre pour affichage des resultats ;
+*  va_format_nom      : Format du nom des interlocuteurs cherches (1e lettres).
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLA_Liste_Interlocuteurs
+*
+* FONCTION
+*   Recherche en base de donnees et affiche la liste des interlocuteurs
+*   dont le nom repond au critere decrit en argument (premieres lettres
+*   identiques a celles indiquees).
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR vl_site_concerne
+
+if ( SYSTEM_VAR@(vg_site) = XDC_CI  ) vl_site_concerne = null
+else vl_site_concerne = SYSTEM_VAR@(vg_site)
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = va_format_nom
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT4_
+vl_parametres[1].data = vl_site_concerne
+vl_parametres[1].output = FALSE
+
+IF COM05_SQL_Procedure (XZAN15_Rechercher_Annuaire,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+tm_interlocuteurs = vl_resultats.select_results[0]
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Interlocuteurs",
+		     ARRAY_COLUMN@ (tm_interlocuteurs, TFA_NOM_INTERLOCUTEUR))
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Cree une nouvelle fiche annuaire.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLA_Creer_Fiche_Annuaire (va_nom_interlo, va_numero_fiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_nom_interlo     : Nom de l'interlocuteur.
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_numero_fiche    : Numero de la fiche creee, NULL si elle n'est pas creee.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLA_Liste_Interlocuteurs
+*
+* FONCTION
+*   Execute simplement la requete adequate pour creer une fiche annuaire
+*   pour l'interlocuteur de nom indique ;
+*   value en retour le numero de la fiche creee.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = va_nom_interlo
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFA_Numero_Fiche_Annuaire	' Numero fiche creee
+vl_parametres[1].output = TRUE
+
+vl_parametres[2].type = SYB#INT1_			' Statut : fiche creee
+vl_parametres[2].output = TRUE				' ou homonymie
+
+IF COM05_SQL_Procedure (XZAN09_Creer_Fiche_Annuaire,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+IF vl_resultats.return_parameters[1] = XDC_OK
+    va_numero_fiche = vl_resultats.return_parameters[0]
+ELSE va_numero_fiche = NULL
+
+RETURN (COM_OK)
+
+ENDMACRO

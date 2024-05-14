@@ -1,0 +1,357 @@
+/*E*/
+/* Fichier : $Id: dedi_ec43.am,v 1.3 1996/05/23 14:14:10 noel Exp $	      Release :  $Revision: 1.3 $       Date : $Date: 1996/05/23 14:14:10 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec43.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* definition de la priorite des actions
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	02 fev 1994	: Creation						V1.1
+* Guilhou	06 sep 1995	: validation obligatoire sauf sur appel direct (1.2)
+* Guilhou 23 mai 1996 : astreintes gérées par numero (DEM/1125) V1.3
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+FORMAT dedi_priorite
+	libelle,
+	type,
+	astreinte
+
+VAR FORMAT dedi_priorite tm_actions
+VAR vm_fichier
+
+VAR FORMAT dedi_astreinte tm_astreintes
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition de la priorite des actions
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec43 (va_appelant,va_mode,ta_appeles)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice
+var vl_selection
+var tl_data
+var tl_pokes
+var vl_action
+var vl_appele
+
+/*A initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec43")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+tl_pokes[1]=dedi_canal_ec43_fin
+tl_pokes[2]=dedi_canal_ec43_ajinterl
+tl_pokes[3]=dedi_canal_ec43_supinterl
+tl_pokes[4]=dedi_canal_ec43_valide
+tl_pokes[5]=dedi_canal_ec43_annule
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A nom du fichier suivant le mode d'appel*/
+IF (va_mode="PC")
+{
+	vm_fichier=AX_PATH++IE_FILE_PRIORITE_PC
+	DB_TITLE@(vl_fenetre,"Priorité des actions PC")
+}
+ELSE
+{
+	vm_fichier=AX_PATH++IE_FILE_PRIORITE_CI
+	DB_TITLE@(vl_fenetre,"Priorité des actions CI")
+}
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,450)
+DB_YPOS@(vl_fenetre,100)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec43_init(vl_fenetre,va_appelant)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur la fleche vers le bas*/
+		CASE "BP_bas"
+			/*A si une ligne de la liste est selectionnee*/
+			IF ((vl_selection++"")<>null)
+			{
+				/*A recupere la ligne courante*/
+				vl_action=tm_actions[vl_selection]
+
+				/*A si ce n'est pas la derniere*/
+				IF (vl_selection<(ARRAY_SIZE@(tm_actions)-1))
+				{
+					/*A je la decale vers le bas*/
+					tm_actions[vl_selection]=tm_actions[vl_selection+1]
+					tm_actions[vl_selection+1]=vl_action
+
+					/*A je mets a jour l'affichage*/
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_actions",
+													tm_actions)
+
+					/*A je reselectionne la ligne deplacee*/
+					vl_selection=vl_selection+1
+					vl_indice[0]=vl_selection
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_actions",
+													vl_indice)
+				}
+			}
+
+		/*A appui sur la fleche vers le haut*/
+		CASE "BP_haut"
+			/*A si une ligne de definition est selectionnee*/
+			IF ((vl_selection++"")<>null)
+			{
+				/*A recupere la ligne courante*/
+				vl_action=tm_actions[vl_selection]
+
+				/*A si ce n'est pas la premiere*/
+				IF (vl_selection>0)
+				{
+					/*A je la decale vers le haut*/
+					tm_actions[vl_selection]=tm_actions[vl_selection-1]
+					tm_actions[vl_selection-1]=vl_action
+
+					/*A je mets a jour l'affichage*/
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_actions",
+										tm_actions)
+
+					/*A je reselectionne la ligne deplacee*/
+					vl_selection=vl_selection-1
+					vl_indice[0]=vl_selection
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_actions",
+													vl_indice)
+				}
+			}
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			IF (ec43_valide()=TRUE)
+				RETURN
+
+		/*A selection d'un element dans la liste des actions*/
+		CASE "TA_actions"
+			/*A on recupere la position de l'element selectionnee */
+			vl_indice = DB_TABLE_GET_SELECTIONS@(vl_fenetre, vl_evt)
+			vl_selection=vl_indice[0]
+				
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin, dedi_canal_ec43_fin
+					/*A bye*/
+					RETURN
+
+				/*A la tache de gestion des interlocuteurs a ete validee*/
+				CASE dedi_canal_ec43_valide
+					/*A je peux valider ma boite*/
+					DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",FALSE)
+
+				/*A la tache de gestion des interlocuteurs a ete annulee*/
+				CASE dedi_canal_ec43_annule
+					/*A bye*/
+					RETURN
+
+				/*A suppression d'un appel*/
+				CASE dedi_canal_ec43_supinterl
+					DB_CTRL_GRAYED@(vl_fenetre,"BP_annuler",TRUE)
+					/*A je recupere le nom de l'interlocuteur*/
+					vl_appele=DB_GET_POKE_DATA@(vl_fenetre)
+
+					/*A et sa posirion dans la liste des actions*/
+					vl_indice=ARRAY_INDEX@(
+								ARRAY_COLUMN@(tm_actions,0),
+								"Appel "++vl_appele)
+
+					/*A je l'efface de la liste*/	
+					tm_actions=ARRAY_DELETE@(tm_actions,vl_indice)
+
+					/*A je mets a jour l'affichage*/
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_actions",0,-1)
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_actions",
+											tm_actions,0)
+
+				/*A ajour d'un interlocuteur*/
+				CASE dedi_canal_ec43_ajinterl
+					DB_CTRL_GRAYED@(vl_fenetre,"BP_annuler",TRUE)
+					/*A je recupere le nom de l'interlocuteur*/
+					vl_appele=DB_GET_POKE_DATA@(vl_fenetre)
+					tm_actions[ARRAY_SIZE@(tm_actions)].libelle="Appel "++
+														vl_appele[1]
+					tm_actions[ARRAY_SIZE@(tm_actions)].type=dedi_action_appel
+					tm_actions[ARRAY_SIZE@(tm_actions)].astreinte=vl_appele[0]
+
+					/*A je mets a jour l'affichage*/
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_actions",
+											tm_actions,0)
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec43_init (va_fenetre,va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR tl_elements
+VAR vl_index
+VAR tl_titres
+
+	tm_astreintes=SYSTEM_VAR@(vg_astreintes)
+
+	/*A si l'appelant est la liste des interlocuteurs*/
+	IF (va_appelant="dedi_ec7")
+	{
+		/*A je ne peux plus annuler ni valider*/
+		DB_CTRL_GRAYED@(va_fenetre,"BP_annuler",TRUE)
+		DB_CTRL_GRAYED@(va_fenetre,"BP_valider",TRUE)
+	}
+	
+	/*A chargement des perturbations depuis le fichier de config*/
+	tl_data=READ_ASCII_FILE@(vm_fichier)
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tm_actions[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+												DEDI_CAR_SEPAR)
+
+		IF (tm_actions[vl_indice].type=dedi_action_appel) {
+			vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_astreintes,1), 
+							tm_actions[vl_indice].astreinte)
+			tm_actions[vl_indice].libelle=tm_actions[vl_indice].libelle++" "++
+							tm_astreintes[vl_index][0]
+		}
+	NEXT vl_indice
+
+	/*A affiche la structure*/
+	tl_titres[0][0] = "Liste des actions proposées"
+	tl_titres[0][1] = 600
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_actions", TRUE)
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_actions", tm_actions, tl_titres)
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec43_valide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_actions)-1)
+		IF (tm_actions[vl_indice].type=dedi_action_appel)
+			tm_actions[vl_indice].libelle="Appel"
+		tl_data[vl_indice]=ARRAY_TO_STRING@(tm_actions[vl_indice],
+												DEDI_CAR_SEPAR)
+	NEXT vl_indice
+	
+	WRITE_ASCII_FILE@(vm_fichier,tl_data)
+
+	RETURN (TRUE)
+ENDMACRO
+
+
+

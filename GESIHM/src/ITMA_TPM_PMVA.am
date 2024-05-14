@@ -1,0 +1,240 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPM_PMVA.am,v 1.4 2007/03/26 14:41:22 gesconf Exp $      Release : $Revision: 1.4 $        Date : $Date: 2007/03/26 14:41:22 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE UTIL * FICHIER ITMA_TPM_PMVA.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*  pmv acces simplfie
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG	13/10/04	creation
+* PCL   20/10/04        mise au point v1.3 
+* JMG	17/01/05	le PMVA 3 sautets est desormais pilote par tepma 1.4
+-------------------------------------------------------------------------------
+*/
+
+INCLUDE	"dbase_.am"
+INCLUDE	"app_ids_.am"				'pour récupérer le nom des appli Applix
+INCLUDE	"windows_.am"				'pour récupérer le nom des appli Applix
+
+DEFINE	C_MODULE	"MTOU"			' Nom du module
+DEFINE	CL_TRI_ALPHA	4			' tri par ordre alphabetique
+
+DEFINE	VUE_COMMUN	"VUES_Commun.elo"
+DEFINE	VUE_APPLIX	"CVUEM_ApplixData.elo"
+
+
+FORMAT T_PMVA
+	nom,
+	numero,
+	LT
+
+VAR FORMAT T_PMVA tm_pmva
+
+DEFINE FIC_CMD_LCR	"pmva_cmd.lcr"
+DEFINE FIC_RES_LCR	"pmva_res.lcr"
+DEFINE PMVA_TYPE	46 /*XDC_EQT_PMV*/
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Creation d'une boite de dialogue pour permettre le  pilotage des PMV acces
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPM_PMVA()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Appel depuis le menu principal
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR 	vl_exit_value
+	VAR	vl_la_fenetre_est_active
+	VAR 	vl_fenetre			 
+
+     VAR vl_liste_machines
+	VAR vl_indice
+	VAR vl_fichier_commande
+	VAr vl_fichier_resultat
+      VAR vl_index
+      VAR vl_machine
+      VAR vl_type_equipement
+      VAR vl_numero_equipement
+
+	VAR vl_t1, vl_t2, vl_t3, vl_t4, vl_t5
+	VAR vl_flash
+	VAR tl_lignes
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	RETURN
+}
+/* lignes qui suivent pour test sur PMV uniquement */
+/*  tm_pmva[0].nom="PMV DU 112900 SENS 1"
+  tm_pmva[0].numero = 47
+  tm_pmva[0].LT = "PODP1"
+*/
+
+  tm_pmva[0].nom="PMVA A8 Aix 3 Sautets - sens 1 et 2"
+  tm_pmva[0].numero = 2 /*49*/
+  tm_pmva[0].LT = "POLTS02"
+
+/* lignes qui suivent pour test sur PMV uniquement */
+/*  tm_pmva[1].nom="PMV DU 150785 SENS 2"
+  tm_pmva[1].numero = 35
+  tm_pmva[1].LT = "PODP1"
+*/
+
+  tm_pmva[1].nom="PMVA A8 Echangeur de Fuveau - sens 2 uniquement"
+  tm_pmva[1].numero = 1 /*48*/
+  tm_pmva[1].LT = "POLTS03"
+
+/*A
+ * Charger la fenetre "menu principal"
+ * ----------------------------------
+ */
+INSTALL_FILE@ ("/produits/migrazur/appliSD/exec/ITMA_TIE_fenetre_LCR.elo")
+vl_fenetre = DB_LOAD@ ("ITMA_TPM_PMVA")
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93 )
+
+  DB_CTRL_STRINGS@(vl_fenetre,"BO_pmva",ARRAY_COLUMN@(tm_pmva,0))
+
+vl_la_fenetre_est_active = TRUE
+/*A boucle infinie de traitement des evenements*/
+WHILE vl_la_fenetre_est_active
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+
+	/*B si demande d'execution */
+	CASE "BP_valider"
+		tl_lignes=NULL
+		MACRO_WINS_BUSY@()
+
+		/*PMVA a piloter*/
+		vl_indice = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_pmva")
+
+		/*recupere la position a piloter */
+		centrer_ligne(vl_t1, DB_CTRL_GET_VALUE@(vl_fenetre,"BS_t1"),15)
+		centrer_ligne(vl_t2 , DB_CTRL_GET_VALUE@(vl_fenetre,"BS_t2"),15)
+		centrer_ligne (vl_t3 , DB_CTRL_GET_VALUE@(vl_fenetre,"BS_t3"),15)
+		centrer_ligne (vl_t4 , DB_CTRL_GET_VALUE@(vl_fenetre,"BS_t4"),15)
+		centrer_ligne(vl_t5 , DB_CTRL_GET_VALUE@(vl_fenetre,"BS_t5"),15)
+
+		vl_flash = -1 * DB_CTRL_GET_VALUE@(vl_fenetre,"BT_flash")
+
+		tl_lignes[0] = "P ID=SAE/MIG AM=1 AF=" ++ "\"" ++
+				vl_t1 ++ "\"" ++ " AM=2 AF=" ++ "\"" ++
+				vl_t2 ++ "\"" ++ " AM=3 AF=" ++ "\"" ++
+				vl_t3 ++ "\"" ++ " AM=4 AF=" ++ "\"" ++
+				vl_t4 ++ "\"" ++ " AM=5 AF=" ++ "\"" ++
+				vl_t5 ++ "\"" ++ " AM=6 AF=" ++ vl_flash
+
+/* lignes qui suivent pour tests sur PMV uniquement */
+/*		tl_lignes[0] = "P ID=SAE/MIG AM=1 AF=" ++ "\"" ++ vl_t1  ++ "\""
+                    if vl_t2 <> "               "  
+			  tl_lignes[0] = tl_lignes[0] ++ " AM=2 AF=" ++ "\"" ++ vl_t2 ++ "\""
+                    if vl_t3 <> "               " 
+			  tl_lignes[0] = tl_lignes[0] ++ " AM=3 AF=" ++ "\"" ++ vl_t3 ++ "\""
+                    if vl_t4 <> "               " 
+			  tl_lignes[0] = tl_lignes[0] ++ " AM=4 AF=" ++ "\"" ++ vl_t4 ++ "\""
+                    if vl_t5 <> "               " 
+			  tl_lignes[0] = tl_lignes[0] ++ " AM=5 AF=" ++ "\"" ++ vl_t5 ++ "\""
+*/
+
+		WRITE_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/deq/"++FIC_CMD_LCR,tl_lignes)
+
+                ITMA_TIE_XZEX01( PMVA_TYPE , tm_pmva[vl_indice].numero , 
+					FIC_CMD_LCR, FIC_RES_LCR ,  0 , 0 , 0 , 
+					tm_pmva[vl_indice].LT )
+		INFO_MESSAGE@("Commande executee")
+
+	CASE "BP_eteindre"
+		tl_lignes=NULL
+		/*PMVA a piloter*/
+		vl_indice = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_pmva")
+		tl_lignes[0] = "P ID=SAE/MIG AM=* AF=0" 
+		WRITE_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/deq/" ++ FIC_CMD_LCR,tl_lignes)
+                ITMA_TIE_XZEX01( PMVA_TYPE , tm_pmva[vl_indice].numero , 
+					FIC_CMD_LCR, FIC_RES_LCR ,  0 , 0 , 0 , 
+					tm_pmva[vl_indice].LT )
+		INFO_MESSAGE@("Commande executee")
+
+	CASE "BP_quitter"
+		RETURN
+	ENDCASE	
+
+WEND
+ENDMACRO
+
+
+MACRO centrer_ligne(va_new,va_old,va_taille)
+
+/*
+* ARGUMENTS EN ENTREE :
+*       va_old          : Chaine en entrée ;
+*       va_taille               : taille de la chaine de sortie
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_new              : Chaine en sortie.
+*
+*
+* CODE RETOUR         : auncun
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+---------------------------------------------------------------------------- */
+
+	var     vl_long                 ' longeur du message
+	var     x                       ' variable static
+	var     i                       ' index de loop
+	var     vl_text
+
+	vl_long = (len@(trim@(va_old)))
+	x = int@((va_taille-vl_long)/2)
+	va_new = ""
+	for i = 1 to x
+		va_new = va_new ++ " "
+	next i
+        vl_text = va_new ++ trim@(va_old) ++ "               "
+	va_new = SUBSTRING@(vl_text,1,15)
+
+ENDMACRO
+

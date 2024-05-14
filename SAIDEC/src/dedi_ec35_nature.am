@@ -1,0 +1,205 @@
+/*E*/
+/* Fichier : $Id: dedi_ec35_nature.am,v 1.2 1998/02/20 14:25:01 verdier Exp $	      Release : $Revision: 1.2 $        Date : $Date: 1998/02/20 14:25:01 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec35_nature.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* formulation de l'element nature pour PMV pour delestage et deviation
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	29 nov 1994	:  creation
+* Guilhou	18 dec 1997	:  ajout nature avec bifurcation (dem/1534) 1.2
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+
+VAR	tm_data
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* formulation de l'element nature pour delestage et deviation
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec35_nature ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice
+var tl_pokes
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec35_nature")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,5)
+DB_YPOS@(vl_fenetre,72)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec35_nature_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			ec35_nature_valide(vl_fenetre)
+			RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec35_nature_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR vl_boite
+
+	/*A affichage des variables autorisees*/
+	tl_data=dedi_var_fenetre(IE_FILE_NATURE_PMV)
+	DB_CTRL_STRINGS@(va_fenetre,"BL_variables",tl_data)
+
+	/*A chargement des perturbations depuis le fichier de config*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_NATURE_PMV)
+
+	/*A affichage des donnees lues*/
+	FOR vl_indice=1 TO 60
+		vl_boite="BS_"++vl_indice
+			DB_CTRL_VALUE@(va_fenetre,vl_boite,tl_data[vl_indice-1])
+	NEXT vl_indice
+
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec35_nature_valide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR vl_boite
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	/*A recuperation des donnees */
+	FOR vl_indice=1 TO 60
+		vl_boite="BS_"++vl_indice
+		tl_data[vl_indice-1]=DB_CTRL_GET_VALUE@(va_fenetre,vl_boite)
+	NEXT vl_indice
+
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_NATURE_PMV,tl_data)
+
+	
+	RETURN 
+ENDMACRO
+
+
+

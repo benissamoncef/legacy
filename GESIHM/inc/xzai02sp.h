@@ -1,0 +1,1 @@
+DEFINE	XZAI02_Lire_TFM			"XZAI;02"

@@ -1,0 +1,1109 @@
+/*E*/
+/* Fichier : $Id: ITMA_TBAD_pilotage_BAD.am,v 1.7 2020/11/23 13:12:41 pc2dpdy Exp $      Release : $Revision: 1.7 $        Date : $Date: 2020/11/23 13:12:41 $
+------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE MTPM * FICHIER  ITMA_TBAD_pilotage_BAD.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de commande des BAD.
+*
+*
+------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG	28/11/05	creation
+* JMG   31/10/07        : ajout site de gestion 
+* JMG   29/09/09        : SECTO DEM 887
+* JPL	31/01/11	: Envoi message a la fenetre de pilotage rapide pour associer camera (DEM 949)  1.4
+* JMG	05/12/11	: linux
+* JPL	23/03/17	: Changement du terme Secteur en Region (DEM 1173)  1.6
+* LCL	23/11/20	: Ajout site equipement pour pilotage de fin PRA DEM-SAE93 1.7
+--------------------------------------------------------------------- */
+
+
+
+/*A Description des modules a inclures 
+* ------------------------------------ */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+INCLUDE	"GESIHM/inc/ITMA_TBAD.h"
+
+ /*A Description des procedures sotckees a appeler
+* ------------------------------------------------ */
+INCLUDE	"GESIHM/inc/xzao162sp.h"
+INCLUDE	"GESIHM/inc/xzao163sp.h"
+INCLUDE	"GESIHM/inc/xzao164sp.h"
+INCLUDE	"GESIHM/inc/xzae72sp.h"
+INCLUDE	"GESIHM/inc/xzac94sp.h"
+INCLUDE	"GESIHM/inc/xzac98sp.h"
+INCLUDE	"GESIHM/inc/xzac92sp.h"
+INCLUDE	"GESIHM/inc/xzac90sp.h"
+INCLUDE	"GESIHM/inc/xzat35sp.h"
+INCLUDE	"GESIHM/inc/xzat01sp.h"
+INCLUDE	"GESIHM/inc/xzat06sp.h"
+INCLUDE	"GESIHM/inc/xzao05sp.h"
+INCLUDE	"GESIHM/inc/xzap31sp.h"
+
+DEFINE  C_PIX_M11_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m11_eteint.im"
+DEFINE  C_PIX_M11_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m11_allume.im"
+DEFINE  C_PIX_M12_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_eteint_vertical.im"
+DEFINE  C_PIX_M12_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_allume_vertical.im"
+
+
+/*A Declaration des variables globales 
+* ------------------------------------ */
+var	vm_auto	'mode automatique
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Commande le pilotage des BAD
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBAD_pilotage_BAD(va_appelant,va_1,va_2,va_3,va_4,
+											va_5,va_6,va_7)
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 a va_6		: Suivant la procedure d'appel
+*
+*	Trois appels possibles:
+*
+*		ITMA_TPA	<Numero plan d'action>	<Numero d'ordre>
+*
+*			^			^				^
+*			|			|				|
+*			|		Numero FMC		Numero cle FMC	
+*			|
+*			|
+*		Appel depuis le plan d'action
+*
+*
+*
+*		ITMA_TMT
+*
+*			^
+*			|
+*		Appel depuis le menu textuel --> Liste des BADs
+*
+*
+*
+*		ISYN_SOP	<Numero de la BAD>
+*
+*			^
+*			|
+*		Appel depuis le synoptique Bp de droite
+*
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant resultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> BAD dans MTMT
+*
+* FONCTION
+*    Pilote les BAD
+*
+--------------------------------------------------------------------- */
+
+/*A Declaration des variables */
+/*A ------------------------- */
+
+/*A Variables secondaires ou de travail */
+/*A ----------------------------------- */
+
+VAR FORMAT 	TMC_actionFiche	vl_ficheAction
+
+var	vl_appel_connu		' Flag de reconnaisance de l'appel
+var	vl_Poste			' Le nom de la machine
+var	vl_fenetre_active	' flag de fenetre active
+var	vl_controle_sortie	' flag de sortie
+var	vl_erreur			' flag d'erreur
+var	i,j,vl_mess		' index de loop
+var	vl_taille			' taille de tableau
+var	vl_message		' message affiche
+var	vl_objet			' objet en edition
+var	vl_rang			' rang de la selection dans la liste
+var	vl_expliquer		' expliquation du PA
+var	vl_abt_panneau		' flag d'abonnement des panneaux
+var	vl_manuel			' flag de commande manuelle
+var	vl_trouve			' flag pour trouver le bon scenario 		d'après le code
+var	vl_fmc			' libelle fmc a construire
+var	vl_lib_fmc		' tableau du libelle fmc a construire
+var	vl_renvoi_appel	' flag de renvoi d'appel
+var	vl_repondeur		' flag de renvoi d'appel
+var	vl_cpt			' compte-rendu
+var	vl_sens			' Sens de la boucle d'envoi des CMD manu
+var	vl_debut			' Origine de la boucle d'envoi des CMD  manu
+var	vl_fin			' Limite de la boucle d'envoi des CMD manuelles
+var	tl_data,tl_retour	' param. table evenements
+var	tl_titres			' titre evenements
+var	vl_1,vl_2,vl_3,vl_4	' var locales pour l'appel de la camera
+var	vl_flag			' flag de condition
+var	vl_Appel			' appelant
+var	vl_panneau_interdiction_doubler	' Indice du tableau correspondant au panneau interdiction de doubler sur la BAD
+var	vl_lecture		' le n° d'evenement lie + cle
+var	vl_Nummachine		' n° de la machine
+var	vl_NumAction		' Numero d'action
+var	vl_mode_formation	' Mode Formation
+var	tl_liste_causes
+var	vl_text			' text en edition
+var	vl_etat_actuel_man	' Etat actuel recherche pour la cmd manuelle
+var	vl_message_man		' Message envoye par la commande manuelle
+var	vl_autorisation_executer	'Autorisation d'executer la commande "excuter" depuis le CI
+
+/*A Variables principales */
+/*A --------------------- */
+
+/*A Numero du district
+*/
+var	vl_District
+
+/*A Item de la fenetre du module
+*/
+var 	vl_fenetre_TBAD
+
+/*A Messages acceptes dans la boucle principale
+*/
+var	vl_messages_acceptes
+
+/*A Nom du site en cours
+*/
+var	vl_NomSite
+
+/*A Nom de l'operateur
+*/
+var	vl_NomOperateur
+
+/*A Mode de retour du plan d'action
+*/
+var	vl_mode_PA
+
+
+var 	vl_Module11
+var	vl_Module12
+
+/*A Liste des BAD et leurs infos associees Table sur indice numero BAD
+*/
+
+var	FORMAT Config_BAD vl_info_liste_BAD
+
+
+/*A Liste de nom des BAD disponibles
+*/
+var	vl_liste_nom_BAD_dispo
+
+/*A Booleen utilise par "Executer" pour savoir si la CMD est une fin
+												d'action
+*/
+var	vl_fin_action
+
+/*A Structure infos BAD plan d'action
+*/
+var	FORMAT PA_BAD vl_BAD
+var vl_scenario
+
+
+/*A MAJ des variables statiques */
+
+vl_District 	= SYSTEM_VAR@(vg_site)
+vl_NomSite 	= SYSTEM_VAR@(vg_nom_site)
+vl_mode_formation = (SYSTEM_VAR@ (vg_formation) <> NULL)
+vl_poste 		= SYSTEM_VAR@(vg_numero_operateur)
+vl_abt_panneau	= FALSE
+vl_manuel 	= FALSE
+vl_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vl_Nummachine 	= SYSTEM_VAR@(vg_numero_poste)
+vl_NomOperateur = SUBSTRING@(vl_NomOperateur, 1, 25)
+vl_mode_PA 	= COM_QUITTE
+vl_Appel		= SUBSTRING@(va_appelant,1,8)
+vm_auto=0
+vl_module11=0
+vl_module12=0
+vl_appel_connu=FALSE
+
+
+/*B trace du debut du traitement */
+vl_text = "------------------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = " Start ITMA_TBAD_pilotage_BAD   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+vl_text = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_text)
+
+if NOT(IS_ARRAY@(va_1))
+{	vl_text = "va_1 : " ++ va_1
+	COM01_Trace(0,vl_text)}
+else 
+{	vl_text = "va_1  est un tableau"
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_2))
+{	vl_text = "va_2 : " ++ va_2
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_3))
+{	vl_text = "va_3 : " ++ va_3
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_4))
+{	vl_text = "va_4 : " ++ va_4
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_5))
+{	vl_text = "va_5 : " ++ va_5
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_6))
+{	vl_text = "va_6 : " ++ va_6
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_7))
+{	vl_text = "va_7 : " ++ va_7
+	COM01_Trace(0,vl_text)
+}
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace(COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN(COM_NOK)
+}
+
+/*A Pour initialiser les procedures communes */
+/*  ---------------------------------------- */
+
+ITMA_TBAD_commun_BAD()
+
+ITMA_TBAD_Init_Config_BAD(vl_info_liste_BAD)
+
+if (SYSTEM_VAR@(vg_formation) = NULL)
+	 vl_liste_nom_BAD_dispo = ITMA_TBAD_Liste_Eqt_Disponibles(vl_District,
+										vl_info_liste_BAD)
+else
+	vl_liste_nom_BAD_dispo = ITMA_TBAD_Liste_Eqt_Disponibles(va_4,
+										vl_info_liste_BAD)
+
+
+
+/*A Si la liste des BAD dispo est vide */
+ 
+if vl_liste_nom_BAD_dispo[0]=""
+{
+	/*A Alors */ 
+	if (vl_Appel = "ITMA_TMT" or vl_Appel = "ITMA_TPA") 
+	{
+ 		info_message@("Aucun BAD n'est disponible pour cette région !") 
+		RETURN(COM_NOK)
+	}
+}
+/*A Finsi */
+
+vl_BAD.Priorite	= 0
+vl_BAD.DistanceEvt	= XDC_DISTANCE_INCONNUE
+
+
+/*A si l'appelant est le menu textuel */
+ 
+if vl_Appel ="ITMA_TMT" 
+{
+
+  /*A Ouverture de la liste des BAD */
+
+  vl_fenetre_TBAD = DB_LOAD@("ITMA_TBAD_liste_BAD") 
+  vl_messages_acceptes[0] = COM_CANAL_FIN 
+  DB_ACCEPT_POKES@ (vl_fenetre_TBAD, vl_messages_acceptes)
+
+  /*A Positionnement de la fenetre   
+  *   ---------------------------- */
+  DB_XPOS@(vl_fenetre_TBAD,0)
+
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+  DB_YPOS@(vl_fenetre_TBAD,93)
+else
+  DB_YPOS@(vl_fenetre_TBAD,105)
+
+  DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TBAD,"BL_BAD",True)
+
+  DB_CTRL_STRINGS@(vl_fenetre_TBAD,"BL_BAD",vl_liste_nom_BAD_dispo)
+  DB_CTRL_VALUE@(vl_fenetre_TBAD,"BL_BAD",-1)
+  DB_CTRL_DISPLAY@(vl_fenetre_TBAD,"BP_piloter",True)
+  DB_CTRL_DISPLAY@(vl_fenetre_TBAD,"T_piloter",True)
+
+  /*A Boucle de capture des evenements de la boite de dialogue  
+  *   -------------------------------------------------------- */
+  vl_fenetre_active = TRUE
+
+  /*A tant que la fenetre est active */
+  WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_TBAD)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_TBAD)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+
+	CASE "BP_quitter"
+
+		/*A fermer la fenetre */
+		RETURN(COM_NOK)
+
+	/*A sur action piloter */
+
+	CASE "BP_piloter"
+
+		/*A fermer la fenetre */
+		vl_fenetre_active = FALSE
+
+	/*A sur  liste BAD */
+
+	CASE "BL_BAD"
+
+		/*A Capture du rang dans la liste des BAD */
+
+		vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_TBAD,"BL_BAD")
+		for i=0 to ARRAY_SIZE@(vl_info_liste_BAD)
+
+			if vl_info_liste_BAD[i].Identifiant=
+								vl_liste_nom_BAD_dispo[vl_rang]
+			{
+				vl_BAD.NumEqt = i
+			}
+		next i
+		DB_CTRL_GRAYED@(vl_fenetre_TBAD,"BP_piloter",False)
+	
+	/*A sur reception de poke */
+
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+
+		CASE OF DB_GET_POKE@(vl_fenetre_TBAD)
+
+		/*A si poke de fin de canal */
+
+		CASE COM_CANAL_FIN
+
+			/*A fermer la fenetre */
+
+			RETURN(COM_NOK)
+
+		ENDCASE
+
+	ENDCASE
+
+  /*A fin tant que */
+  WEND
+
+ /*A lecture de l'etat actuel du BAD */
+ ITMA_TBAD_Lecture_BAD(vl_BAD.NumEqt,vl_BAD)
+
+ ITMA_TBAD_init_boite_dialogue_pilotage(vl_fenetre_TBAD,
+		vl_messages_acceptes,vl_info_liste_BAD[vl_BAD.NumEqt].Type)
+
+ ITMA_TBAD_deselectionne_objet_PA(vl_fenetre_TBAD,vl_expliquer,
+							vl_lecture,vl_info_liste_BAD,vl_BAD)
+	vl_appel_connu=TRUE
+}
+
+/*A Si l'appelant est le synoptique BP de droite */
+
+if vl_Appel = "ISYN_SOP"
+{
+	if NOT(IS_ARRAY@(va_1))
+	{
+		vl_BAD.NumEqt = va_1+0
+	}
+	else
+	{
+		vl_BAD.NumEqt = va_1[0] +0
+	}
+	if (vl_info_liste_BAD[vl_BAD.NumEqt].Disponible=FALSE)
+		AND (SYSTEM_VAR@(vg_poste)<>XDC_PODFA)
+	{
+		info_message@("Le BAD demande n'est pas disponible")
+		RETURN(COM_NOK)
+	} 
+     if NOT vl_mode_formation  and
+     NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) and  
+	  NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+     NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+       NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI) and
+	    (SYSTEM_VAR@(vg_site) = XDC_CI)) and (SYSTEM_VAR@(vg_poste)<>XDC_PODFA)
+	{               
+		vl_text=" Appel pilotage BAD depuis syno par un utilisateur non autorisé"
+		COM01_Trace(0,vl_text)
+		RETURN(COM_OK)
+	}
+
+	/* Au CI si appel depuis depuis le synoptique prendre le district du BAD  */
+	if vl_District = XDC_CI 
+	{ 
+	/*	if NOT ITMA_COM_District_pilotable(vl_info_liste_BAD[vl_BAD.NumEqt].sitegestion, 
+				XDC_LIB_BAD,TRUE,vl_info_liste_BAD[vl_BAD.NumEqt].Identifiant) and (SYSTEM_VAR@(vg_poste)<>XDC_PODFA) 
+		{ 
+			vl_text = " Appel pilotage PMV depuis syno pour un BAD pilotable en région " ++ vl_info_liste_BAD[vl_BAD.NumEqt].NomSite
+			COM01_Trace(0,vl_text)
+				RETURN(COM_OK)
+ 		}*/
+		vl_text=""
+	}
+	else
+	{ 
+		if (vl_District <> vl_info_liste_BAD[vl_BAD.NumEqt].sitegestion)
+		{ 
+			vl_text=
+			" Appel pilotage BAD depuis syno pour un BAD hors région"
+
+			COM01_Trace(0,vl_text)
+			RETURN(COM_OK)
+ 		}
+	}
+
+	/*A lecture de l'etat actuel du BAD */
+	ITMA_TBAD_Lecture_BAD(vl_BAD.NumEqt,vl_BAD)
+
+	ITMA_TBAD_init_boite_dialogue_pilotage(vl_fenetre_TBAD,
+		vl_messages_acceptes,vl_info_liste_BAD[vl_BAD.NumEqt].type)
+
+	ITMA_TBAD_deselectionne_objet_PA(vl_fenetre_TBAD,vl_expliquer,
+							vl_lecture,vl_info_liste_BAD,vl_BAD)
+	vl_appel_connu=TRUE
+}
+vl_scenario="L_GLOVR1"
+
+/*A si l'appelant est le PA */
+
+if vl_Appel="ITMA_TPA" 
+{
+	/*A lecture de la proposition du PA */
+	vm_auto=0
+	vm_auto=va_5
+	tl_retour = ITMA_TBAD_Lire_Prop_BAD(va_1,va_2,vl_BAD) 
+	vl_scenario=vl_bad.scenario
+
+
+	if vl_info_liste_BAD[vl_BAD.NumEqt].Disponible=FALSE
+	{
+		info_message@("Le BAD demande n'est pas disponible")
+	}
+	
+	/*A Memorisation de l'explication */
+	vl_expliquer = vl_BAD.Explication 
+
+	ITMA_TBAD_init_boite_dialogue_pilotage(vl_fenetre_TBAD,
+		vl_messages_acceptes,vl_info_liste_BAD[vl_BAD.NumEqt].type)
+
+	/*A Activation des boutons lies au PA */
+
+	DB_CTRL_GRAYED@(vl_fenetre_TBAD,"BP_expliquer",False)
+	DB_CTRL_GRAYED@(vl_fenetre_TBAD,"BP_refuser",False)
+	DB_CTRL_GRAYED@(vl_fenetre_TBAD,"BP_executer",False)
+
+
+		/*A MAJ du libelle status */
+		DB_CTRL_TITLE@(vl_fenetre_TBAD,
+				"LI_status","PA ")
+
+		/*A MAJ du libelle fmc nouveau */
+		ITMA_COM_Lire_Evenement ( va_3, va_4, vl_lib_fmc, C_MODULE) 
+		vl_fmc = COM11_Libelle_FMC(vl_lib_fmc)
+		vl_bad.NumEvt = va_3 + 0
+		vl_bad.CleEvt = va_4 + 0
+		DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_fmc_nouveau",vl_fmc)
+
+	if (vl_scenario="N_BARVR1") OR (vl_scenario="N_GLOVR1") {
+		DB_CTRL_VALUE@(vl_fenetre_TBAD,"BO_scenario",1)
+		ITMA_TBAD_MAJ_BAD(vl_BAD.NumEqt,1,1,
+							vl_fenetre_TBAD,vl_info_liste_BAD[vl_BAD.NumEqt].Type,
+							"sad")
+	}
+	else {
+		DB_CTRL_VALUE@(vl_fenetre_TBAD,"BO_scenario",1)
+		ITMA_TBAD_MAJ_BAD(vl_BAD.NumEqt,0,0,
+					vl_fenetre_TBAD,vl_info_liste_BAD[vl_BAD.NumEqt].Type,
+					 "sad")
+	}
+	vl_appel_connu=TRUE
+}
+
+/* Autoriser la commande executer */
+
+if NOT vl_mode_formation and (vl_district=XDC_CI and
+   NOT (ITMA_COM_District_pilotable(
+			vl_info_liste_BAD[vl_BAD.NumEqt].sitegestion, 
+			XDC_LIB_BAD,FALSE)) )
+{
+	vl_autorisation_executer=True
+}
+else
+{
+	vl_autorisation_executer=False
+}
+
+
+
+/* Si l'appel est connu ( ici ITMA_TMT ou ITMA_TPA ou ITMA_SOP ) */
+
+if(vl_appel_connu=FALSE)
+{
+	/* Alors */
+	/* Retourner une erreur */
+
+	info_message@("L'appel '"++vl_Appel++
+			"' n'est pas reconnu pas la boite de dialogue "++ 
+									"Pilotage d'un BAD")
+	RETURN(COM_NOK)
+}
+/* Finsi */
+/*A MAJ du titre de la fenetre */
+DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_nom",
+					vl_info_liste_BAD[vl_BAD.NumEqt].Identifiant)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TBAD, "BO_scenario", true)
+/*A Abonnement a l'etat des panneaux */ 
+
+vl_erreur = ITMA_TBAD_Abt_Etat_Panneaux_BAD(XDC_DEBUT_ABONNEMENT_EQUEXT,
+					COM51_NomSite(vl_info_liste_BAD[vl_BAD.NumEqt].sitegestion))
+
+if (vl_erreur <> COM_NOK)
+{
+	vl_abt_panneau = TRUE
+}
+
+
+
+/*A Boucle de capture des evenements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+/* Si pilotage automatique alors on execute le scenario */
+if (vm_auto=1)
+{
+		/*A Recherche du champ fin d'action */
+
+		vl_fin_action=FALSE
+		
+
+
+			/*A si le scenario est une fin d'action */
+
+		if vl_scenario="L_BARVR1" or vl_scenario="L_GLOVR1"
+			{
+				/* recuperation du n° d'action dans la base */
+				vl_cpt=ITMA_TBAD_Commande_fin_BAD(vl_BAD.NumEqt,
+						vl_info_liste_BAD[vl_BAD.NumEqt].sitegestion,vl_manuel,
+							vl_NomOperateur,vl_mode_formation,
+								vl_scenario,
+								vl_NumAction)
+			}
+			/*A sinon cmd BAD classique */
+			else
+			{
+				/* recuperation du n° d'action dans la base */			
+				vl_NumAction = 0 		
+				vl_cpt=ITMA_TBAD_Commande_BAD(vl_poste, 
+							vl_manuel,vl_scenario,
+							vl_mode_formation,vl_bad.NumEvt,
+								vl_BAD.CleEvt,vl_BAD.NumEqt,
+								vl_BAD,vl_NumAction,
+								vl_info_liste_BAD[vl_BAD.NumEqt].sitegestion)
+			}
+		
+			/*A si mode manuel */
+			if vl_manuel = TRUE
+			{
+				vl_mode_PA = COM_REFUSE
+				info_message@("Pilotage manuel non exécuté")
+			}
+
+	   
+
+	vl_fenetre_active=FALSE
+}
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_TBAD)
+
+	/*A capture de l'evenement dans la BD TBAD */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_TBAD)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL
+ 
+	if substring@(vl_controle_sortie,1,len@(OBJET_ETAT_ACTUEL))=
+											OBJET_ETAT_ACTUEL
+	{
+		vl_erreur=ITMA_TBAD_modif_picto(vl_controle_sortie,
+								vl_fenetre_TBAD)
+		vl_mode_PA = COM_REFUSE
+	}
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+
+	CASE "BP_quitter"
+
+		vl_fenetre_active = FALSE
+
+	CASE "BO_scenario"
+		/*deploiment du BAD*/
+		if (DB_CTRL_GET_VALUE@(vl_fenetre_TBAD,vl_controle_sortie)=1)
+		{
+			ITMA_TBAD_MAJ_BAD(vl_BAD.NumEqt,1,1,vl_fenetre_TBAD,1,"sad")
+			vl_scenario="N_GLOVR1"
+		}
+		else /*repli*/
+		{
+			ITMA_TBAD_MAJ_BAD(vl_BAD.NumEqt,0,0,vl_fenetre_TBAD,1,"sad")
+			vl_scenario="L_GLOVR1"
+		}
+	/*A sur action refuser */
+
+	CASE "BP_refuser"
+
+		vl_mode_PA = COM_REFUSE
+		vl_fenetre_active = FALSE
+
+
+	/*A sur action lier FMC */
+	CASE "BP_lier_FMC"
+ 		DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_status",
+									"Status : appel lien FMC")
+
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+									"ITMA_TBAD_pilotage_BAD")
+		tl_liste_causes=tl_data[0]
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vl_fenetre_TBAD,"TA_Evenements",TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TBAD,"TA_Evenements",TRUE)
+		DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre_TBAD, "TA_Evenements", 25)
+		DB_TABLE_ALLOW_COLUMN_RESIZING@(
+							vl_fenetre_TBAD,"TA_Evenements",True)
+		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,
+								COM_CAUSE_LONG_LOCALISATION
+		DB_TABLE_SET_DATA@(vl_fenetre_TBAD,"TA_Evenements",
+										tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_TBAD, "TA_Evenements", 0, tl_data[2])
+
+
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+ 		DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_status",
+								"Status : selection evenement")
+
+		tl_retour=ITMA_COM_Validite_Cause("ITMA_TBAD_pilotage_BAD",
+								vl_fenetre_TBAD,tl_liste_causes)
+		vl_bad.NumEvt = tl_retour[0][0]
+		vl_bad.CleEvt = tl_retour[0][1]
+		vl_fmc = tl_retour[1]
+		DB_CTRL_DISPLAY@(vl_fenetre_TBAD,"TA_Evenements",FALSE)
+		DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_fmc_nouveau",vl_fmc)
+		vl_BAD.fmc_liee = vl_fmc
+		DB_CTRL_GRAYED@(vl_fenetre_TBAD,"BP_executer",FALSE)
+
+	/*A sur action executer OK*/
+	CASE "BP_ok"
+
+
+		DB_CTRL_GRAYED@(vl_fenetre_TBAD,"BP_quitter",False)
+		DB_CTRL_GRAYED@(vl_fenetre_TBAD,"BP_executer",
+								vl_autorisation_executer)
+		DB_CTRL_GRAYED@(vl_fenetre_TBAD,"BP_lier_FMC",False)
+		DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_status",
+							"Status : Bonne execution confirmee")
+		ITMA_TBAD_Fin_Cmd_Manu_BAD(vl_NumAction,XDC_VRAI, vl_scenario, vl_NomOperateur,vl_info_liste_BAD[vl_BAD.NumEqt].sitegestion)
+
+
+	/*A sur action executer NOK*/
+	CASE "BP_nok"
+
+		DB_CTRL_GRAYED@(vl_fenetre_TBAD,"BP_quitter",False)
+		DB_CTRL_GRAYED@(vl_fenetre_TBAD,"BP_executer",
+								vl_autorisation_executer)
+		DB_CTRL_GRAYED@(vl_fenetre_TBAD,"BP_lier_FMC",False)
+		DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_status",
+						"Status : Mauvaise execution confirmee")
+		ITMA_TBAD_Fin_Cmd_Manu_BAD(vl_NumAction,XDC_FAUX,
+							vl_scenario, vl_NomOperateur,vl_info_liste_BAD[vl_BAD.NumEqt].sitegestion)
+
+
+	/*A sur action executer */
+	CASE "BP_executer"
+
+		/*A Recherche du champ fin d'action */
+
+		if vl_scenario="L_BARVR1" or vl_scenario="L_GLOVR1"
+		{
+			vl_fin_action=TRUE
+		}
+		else
+			vl_fin_action=FALSE
+		if NOT vl_fin_action and vl_bad.NumEvt=0 and vl_bad.CleEvt=0
+		{
+			info_message@(
+				"Veuillez d'abord lier cette action a une F.M.C")
+		}
+		else
+		{
+			/*A Griser le bouton Executer */
+
+			DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_fmc_actuel",vl_fmc)
+	/*		DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_fmc_nouveau","")*/
+
+			/*A si le scenario est une fin d'action */
+
+			if vl_fin_action=TRUE
+			{
+				/* recuperation du n° d'action dans la base */
+			
+				vl_cpt=ITMA_TBAD_Commande_fin_BAD(vl_BAD.NumEqt,
+						vl_info_liste_BAD[vl_BAD.NumEqt].sitegestion,vl_manuel,
+							vl_NomOperateur,
+								vl_scenario,vl_NumAction)
+			}
+			/*A sinon cmd BAD classique */
+			else
+			{
+				/* recuperation du n° d'action dans la base */			
+				vl_NumAction = 0 		
+				vl_cpt=ITMA_TBAD_Commande_BAD(vl_poste, 
+							vl_manuel,vl_scenario,
+						vl_bad.NumEvt,
+								vl_bad.CleEvt,vl_BAD.NumEqt,
+								vl_BAD,vl_NumAction,vl_info_liste_BAD[vl_BAD.NumEqt].sitegestion)
+			}
+		}
+			if vl_cpt = COM_OK
+			{
+		    		DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_status",
+								"Status : Commande envoyee")
+				if vl_Appel="ITMA_TPA"				
+				{
+					vl_mode_PA=COM_VALIDE
+		    			DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_status",
+								"Status : Validation du PA")	
+				}
+				else
+				{
+					vl_mode_PA=COM_QUITTE
+					if vl_erreur <> COM_NOK
+					{
+						DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_status",
+								"Status : Pilotage BAD !!!")
+					}
+					else
+					{
+						DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_status",
+							"Status : Problème Pilotage BAD !!!")
+					}
+				}
+			}
+			else
+			{	
+				DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_status",
+					"Status : Commande refusee (manque lien FMC)") 
+			}
+	   /*	 vl_baf.NumEvt = 0
+		 vl_baf.CleEvt = 0*/
+	   
+
+
+	/*A sur action BP_expliquer */
+	CASE "BP_expliquer"
+
+		/* appel de MTEX avec passage en argument de l'explication */
+		vl_erreur = Pend_For_NEW_TASK@("ITMA_TEX_Explication_Propo",
+							"ITMA_TBAD_pilotage_BAD",vl_expliquer)
+
+
+	/*A sur action camera */
+	CASE "BP_camera"
+
+		DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_status",
+				"Status : Appel de la boite de commande camera")
+	
+		if vl_info_liste_BAD[vl_BAD.NumEqt].Disponible=TRUE
+		{
+
+			vl_1 = vl_info_liste_BAD[vl_BAD.NumEqt].Autoroute
+			vl_2 = vl_info_liste_BAD[vl_BAD.NumEqt].PR
+			vl_3 = vl_info_liste_BAD[vl_BAD.NumEqt].PR
+			vl_4 = vl_info_liste_BAD[vl_BAD.NumEqt].Sens
+
+			/*A trace de l'appel */
+
+			vl_text = " Appel pilotage camera ("
+			vl_text = vl_text++vl_1++","++vl_2++","
+								++vl_3++","++vl_4++")"
+			COM01_Trace(0,vl_text)
+			DB_SEND_POKE@(COM_CANAL_MTCA_RAPIDE,
+					{ "ITMA_TBAD_pilotage_BAD",vl_1,vl_2,vl_3,vl_4 })
+		}
+
+
+	CASE "BP_arret_non"
+
+		DB_CTRL_DISPLAY@(vl_fenetre_TBAD,"BP_arret",True)
+		DB_CTRL_DISPLAY@(vl_fenetre_TBAD,"BP_arret_ok",False)
+		DB_CTRL_DISPLAY@(vl_fenetre_TBAD,"BP_arret_non",False)
+		DB_CtRL_DISPLAY@(vl_fenetre_TBAD,"LI_confirmation",False)
+
+
+	/*A sur action sur BP confirmation arret d'urgence */
+
+	CASE "BP_arret_ok"
+
+		/*A Sonnerie & MAJ du status */
+		BEEP@()
+		DB_CTRL_TITLE@(vl_fenetre_TBAD,"LI_status",
+				"Status : Arrêt d'urgence declenche sur le BAD !!!")
+		BEEP@()
+		
+		/*A Appel de la procedure d'arrêt d'urgence */
+		ITMA_TBAD_Arret_Nav(vl_BAD.NumEqt,vl_NumAction,
+				vl_info_liste_BAD[vl_BAD.NumEqt].nom_machine_LT,
+							vl_NomOperateur,vl_mode_formation)
+		BEEP@()
+
+		DB_CTRL_DISPLAY@(vl_fenetre_TBAD,"BP_arret",True)
+		DB_CTRL_DISPLAY@(vl_fenetre_TBAD,"BP_arret_ok",False)
+		DB_CTRL_DISPLAY@(vl_fenetre_TBAD,"BP_arret_non",False)
+		DB_CTRL_DISPLAY@(vl_fenetre_TBAD,"LI_confirmation",False)
+
+
+
+
+	/*A sur reception de poke */		
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vl_fenetre_TBAD)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_MTBAD
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vl_fenetre_TBAD)
+
+			/*A trace de la reception du message */
+			vl_text = "   MsgPoke MTBAD : " ++ vl_message[0]
+			COM01_Trace(0,vl_text)
+			COM01_Trace(0," ")
+
+			/*A decomposition des messages en tableau */
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+			/*A si numero de BAD en cours d'edition */
+			if vl_mess[0]+0 =  vl_BAD.NumEqt+0
+			{				
+				ITMA_TBAD_MAJ_BAD(vl_BAD.NumEqt,vl_mess[2],vl_mess[4],
+							vl_fenetre_TBAD,vl_info_liste_BAD[vl_BAD.NumEqt].Type,
+							"pilotage")
+			}
+		ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+
+
+
+/*B Fermerture des abonnements */
+if (vl_abt_panneau)
+{
+	ITMA_TBAD_Abt_Etat_Panneaux_BAD(XDC_FERMER_ABONNEMENT_EQUEXT,
+					COM51_NomSite(vl_info_liste_BAD[vl_BAD.NumEqt].sitegestion))
+}
+
+/*B trace de la fin de traitement */
+vl_text = " Stop ITMA_TBAD_pilotage_BAD   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+RETURN(vl_mode_PA)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Initialisation generale de la boite de dialogue
+*												Pilotage
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBAD_init_boite_dialogue_pilotage(va_fenetre_TBAD,
+			va_messages_acceptes,va_type_baf)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_fenetre_TBAD			:	Item de la boite de dialogue
+*												Pilotage
+*	va_messages_acceptes	:	Liste des messages acceptes par la
+*											boite de dialogue
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*  	va_fenetre_TBAD			:	Item de la boite de dialogue
+*												Pilotage
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*    Initialisation generale de la boite de dialogue Pilotage
+*
+--------------------------------------------------------------------- */
+
+var i
+
+
+/*A Ouverture de la fiche de pilotage BAD */
+
+va_fenetre_TBAD = DB_LOAD@("ITMA_TBAD_pilotage_BAD")
+
+va_messages_acceptes[0] = COM_CANAL_FIN
+va_messages_acceptes[1] = COM_CANAL_MTBAD
+DB_ACCEPT_POKES@ (va_fenetre_TBAD, va_messages_acceptes)
+
+DB_CTRL_GRAYED@(va_fenetre_TBAD,"BP_lier_FMC",False)
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_HEIGHT@(va_fenetre_TBAD,880)
+DB_XPOS@(va_fenetre_TBAD,0)
+
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+DB_YPOS@(va_fenetre_TBAD, 1000)
+else
+DB_YPOS@(va_fenetre_TBAD, 105)
+DB_WIDTH@(va_fenetre_TBAD,960)
+
+
+/*A Griser le bouton 'Executer' */
+DB_CTRL_GRAYED@(va_fenetre_TBAD,"BP_executer",True)
+
+/* si on n'est pas en automatique alors on affiche la fenetre */
+if (vm_auto=0)
+{
+	DB_DISPLAY_ONLY@(va_fenetre_TBAD,TRUE)
+	DB_DISPLAY@(va_fenetre_TBAD)
+	DB_DISPLAY_ONLY@(va_fenetre_TBAD,FALSE)
+}
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Deselection les objets lies au PA
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBAD_deselectionne_objet_PA(va_fenetre_TBAD,va_expliquer,
+				va_lecture,FORMAT Config_BAD va_info_liste_BAD,
+										FORMAT PA_BAD va_BAD)
+
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_fenetre_TBAD			:	Item de la boite de dialogue
+*												Pilotage
+*	va_expliquer			:	Explication sur le plan d'action
+*	va_lecture			:
+*	va_info_liste_BAD		:	Liste d'info sur les BAD
+*	va_BAD				:	Structure de donnees sur le BAD
+*									en cours en traitement
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*    	Deselection les objets lies au PA
+*
+--------------------------------------------------------------------- */
+
+/*A Griser les boutons lies au PA */
+
+va_expliquer = "L'appelant n'est pas le System Expert"
+DB_CTRL_GRAYED@(va_fenetre_TBAD,"BP_refuser",True)
+DB_CTRL_GRAYED@(va_fenetre_TBAD,"BP_expliquer",True)
+va_lecture = ""
+va_lecture[0] = ""
+
+/*A MAJ du titre de la fenetre */
+DB_CTRL_TITLE@(va_fenetre_TBAD,"LI_nom",
+					va_info_liste_BAD[va_BAD.NumEqt].Identifiant)
+DB_CTRL_TITLE@(va_fenetre_TBAD,"LI_fmc_actuel",va_BAD.fmc_liee)
+
+ENDMACRO

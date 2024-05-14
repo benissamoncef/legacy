@@ -1,0 +1,153 @@
+/*E*/
+/* Fichier : $Id: ITMA_TEY_LancerEasyCam.am,v 1.4 1995/07/24 15:07:40 gesconf Exp $      Release :$Revision: 1.4 $     Date : $Date: 1995/07/24 15:07:40 $
+------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE XZME * FICHIER ITMA_TEY_LancerEasyCam.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Gestion des demandes de travaux.
+*   
+*   Lancer l'outil de GMAO EASYCAM situe sur la machine POCMA qui
+*   est dedie a la maintenance.
+*
+*   Cf. DCG 2.7
+*
+-----------------------------------------------------------------------
+* HISTORIQUE :
+*
+* T.Fournel  03 Jan 1995 : Creation    V1.1                            
+* B.G.		24/07/95 : appel de mido_cam.sh au lieu de x_init_EASYCAM.sh (1.4)
+-------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+/*A Description des constantes générales
+ * ------------------------------------- */
+
+DEFINE	C_MODULE	"MTEY"			' Nom du module
+
+/* Nom du script SHELL situe sur POCMA permettant de lancer EASYCAM */
+DEFINE	vl_NomScript	"x_init_EASYCAM.sh"
+
+DEFINE  	PATH_TRACE	"/produits/migrazur/appliSD/traces/trace_easy_cam"
+DEFINE	PATH_ERREUR	"/produits/migrazur/appliSD/traces/trace_erreur_easy_cam"
+
+
+VAR vg_Text			'Texte Trace
+
+/*X*/
+/*----------------------------------------------------------------------
+* SERVICE RENDU :	Lancer l'outil de GMAO EASYCAM
+*------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TEY_LancerEasyCam ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_OK en cas d'execution correcte
+*			        XDC_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* Lancer l'outil de GMAO EASYCAM sur la machine POCMA.
+*
+--------------------------------------------------------------------- */
+
+var	vl_Resultat	'Resultat d'une requete
+var	vl_Commande	'Commande a executer 
+var	vl_Chemin		'Chemin du fichier  a lire et du script a executer
+
+	/*A
+ 	* Traitements en cas d'erreur durant l'initialisation :
+ 	* informer l'operateur, tracer l'erreur et abandonner
+ 	* -----------------------------------------------------
+ 	*/
+	ON ERROR {
+    	ERROR_BOX@
+    		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    		RETURN
+	}
+
+	/*A trace debut de macro */
+	vg_text = COM09_Date_Courante() ++ " ITMA_TEY_LancerEasyCam() debut lancement."
+	COM01_Trace(0,vg_text)
+
+	
+	/*A
+	**  Construction du nom du script SHELL a executer.
+	*/
+
+	/*
+	** Le script "x_init_EASYCAM.sh" permet d'ouvrir une fenetre xterm dans 
+	** laquelle viendra s'inserer EASYCAM. Lorsque la fenetre est ouverte le 
+	** script "x_lance_EASYCAM" et lancer par "x_init_EASYCAM.sh".
+	*/
+
+	/*B
+	** Recherche de la valeur de la variable d'environement EASYDIR sur POCMA
+	** Le script de lancement du produit EASYCAM se situe dans ce
+	** repertoire.
+ 	*/
+	/* vl_Chemin = GET_ENV_VAR@("EASYDIR") */
+
+	/*B
+	** Test sur l'existance du repertoire.
+	*/
+	/*
+	if DIR_EXISTS@(vl_Chemin) = FALSE
+	begin
+		'info_message@ ("Le repertoire EASYDIR n'existe pas...")
+		vg_text = COM09_Date_Courante() ++ 
+			" ITMA_TEY_LancerEasyCam() Repertoire EASYDIR (" ++
+			vl_Chemin ++
+			") n'est pas defini sur cette machine."	
+		COM01_Trace(0,vg_text)
+		return (XDC_NOK)
+	end
+	*/
+
+	/*B
+	** Construction de la commande et du chemin du script a executer.
+	*/
+	/* vl_Commande =format@("su - isicam -c %s/%s",vl_Chemin,vl_NomScript) */
+
+	vl_Commande = "mido_cam.sh"
+
+	/*A trace la commande d'initialisation de EASYCAM */
+	vg_text = COM09_Date_Courante() ++ 
+			" ITMA_TEY_LancerEasyCam() Cmd : " ++
+			 vl_Commande
+	COM01_Trace(0,vg_text)
+
+	/*A
+	** Lancement du script d'initialisation EASYCAM.
+	*/
+	/* Pas de valeurs significatives pour vl_Resultat */
+	RUN_PROGRAM_UNPENDED@(vl_Commande, PATH_TRACE, PATH_ERREUR)
+
+	/*A trace fin de macro */
+	vg_text = COM09_Date_Courante() ++ " ITMA_TEY_LancerEasyCam() fin de lancement"
+	COM01_Trace(0,vg_text)
+
+	
+	return (XDC_OK)
+
+ENDMACRO
+
+
+

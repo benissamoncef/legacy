@@ -1,0 +1,378 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_operateur.am,v 1.12 2020/11/03 17:44:04 pc2dpdy Exp $        Release : $Revision: 1.12 $        Date : $Date: 2020/11/03 17:44:04 $
+-----------------------------------------------------------------------
+*  GTIE  *  PROJET MIGRAZUR
+-----------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-----------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMC_operateur.am
+-----------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+* affiche les controles specifiques au type operateur 
+* gere les actions sur ces controles
+*
+-----------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  Guilhou	24 Oct 1994	1.1	: Création
+*  Torregrossa  21 Oct 1996 : Suppression de la declaration de format TMC_operateur (IHM7) V1.9
+*  Lecrivain	23 Mar 2007 : Afficher/effacer champs pour retypage (dem/637) 1.10
+*  JPL		23 Nov 2009 : Ajout macros d'affichage / saisie / controles (vides) 1.11
+* LCL   	22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+-----------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TMC.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/xzae64sp.h"
+INCLUDE	"../inc/xzae43sp.h"
+
+/*A Définition des constantes */
+
+DEFINE	C_MODULE		"MTMC"		' Nom du module
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* affiche les controles specifiques au type operateur
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_operateur (va_fenetre, va_type_fmc, va_visible)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : id de la boite de dialogue ou afficher les champs
+*  va_type_fmc        : type de la fmc
+*  va_visible         : indicateur de visibilite demandee
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR tl_controles
+VAR vl_indice
+VAR vl_fenetre
+
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+vl_fenetre=va_fenetre
+
+/*A rendre visibles ou masquer les champs associes au type fmc */
+tl_controles = {
+	"PA_operateur",
+	"LI_operateur",
+	"LI_val_operateur"
+}
+
+FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+	DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice], va_visible)
+NEXT vl_indice
+
+	RETURN (vl_fenetre)
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* sauve en base les informations specifiques du type operateur
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_operateur_sauve (FORMAT COM_Identifiant_FMC ta_num_evt, FORMAT TMC_operateur va_tampon)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_num_evt            : numero et cle d'evenement
+* va_tampon             : valeurs des controles
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR vl_indice
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+       vl_indice=0
+
+       /*A preparation des parametres de la procedure stockee*/
+       vl_parametres[vl_indice].data=ta_num_evt.numero
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=FALSE
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].data=ta_num_evt.cle
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=FALSE
+       vl_indice=vl_indice+1
+
+      vl_parametres[vl_indice].data=va_tampon.nom
+      vl_parametres[vl_indice].type=SYB#CHAR_
+       vl_parametres[vl_indice].output=FALSE
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste)
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=FALSE
+        vl_indice = vl_indice +1
+
+/*B Site local */
+        vl_parametres[vl_indice].type = SYB#CHAR_
+        vl_parametres[vl_indice].data = SYSTEM_VAR@(vg_nom_site)
+        vl_parametres[vl_indice].output = FALSE
+
+	IF COM05_SQL_Procedure (XZAE64_Ecrire_Fiche_Operateur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+	   INFO_MESSAGE@("Impossible de sauver le tampon opérateur en base")
+		RETURN (COM_NOK)
+	}
+
+   RETURN (COM_OK)
+ENDMACRO
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* charge de la base les informations specifiques du type operateur
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_operateur_charge (va_fenetre,FORMAT COM_Identifiant_FMC ta_num_evt,
+						va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_num_evt            : numero et cle d'evenement
+* va_fenetre            : id de la boite de dialogue fiche main courante
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR vl_indice
+VAR FORMAT TMC_operateur         vl_tampon
+VAR vl_fenetre
+VAR tl_retour
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+	vl_indice=0
+	vl_fenetre=va_fenetre
+
+        vl_parametres[vl_indice].data=ta_num_evt.numero
+        vl_parametres[vl_indice].type=SYB#INT4_
+        vl_parametres[vl_indice].output=false
+        vl_indice=vl_indice+1
+
+        vl_parametres[vl_indice].data=ta_num_evt.cle
+        vl_parametres[vl_indice].type=SYB#INT4_
+        vl_parametres[vl_indice].output=false
+    	   vl_indice=vl_indice+1
+
+    	   vl_parametres[vl_indice].type=SYB#DATETIME_
+        vl_parametres[vl_indice].data=va_horodate
+        vl_parametres[vl_indice].output=false
+        vl_indice=vl_indice+1
+
+        vl_parametres[vl_indice].type=SYB#CHAR_
+        vl_parametres[vl_indice].output=true
+        vl_indice=vl_indice+1
+
+        IF COM05_SQL_Procedure (XZAE43_Lire_Fiche_Operateur,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+        {
+	     INFO_MESSAGE@("Erreur dans la lecture du tampon operateur en base ")
+	  tl_retour[0]=va_fenetre
+	       tl_retour[1]=null
+	  RETURN (tl_retour)
+	}
+
+        vl_tampon=vl_resultats.return_parameters
+        /*A mise a jour des controles dans la boite de dialogue*/
+        DB_CTRL_TITLE@(vl_fenetre,"LI_val_operateur",vl_tampon.nom)
+
+	tl_retour[0]=vl_fenetre
+	tl_retour[1]=vl_tampon
+        RETURN (tl_retour)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche les donnees specifiques d'une fiche Operateur
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_operateur_affiche (va_fenetre, FORMAT TMC_operateur va_operateur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*  va_operateur       : Données de la fiche Operateur
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur ouverture fiche Operateur
+*
+* FONCTION
+*  Value les champs de saisie spécifiques aux FMC de classe Operateur
+*
+--------------------------------------------------------------------------------- */
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit les donnees specifiques d'une fiche Operateur saisies dans la fenetre
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_operateur_saisie (va_fenetre, FORMAT TMC_operateur va_operateur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_operateur       : Donnees de la fiche Operateur
+*
+*
+* CODE RETOUR         : XDC_NOK si une valeur saisie est incorrecte, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Operateur
+*
+* FONCTION
+*  Remplit la fiche avec les donnees des champs de saisie specifiques.
+*
+--------------------------------------------------------------------------------- */
+
+	RETURN (XDC_OK)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Effectue les controles de validite des donnees specifiques d'une fiche Operateur
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_operateur_controle (FORMAT TMC_fmc va_fiche, FORMAT TMC_operateur va_operateur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fiche           : Donnees generiques de la Fmc ;
+*  va_operateur       : Donnees specifiques a la Fmc Operateur
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_NOK si les donnees sont incorrectes, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Operateur
+*
+* FONCTION
+*
+--------------------------------------------------------------------------------- */
+
+	RETURN (XDC_OK)
+ENDMACRO

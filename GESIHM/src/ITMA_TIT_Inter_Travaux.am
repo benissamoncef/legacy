@@ -1,0 +1,1140 @@
+/*E*/
+/* Fichier : $Id: ITMA_TIT_Inter_Travaux.am,v 1.13 2005/09/02 11:28:09 gesconf Exp $      Release : $Revision: 1.13 $        Date : $Date: 2005/09/02 11:28:09 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTIT * FICHIER ITMA_TIT_Inter_Travaux.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   interdistance travaux
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou 02 jan 1995	: Creation                                         V1.1
+* Gaborit 23 jan 1995	: Correction                                       V1.2
+* Torregrossa 23 Oct 1995 : Ajout des saisies      	                     V1.3
+* Torregrossa 18 Jan 1996 : Ajout test sur la saisie de l'horodate          V1.5
+*                           calcul de l'interdistance de travaux sans pr tete
+*                           avec pr queue, et ajout bouton impression	
+* Torregrossa 08 fev 1996 : Modif libéllé clé en site                       V1.6
+* Guilhou	09 Sep 1996 : ajout PC simplifie (RADT) V1.7
+* Niepceron	06 Jan 1997 : Ajout des interdistance par config de voies (dem/1285) v1.8
+* Niepceron	13 Jan 1997 : Ajout de la lecture du fichier de parametrage (dem/1285) v1.9
+* Guilhou	03 juin 1997 : modif format fichier de parametrage (dem/1438) 1.11
+* Niepceron   	03 Jul 1998 : Connexion a SQL_HIS (dem/1699) v1.12
+* Ferrero	31/08/2005	: Conversion date avant envoi à xzas26 v1,13
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzas24sp.h"
+INCLUDE	"../../XDMICG/inc/xzas26sp.h"
+
+DEFINE	C_MODULE	"MTIT"			' Nom du module
+
+DEFINE	C_SOUS_REP_MODELES	COM_SOUS_REP_IHM           ' Repertoire des modeles
+DEFINE	C_MODELE_INTER_TRAV	"ITMA_TIT_Inter_Trav"	' Nom du modele
+
+/*A Noms des images digitalisees indiquant les etats */
+
+DEFINE	C_PICTO_OK		"pix_ok"
+DEFINE	C_PICTO_NOK		"pix_croix"
+
+
+
+FORMAT TCO_liste_travaux
+	numero,
+	cle,
+	numero_autoroute,
+	sens,
+	nom_autoroute,
+	nom_district,
+	horo_debut,
+	horo_fin,
+	pr_debut,
+	pr_fin,
+	horo_validation
+
+FORMAT TCO_liste_affichee
+	numero,
+	cle,
+	sens,
+	nom_autoroute,
+	horo_debut,
+	horo_fin,
+	pr_debut,
+	pr_fin,
+	horo_validation,
+	id,
+	id_urbaine
+
+FORMAT TCO_liste_interdis
+	nom_autoroute,
+	sens,
+	numero1,
+	cle1,
+	horo_debut1,
+	pr_debut1,
+	pr_fin1,
+	numero2,
+	cle2,
+	horo_debut2,
+	pr_debut2,
+	pr_fin2
+
+
+VAR FORMAT TCO_liste_travaux	tm_liste
+VAR FORMAT TCO_liste_affichee	tm_listeAffichee
+VAR FORMAT TCO_liste_interdis	tm_listeInterdis
+
+VAR tm_picto
+VAR vm_simplifie
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TIT_Inter_Travaux (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+	VAR tl_titres,tl_data
+	VAR	vl_fichier
+	VAR	vl_texte, vl_ligne
+	VAR	i
+VAR vl_F_tpm,vl_chemin
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    if (vm_simplifie) {
+      SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+      SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+    }
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "gene travaux"
+ * ---------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TIT")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TIT_Inter_Travaux")
+
+/*si calcul au PC simplifie*/
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  vm_simplifie=TRUE
+else
+  vm_simplifie=FALSE
+
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre, "TA_trv", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_trv", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_trv", FALSE)
+
+/*A titres des colonnes*/
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+tl_titres[0] = "Autoroute",80
+tl_titres[1] = "Sens",50
+tl_titres[2] = "Numéro",60
+tl_titres[3] = "Site",50
+tl_titres[4] = "Date début", 106
+tl_titres[5] = "PR début",70
+tl_titres[6] = "PR fin",70
+tl_titres[7] = "Numéro",60
+tl_titres[8] = "Site",50
+tl_titres[9] = "Date début", 106
+tl_titres[10] = "PR début",70
+tl_titres[11] = "PR fin",70
+tl_titres[12] = "", 0
+
+/*A liste des trv finis*/
+DB_TABLE_SET_DATA@(vl_fenetre, "TA_trv", NULL, tl_titres, NULL)
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_BauVoie",COM_CHIFFRES)
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_2_BauVoie",COM_CHIFFRES)
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_2_BauBasc",COM_CHIFFRES)
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_2_VoieVoie",COM_CHIFFRES)
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_2_VoieBasc",COM_CHIFFRES)   
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_2_BascBasc",COM_CHIFFRES)   
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_3_BauVoie",COM_CHIFFRES)   
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_3_Bau2Voies",COM_CHIFFRES)  
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_3_BauBasc",COM_CHIFFRES)
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_3_VoieVoie",COM_CHIFFRES)   
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_3_Voie2Voies",COM_CHIFFRES)  
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_3_VoieBasc",COM_CHIFFRES)   
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_3_2Voies2Voies",COM_CHIFFRES)
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_3_2VoiesBasc",COM_CHIFFRES) 
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_3_BascBasc",COM_CHIFFRES)   
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_BauVoie",COM_CHIFFRES)
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_Bau2Voies",COM_CHIFFRES)  
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_Bau3Voies",COM_CHIFFRES)  
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_BauBasc",COM_CHIFFRES)
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_VoieVoie",COM_CHIFFRES)   
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_Voie2Voies",COM_CHIFFRES) 
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_Voie3Voies",COM_CHIFFRES) 
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_VoieBasc",COM_CHIFFRES)   
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_2Voies2Voies", COM_CHIFFRES)
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_2Voies3Voies",COM_CHIFFRES)
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_2VoiesBasc",COM_CHIFFRES) 
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_3Voies3Voies",COM_CHIFFRES)
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_3VoiesBasc",COM_CHIFFRES) 
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_4_BascBasc",COM_CHIFFRES)   
+     DB_CTRL_VALID_CHARS@(vl_fenetre,"BS_urbaine",COM_CHIFFRES)  
+
+/*A Chargement du fichier de config mode_diffusion
+*   ------------------------------------------ */
+vl_chemin = SYSTEM_VAR@( vg_repertoire_migrazur ) ++ COM_SOUS_REP_OPER
+vl_F_tpm = NULL
+IF FILE_EXISTS@(vl_chemin ++ "/ITMA_TIT_Inter_Travaux.txt" )
+ {
+ 	vl_F_tpm = READ_ASCII_FILE@(vl_chemin ++ "ITMA_TIT_Inter_Travaux.txt")
+
+	
+     DB_CTRL_VALUE@(vl_fenetre,"BS_BauBau",vl_F_tpm[3])
+     DB_CTRL_VALUE@(vl_fenetre,"BS_BauVoie",vl_F_tpm[6])
+     DB_CTRL_VALUE@(vl_fenetre,"BS_2_BauVoie",vl_F_tpm[9])
+     DB_CTRL_VALUE@(vl_fenetre,"BS_2_BauBasc",vl_F_tpm[11])
+     DB_CTRL_VALUE@(vl_fenetre,"BS_2_VoieVoie",vl_F_tpm[13])
+     DB_CTRL_VALUE@(vl_fenetre,"BS_2_VoieBasc",vl_F_tpm[15])   
+     DB_CTRL_VALUE@(vl_fenetre,"BS_2_BascBasc",vl_F_tpm[17])   
+     DB_CTRL_VALUE@(vl_fenetre,"BS_3_BauVoie",vl_F_tpm[20])   
+     DB_CTRL_VALUE@(vl_fenetre,"BS_3_Bau2Voies",vl_F_tpm[22])  
+     DB_CTRL_VALUE@(vl_fenetre,"BS_3_BauBasc",vl_F_tpm[24])
+     DB_CTRL_VALUE@(vl_fenetre,"BS_3_VoieVoie",vl_F_tpm[26])   
+     DB_CTRL_VALUE@(vl_fenetre,"BS_3_Voie2Voies",vl_F_tpm[28])  
+     DB_CTRL_VALUE@(vl_fenetre,"BS_3_VoieBasc",vl_F_tpm[30])   
+     DB_CTRL_VALUE@(vl_fenetre,"BS_3_2Voies2Voies",vl_F_tpm[32])
+     DB_CTRL_VALUE@(vl_fenetre,"BS_3_2VoiesBasc",vl_F_tpm[34]) 
+     DB_CTRL_VALUE@(vl_fenetre,"BS_3_BascBasc",vl_F_tpm[36])   
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_BauVoie",vl_F_tpm[39])
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_Bau2Voies",vl_F_tpm[41])  
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_Bau3Voies",vl_F_tpm[43])  
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_BauBasc",vl_F_tpm[45])
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_VoieVoie",vl_F_tpm[47])   
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_Voie2Voies",vl_F_tpm[49]) 
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_Voie3Voies",vl_F_tpm[51]) 
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_VoieBasc",vl_F_tpm[53])   
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_2Voies2Voies",vl_F_tpm[55])
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_2Voies3Voies",vl_F_tpm[57])
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_2VoiesBasc",vl_F_tpm[59]) 
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_3Voies3Voies",vl_F_tpm[61])
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_3VoiesBasc",vl_F_tpm[63]) 
+     DB_CTRL_VALUE@(vl_fenetre,"BS_4_BascBasc",vl_F_tpm[65])   
+     DB_CTRL_VALUE@(vl_fenetre,"BS_urbaine",vl_F_tpm[67])  
+}
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+  	/*A appui sur le bouton horohelp */
+	CASE "BP_horohelp"
+		/*A recupere l'heure courante et la formate*/
+		COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+									"BS_jour", "BS_mois", "BS_annee",
+									"BS_heure", "BS_minute")
+
+     CASE "BP_imprimer"
+           vl_texte = DB_TABLE_GET_DATA@(vl_fenetre,"TA_trv")
+           IF IS_NULL@(vl_texte)
+                 INFO_MESSAGE@("Pas de travaux à imprimer")
+           ELSE IF ARRAY_SIZE@(vl_texte) = 0
+                 INFO_MESSAGE@("Pas de travaux à imprimer")
+		ELSE {
+                 /*A ecrire le texte dans un fichier*/
+                 WP_APPLICATION_DLG@(NULL, TRUE)
+                 WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+                                C_SOUS_REP_MODELES ++ C_MODELE_INTER_TRAV ++ ".aw")
+
+
+			WP_GOTO_END@()
+			WP_TEXT_COURIER@()
+
+			FOR i=0 TO ARRAY_SIZE@(vl_texte) - 1
+				vl_ligne = FORMAT@("   %-4s    %s    %-5s  %s  %-16s  %-6s   %-6s  %-5s  %s  %-16s  %-6s   %-6s", 
+						vl_texte[i][0], vl_texte[i][1],
+						vl_texte[i][2],vl_texte[i][3],
+						vl_texte[i][4],vl_texte[i][5],
+						vl_texte[i][6],vl_texte[i][7],vl_texte[i][8],
+						vl_texte[i][9],vl_texte[i][10],vl_texte[i][11])
+
+                   IF (tm_picto[i][0]=C_PICTO_OK)
+                         WP_LINK_EXT_AXBITMAP@(SYSTEM_VAR@(vg_repertoire_migrazur)
+                                                     ++"fichiers/pic/"++
+									     C_PICTO_OK ++".im")
+				ELSE	WP_LINK_EXT_AXBITMAP@(SYSTEM_VAR@(vg_repertoire_migrazur)
+                                                     ++"fichiers/pic/"++
+									     C_PICTO_NOK ++".im")
+				WP_ENTER_TEXT@ (vl_ligne++"\n")
+			NEXT i
+
+			IF (DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_heure")<>NULL) AND
+			   (DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_minute")<>NULL) AND
+			   (DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_jour")<>NULL) AND
+			   (DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_mois")<>NULL) AND
+			   (DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_annee")<>NULL) 
+				vl_texte = COM23_Horodate (vl_fenetre, "BS_jour", "BS_mois", 
+									"BS_annee", "BS_heure", "BS_minute")
+			ELSE vl_texte=""
+              WP_SET_DOC_VAR@("horodate_debut",vl_texte)
+
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_BauBau")
+			IF vl_texte=NULL
+				vl_texte=""
+               WP_SET_DOC_VAR@("vl_Disbaubau",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_BauVoie")
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis1_bau1voie",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_2_BauVoie")
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis2_bau1voie",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_2_BauBasc")
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis2_baubasc",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_2_VoieVoie")
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis2_voievoie",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_2_VoieBasc")   
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis2_voiebasc",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_2_BascBasc")   
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis2_bascbasc",vl_texte)
+
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_3_BauVoie")   
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis3_bauvoie",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_3_Bau2Voies")  
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis3_bau2voies",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_3_BauBasc")
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis3_baubasc",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_3_VoieVoie")   
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis3_voievoie",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_3_Voie2Voies")  
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis3_voie2voies",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_3_VoieBasc")   
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis3_voiebasc",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_3_2Voies2Voies")
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis3_2voies2voies",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_3_2VoiesBasc") 
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis3_2voiesbasc",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_3_BascBasc")   
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis3_bascbasc",vl_texte)
+
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_BauVoie")
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis4_bauvoie",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_Bau2Voies")  
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis4_bau2voies",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_Bau3Voies")  
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis4_bau3voies",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_BauBasc")
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis4_baubasc",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_VoieVoie")   
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis4_voievoie",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_Voie2Voies") 
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis4_voie2voies",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_Voie3Voies") 
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis4_voie3voies",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_VoieBasc")   
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis4_voiebasc",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_2Voies2Voies")
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis4_2voies2voies",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_2Voies3Voies")
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis4_2voies3voies",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_2VoiesBasc") 
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis4_2voiesbasc",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_3Voies3Voies")
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis4_3voies3voies",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_3VoiesBasc") 
+			IF vl_texte=NULL
+				vl_texte=""
+            WP_SET_DOC_VAR@("vl_Dis_4_3voiesbasc",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_4_BascBasc")   
+ 			IF vl_texte=NULL
+				vl_texte=""
+               WP_SET_DOC_VAR@("vl_Dis_4_bascbasc",vl_texte)
+     vl_texte=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_urbaine")   
+ 			IF vl_texte=NULL
+				vl_texte=""
+               WP_SET_DOC_VAR@("longueur_cumulee",vl_texte)
+
+                 vl_fichier = C_MODELE_INTER_TRAV ++ "_" ++
+                                SYSTEM_VAR@(vg_numero_poste)
+                 COM36_Imprimer_Texte(vl_fichier)
+           }
+           DB_CTRL_GRAYED@ (vl_fenetre, "BP_imprimer", TRUE)
+
+     CASE "BP_quitter"
+		if (vm_simplifie) {
+			SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+			SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+		}
+		RETURN
+
+	CASE "BP_calculer"
+		TIT_liste_travaux(vl_fenetre)
+           DB_CTRL_GRAYED@ (vl_fenetre, "BP_imprimer", FALSE)
+
+      ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  retourne la liste des travaux
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TIT_liste_travaux (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*   .
+---------------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR tl_data
+VAR vl_horodate
+VAR vl_indice
+VAR vl_indice2
+VAR tl_dataAffichee
+VAR vl_id_normale
+VAR vl_id_empietee
+VAR vl_id_1bascul
+VAR vl_id_2bascul
+VAR vl_id_urbaine
+VAR vl_taille
+VAR vl_tailleResult
+VAR FORMAT TCO_liste_travaux tl_trv1
+VAR FORMAT TCO_liste_travaux tl_trv2
+VAR tl_retour
+VAR vl_Dis_baubau
+VAR vl_Dis_1_bau1voie
+VAR vl_Dis_2_bau1voie
+VAR vl_Dis_2_baubasc
+VAR vl_Dis_2_voievoie   
+VAR vl_Dis_2_voiebasc   
+VAR vl_Dis_2_bascbasc   
+
+VAR vl_Dis_3_bauvoie   
+VAR vl_Dis_3_bau2voies  
+VAR vl_Dis_3_baubasc
+VAR vl_Dis_3_voievoie   
+VAR vl_Dis_3_voie2voies  
+VAR vl_Dis_3_voiebasc   
+VAR vl_Dis_3_2voies2voies
+VAR vl_Dis_3_2voiesbasc 
+VAR vl_Dis_3_bascbasc   
+
+VAR vl_Dis_4_bauvoie
+VAR vl_Dis_4_bau2voies  
+VAR vl_Dis_4_bau3voies  
+VAR vl_Dis_4_baubasc
+VAR vl_Dis_4_voievoie   
+VAR vl_Dis_4_voie2voies 
+VAR vl_Dis_4_voie3voies 
+VAR vl_Dis_4_voiebasc   
+VAR vl_Dis_4_2voies2voies
+VAR vl_Dis_4_2voies3voies
+VAR vl_Dis_4_2voiesbasc 
+VAR vl_Dis_4_3voies3voies
+VAR vl_Dis__4_3voiesbasc 
+VAR vl_Dis__4_bascbasc   
+
+	MACRO_WINS_BUSY@()
+
+	/*A recupere les interdistances pour le calcul*/
+	
+     vl_Dis_baubau=DB_CTRL_GET_VALUE@(va_fenetre,"BS_BauBau")
+     vl_Dis_1_bau1voie=DB_CTRL_GET_VALUE@(va_fenetre,"BS_BauVoie")
+     vl_Dis_2_bau1voie=DB_CTRL_GET_VALUE@(va_fenetre,"BS_2_BauVoie")
+     vl_Dis_2_baubasc=DB_CTRL_GET_VALUE@(va_fenetre,"BS_2_BauBasc")
+     vl_Dis_2_voievoie=DB_CTRL_GET_VALUE@(va_fenetre,"BS_2_VoieVoie")
+     vl_Dis_2_voiebasc=DB_CTRL_GET_VALUE@(va_fenetre,"BS_2_VoieBasc")   
+     vl_Dis_2_bascbasc=DB_CTRL_GET_VALUE@(va_fenetre,"BS_2_BascBasc")   
+
+     vl_Dis_3_bauvoie=DB_CTRL_GET_VALUE@(va_fenetre,"BS_3_BauVoie")   
+     vl_Dis_3_bau2voies=DB_CTRL_GET_VALUE@(va_fenetre,"BS_3_Bau2Voies")  
+     vl_Dis_3_baubasc=DB_CTRL_GET_VALUE@(va_fenetre,"BS_3_BauBasc")
+     vl_Dis_3_voievoie=DB_CTRL_GET_VALUE@(va_fenetre,"BS_3_VoieVoie")   
+     vl_Dis_3_voie2voies=DB_CTRL_GET_VALUE@(va_fenetre,"BS_3_Voie2Voies")  
+     vl_Dis_3_voiebasc=DB_CTRL_GET_VALUE@(va_fenetre,"BS_3_VoieBasc")   
+     vl_Dis_3_2voies2voies=DB_CTRL_GET_VALUE@(va_fenetre,"BS_3_2Voies2Voies")
+     vl_Dis_3_2voiesbasc=DB_CTRL_GET_VALUE@(va_fenetre,"BS_3_2VoiesBasc") 
+     vl_Dis_3_bascbasc=DB_CTRL_GET_VALUE@(va_fenetre,"BS_3_BascBasc")   
+
+     vl_Dis_4_bauvoie=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_BauVoie")
+     vl_Dis_4_bau2voies=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_Bau2Voies")  
+     vl_Dis_4_bau3voies=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_Bau3Voies")  
+     vl_Dis_4_baubasc=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_BauBasc")
+     vl_Dis_4_voievoie=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_VoieVoie")   
+     vl_Dis_4_voie2voies=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_Voie2Voies") 
+     vl_Dis_4_voie3voies=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_Voie3Voies") 
+     vl_Dis_4_voiebasc=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_VoieBasc")   
+     vl_Dis_4_2voies2voies=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_2Voies2Voies")
+     vl_Dis_4_2voies3voies=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_2Voies3Voies")
+     vl_Dis_4_2voiesbasc=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_2VoiesBasc") 
+     vl_Dis_4_3voies3voies=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_3Voies3Voies")
+     vl_Dis__4_3voiesbasc=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_3VoiesBasc") 
+     vl_Dis__4_bascbasc=DB_CTRL_GET_VALUE@(va_fenetre,"BS_4_BascBasc")   
+      vl_id_urbaine=DB_CTRL_GET_VALUE@(va_fenetre,"BS_urbaine")
+
+	IF ( vl_Dis_baubau = "") OR
+         ( vl_Dis_1_bau1voie = "") OR
+         ( vl_Dis_2_bau1voie = "") OR
+         ( vl_Dis_2_baubasc = "") OR
+         ( vl_Dis_2_voievoie = "") OR   
+         ( vl_Dis_2_voiebasc = "") OR   
+         ( vl_Dis_2_bascbasc = "") OR   
+
+         ( vl_Dis_3_bauvoie = "") OR   
+         ( vl_Dis_3_bau2voies = "") OR  
+         ( vl_Dis_3_baubasc = "") OR
+         ( vl_Dis_3_voievoie = "") OR   
+         ( vl_Dis_3_voie2voies = "") OR  
+         ( vl_Dis_3_voiebasc = "") OR   
+         ( vl_Dis_3_2voies2voies = "") OR
+         ( vl_Dis_3_2voiesbasc = "") OR 
+         ( vl_Dis_3_bascbasc  = "") OR  
+
+         ( vl_Dis_4_bauvoie = "") OR
+         ( vl_Dis_4_bau2voies = "") OR  
+         ( vl_Dis_4_bau3voies = "") OR  
+         ( vl_Dis_4_baubasc = "") OR
+         ( vl_Dis_4_voievoie = "") OR   
+         ( vl_Dis_4_voie2voies = "") OR 
+         ( vl_Dis_4_voie3voies = "") OR 
+         ( vl_Dis_4_voiebasc = "") OR   
+         ( vl_Dis_4_2voies2voies = "") OR
+         ( vl_Dis_4_2voies3voies = "") OR
+         ( vl_Dis_4_2voiesbasc = "") OR 
+         ( vl_Dis_4_3voies3voies = "") OR
+         ( vl_Dis__4_3voiesbasc = "") OR 
+         ( vl_Dis__4_bascbasc = "")   
+
+	{
+		INFO_MESSAGE@("Toutes les saisies doivent être renseignées")
+		RETURN (COM_NOK)
+	}
+
+	/*A horodate*/
+	IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_heure")=NULL) OR
+	   (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_minute")=NULL) OR
+	   (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_jour")=NULL) OR
+	   (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_mois")=NULL) OR
+	   (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_annee")=NULL) 
+	{
+		INFO_MESSAGE@("Toutes les saisies doivent être renseignées")
+		RETURN (COM_NOK)
+	}
+
+	vl_horodate = COM23_Horodate (va_fenetre, "BS_jour", "BS_mois", "BS_annee",
+									"BS_heure", "BS_minute")
+
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = 2
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#DATETIME_
+	vl_parametres[1].data = vl_horodate
+	vl_parametres[1].output = FALSE
+
+	/*A execution requete base*/
+	IF COM50_DateHistorique(vl_horodate)
+	{
+		IF COM41_SQL_Procedure_HIS (XZAS24_Liste_Travaux,
+			vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+                       		RETURN (COM_NOK)
+	}
+	ELSE
+	{
+		if (vm_simplifie) {
+			IF COM39_SQL_Procedure_PCS (XZAS24_Liste_Travaux,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK {
+			SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+			SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+   			RETURN (COM_NOK)
+			}
+		}
+		else {
+			IF COM05_SQL_Procedure (XZAS24_Liste_Travaux,
+			vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+                       		RETURN (COM_NOK)
+		}
+	}
+	tm_liste=vl_resultats.select_results[0]
+	vl_parametres=null
+
+	/*A parcourt la liste des trv et la formatte*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_liste)-1)
+		tm_listeAffichee[vl_indice].numero=tm_liste[vl_indice].numero	
+		tm_listeAffichee[vl_indice].cle=tm_liste[vl_indice].cle	
+		tm_listeAffichee[vl_indice].sens=tm_liste[vl_indice].sens	
+		tm_listeAffichee[vl_indice].nom_autoroute=
+							tm_liste[vl_indice].nom_autoroute	
+		tm_listeAffichee[vl_indice].horo_debut=
+					COM18_Date_SGBD_Formatee(tm_liste[vl_indice].horo_debut)
+		tm_listeAffichee[vl_indice].horo_fin=
+					COM18_Date_SGBD_Formatee(tm_liste[vl_indice].horo_fin)
+		tm_listeAffichee[vl_indice].pr_debut=tm_liste[vl_indice].pr_debut	
+		tm_listeAffichee[vl_indice].pr_fin=tm_liste[vl_indice].pr_fin	
+
+		tm_listeAffichee[vl_indice].horo_validation=
+				COM18_Date_SGBD_Formatee(tm_liste[vl_indice].horo_validation)
+
+/* MODIF PFE : 3 LIGNES */
+tm_liste[vl_indice].horo_debut=tm_listeAffichee[vl_indice].horo_debut
+tm_liste[vl_indice].horo_fin=tm_listeAffichee[vl_indice].horo_fin
+tm_liste[vl_indice].horo_validation=tm_listeAffichee[vl_indice].horo_validation
+
+	NEXT vl_indice
+	
+	/*A parcourt la liste des travaux et calcule l'interdistance*/
+	vl_taille=ARRAY_SIZE@(tm_liste)
+	vl_tailleResult=0
+	tm_listeInterdis = NULL
+	tm_picto = NULL
+	vl_indice=0
+
+	FOR vl_indice=0 TO (vl_taille-1)
+		FOR vl_indice2=vl_indice+1 TO (vl_taille-1)
+			/*B caracteristiques des travaux a comparer */
+/* MODIF PFE : 2 LIGNES DEM510 */
+			tl_trv1=tm_liste[vl_indice]
+			tl_trv2=tm_liste[vl_indice2]
+
+			/*B si pas de PR tete alors prendre le pr queue comme pr tete */
+			if (tl_trv1.PR_fin = NULL)
+				tl_trv1.PR_fin=tl_trv1.PR_debut
+			if (tl_trv2.PR_fin = NULL)
+				tl_trv2.PR_fin=tl_trv2.PR_debut
+
+			/*B s'ils sont sur la meme autoroute et dans le meme sens*/
+			IF (tl_trv1.numero_autoroute=tl_trv2.numero_autoroute) AND
+				(tl_trv1.sens=tl_trv2.sens) 
+			/*B je calcule l'interdistance*/
+			{
+				/*B appel a la fonction de calcul*/
+				tl_retour=TIT_Calcul_Interdistance(tl_trv1,
+											tl_trv2,
+											 vl_Dis_baubau,
+											 vl_Dis_1_bau1voie,
+                        								vl_Dis_2_bau1voie,
+                        								vl_Dis_2_baubasc,
+                        								vl_Dis_2_voievoie,   
+                       								 	vl_Dis_2_voiebasc,   
+                 								        vl_Dis_2_bascbasc,   
+								
+                        								vl_Dis_3_bauvoie,   
+                        								vl_Dis_3_bau2voies,  
+                        								vl_Dis_3_baubasc,
+                        								vl_Dis_3_voievoie,   
+                        								vl_Dis_3_voie2voies,  
+                        								vl_Dis_3_voiebasc,   
+                        								vl_Dis_3_2voies2voies,
+                        								vl_Dis_3_2voiesbasc, 
+                        								vl_Dis_3_bascbasc ,  
+
+                        								vl_Dis_4_bauvoie,
+                        								vl_Dis_4_bau2voies,  
+                        								vl_Dis_4_bau3voies,  
+                        								vl_Dis_4_baubasc,
+                        								vl_Dis_4_voievoie,   
+                        								vl_Dis_4_voie2voies, 
+                        								vl_Dis_4_voie3voies, 
+                        								vl_Dis_4_voiebasc,   
+                        								vl_Dis_4_2voies2voies,
+                        								vl_Dis_4_2voies3voies,
+                        								vl_Dis_4_2voiesbasc, 
+                        								vl_Dis_4_3voies3voies,
+                        								vl_Dis__4_3voiesbasc, 
+                        								vl_Dis__4_bascbasc ,														            
+				    						        vl_id_urbaine)
+				if (tl_retour[0]=XDC_NOK)
+				/* interdistance non respectee */
+				{
+					tm_listeInterdis[vl_tailleResult].nom_autoroute=
+								tm_listeAffichee[vl_indice].nom_autoroute
+					tm_listeInterdis[vl_tailleResult].sens=
+								tm_listeAffichee[vl_indice].sens
+					tm_listeInterdis[vl_tailleResult].numero1=
+								tm_listeAffichee[vl_indice].numero
+					tm_listeInterdis[vl_tailleResult].cle1=
+								tm_listeAffichee[vl_indice].cle
+					tm_listeInterdis[vl_tailleResult].horo_debut1=
+								tm_listeAffichee[vl_indice].horo_debut
+					tm_listeInterdis[vl_tailleResult].pr_debut1=
+								tm_listeAffichee[vl_indice].pr_debut
+					tm_listeInterdis[vl_tailleResult].pr_fin1=
+								tm_listeAffichee[vl_indice].pr_fin
+					tm_listeInterdis[vl_tailleResult].numero2=
+								tm_listeAffichee[vl_indice2].numero
+					tm_listeInterdis[vl_tailleResult].cle2=
+								tm_listeAffichee[vl_indice2].cle
+					tm_listeInterdis[vl_tailleResult].horo_debut2=
+								tm_listeAffichee[vl_indice2].horo_debut
+					tm_listeInterdis[vl_tailleResult].pr_debut2=
+								tm_listeAffichee[vl_indice2].pr_debut
+					tm_listeInterdis[vl_tailleResult].pr_fin2=
+								tm_listeAffichee[vl_indice2].pr_fin
+
+					IF tl_retour[1] = XDC_OK
+						tm_picto[vl_tailleResult] = C_PICTO_OK, NULL
+					ELSE tm_picto[vl_tailleResult] = C_PICTO_NOK, NULL
+
+					vl_tailleResult=vl_tailleResult+1
+				}
+			}
+		NEXT vl_indice2
+	NEXT vl_indice
+
+	DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_trv", 0, -1)
+	DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_trv", tm_listeInterdis, 0)
+	DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_trv", 0, tm_picto)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  calcule l'interdistance entre 2 travaux
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TIT_calcul_interdistance (FORMAT TCO_liste_travaux ta_trv1,
+							FORMAT TCO_liste_travaux ta_trv2,
+			va_Dis_baubau,
+			va_Dis_1_bau1voie,
+                        va_Dis_2_bau1voie,
+                        va_Dis_2_baubasc,
+                        va_Dis_2_voievoie,   
+                        va_Dis_2_voiebasc,   
+                        va_Dis_2_bascbasc,   
+
+                        va_Dis_3_bauvoie,   
+                        va_Dis_3_bau2voies,  
+                        va_Dis_3_baubasc,
+                        va_Dis_3_voievoie,   
+                        va_Dis_3_voie2voies,  
+                        va_Dis_3_voiebasc,   
+                        va_Dis_3_2voies2voies,
+                        va_Dis_3_2voiesbasc, 
+                        va_Dis_3_bascbasc ,  
+
+                        va_Dis_4_bauvoie,
+                        va_Dis_4_bau2voies,  
+                        va_Dis_4_bau3voies,  
+                        va_Dis_4_baubasc,
+                        va_Dis_4_voievoie,   
+                        va_Dis_4_voie2voies, 
+                        va_Dis_4_voie3voies, 
+                        va_Dis_4_voiebasc,   
+                        va_Dis_4_2voies2voies,
+                        va_Dis_4_2voies3voies,
+                        va_Dis_4_2voiesbasc, 
+                        va_Dis_4_3voies3voies,
+                        va_Dis__4_3voiesbasc, 
+                        va_Dis__4_bascbasc ,							
+					va_id_urbaine)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*   .
+---------------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR vl_indice
+VAR tl_retour
+
+	vl_indice=0
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_trv1.numero
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_trv1.cle
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_trv1.pr_fin
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_trv1.numero_autoroute
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_trv1.sens
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].data = ta_trv1.horo_validation
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_trv2.numero
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_trv2.cle
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_trv2.pr_fin
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_trv2.numero_autoroute
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_trv2.sens
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].data = ta_trv2.horo_validation
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_baubau
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_1_bau1voie
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_2_bau1voie
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_2_baubasc
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_2_voievoie
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_2_voiebasc
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_2_bascbasc
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_3_bauvoie
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_3_bau2voies
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_3_baubasc
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_3_voievoie
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_3_voie2voies
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_3_voiebasc
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_3_2voies2voies
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_3_2voiesbasc
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_3_bascbasc
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_4_bauvoie
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_4_bau2voies
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_4_bau3voies
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_4_baubasc
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_4_voievoie
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_4_voie2voies
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_4_voie3voies
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_4_voiebasc
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_4_2voies2voies
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_4_2voies3voies
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_4_2voiesbasc
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis_4_3voies3voies
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis__4_3voiesbasc
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_Dis__4_bascbasc
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_id_urbaine
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].output = TRUE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].output = TRUE
+
+	/*A execution requete base*/
+	if (vm_simplifie) {
+		IF COM39_SQL_Procedure_PCS (XZAS26_Interdistance_Travaux,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		{
+			tl_retour[0]=null
+			tl_retour[1]=null
+   			RETURN (tl_retour)
+		}
+	}
+	else {
+		IF COM05_SQL_Procedure (XZAS26_Interdistance_Travaux,
+					   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	        {
+		   tl_retour[0]=null
+		   tl_retour[1]=null
+		   RETURN (tl_retour)
+	        }
+	}
+	RETURN (vl_resultats.return_parameters)
+
+ENDFUNCTION

@@ -1,0 +1,209 @@
+/*E*/
+/* Fichier : $Id: dedi_make_bdc.am,v 1.3 1999/02/26 11:58:53 gaborit Exp $	      Release : $Revision: 1.3 $        Date : $Date: 1999/02/26 11:58:53 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_make_bdc.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* genere une liste de fichiers ASCII 
+* au format RTIE ou au format Texte, selon la valeur de vg_mode
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	29 nov 1994		: Creation						V1.1
+* Niepceron	18 Jan 1999	: Modif intergest					V1.4
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la liste des fichiers
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_make_bdc(va_type)
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+* dedi
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_mode
+
+	/*A ouvre la fenetre de trace */
+	vl_mode = SYSTEM_VAR@(vg_mode)
+	NEW_TASK@("dedi_trace")
+
+	IF vl_mode=DEDI_MODE_GENERE
+		trace_chaine("GENERATION DES FICHIERS RTIE EN COURS...")
+	ELSE
+		trace_chaine("GENERATION DES FICHIERS TEXTE EN COURS...")
+	trace_chaine()
+
+	/*A lance le TTX */
+	WP_APPLICATION_DLG@(null,TRUE)
+
+	CASE OF va_type
+		CASE DEDI_GENERE_TFM
+			dedi_make_tfm()
+
+		CASE DEDI_GENERE_INTERLOCUTEURS
+			dedi_make_interlocuteur()
+			/*A on genere aussi les regles de priorite, au cas ou */
+			dedi_make_priorite()
+
+		CASE DEDI_GENERE_FAX
+			dedi_make_fax()
+
+		CASE DEDI_GENERE_PMV
+			dedi_make_pmv()
+
+		CASE DEDI_GENERE_NAV
+			dedi_make_nav()
+
+		CASE DEDI_GENERE_PRIORITE
+			dedi_make_priorite()
+
+		CASE DEDI_GENERE_EXPORT
+			dedi_make_export()
+
+		CASE DEDI_GENERE_TOUT
+			dedi_make_tfm()
+			dedi_make_interlocuteur()
+			dedi_make_fax()
+			dedi_make_pmv()
+			dedi_make_nav()
+			dedi_make_priorite()
+			dedi_make_export()
+	ENDCASE
+
+	/*A quitte le TTX */
+	dedi_rm_tie()
+	WP_EXIT@()
+
+	trace_chaine("GENERATION TERMINEE.")
+	trace_chaine("")
+	trace_chaine("")
+	trace_chaine("")
+
+	/*A ferme la fenetre de trace */
+'	trace_fin()
+
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* appelle le shell dedi_make.sh
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION dedi_shell(va_fichier, va_suffixe, va_commentaire)
+
+/*
+* ARGUMENTS EN ENTREE : va_fichier, va_suffixe, va_commentaire
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION : apres generation des fichiers .tie par dedi_genere
+* 
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_mode
+VAR vl_input, vl_output, vl_entete
+VAR tl_entete
+VAR vl_cmd
+
+	vl_mode = SYSTEM_VAR@(vg_mode)
+
+	/*A on initialise vl_input et vl_output en fonction du mode */
+	IF vl_mode=DEDI_MODE_GENERE
+	{
+		vl_input = va_fichier
+		vl_output = va_fichier++"."++va_suffixe
+	}
+	ELSE
+	{
+		vl_input = va_fichier++DEDI_SUFFIXE_IMPRIM
+		vl_output = va_fichier++"."++va_suffixe++".impr"
+	}
+
+	/*A on genere l'entete */
+	tl_entete[0] = vl_output
+	tl_entete[1] = DATE_FORMAT@(CURRENT_TIME@(),12)
+	tl_entete[2] = va_commentaire
+	vl_entete = dedi_genere(IE_MODELE_ENTETE, 1, tl_entete)
+
+	/*A on appelle le shell */
+	'vl_cmd = IE_PATH++"dedi_make.sh "++vl_entete++" "++vl_input++" "++vl_output
+	vl_cmd = "dedi_make.sh "++vl_entete++" "++vl_input++" "++vl_output++" "++vl_mode
+	SHELL_COMMAND@(vl_cmd)
+
+	/*A on trace */
+	trace_chaine("Generation du fichier "++vl_output++" OK")
+	trace_chaine()
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* detruit les fichiers tie 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION dedi_rm_tie()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION : a appeler lorsqu'une erreur de syntaxe est detectee
+* 
+* FONCTION : /bin/rm *.tie
+*
+---------------------------------------------------------------------------- */
+VAR vl_cmd
+
+	vl_cmd = "/bin/rm "++IE_PATH_BDC++"/*.tie"
+	SHELL_COMMAND@(vl_cmd)
+
+ENDFUNCTION
+
+
+

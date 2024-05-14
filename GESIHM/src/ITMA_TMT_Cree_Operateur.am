@@ -1,0 +1,246 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMT_Cree_Operateur.am,v 1.15 2020/11/03 17:45:29 pc2dpdy Exp $  			  Release :$Revision: 1.15 $ 	   Date : $Date: 2020/11/03 17:45:29 $
+-----------------------------------------------------------------------
+*  GTIE  *  PROJET MIGRAZUR
+-----------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-----------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMT_Cree_Operateur.am
+-----------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+* cree une fiche operateur a chaque changement de poste
+*
+-----------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  Guilhou	16 dec 1994	1.1	: Création
+*  Verdier	9 Aout 1996	1.2	: Maj suite modif xzae08 (DEM76)
+*  Guilhou	26 fev 1997	1.8	: ajout appel XZAD06 pour tdp 
+*  C.T.		09 dec 1997	1.9	: Modif appel XZAE08 pour PCniveau 2
+* Guilhou	06 jan 1998	1.10	: indique a titbi que FMC operateur creee sur PC2 et PC3 (dem/1535)
+* Guilhou	14 jan 1998	1.11	: recup droits d'enrichir du PC niveau 2 (dem/1535)
+* JMG		23/10/07	1.12	: ajout appel a XZEU10 pour recuperer etat bascul RAU PCN2
+* JMG           29/09/09                : SECTO DEM 887
+*  JMG          03/03/17 : regio DEM1220
+* LCL		12/03/20 : Ajout site XZAE08 MOVIS DEM-SAE93 
+-----------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/xzae64sp.h"
+INCLUDE	"../inc/xzae43sp.h"
+INCLUDE	"../inc/xzae08sp.h"
+INCLUDE	"../inc/xzae148sp.h"
+INCLUDE	"../inc/xzad06sp.h"
+
+/*A Définition des constantes */
+
+DEFINE	C_MODULE		"MTMT"		' Nom du module
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* cree en base une fiche operateur
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMT_Cree_Operateur ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR vl_indice
+VAR FORMAT COM_Identifiant_FMC 		tl_num_evt	
+VAR tl_data,vl_msg, vl_message
+VAR vl_horodate
+VAR tl_districts,vl_type
+VAR vl_canal
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+ 	/*B cree dans la base une fiche du type poste operateur*/
+	vl_indice=0
+	vl_parametres[vl_indice].type = SYB#INT4_     
+	vl_parametres[vl_indice].data= 4
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste)
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_     
+	vl_parametres[vl_indice].data= 1
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+	
+	vl_parametres[vl_indice].type = SYB#DATETIME_     
+	vl_horodate=COM09_Date_Courante(TRUE)
+	vl_parametres[vl_indice].data= vl_horodate
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+	
+	vl_parametres[vl_indice].type = SYB#DATETIME_     
+	vl_parametres[vl_indice].data= XDC_DATE_NULLE
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+	
+	vl_parametres[vl_indice].type = SYB#INT2_     
+	vl_parametres[vl_indice].data= SYSTEM_VAR@(vg_site)
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+	
+	vl_parametres[vl_indice].type = SYB#INT2_     
+	vl_parametres[vl_indice].data= null
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+	
+	vl_parametres[vl_indice].type = SYB#INT4_     
+	vl_parametres[vl_indice].output = TRUE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_     
+	vl_parametres[vl_indice].output = TRUE
+
+	IF COM05_SQL_Procedure (XZAE08_Creer_Fiche_MC,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@("Impossible de créer la fiche opérateur en base")
+   	 	RETURN (COM_NOK)
+	}
+
+   	/*B numero et cle d'evt retournes par la base*/
+	tl_num_evt=vl_resultats.return_parameters
+
+	/*! je sauvegarde cet identifiant de fiche operateur*/
+	SET_SYSTEM_VAR@(vg_num_fiche_operateur,tl_num_evt.numero)
+	SET_SYSTEM_VAR@(vg_cle_fiche_operateur,tl_num_evt.cle)
+
+	/*! j'ecris maintenant cette fiche*/
+	vl_parametres=null
+	vl_indice=0
+     vl_parametres[vl_indice].data=tl_num_evt.numero
+     vl_parametres[vl_indice].type=SYB#INT4_
+     vl_parametres[vl_indice].output=FALSE
+     vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=tl_num_evt.cle
+     vl_parametres[vl_indice].type=SYB#INT4_
+     vl_parametres[vl_indice].output=FALSE
+     vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=TRIM@(SUBSTRING@(SYSTEM_VAR@(vg_operateur),1,25))
+
+     vl_parametres[vl_indice].type=SYB#CHAR_
+     vl_parametres[vl_indice].output=FALSE
+     vl_indice=vl_indice+1
+
+  vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste)
+     vl_parametres[vl_indice].type=SYB#INT4_
+     vl_parametres[vl_indice].output=FALSE
+        vl_indice = vl_indice +1
+
+/*B Site local */
+        vl_parametres[vl_indice].type = SYB#CHAR_
+        vl_parametres[vl_indice].data = SYSTEM_VAR@(vg_nom_site)
+        vl_parametres[vl_indice].output = FALSE
+
+	IF (COM05_SQL_Procedure (XZAE64_Ecrire_Fiche_Operateur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK)
+	{
+	   INFO_MESSAGE@("Impossible de sauver le tampon opérateur en base")
+		RETURN (COM_NOK)
+	}
+
+  /*sur PC simplifie*/
+  vl_type=SYSTEM_VAR@(vg_type_machine)
+  if (vl_type = XDC_TYPEM_PCS) {
+    /*je previens la macro de gestion des FMC locales*/
+    tl_data[0]=tl_num_evt.numero
+    tl_data[1]=tl_num_evt.cle
+    tl_data[2]=4
+    tl_data[3]=vl_horodate
+    DB_SEND_POKE@(COM_CANAL_MTLT_OPERATEUR,tl_data)
+  }
+
+  if ( (vl_type=XDC_TYPEM_PCS) or (vl_type=XDC_TYPEM_PC2) or (vl_type=XDC_TYPEM_PC2LT)) {
+    /*j'indique a titbi que je suis present*/
+    tl_data=SYSTEM_VAR@(vg_site),XDC_VRAI
+    vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_PRESENCE_PCS, ARRAY_TO_STRING@(tl_data,MTAR_CAR_SEPAR)
+    DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+  }
+
+    if (SYSTEM_VAR@(vg_site)=XDC_CI)
+    {
+    /*je recupere les etats de basculement des RAU sur les PCN2*/
+    vl_message = MTAR_FCT_XZEU10, 0, 0, XDC_NOM_SITE_DA
+    vl_message = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEU00, ARRAY_TO_STRING@ (vl_message, MTAR_CAR_SEPAR)
+    DB_SEND_POKE@ (COM_CANAL_TAR01, vl_message)
+    vl_message = MTAR_FCT_XZEU10, 0, 0, XDC_NOM_SITE_VE
+    vl_message = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEU00, ARRAY_TO_STRING@ (vl_message, MTAR_CAR_SEPAR)
+    DB_SEND_POKE@ (COM_CANAL_TAR01, vl_message)
+    vl_message = MTAR_FCT_XZEU10, 0, 0, XDC_NOM_SITE_DP
+    vl_message = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEU00, ARRAY_TO_STRING@ (vl_message, MTAR_CAR_SEPAR)
+    DB_SEND_POKE@ (COM_CANAL_TAR01, vl_message)
+    vl_message = MTAR_FCT_XZEU10, 0, 0, XDC_NOM_SITE_VD
+    vl_message = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEU00, ARRAY_TO_STRING@ (vl_message, MTAR_CAR_SEPAR)
+    DB_SEND_POKE@ (COM_CANAL_TAR01, vl_message)
+    vl_message = MTAR_FCT_XZEU10, 0, 0, XDC_NOM_SITE_VC
+    vl_message = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEU00, ARRAY_TO_STRING@ (vl_message, MTAR_CAR_SEPAR)
+    DB_SEND_POKE@ (COM_CANAL_TAR01, vl_message)
+ }
+  else if (SYSTEM_VAR@(vg_site)<>XDC_CI) {
+    /*appel XZAD06 pour recuperer les zdp perturbees*/
+    vl_indice=0
+    vl_parametres[vl_indice].data=tl_num_evt.numero
+    vl_parametres[vl_indice].type=SYB#INT4_
+    vl_parametres[vl_indice].output=FALSE
+
+    vl_indice=vl_indice+1
+    vl_parametres[vl_indice].data=tl_num_evt.cle
+    vl_parametres[vl_indice].type=SYB#INT4_
+    vl_parametres[vl_indice].output=FALSE
+
+    if (COM05_SQL_Procedure(XZAD06_Ajoute_FMC_Op_FRN,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK)  {
+      INFO_MESSAGE@("Probleme dans la lecture des zones de parcours perturbees")
+      RETURN (COM_NOK)
+    }
+  }
+
+  RETURN (COM_OK)
+ENDMACRO
+
+
+

@@ -1,0 +1,357 @@
+/*E*/
+/* Fichier : $Id: ITMA_TLT_Gere_FMC_Locales.am,v 1.3 1999/03/19 17:02:50 gesconf Exp $     Release : $Revision: 1.3 $        Date : $Date: 1999/03/19 17:02:50 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLT * FICHIER ITMA_TLT_Gere_FMC_Locales.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* gestion de la Liste des Fiches Main Courante locales sur un PC simplifie 
+* a partir du fichier
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	22 aut 1996	: Creation
+* Torregrossa	04 dec 1996	: modif structure TLT_Donnees_Evenement (680) 1.2
+* Niepceron	10 Mar  1999 : modif intergest 1.3
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../inc/xzae104sp.h"
+
+
+DEFINE	C_MODULE	"MTLT"			' Nom du module
+
+
+DEFINE	C_FICHIER	"../fichiers/dyn/ITMA_Liste_fmc_locales.txt"
+
+DEFINE  C_ERR_IHM                       1
+
+/*A
+ * Description du format des donnees lues en fichier
+ * ----------------------------------------------
+ */
+
+FORMAT	TLT_Donnees_Evenement
+	numero,			' numero evenement
+	cle,				' cle d'evenement
+	type,			' Numero de type evenement
+	date,
+	localisation,
+	debut,
+	fin,
+	operation,
+	datex
+
+
+
+VAR FORMAT TLT_Donnees_Evenement tm_evt		' Table des evenements affichee
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Sur reception d'un signal de modification, rafraichissement de la liste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLT_Gere_FMC_Locales (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation par MTMT.
+*
+* FONCTION
+*   Se met en attente d'un signal (message d'une autre tache) de changements
+*   et sur occurrence du signal, reinitialise la liste des fiches.
+*   Sur reception de messages, edite la liste (ajoute ou supprime une fiche)
+*   ou visualise la liste des elements Main Courante.
+*   Ne termine que sur reception d'un message de fin.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_fenetre
+    VAR     vl_installer_traitement_erreur
+
+	VAR vl_indice,vl_index
+	VAR vl_la_fenetre_est_active
+	VAR tl_data
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A
+ * Charger une fenetre vide
+ * -----------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TAR")
+DB_WIDTH@(vl_fenetre,0)
+DB_HEIGHT@(vl_fenetre,0)
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_MTLT_LOCAL
+vl_les_messages_acceptes[2] = COM_CANAL_MTLT_OPERATEUR
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+/*A
+ * Initialiser la visualisation (liste des evenements)
+ * ---------------------------------------------------
+ */
+IF Init_Visualisation (vl_fenetre,FALSE) <> COM_OK
+    RETURN
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre)
+	CASE COM_CANAL_FIN
+	    vl_la_fenetre_est_active = FALSE
+      
+	/*reception d'une nouvelle liste de FMC locales*/
+	CASE COM_CANAL_MTLT_LOCAL
+		/*si je ne suis pas encore connecte*/
+		if (SYSTEM_VAR@(vg_num_fiche_operateur)<>NULL)
+		  Init_Visualisation (vl_fenetre,TRUE)
+		else
+		  Init_Visualisation (vl_fenetre,FALSE)
+
+        /*on me dit que ma fiche operateur vient d'etre creee*/
+	CASE COM_CANAL_MTLT_OPERATEUR
+	    /*tl_data=DB_GET_POKE_DATA@(vl_fenetre)
+
+	    if (array_size@(tm_evt)=0)
+	      tm_evt[0]=tl_data
+	    else {
+	      if (tl_data[0]<>tm_evt[0].numero) OR (tl_data[1]<>tm_evt[0].cle) {
+		tm_evt=ARRAY_INSERT@(tm_evt,tl_data)
+	      }
+	     }
+		SET_SYSTEM_VAR@(vg_fmc_locales,tm_evt)*/
+
+	    /*je previens la macro de gestion de la liste des FMC locales*/
+	    DB_SEND_POKE@(COM_CANAL_MTLT,0)
+    ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO Init_Visualisation (va_fenetre,va_compare)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*   va_compare	      : TRUE si on doit comparer la nouvelle liste a l'ancienne, FALSE sinon
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+VAR     vl_type
+VAR     vl_index
+VAR 	FORMAT TDO_Type_FMC vl_les_types_FMC
+VAR 	vl_numeros_FMC
+VAR	i
+VAR	tl_data,tl_tab
+VAR 	FORMAT SQL_Procedure_Params@ vl_parametres
+VAR 	FORMAT SQL_Procedure_Result@ vl_resultats
+VAR	FORMAT TLT_Donnees_Evenement vl_evt
+
+vl_les_types_FMC = SYSTEM_VAR@ (vg_les_types_FMC)
+vl_numeros_FMC = ARRAY_COLUMN@ (vl_les_types_FMC, TDO_NUMERO_FMC)
+
+/*lecture du fichier contenant les FMC locales*/
+IF (FILE_EXISTS@(C_FICHIER))
+  tl_data = READ_ASCII_FILE@(C_FICHIER)
+ELSE
+  tl_data = null
+
+/*A
+ * Pour chaque nouvel element MC,
+ * ------------------------------
+ */
+tm_evt=null
+FOR i = 0  TO ARRAY_SIZE@ (tl_data) - 1
+    tm_evt[i] = ARRAY_FROM_STRING@(tl_data[i],MTAR_CAR_SEPAR)
+
+	if (IS_NUMERIC_STRING@(tm_evt[i].date)){
+		vl_evt=Decompose_time@(tm_evt[i].date)
+
+   		tm_evt[i].date = COM06_Date_Formatee (vl_evt[3], 
+					vl_evt[4] + 1, 
+					vl_evt[5],
+           				vl_evt[2], 
+					vl_evt[1], 
+					vl_evt[0])
+	}
+
+	if (IS_NUMERIC_STRING@(tm_evt[i].debut)){
+		IF tm_evt[i].debut = 0
+			tm_evt[i].debut = NULL
+		ELSE {
+			vl_evt=Decompose_time@(tm_evt[i].debut)
+
+   			tm_evt[i].debut = COM06_Date_Formatee (vl_evt[3], 
+					vl_evt[4] + 1, 
+					vl_evt[5],
+           			vl_evt[2], 
+					vl_evt[1], 
+					vl_evt[0])
+		}
+	}
+    
+	if (IS_NUMERIC_STRING@(tm_evt[i].fin)){
+		IF tm_evt[i].fin = 0
+			tm_evt[i].fin = NULL
+		ELSE {
+			vl_evt=Decompose_time@(tm_evt[i].fin)
+
+   			tm_evt[i].fin = COM06_Date_Formatee (vl_evt[3], 
+					vl_evt[4] + 1, 
+					vl_evt[5],
+           			vl_evt[2], 
+					vl_evt[1], 
+					vl_evt[0])
+		}
+	}
+    
+    /*vl_type = ARRAY_INDEX@ (vl_numeros_FMC, tm_evt[i].type)
+    IF vl_type >= 0
+	tm_evt[i].type = vl_les_types_FMC[vl_type].abbrev*/
+NEXT i
+
+SET_SYSTEM_VAR@(vg_fmc_locales,tm_evt)
+
+/*si la liste a change*/
+
+/*je previens la macro de gestion de la liste des FMC locales*/
+DB_SEND_POKE@(COM_CANAL_MTLT,0)
+
+RETURN (XDC_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* met a jour le fichier contenant la liste des FMC locales
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLT_Ecrit_Liste ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+  FOR vl_indice=1 TO (ARRAY_SIZE@(tm_evt)-1)
+    tl_data[vl_indice]=ARRAY_TO_STRING@(tm_evt[vl_indice],MTAR_CAR_SEPAR)
+  NEXT vl_indice
+
+  WRITE_ASCII_FILE@(C_FICHIER,tl_data)
+
+  /*met a jour la liste des FMC locales*/
+  tl_data=0,0
+  DB_SEND_POKE@(COM_CANAL_MTLT,tl_data)
+ENDMACRO

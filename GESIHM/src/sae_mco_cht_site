@@ -1,0 +1,99 @@
+:
+########################################################################################
+##                                                                                    ##
+##             Execute l'interpreteur isql                                            ##
+##             pour afficher ou mettre à jour les tables avec un dump de la prod      ##
+##                                                                                    ##
+########################################################################################
+
+logfile=/tmp/sae_cht_site.log
+
+# ------------------------------------------------ 
+ERR_CODE=1              # erreur de configuration de postes
+ERR_POSTE_OK=2          # Poste deja configurer sur le site    
+ERR_POSTE_NON_PRA=3     # poste non configurer PRA
+
+# =================================================== #
+# main : Fichier .
+
+# verif parametre
+opt_kill=0
+for i in $* ;
+do 
+
+	case $i in
+		"VC" |  "DP" | "CI" )
+		site="$i"
+		;; 
+ 
+		"-k" )
+		opt_kill=1
+		;; 
+  
+		*)
+        echo "`date`: ERREUR le parametre $i  ne correspond pas a un des sites " >> $logfile
+		exit $ERR_CODE
+		;;
+	esac ;
+done;
+
+# reccup du nom de la machine
+nom_machine=`uname -n`
+
+# le fichier adm_sup doit etre un liens
+if [ -h "/produits/migrazur/appliSD/fichiers/adm/nsup_${nom_machine}" ]
+then 
+    fichier_reel=`readlink /produits/migrazur/appliSD/fichiers/adm/nsup_${nom_machine}`
+    if [ "$fichier_reel" = "./nsup_${nom_machine}_${site}" ]
+    then
+        echo "`date`: Poste deja positionne sur le site $site " >> $logfile
+		exit $ERR_POSTE_OK ;
+    fi    
+else
+    echo "`date`: ERREUR ce poste n'est pas compatible au PRA" >> $logfile
+    exit $ERR_POSTE_NON_PRA;
+fi  
+
+#controle que le script sae_mco_kill_sae existe  
+if [ ! -f "/produits/migrazur/appliSD/exec/sae_mco_kill_sae" ]
+then
+    echo "`date`: ERREUR probleme de configuration script sae_mco_kill_sae absent du produit." >> $logfile
+    exit $ERR_CODE ;
+fi  
+
+
+
+# on controle que le fichier site cible existe 
+if [ ! -f "/produits/migrazur/appliSD/fichiers/adm/nsup_${nom_machine}_${site}" ]
+then
+    echo "`date`: ERREUR le fichier cible n'existe pas. /produits/migrazur/appliSD/fichiers/adm/nsup_${nom_machine}_${site} " >> $logfile
+    exit $ERR_CODE ;
+fi  
+
+# tout les controle sont ok
+
+if [ $opt_kill -eq 1 ]      # controle effectues on peut changer le lien et tue les processus
+then 
+    # casse le lien
+    rm /produits/migrazur/appliSD/fichiers/adm/nsup_${nom_machine}
+
+    # creation du nouveau lien
+    cd /produits/migrazur/appliSD/fichiers/adm
+    ln -s ./nsup_${nom_machine}_${site}  ./nsup_${nom_machine}
+
+    # kill des process SAE
+    # PRENDRE LA LISTE DU FICHIER
+    /produits/migrazur/appliSD/exec/sae_mco_kill_sae 2>&1 >> $logfile
+    /produits/migrazur/appliSD/kill_tache.sh tidbg.x
+fi
+
+exit 0 ;
+
+
+
+
+
+
+
+
+

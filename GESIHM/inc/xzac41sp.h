@@ -1,0 +1,1 @@
+DEFINE	XZAC41_Lire_Commande_NAV		"XZAC;41"

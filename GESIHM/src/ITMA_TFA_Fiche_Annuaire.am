@@ -1,0 +1,1393 @@
+/*E*/
+/*  Fichier : $Id: ITMA_TFA_Fiche_Annuaire.am,v 1.40 2018/12/13 16:15:07 pc2dpdy Exp $        Release : $Revision: 1.40 $        Date : $Date: 2018/12/13 16:15:07 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TFA * FICHIER ITMA_TFA_Fiche_Annuaire.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fiche annuaire (interlocuteurs du SAE).
+*
+*   Cf. DCG 2.4.27
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 17 Oct 1994	: Creation                                         V1.1
+* Lecrivain 12 Dec 1994	: Modif. interface appel depuis MSOP (liste args)  V1.7
+* Lecrivain 14 Dec 1994	: Ajout heure, minute a date validite commentaire  V1.8
+* Lecrivain 15 Dec 1994	: Fonctions de traitements de dates differentes    V1.9
+* Guilhou	  23 dec 1994   : Aide composition de l'heure             V1.11
+* Torregrossa	  08 nov 1995   : Modif pour version 4.1 Aplix		  V1.12
+* Torregrossa	  23 Jan 1996   : Ajout suppression affectation objet	V1.17
+* Torregrossa	  14 Fev 1996   : Ajout controle des maj sur nom interlocuteur
+*                                 a la modification de la fiche           V1.18
+* Torregrossa	  15 Fev 1996   : Ajout impression           V1.19
+* Guilhou	19 sep 1996 : ne rien faire sur pc simplifie (RADT) V1.20
+* Guilhou	01 oct 1996 : ajout macro ITMA_TFA_curseur (DEM/716) V1.21
+* Guilhou	18 nov 1996 : refonte complete de la gestion des astreintes (DEM/1306) V1.22
+* Guilhou	12 dec 1996 : les boutons de modification de la fiche sont au CI uniquement 1.23
+* Guilhou	24 dec &996 : bouton modifier fiche (pour le commentaire) sur les districts aussi (DEM/1367) 1.24
+* Guilhou	24 dec 1996 : qualite d'impression (DEM/1342) 1.25
+* Cluchague 02 Février 1999 : gestion des sites responsable et concerné 1.27
+* Hilmarcher 05 mai 2003    : Modification dans la prise en compte du tel3 (ligne 474, DEM/179) 1.28
+* ???		05/02/2004  : Pas de modification
+* Claudel    09 Jul 2007    : Suppression DY 1.30
+* JMG		21/11/07    : envoi mail DEM/718 1.31
+* JPL		02/02/09    : Gestion de l'indicateur de suppression (DEM 834) 1.32
+* JMG           29/09/09    : SECTO DEM 887
+* JPL		07/10/14    : Affichage du sens dans les libelles de zones geographiques (DEM 1100)  1.35
+* PNI		10/01/17    : Impression @mail et zones géographique (DEM1211) 1.36
+* JMG   09/03/17        : REGIONALISATION - DEM1220 1.37
+* JPL	23/03/17	: Liste des sites lue en variable publique (regionalisation DEM 1173)  1.38
+* PNI	09/11/2017	: Absencde bouton choix appel radio , definition WIDTH fenetre en dure DEM1254 1.39
+* LCL	12/12/2018	: Modification RMVI DEM1315 1.40
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TFA.h"
+INCLUDE	"../inc/ITMA_TFC.h"
+INCLUDE	"../inc/ITMA_TFS.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE "../inc/xzan07sp.h"
+INCLUDE "../inc/xzan12sp.h"
+INCLUDE "../inc/xzan13sp.h"
+INCLUDE "../inc/xzan14sp.h"
+INCLUDE "../inc/xzan20sp.h"
+
+
+
+DEFINE	C_MODULE		"MTFA"				' Nom du module
+DEFINE	C_MODELE_TFA	"ITMA_TFA_Fiche_Annuaire"' Nom du modele impression
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+DEFINE	C_LIB_BIP_INCONNU	"Le type de bip n'est pas saisi"
+DEFINE	C_LIB_POSSEDE_COMP	"L'interlocuteur possède déjà cette compétence"
+DEFINE	C_LIB_PREVU_ASTREINTE	"Cet interlocuteur est prévu dans le calendrier d'astreinte"
+DEFINE	C_LIB_HOMONYMIE		"Un interlocuteur de même nom existe"
+DEFINE	C_LIB_NOM_INVALIDE	"Un nom doit commencer par une lettre majuscule"
+
+
+
+/*A
+ * Description des formats des donnees affichees
+ * ---------------------------------------------
+ */
+
+FORMAT	TFA_Comp_Astreinte
+	sous_type_astreinte,
+	district_astreinte,
+	zone_geo
+
+
+FORMAT	TFA_Comp_Interloc
+	type_astreinte,
+	sous_type_astreinte,
+	district_astreinte,
+	zone_geo
+
+
+VAR FORMAT TFA_Comp_Interloc vm_t_comp_interl		 ' Comp. interlocuteur
+VAR	vm_l_num_comp_interl				 ' Liste num competences
+VAR	vm_num_comp_liee				 ' Comp. liee a fonction
+VAR FORMAT TDO_Type_Astreinte vm_astreinte_liee		 ' et type astreinte lie
+
+VAR FORMAT TFA_Comp_Astreinte vm_t_comp_astreinte	 ' Competences astreinte
+VAR	vm_l_num_comp_astreinte				 ' Liste num competences
+VAR	vm_idx_astreinte				 ' Index astr. choisie
+
+VAR FORMAT TDO_Type_Astreinte vm_l_types_astreintes	 ' Tables des types et
+VAR FORMAT TDO_District vm_l_districts ' districts astreintes
+VAR FORMAT TDO_District         vm_l_sites
+
+VAR tl_liste_bip
+
+VAr vm_site_responsable
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Creation, visualisation, modification et suppression d'une fiche annuaire.
+*  Affectation d'un interlocuteur a un objet synoptique.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFA_Fiche_Annuaire (va_appelant, va_arg1, va_nom_interloc, va_creation, va_arg2)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*
+* . Si activation depuis MSOP :
+*    va_arg1[]        : Liste d'arguments :
+*     va_type_objet   : Le type de l'objet synoptique ;
+*     va_numero_objet : Le numero de l'objet ;
+*     va_nom_objet    : Le nom de l'objet.
+*
+* . Si activation depuis MTLA :
+*    va_num_fiche     : Numero de la fiche annuaire a visualiser ;
+*    va_nom_interloc  : Nom de l'interlocuteur ;
+*    va_creation      : Indicateur de mode creation.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTLA, MSOP
+*
+* FONCTION
+*   Visualise les informations de la fiche annuaire indiquee en argument ;
+*   permet la creation d'une fiche ou la modification d'une fiche existante ;
+*   permet d'attacher un interlocuteur a un objet synoptique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     va_type_objet, va_numero_objet, va_nom_objet	' Args. de MSOP
+    VAR     vl_num_fiche, vl_nom_interloc, vl_creation		' Args. de MTLA
+
+    VAR     vl_fen_annuaire			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_appel_MSOP			' Indicateur : appel depuis MSOP
+    VAR     vl_administrer_ok, vl_commenter_ok	' Indicateurs des droits modif.
+
+    VAR     vl_nom				' Nom interlocuteur
+    VAR     vl_initiale				' 1er caract du nom de l'interlocuteur
+    VAR     vl_numero				' Numero appele
+    VAR     vl_type_bip				' Type de bip appele
+
+    VAR     vl_l_args				' Liste d'arguments
+    VAR     vl_pos_h, vl_pos_v
+
+    VAR     vl_index, vl_index2
+    VAR     vl_date, vl_statut
+    VAR     vl_fichier
+    VAR     tl_telephones
+    VAR     i
+    VAR 	 vl_string
+    VAR    tl_competences, tl_tab
+    VAR 	 vl_existance_interloc_objet	' indicateur d'existance du lien entre 
+								' l'objet et un interlocateur
+	VAR FORMAT TDO_Horo_Eclatee	vl_horodate
+	VAR vl_appel_rmvi
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+/*
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+} */
+
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  return
+
+vl_date = NULL
+
+/*A
+ * Determiner l'origine de l'invocation et les droits de l'operateur ;
+ * en cas d'activation depuis MSOP, determiner (ou choisir) le numero de fiche
+ * ---------------------------------------------------------------------------
+ */
+
+vl_appel_rmvi=FALSE
+vl_appel_MSOP = SUBSTRING@ (va_appelant, 6, 3) = "SOP"
+IF vl_appel_MSOP {
+    va_type_objet = va_arg1[0] + 0
+    va_numero_objet = va_arg1[1] + 0
+    va_nom_objet = va_arg1[2]
+
+    vl_creation = FALSE
+    vl_existance_interloc_objet = FALSE
+
+    IF ITMA_TAN_Numero_Associe_Objet
+	  (va_type_objet, va_numero_objet, va_nom_objet, vl_num_fiche, vl_existance_interloc_objet) <> COM_OK
+	RETURN
+
+    IF vl_num_fiche = NULL
+	RETURN
+} ELSE {
+    vl_num_fiche = va_arg1
+    vl_nom_interloc = va_nom_interloc
+    vl_creation = va_creation
+}
+if (SUBSTRING@ (va_appelant, 6, 3)="RVI")
+  vl_appel_rmvi=TRUE
+
+vl_commenter_ok = COM04_Operateur_A_Le_Droit_De (XDC_FAM_EXPLOITATION_CI) OR
+                     COM04_Operateur_A_Le_Droit_De (XDC_FAM_EXPLOITATION_DISTRICT)
+
+/*A
+ * Charger la fenetre "Fiche annuaire"
+ * -----------------------------------
+ */
+
+vl_fen_annuaire = DB_LOAD@ ("ITMA_TFA")
+
+DB_WINDOW_REMAIN@ (vl_fen_annuaire, TRUE)
+
+DB_WIDTH@ (vl_fen_annuaire, 1500)
+DB_XPOS@(vl_fen_annuaire, 0)
+DB_YPOS@(vl_fen_annuaire, 93)
+
+COM02_Attacher_Aide (vl_fen_annuaire, "ITMA_TFA_Fiche_Annuaire")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fen_annuaire, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_VALID_CHARS@ (vl_fen_annuaire, "BS_Jour_Validite", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fen_annuaire, "BS_Mois_Validite", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fen_annuaire, "BS_Annee_Validite", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fen_annuaire, "BS_Heure_Validite", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fen_annuaire, "BS_Minute_Validite", COM_CHIFFRES)
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fen_annuaire, "TA_Comp_Astreinte", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fen_annuaire, "TA_Comp_Astreinte", FALSE)
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fen_annuaire, "TA_Comp_Interlocuteur",FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fen_annuaire, "TA_Comp_Interlocuteur", FALSE)
+
+DB_CTRL_VALUE@ (vl_fen_annuaire, "BL_Types_Astreintes", -1)
+
+IF NOT vl_appel_MSOP {
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "T_Zone_Identifiant_Objet", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "LI_Titre_Identifiant_Objet", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "T_Identifiant_Objet", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "LI_Identifiant_Objet", FALSE)
+}
+
+/*A
+ * Initialiser les donnees a visualiser (contenu de la fiche)
+ * ----------------------------------------------------------
+ */
+
+IF TFA_Init_Fiche (vl_fen_annuaire,
+		      vl_num_fiche, vl_nom_interloc, vl_creation) <> COM_OK
+    RETURN
+
+vl_administrer_ok  = COM04_Operateur_A_Le_Droit_De (XDC_FAM_ADM_ANNUAIRE) 
+		     AND ( vm_site_responsable=SYSTEM_VAR@(vg_site)
+				   OR SYSTEM_VAR@(vg_site)=XDC_CI )
+/*B
+ * Si l'appel vient des synoptiques avec la configuration adminitrateur,
+ * l'administrateur peut soit affecter un interlocuteur a un objet si l'objet
+ * n'a pas d'interlocuteur soit le supprimer 
+ * --------------------------------------------------------------------------
+ */
+IF NOT vl_appel_MSOP  OR  NOT vl_administrer_ok {
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "BP_Valid_Affec_Objet", FALSE)
+} ELSE IF vl_existance_interloc_objet=XDC_VRAI {
+	DB_CTRL_TITLE@(vl_fen_annuaire, "BP_Valid_Affec_Objet", "Supprimer Affectation Objet")
+}
+
+IF vl_appel_MSOP  OR  NOT vl_administrer_ok {
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "LI_Types_Astreintes", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "BL_Types_Astreintes", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "LI_Comp_Astreinte", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "TA_Comp_Astreinte", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "BP_Rech_Comp", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "BP_Ajouter_Comp", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "BP_Supprimer_Comp", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "BP_Remplacer_Comp", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "BP_Supprimer_Fiche", FALSE)
+
+    vl_pos_h = DB_CTRL_GET_XPOS@ (vl_fen_annuaire, "TA_Comp_Interlocuteur") + 30
+    vl_pos_v = DB_CTRL_GET_YPOS@ (vl_fen_annuaire, "TA_com")
+
+    DB_CTRL_XPOS@ (vl_fen_annuaire, "BP_Modifier_Fiche", vl_pos_h)
+    DB_CTRL_YPOS@ (vl_fen_annuaire, "BP_Modifier_Fiche", vl_pos_v)
+    vl_pos_h = vl_pos_h + 200
+
+    DB_CTRL_XPOS@ (vl_fen_annuaire, "BP_Quitter", vl_pos_h)
+    DB_CTRL_YPOS@ (vl_fen_annuaire, "BP_Quitter", vl_pos_v)
+    vl_pos_h = vl_pos_h + 160
+
+    DB_CTRL_XPOS@ (vl_fen_annuaire, "BP_Imprimer", vl_pos_h)
+    DB_CTRL_YPOS@ (vl_fen_annuaire, "BP_Imprimer", vl_pos_v)
+    vl_pos_h = vl_pos_h + 170
+
+    DB_CTRL_XPOS@ (vl_fen_annuaire, "BP_Aide", vl_pos_h)
+    DB_CTRL_YPOS@ (vl_fen_annuaire, "BP_Aide", vl_pos_v)
+}
+
+IF vl_appel_MSOP  OR  ((NOT vl_commenter_ok)  AND  (NOT vl_administrer_ok))
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "BP_Modifier_Fiche", FALSE)
+
+IF vl_appel_MSOP OR (NOT vl_administrer_ok){
+  DB_CTRL_GRAYED@ (vl_fen_annuaire, "BO_Site_responsable",TRUE)
+  DB_CTRL_GRAYED@ (vl_fen_annuaire, "BO_Site_concerne",TRUE)
+}
+
+IF vl_creation OR (NOT vl_administrer_ok)
+    DB_CTRL_DISPLAY@ (vl_fen_annuaire, "BA_Supprime", FALSE)
+
+IF vl_appel_MSOP
+    DB_CTRL_TITLE@ (vl_fen_annuaire, "LI_Identifiant_Objet", va_nom_objet)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_NON_SAISI  AND
+	   ERROR_NUMBER@() <> COM_ERR_DATE_INVAL
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fen_annuaire)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fen_annuaire)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fen_annuaire)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    /*A
+     * Sur choix "Quitter", verifier que la fiche a ete remplie puis terminer
+     * ----------------------------------------------------------------------
+     */
+
+    CASE "BP_Quitter"
+	IF vl_creation
+	    ERROR@ (COM_ERR_NON_SAISI, "Saisir au moins un numéro d'appel")
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur choix "Imprimer", formater la fiche et en demander l'impression
+     * -------------------------------------------------------------------
+     */
+
+    CASE "BP_Imprimer"
+	WP_APPLICATION_DLG@(NULL, TRUE)
+	WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+				COM_SOUS_REP_IHM ++ C_MODELE_TFA ++ ".aw")
+
+	WP_SET_DOC_VAR@("nom",
+				DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Nom"))
+	WP_SET_DOC_VAR@("adresse",
+				DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Adresse"))
+	WP_SET_DOC_VAR@("fax",
+				DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Fax"))
+	WP_SET_DOC_VAR@("comm_fax",
+				DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Explication_Fax"))
+	IF (DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Adresse_Email")<> NULL) {
+		WP_SET_DOC_VAR@("bip",
+				DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Adresse_Email"))
+/*		WP_SET_DOC_VAR@("comm_bip",
+				DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Explication_Bip"))
+		vl_index = DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BO_Type_Bip")
+		IF vl_index <> XDC_BIP_INCONNU
+			WP_SET_DOC_VAR@("type_bip", "("++tl_liste_bip[vl_index]++")")*/
+     }
+
+	vl_date = COM23_Horodate (vl_fen_annuaire, "BS_Jour_Validite",
+				     "BS_Mois_Validite", "BS_Annee_Validite",
+				     "BS_Heure_Validite", "BS_Minute_Validite")
+	IF vl_date <>NULL
+		WP_SET_DOC_VAR@("date","valide jusqu'au "++vl_date)
+	WP_SET_DOC_VAR@("comm_tel",
+				DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Commentaire"))
+	vl_string = DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Tel_Commentaire")
+	IF vl_string <> NULL
+		WP_SET_DOC_VAR@("telephone", "tél : " ++ vl_string)
+	WP_SET_DOC_VAR@("fonction",
+				DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Fonction"))
+	WP_SET_DOC_VAR@("comp_fonction",
+				DB_CTRL_GET_TITLE@(vl_fen_annuaire,"LI_Comp_Liee"))
+
+	tl_telephones=NULL
+	vl_string = DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Telephone1")
+	vl_index = 0
+	IF vl_string <> NULL
+	{
+		tl_telephones[vl_index] = FORMAT@("          %-11s     %s",
+									 vl_string,
+									DB_CTRL_GET_VALUE@(vl_fen_annuaire,
+											"BS_Explication_Tel1"))
+		vl_index = vl_index + 1
+     }
+	vl_string = DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Telephone2")
+	IF vl_string <> NULL
+	{
+		tl_telephones[vl_index] = FORMAT@("          %-11s     %s",
+									vl_string,
+									DB_CTRL_GET_VALUE@(vl_fen_annuaire,
+										"BS_Explication_Tel2"))
+		vl_index = vl_index + 1
+     }
+	vl_string = DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Telephone3")
+	IF vl_string <> NULL
+	{
+		tl_telephones[vl_index] = FORMAT@("          %-11s     %s",
+									vl_string,
+									DB_CTRL_GET_VALUE@(vl_fen_annuaire,
+										"BS_Explication_Tel3"))
+     		vl_index = vl_index + 1
+     }
+	vl_string = DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_radio")
+	IF vl_string <> NULL
+	{
+		tl_telephones[vl_index] = FORMAT@("          %-11s     %s",
+									vl_string,
+									DB_CTRL_GET_VALUE@(vl_fen_annuaire,
+										"BS_Explication_radio"))
+     }
+
+	WP_SET_DOC_VAR@("telephones", tl_telephones)
+
+
+	FOR vl_index = 0 TO ARRAY_SIZE@(vm_t_comp_interl)-1
+		tl_tab[vl_index] = FORMAT@("%-25s %-25s %-19s %-s",
+		/*tl_tab[vl_index] = FORMAT@("%-25s %-25s %-19s",*/
+					vm_t_comp_interl[vl_index][0],
+					vm_t_comp_interl[vl_index][1],
+					vm_t_comp_interl[vl_index][2],
+					vm_t_comp_interl[vl_index][3],
+					vm_t_comp_interl[vl_index])
+
+	NEXT vl_index
+
+	WP_SET_DOC_VAR@("competences", tl_tab)
+
+	vl_fichier = C_MODELE_TFA ++ "_" ++
+					SYSTEM_VAR@(vg_numero_poste)
+	COM36_Imprimer_Texte(vl_fichier)
+
+
+    /*A bouton aide a la composition de l'horodate*/
+    CASE "BP_horohelp"
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fen_annuaire,
+				"BS_Jour_Validite","BS_Mois_Validite","BS_Annee_Validite",
+				"BS_Heure_Validite","BS_Minute_Validite")
+
+   /*A
+     * Sur choix "Valider Affectation Objet", mettre a jour l'affectation
+     * ou suprimer l'affectation si l'affectation existe
+     * ------------------------------------------------------------------
+     */
+
+     CASE "BP_Valid_Affec_Objet"
+	IF vl_existance_interloc_objet = XDC_FAUX
+		ITMA_TAN_Affect_Interloc_Objet (va_type_objet, va_numero_objet,
+					   va_nom_objet, vl_num_fiche)
+	ELSE {
+		ITMA_TAN_Supprim_Interloc_Objet (va_type_objet, va_numero_objet,
+					   va_nom_objet, vl_num_fiche)
+		vl_la_fenetre_est_active = FALSE
+	}
+
+    /*A
+     * Sur choix "Rechercher Competences", verifier qu'un type d'astreinte
+     * est choisi puis lire les competences associees a ce type d'astreinte
+     * --------------------------------------------------------------------
+     */
+
+    CASE "BP_Rech_Comp"
+	vl_index = DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BL_Types_Astreintes")
+	IF vl_index < 0
+	    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "Type Astreinte ")
+	IF TFA_Rechercher_Competences (vm_l_types_astreintes[vl_index].numero,
+					  vl_fen_annuaire) = COM_OK
+	    vm_idx_astreinte = vl_index
+
+
+    /*A
+     * Sur choix "Remplacer Competence", verifier qu'une competence
+     * est choisie puis remplacer la competence liee a la fonction
+     * ------------------------------------------------------------
+     */
+
+    CASE "BP_Remplacer_Comp"
+	vl_index = DB_TABLE_GET_SELECTIONS@(vl_fen_annuaire,"TA_Comp_Astreinte")
+	IF ARRAY_SIZE@ (vl_index) = 0
+	    ERROR@(COM_ERR_NON_SAISI,"Choisir d'abord une compétence astreinte")
+	vl_index = vl_index[0]
+	WHILE IS_NULL@ (vm_l_num_comp_astreinte[vl_index])
+	    vl_index = vl_index - 1
+	WEND
+	vm_num_comp_liee = vm_l_num_comp_astreinte[vl_index]
+
+	vm_astreinte_liee = vm_l_types_astreintes[vm_idx_astreinte]
+	DB_CTRL_TITLE@ (vl_fen_annuaire, "LI_Comp_Liee",
+			   vm_astreinte_liee.nom ++ " " ++
+			      vm_t_comp_astreinte[vl_index].zone_geo)
+
+
+    /*A
+     * Sur choix "Ajouter Competence", verifier qu'une competence astreinte
+     * est choisie puis si elle ne figure pas deja dans les competences de
+     * l'interlocuteur alors l'ajouter en base de donnees et si l'operation
+     * s'effectue correctement, ajouter les lignes correspondantes a l'ecran
+     * ---------------------------------------------------------------------
+     */
+
+    CASE "BP_Ajouter_Comp"
+	vl_index = DB_TABLE_GET_SELECTIONS@(vl_fen_annuaire,"TA_Comp_Astreinte")
+	IF ARRAY_SIZE@ (vl_index) = 0
+	    ERROR@ (COM_ERR_NON_SAISI, "Choisir une compétence astreinte")
+	vl_index = vl_index[0]
+	WHILE IS_NULL@ (vm_l_num_comp_astreinte[vl_index])
+	    vl_index = vl_index - 1
+	WEND
+	IF vm_num_comp_liee = vm_l_num_comp_astreinte[vl_index]  OR
+	     ARRAY_INDEX@ (vm_l_num_comp_interl,
+			      vm_l_num_comp_astreinte[vl_index]) >= 0
+	    ERROR@ (C_ERR_IHM, C_LIB_POSSEDE_COMP)
+
+	IF TFA_Ajouter_Competence (vl_num_fiche,
+				   vm_l_num_comp_astreinte[vl_index]) = COM_OK {
+	    vl_index2 = vl_index + 1
+	    WHILE vl_index2 < ARRAY_SIZE@ (vm_t_comp_astreinte)  AND
+		     IS_NULL@ (vm_l_num_comp_astreinte[vl_index2])
+		vl_index2 = vl_index2 + 1
+	    WEND
+	    i = ARRAY_SIZE@ (vm_t_comp_interl)
+	    vm_l_num_comp_interl[i] = vm_l_num_comp_astreinte[vl_index]
+	    vm_t_comp_interl[i].type_astreinte =
+		vm_l_types_astreintes[vm_idx_astreinte].nom
+	    vm_t_comp_interl[i].district_astreinte =
+		vm_t_comp_astreinte[vl_index].district_astreinte
+	    i = i + (vl_index2 - vl_index)
+	    WHILE vl_index2 > vl_index
+		vl_index2 = vl_index2 - 1
+		i = i - 1
+		vm_t_comp_interl[i].zone_geo = vm_t_comp_astreinte[vl_index2].zone_geo
+	    WEND
+	    DB_TABLE_CLEAR_DATA@(vl_fen_annuaire,"TA_Comp_Interlocuteur",0,-1)
+	    DB_TABLE_SET_NEW_DATA@ (vl_fen_annuaire,"TA_Comp_Interlocuteur",
+				       vm_t_comp_interl, 0)
+	    vl_index[0] = i
+	    DB_TABLE_SET_SELECTIONS@ (vl_fen_annuaire,"TA_Comp_Interlocuteur",
+					 vl_index)
+	}
+
+
+    /*A
+     * Sur choix "Supprimer Competence", verifier qu'une competence
+     * de l'interlocuteur est choisie puis si la suppression s'effectue
+     * correctement en base de donnees, supprimer les lignes de la table
+     * -----------------------------------------------------------------
+     */
+
+    CASE "BP_Supprimer_Comp"
+	vl_index = DB_TABLE_GET_SELECTIONS@ (vl_fen_annuaire,
+						"TA_Comp_Interlocuteur")
+	IF ARRAY_SIZE@ (vl_index) = 0
+	    ERROR@ (COM_ERR_NON_SAISI, "Choisir une compétence interlocuteur")
+	vl_index = vl_index[0]
+	WHILE IS_NULL@ (vm_l_num_comp_interl[vl_index])
+	    vl_index = vl_index - 1
+	WEND
+
+	IF TFA_Supprimer_Competence (vl_num_fiche,
+				      vm_l_num_comp_interl[vl_index]) = COM_OK {
+	    vl_index2 = vl_index + 1
+	    WHILE vl_index2 < ARRAY_SIZE@ (vm_t_comp_interl)  AND
+		     IS_NULL@ (vm_l_num_comp_interl[vl_index2])
+		vl_index2 = vl_index2 + 1
+	    WEND
+	    vm_l_num_comp_interl = SUBARRAY_REMOVE@ (vm_l_num_comp_interl,
+						   vl_index, vl_index2-vl_index)
+	    vm_t_comp_interl = SUBARRAY_REMOVE@ (vm_t_comp_interl,
+						 vl_index, vl_index2 - vl_index)
+	    DB_TABLE_CLEAR_DATA@(vl_fen_annuaire,"TA_Comp_Interlocuteur", 0, -1)
+	    DB_TABLE_SET_NEW_DATA@ (vl_fen_annuaire, "TA_Comp_Interlocuteur",
+				       vm_t_comp_interl, 0)
+	}
+
+
+    /*A
+     * Sur choix "Modifier Fiche", effectuer les controles de saisie
+     * (nom et un numero d'appel obligatoires, type bip si numero bip)
+     * ---------------------------------------------------------------
+     */
+
+    CASE "BP_Modifier_Fiche"
+	IF vl_administrer_ok {
+	    vl_nom = DB_CTRL_GET_VALUE@ (vl_fen_annuaire, "BS_Nom")
+	    IF vl_nom = NULL
+		ERROR@(COM_ERR_NON_SAISI,COM_LIB_NON_SAISI,"Nom interlocuteur ")
+	    vl_initiale = SUBSTRING@ (vl_nom, 1, 1)
+	    IF vl_initiale << "A"  OR  vl_initiale >> "Z"
+		ERROR@(COM_ERR_NON_SAISI, C_LIB_NOM_INVALIDE,"Nom interlocuteur ")
+
+	    vl_numero = DB_CTRL_GET_VALUE@ (vl_fen_annuaire, "BS_Bip")
+	    IF vl_numero <> NULL {
+		IF DB_CTRL_GET_VALUE@ (vl_fen_annuaire, "BO_Type_Bip")
+		      = XDC_BIP_INCONNU
+		    ERROR@ (COM_ERR_NON_SAISI, "Indiquer le type de bip")
+	    } ELSE {
+		IF DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Telephone1")=NULL AND
+		   DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Telephone2")=NULL AND
+		   DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Telephone3")=NULL AND
+		   DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Fax") = NULL AND
+		   DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Tel_Commentaire")=NULL
+		   ERROR@(COM_ERR_NON_SAISI,"Saisir au moins un numéro d'appel")
+	    }
+	}
+
+	vl_date = COM23_Horodate (vl_fen_annuaire, "BS_Jour_Validite",
+				     "BS_Mois_Validite", "BS_Annee_Validite",
+				     "BS_Heure_Validite", "BS_Minute_Validite")
+
+
+	/*A
+	 * puis demander confirmation et enfin effectuer les modifications
+	 * en base de donnees ; desormais l'indicateur de creation est Faux
+	 * ----------------------------------------------------------------
+	 */
+
+	IF PEND_FOR_NEW_TASK@ ("ITMA_TCF_Demande_Confirmation",
+				  "Modifier la fiche ?") = COM_OK {
+	    IF vl_administrer_ok {
+		vl_statut = ITMA_TAN_Modif_Fiche_Annuaire
+				(vl_num_fiche,
+				 vm_num_comp_liee,
+				 vl_date,
+				 C_MODULE,
+				 vl_fen_annuaire,
+				 vm_site_responsable)
+		IF vl_statut = COM_QUITTE
+		    ERROR@ (C_ERR_IHM, C_LIB_HOMONYMIE)
+		IF vl_statut = COM_OK {
+		    vl_creation = FALSE
+		    vl_nom_interloc=DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Nom")
+		}
+	    } ELSE
+		ITMA_TAN_Comm_Fiche_Annuaire (
+		    vl_num_fiche,
+		    DB_CTRL_GET_VALUE@ (vl_fen_annuaire, "BS_Commentaire"),
+		    vl_date,
+		    DB_CTRL_GET_VALUE@ (vl_fen_annuaire, "BS_Tel_Commentaire"),
+		    C_MODULE)
+	}
+
+
+    /*A
+     * Sur choix "Supprimer Fiche", demander confirmation et si la
+     * suppression s'effectue correctement terminer la visualisation
+     * -------------------------------------------------------------
+     */
+
+    CASE "BP_Supprimer_Fiche"
+	IF PEND_FOR_NEW_TASK@ ("ITMA_TCF_Demande_Confirmation",
+				  "Supprimer la fiche ?") = COM_OK {
+	    vl_statut = TFA_Supprimer_Fiche (vl_num_fiche)
+	    IF vl_statut = COM_QUITTE
+		ERROR@ (C_ERR_IHM, C_LIB_PREVU_ASTREINTE)
+	    IF vl_statut = COM_OK
+		vl_la_fenetre_est_active = FALSE
+	}
+
+
+    /*A
+     * Sur choix "Appeler_xxx", activer le module correspondant (MTAT ou MTFX)
+     * -----------------------------------------------------------------------
+     */
+
+    CASE "BP_Appeler_Tel1"
+    CASE "BP_Appeler_Tel2"
+    CASE "BP_Appeler_Tel3"
+    CASE "BP_Appeler_Tel_Com"
+    CASE "BP_Appeler_Bip"
+    CASE "BP_radio"
+	vl_type_bip = XDC_BIP_INCONNU
+
+	IF vl_objet_selecte = "BP_Appeler_Tel1"
+	    vl_numero = DB_CTRL_GET_VALUE@ (vl_fen_annuaire,"BS_Telephone1")
+	ELSE IF vl_objet_selecte = "BP_Appeler_Tel2"
+	    vl_numero = DB_CTRL_GET_VALUE@ (vl_fen_annuaire,"BS_Telephone2")
+	ELSE IF vl_objet_selecte = "BP_Appeler_Tel3"
+	    vl_numero = DB_CTRL_GET_VALUE@ (vl_fen_annuaire,"BS_Telephone3")
+	ELSE IF vl_objet_selecte = "BP_Appeler_Tel_Com"
+	    vl_numero = DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_Tel_Commentaire")
+	ELSE IF vl_objet_selecte = "BP_radio" {
+		vl_type_bip=XDC_APPEL_RADIO	
+		vl_numero = DB_CTRL_GET_VALUE@(vl_fen_annuaire,"BS_radio")
+	}
+	ELSE {
+	    vl_numero = DB_CTRL_GET_VALUE@ (vl_fen_annuaire, "BS_Bip")
+	    vl_type_bip = DB_CTRL_GET_VALUE@ (vl_fen_annuaire,"BO_Type_Bip")
+	    IF vl_type_bip = XDC_BIP_INCONNU
+		ERROR@ (C_ERR_IHM, C_LIB_BIP_INCONNU)
+	}
+
+	IF vl_numero <> NULL {
+	    if (vl_appel_rmvi=FALSE)
+	    	PEND_FOR_NEW_TASK@ ("ITMA_TAT_Appel_Telephonique",
+				   "ITMA_TFA_Fiche_Annuaire",
+				   vl_numero, vl_num_fiche, vl_nom_interloc,
+				   vl_type_bip, TFA_Type_Astreinte_Interlo())
+	    else
+	    	NEW_TASK@("ITMA_TAT_Appel_Telephonique",
+				"ITMA_TIS_Interlocuteurs_Astreint",
+				va_arg2[0],
+				va_arg2[1],
+				va_arg2[2],
+				va_arg2[3],
+				va_arg2[4],
+				va_arg2[5])
+	}
+    CASE "BP_arobase"
+		DB_CTRL_VALUE@(vl_fen_annuaire, "BS_Adresse_Email",
+			TRIM@(DB_CTRL_GET_VALUE@(vl_fen_annuaire, "BS_Adresse_Email")) ++
+				"@")
+
+    CASE "BP_Appeler_Mail"
+        vl_numero = DB_CTRL_GET_VALUE@(vl_fen_annuaire, "BS_Adresse_Email")
+        IF vl_numero <> NULL {
+            vl_l_args = vl_numero, vl_num_fiche, vl_nom_interloc,
+                           TFA_Type_Astreinte_Interlo()
+            PEND_FOR_NEW_TASK@ ("ITMA_TFX_Envoi_Fax", "ITMA_TFA_Fiche_Annuaire",
+                                   vl_l_args)
+        }
+
+    
+    CASE "BP_Appeler_Fax"
+	vl_numero = DB_CTRL_GET_VALUE@(vl_fen_annuaire, "BS_Fax")
+	IF vl_numero <> NULL {
+	    vl_l_args = vl_numero, vl_num_fiche, vl_nom_interloc,
+			   TFA_Type_Astreinte_Interlo()
+	    PEND_FOR_NEW_TASK@ ("ITMA_TFX_Envoi_Fax", "ITMA_TFA_Fiche_Annuaire",
+				   vl_l_args)
+	}
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les donnees de la fiche annuaire.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFA_Init_Fiche (va_fenetre, va_num_fiche, va_nom_interloc, va_creation)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_num_fiche      : Numero de la fiche annuaire de l'interlocuteur ;
+*   va_nom_interloc   : Nom de l'interlocuteur ;
+*   va_creation       : Indicateur de creation de fiche.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_nom_interloc   : Nom de l'interlocuteur (cas appel MSOP : non connu).
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFA_Fiche_Annuaire
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_t_titres					' Titres colonnes table
+    VAR     vl_l_num_comp				' Numeros competences
+    VAR FORMAT TFC_Competence vl_competence
+    VAR FORMAT TFC_Zone_Geographique vl_l_zones		' Zones geographiques
+    VAR     vl_l_types_astreintes			' Numeros de types et
+    VAR     vl_l_districts			' districts astreintes
+    VAR     vl_libelle_competence			' competence fonction
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     vl_index
+    VAR     vl_jj, vl_mm, vl_aa, vl_hh, vl_mn
+    VAR     i, j, k
+
+
+/*A
+ * Initialiser les valeurs de types de bips
+ * ----------------------------------------
+ */
+
+tl_liste_bip = TFA_NOMS_TYPES_BIP
+DB_CTRL_STRINGS@ (va_fenetre, "BO_Type_Bip", tl_liste_bip)
+
+
+/*A
+ * Lire dans l'environnement les listes des types et categories d'astreintes
+ * -------------------------------------------------------------------------
+ */
+
+vm_l_types_astreintes = SYSTEM_VAR@ (vg_les_types_astreintes)
+vl_l_types_astreintes = ARRAY_COLUMN@ (vm_l_types_astreintes,
+					  TDO_NUMERO_TYPE_ASTREINTE)
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Types_Astreintes",
+		  ARRAY_COLUMN@ (vm_l_types_astreintes, TDO_NOM_TYPE_ASTREINTE))
+
+vm_l_sites = SYSTEM_VAR@ (vg_les_districts)
+DB_CTRL_STRINGS@ (va_fenetre, "BO_Site_responsable", ARRAY_COLUMN@(vm_l_sites, TDO_NOM_DISTRICT))
+
+vm_l_districts[0] = NULL, "Tous"
+vm_l_districts = ARRAY_APPEND@ (vm_l_districts,vm_l_sites)
+vl_l_districts = ARRAY_COLUMN@ (vm_l_districts,TDO_NUMERO_DISTRICT)
+
+
+DB_CTRL_STRINGS@ (va_fenetre, "BO_Site_concerne", ARRAY_COLUMN@(vm_l_districts, TDO_NOM_DISTRICT))
+
+
+/*A
+ * En creation de fiche, valuer le nom et fixer le type bip a "Inconnu",
+ * sinon lire les donnees de la fiche et les competences interlocuteur
+ * ---------------------------------------------------------------------
+ */
+
+IF va_creation {
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Nom", va_nom_interloc)
+    DB_CTRL_VALUE@ (va_fenetre, "BO_Type_Bip", 0)
+
+  	/*en creation, c'est mon site qui est responsable de la fiche*/
+    vl_index=ARRAY_INDEX@ (ARRAY_COLUMN@ (vm_l_sites,0),SYSTEM_VAR@(vg_site))
+    DB_CTRL_VALUE@(va_fenetre,"BO_Site_responsable",vl_index)
+
+	/*au CI le site concerne est TOUS*/
+    if (SYSTEM_VAR@(vg_site)=XDC_CI)
+      DB_CTRL_VALUE@(va_fenetre,"BO_Site_concerne",0)
+    else /*en district le site concerne est le district*/
+      DB_CTRL_VALUE@(va_fenetre,"BO_Site_concerne",vl_index+1)
+
+	vm_site_responsable=SYSTEM_VAR@(vg_site)
+} ELSE {
+    IF ITMA_TAN_Lire_Fiche_Annuaire (
+	  va_num_fiche, C_MODULE, va_fenetre, vm_num_comp_liee) <> COM_OK
+	RETURN (COM_NOK)
+    va_nom_interloc = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Nom")
+
+    /*A
+     * Lire les competences interlocuteur
+     * ----------------------------------
+     */
+
+    vl_parametres[0].type = TFA_Numero_Fiche_Annuaire
+    vl_parametres[0].data = va_num_fiche
+    vl_parametres[0].output = FALSE
+
+    IF COM05_SQL_Procedure (XZAN12_Lire_Comp_Interlocuteur,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+
+    vl_l_num_comp = vl_resultats.select_results[0]
+    i = 0
+    FOR j = 0  TO ARRAY_SIZE@ (vl_l_num_comp) - 1
+	IF ITMA_TAN_Lire_Competence (vl_l_num_comp[j,0], C_MODULE,
+					vl_competence) <> COM_OK
+	    RETURN (COM_NOK)
+
+	vm_l_num_comp_interl[i] = vl_l_num_comp[j,0]
+	vl_index = ARRAY_INDEX@ (vl_l_types_astreintes,
+				    vl_competence.num_type_astreinte)
+	vm_t_comp_interl[i].type_astreinte = vm_l_types_astreintes[vl_index].nom
+	vm_t_comp_interl[i].sous_type_astreinte = vl_competence.sous_type
+	vl_index = ARRAY_INDEX@ (vl_l_districts,
+				    vl_competence.num_district_astreinte)
+	vm_t_comp_interl[i].district_astreinte =vm_l_districts[vl_index].nom
+	vl_l_zones = vl_competence.l_zones_geo
+	FOR k = 0  TO ARRAY_SIZE@ (vl_l_zones) - 1
+	    IF k > 0  i = i + 1
+	    vm_t_comp_interl[i].zone_geo = COM12_Libelle_Zone_Competence
+					       (vl_l_zones[k].num_autoroute,
+					        vl_l_zones[k].PR_debut,
+					        vl_l_zones[k].PR_fin,
+					        vl_l_zones[k].sens)
+	NEXT k
+	i = i + 1
+    NEXT j
+
+    /*A
+     * Lire la competence liee a la fonction
+     * -------------------------------------
+     */
+
+    IF vm_num_comp_liee <> NULL {
+	IF ITMA_TAN_Lire_Competence (vm_num_comp_liee, C_MODULE,
+					vl_competence) <> COM_OK
+	    RETURN (COM_NOK)
+
+	vl_index = ARRAY_INDEX@(vl_l_types_astreintes,
+				   vl_competence.num_type_astreinte)
+	vm_astreinte_liee = vm_l_types_astreintes[vl_index]
+	vl_libelle_competence = vm_astreinte_liee.nom
+	vl_l_zones = vl_competence.l_zones_geo
+	IF ARRAY_SIZE@ (vl_l_zones) > 0
+	    vl_libelle_competence = vl_libelle_competence ++
+		COM12_Libelle_Zone_Competence (vl_l_zones[0].num_autoroute,
+						  vl_l_zones[0].PR_debut,
+						  vl_l_zones[0].PR_fin,
+						  vl_l_zones[0].sens)
+	DB_CTRL_TITLE@(va_fenetre,"LI_Comp_Liee",vl_libelle_competence)
+    }
+}
+
+
+/*A
+ * Definir les titres des colonnes de la table "Competences Interlocuteur"
+ * -----------------------------------------------------------------------
+ */
+
+vl_t_titres[0] = "Type Astreinte", 150	    ' Titre colonne et taille en pixels
+vl_t_titres[1] = "Sous-type d'astreinte",      150
+vl_t_titres[2] = "District de validité",          150
+vl_t_titres[3] = "Zone",           162
+vl_t_titres[4] = "", 0
+
+
+/*A
+ * Valuer la table des competences interlocuteur
+ * ---------------------------------------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)			' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)				'  aux objets tables
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Comp_Interlocuteur",
+		       vm_t_comp_interl, vl_t_titres)
+
+
+/*A
+ * Definir les titres des colonnes de la table "Competences Astreinte"
+ * -------------------------------------------------------------------
+ */
+
+vl_t_titres = NULL
+
+vl_t_titres[0] = "Sous-type d'astreinte",      150	    ' Titre colonne et taille en pixels
+vl_t_titres[1] = "District de validité",          150
+vl_t_titres[2] = "Zone",           162
+vl_t_titres[3] = "", 0
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Comp_Astreinte",
+		       vm_t_comp_astreinte, vl_t_titres)
+
+/*recupere le site responsable*/
+vm_site_responsable=vm_l_sites[DB_CTRL_GET_VALUE@(va_fenetre,"BO_Site_responsable")][0]
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recherche la liste des competences associees a un type d'astreinte.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFA_Rechercher_Competences (va_num_type_astr, va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_type_astr  : Numero du type d'astreinte ;
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFA_Fiche_Annuaire
+*
+* FONCTION
+*  Lit en base de donnees la liste des competences associees au type
+*  d'astreinte indique et initialise les listes correspondantes.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_l_num_comp				' Numeros competences
+    VAR FORMAT TFC_Competence vl_competence
+    VAR FORMAT TFC_Zone_Geographique vl_l_zones		' Zones geographiques
+    VAR     vl_l_categ_astreintes			' Nums categ. astreintes
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     vl_index
+    VAR     vl_jj, vl_mm, vl_aa, vl_hh, vl_mn
+    VAR     i, j, k
+
+
+vl_l_categ_astreintes = ARRAY_COLUMN@ (vm_l_districts,
+					  TDO_NUMERO_DISTRICT)
+
+
+/*A
+ * Valuer a NULL les donnees (pour reinitialisation)
+ * -------------------------------------------------
+ */
+
+vm_l_num_comp_astreinte = NULL
+vm_t_comp_astreinte = NULL
+
+
+/*A
+ * Lire les identifiants des competences de l'astreinte
+ * ----------------------------------------------------
+ */
+
+vl_parametres[0].type = TFS_Numero_Type_Astreinte
+vl_parametres[0].data = va_num_type_astr
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Autoroute
+vl_parametres[1].data = NULL
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_PR
+vl_parametres[2].data = XDC_PR_INCONNU
+vl_parametres[2].output = FALSE
+
+IF COM05_SQL_Procedure (XZAN07_Rechercher_Competences,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+/*A
+ * puis lire les informations de chacune des competences
+ * -----------------------------------------------------
+ */
+
+vl_l_num_comp = vl_resultats.select_results[0]
+i = 0
+FOR j = 0  TO ARRAY_SIZE@ (vl_l_num_comp) - 1
+    IF ITMA_TAN_Lire_Competence (vl_l_num_comp[j,0], C_MODULE,
+				    vl_competence) <> COM_OK
+	RETURN (COM_NOK)
+
+    vm_l_num_comp_astreinte[i] = vl_l_num_comp[j,0]
+    vl_index = ARRAY_INDEX@ (vl_l_categ_astreintes,
+				vl_competence.num_district_astreinte)
+    vm_t_comp_astreinte[i].district_astreinte = vm_l_districts[vl_index].nom
+	vm_t_comp_astreinte[i].sous_type_astreinte=vl_competence.sous_type
+    vl_l_zones = vl_competence.l_zones_geo
+    FOR k = 0  TO ARRAY_SIZE@ (vl_l_zones) - 1
+        IF k > 0  i = i + 1
+        vm_t_comp_astreinte[i].zone_geo = COM12_Libelle_Zone_Competence
+					      (vl_l_zones[k].num_autoroute,
+					       vl_l_zones[k].PR_debut,
+					       vl_l_zones[k].PR_fin,
+					       vl_l_zones[k].sens)
+    NEXT k
+    i = i + 1
+NEXT j
+
+
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_Comp_Astreinte", 0, -1)
+DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_Comp_Astreinte", vm_t_comp_astreinte, 0)
+DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Comp_Astreinte", NULL)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Ajoute une competence a un interlocuteur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFA_Ajouter_Competence (va_num_interloc, va_num_competence)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_interloc   : Id. de l'interlocuteur a qui ajouter la competence ;
+*   va_num_competence : Numero de la competence a ajouter.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFA_Fiche_Annuaire
+*
+* FONCTION
+*   Execute la requete adequate pour ajouter la competence d'identifiant
+*   indique a l'interlocuteur de numero indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TFA_Numero_Fiche_Annuaire
+vl_parametres[0].data = va_num_interloc
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFC_Numero_Competence
+vl_parametres[1].data = va_num_competence
+vl_parametres[1].output = FALSE
+IF COM05_SQL_Procedure (XZAN13_Ajou_Comp_Interlocuteur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Supprime une competence a un interlocuteur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFA_Supprimer_Competence (va_num_interloc, va_num_competence)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_interloc   : Id. de l'interlocuteur a qui supprimer la competence ;
+*   va_num_competence : Numero de la competence a supprimer.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFA_Fiche_Annuaire
+*
+* FONCTION
+*   Execute la requete adequate pour supprimer la competence d'identifiant
+*   indique a l'interlocuteur de numero indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TFA_Numero_Fiche_Annuaire
+vl_parametres[0].data = va_num_interloc
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFC_Numero_Competence
+vl_parametres[1].data = va_num_competence
+vl_parametres[1].output = FALSE
+
+IF COM05_SQL_Procedure (XZAN14_Supprim_Comp_Interloc,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Supprime une fiche annuaire.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFA_Supprimer_Fiche (va_num_fiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_fiche      : Id. de la fiche annuaire a supprimer.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK si l'interlocuteur est supprime ;
+*                       COM_QUITTE si interlocuteur prevu dans le calendrier ;
+*                       COM_NOK en cas d'erreur lors de l'execution.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFA_Fiche_Annuaire
+*
+* FONCTION
+*   Execute la requete adequate pour supprimer la fiche annuaire d'identifiant
+*   indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TFA_Numero_Fiche_Annuaire
+vl_parametres[0].data = va_num_fiche
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT4_			' Statut : supprime ou
+vl_parametres[1].output = TRUE				' prevu dans calendrier
+
+IF COM05_SQL_Procedure (XZAN20_Supprim_Fiche_Annuaire,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+IF vl_resultats.return_parameters[0] = XDC_OK
+    RETURN (COM_OK)
+ELSE RETURN (COM_QUITTE)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Retourne le (premier) type d'astreinte de l'interlocuteur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TFA_Type_Astreinte_Interlo ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Le type d'astreinte representatif de ses competences.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFA_Fiche_Annuaire
+*
+* FONCTION
+*   Retourne soit le type d'astreinte lie a la fonction de l'interlocuteur
+*   (s'il y en a un), soit le premier type d'astreinte de sa liste de
+*   competences.
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_index
+
+
+IF vm_num_comp_liee <> NULL
+    RETURN (vm_astreinte_liee)
+ELSE IF ARRAY_SIZE@ (vm_t_comp_interl) = 0
+    RETURN (NULL)
+ELSE {
+    vl_index = ARRAY_INDEX@ (ARRAY_COLUMN@ (vm_l_types_astreintes,
+						TDO_NOM_TYPE_ASTREINTE),
+				vm_t_comp_interl[0].type_astreinte)
+    IF vl_index >= 0
+	RETURN (vm_l_types_astreintes[vl_index])
+    ELSE RETURN (NULL)
+}
+
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+*  SERVICE RENDU :      Place le curseur dans une boite de saisie non visible
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TFA_curseur(va_fenetre)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*       va_fenetre             :       le nom de la boite de dialogue
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR   : aucun.
+
+* CONDITION D'UTILISATION :
+*   curseur dans une boite de saisie sans modif autorise.
+*
+* FONCTION :
+*       Place le curseur dans une boite de saisie non visible
+*---------------------------------------------------------------------------- */
+
+DB_CURSOR_IN_ENTRY@(va_fenetre,"BS_cache",1,0)
+
+ENDMACRO
+

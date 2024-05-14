@@ -1,0 +1,556 @@
+/*E*/
+/* Fichier : @(#)ITMA_TGT_Gene_Travaux.am	1.13      Release : 1.13        Date : 10/14/96
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTGT * FICHIER ITMA_TGT_Gene_Travaux.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   gene trv.
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou 30 dec 1994	: Creation							V1.1
+* Noel	13 Jan 1994	: Corrections d'integration				V1.2
+* Gaborit	31 aou 1995	: Mise a jour de la liste des sections		V1.3
+* Gaborit       31 aou 1995     : Mise a jour des PR debut			V1.4
+* Guilhou	31 aou 1995 :	test sur retour de TGT_calcul_gene			V1.5
+* Gaborit		01 sep 1995	: Formattage de l'affichage			V1.6
+* Torregrossa	09 sep 1995	: Correction test horodate renseignee	V1.9
+* Torregrossa	29 jan 1996	: Ajout impression	V1.10
+* Torregrossa	09 fev 1996	: Correction fautes d'orthographe ds info 
+*                               message	et Concatenation des sections 
+*                               Aix-A52 avec A50-Toulon	V1.11
+* Guilhou	06 Sep 1996	: Ajout calcul sur PC simplifie avec connexion CI (RADT) V1.12
+*				  reprise des arrondis
+* Guilhou	14 oct 1996	: suppression info message V1.13
+* Niepceron   03 Jul 1998 : Connexion a SQL_HIS (dem/1699) v1.14
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzas23sp.h"
+
+
+DEFINE	C_MODELE_GENE_TRAV	"ITMA_TGT_Gene_Travaux"	' Nom du modele
+DEFINE	C_MODULE			"MTGT"				' Nom du module
+
+DEFINE	SECTION_AIX_A52	"Aix en Provence - A52"
+DEFINE	SECTION_AIX_TOULON	"Aix en Provence - Toulon"
+DEFINE	SECTION_TOULON_AIX	"Toulon - Aix en Provence"
+DEFINE	SECTION_A50_TOULON	"A50 - Toulon"
+
+DEFINE	CL_NEGLIGEABLE		8
+DEFINE	CL_SENSIBLE		16
+FORMAT TGT_section
+	nom,
+	prdebut,
+	prfin,
+	autoroute
+
+FORMAT TGT_gene
+	longueur,
+	perte_temps,
+	temps_theorique,
+	temps_reel,
+	sens
+
+VAR FORMAT TGT_section tm_sections
+
+VAR vm_simplifie
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TGT_Gene_Travaux (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+* 
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+	VAR tl_titres,tl_data
+	VAR vl_string
+	VAR vl_fichier
+	VAR vl_date
+	VAR FORMAT TDO_Horo_Eclatee	vl_horodate
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    if (vm_simplifie) {
+      SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+      SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+    }
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "gene travaux"
+
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TGT")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TGT_Gene_Travaux")
+
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  vm_simplifie=TRUE
+else
+  vm_simplifie=FALSE
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+/*A sections*/
+tm_sections[0]="St Raphael - Frontière Italienne",132870,224000,1,"Frontière Italienne - St Raphael"
+tm_sections[1]="Aix en Provence - St Raphael",18401,132870,1,"St Raphael - Aix en Provence"
+tm_sections[2]="Toulon - A57",6351,52800,8,"A57 - Toulon"
+tm_sections[3]="A50 - Toulon",15363,67700,3,"Toulon - A50"
+tm_sections[4]="Aix en Provence - A52",1,26077,6,"A52 - Aix en Provence"
+tm_sections[5]="Aix en Provence - Sisteron",23211,123460,5,"Sisteron - Aix en Provence"
+
+/*A titres des colonnes*/
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+tl_titres[0]="Section",250
+tl_titres[1]="Longueur",120
+tl_titres[2]="Temps perdu",120
+tl_titres[3]="% Temps perdu",120
+tl_titres[4]="Indicateur qualite",120
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_gene",null,tl_titres,null)
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+  		/*A appui sur le bouton horohelp */
+		CASE "BP_horohelp"
+			/*A recupere l'heure courante et la formate*/
+			COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre,
+						"BS_jour", "BS_mois", "BS_annee",
+						"BS_heure", "BS_minute")
+
+  CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre)
+		CASE COM_CANAL_FIN
+		    if (vm_simplifie) {
+		      SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+		      SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+		    }
+		    RETURN
+	ENDCASE
+
+     CASE "BP_Imprimer"
+          /*recuperation du dernier historique*/
+          tl_data=DB_TABLE_GET_DATA@(vl_fenetre,"TA_gene")
+
+          IF (tl_data=NULL)
+                INFO_MESSAGE@("Pas de données à imprimer")
+          ELSE {
+                /*A ecrire le texte dans un fichier*/
+			MACRO_WINS_BUSY@()
+                WP_APPLICATION_DLG@(NULL, TRUE)
+                WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+                                              COM_SOUS_REP_IHM ++ C_MODELE_GENE_TRAV ++ ".aw")
+			vl_date=COM06_Date_Formatee(
+				DB_CTRL_GET_VALUE@(vl_fenetre,"BS_jour"),
+				DB_CTRL_GET_VALUE@(vl_fenetre,"BS_mois"),
+				DB_CTRL_GET_VALUE@(vl_fenetre,"BS_annee"),
+				DB_CTRL_GET_VALUE@(vl_fenetre,"BS_heure"),
+				DB_CTRL_GET_VALUE@(vl_fenetre,"BS_minute"))
+
+			/*A tester la validite de l'horodate*/
+			IF (vl_date<>NULL) AND 
+				(DB_CTRL_GET_VALUE@(vl_fenetre,"BS_heure")<>NULL) AND
+				(DB_CTRL_GET_VALUE@(vl_fenetre,"BS_minute")<>NULL)
+			{
+				WP_SET_DOC_VAR@("horodate_debut",vl_date)
+			}
+			WP_SET_DOC_VAR@("vitesse_theo", 
+						DB_CTRL_GET_VALUE@(vl_fenetre, "BS_vit_hors_trv"))
+			WP_SET_DOC_VAR@("vitesse_BAU", 
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BS_vit_bau"))
+			WP_SET_DOC_VAR@("vitesse_voies_reduites",
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BS_vit_voies"))
+			WP_SET_DOC_VAR@("vitesse_bascul",
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BS_vit_bascul"))
+
+			WP_SET_DOC_VAR@("travaux",tl_data)
+
+                vl_fichier = C_MODELE_GENE_TRAV ++ "_" ++
+                             SYSTEM_VAR@(vg_numero_poste)
+
+                COM36_Imprimer_Texte(vl_fichier)
+         }
+
+
+     CASE "BP_fermer"
+		if (vm_simplifie) {
+		  SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs)) 
+		  SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+		}
+		RETURN
+
+	CASE "BP_calculer"
+		MACRO_WINS_BUSY@()
+		tl_data=TGT_calcul_gene(vl_fenetre)
+		IF (IS_ARRAY@(tl_data))
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_gene", tl_data, 0)
+      ENDCASE
+WEND
+
+
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  calcule la gene travaux.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TGT_calcul_gene (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*   .
+---------------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR vl_indice,tl_data
+VAR vl_vit_hors_trv
+VAR vl_vit_bau
+VAR vl_vit_voies
+VAR vl_vit_bascul
+VAR vl_horodate
+VAR vl_indice2
+VAR tl_gene_section
+VAR FORMAt TGT_gene	tl_info, tl_info_Aix_A52, tl_info_A50_Toulon
+VAR vl_canal
+
+	/*A recupere les vitesses pour le calcul*/
+	vl_vit_hors_trv=DB_CTRL_GET_VALUE@(va_fenetre,"BS_vit_hors_trv")
+	vl_vit_bau=DB_CTRL_GET_VALUE@(va_fenetre,"BS_vit_bau")
+	vl_vit_voies=DB_CTRL_GET_VALUE@(va_fenetre,"BS_vit_voies")
+	vl_vit_bascul=DB_CTRL_GET_VALUE@(va_fenetre,"BS_vit_bascul")
+
+	/*A controler la validite des vitesses pour le calcul*/
+	IF vl_vit_hors_trv=NULL
+	{
+			INFO_MESSAGE@("La vitesse théorique hors travaux doit être renseignée")
+   			RETURN (COM_NOK)
+	}
+
+	IF vl_vit_bau=NULL
+	{
+			INFO_MESSAGE@("La vitesse BAU neutralisée doit être renseignée")
+   			RETURN (COM_NOK)
+	}
+
+	IF vl_vit_voies=NULL
+	{
+			INFO_MESSAGE@("La vitesse voies neutralisées doit être renseignée")
+   			RETURN (COM_NOK)
+	}
+
+	IF vl_vit_bascul=NULL
+	{
+			INFO_MESSAGE@("La vitesse en cas de basculement doit être renseignée")
+   			RETURN (COM_NOK)
+	}
+
+	/*A horodate*/
+	vl_horodate=COM06_Date_Formatee(
+				DB_CTRL_GET_VALUE@(va_fenetre,"BS_jour"),
+				DB_CTRL_GET_VALUE@(va_fenetre,"BS_mois"),
+				DB_CTRL_GET_VALUE@(va_fenetre,"BS_annee"),
+				DB_CTRL_GET_VALUE@(va_fenetre,"BS_heure"),
+				DB_CTRL_GET_VALUE@(va_fenetre,"BS_minute"))
+
+	/*A tester la validite de l'horodate*/
+	If (vl_horodate=NULL) OR 
+		(DB_CTRL_GET_VALUE@(va_fenetre,"BS_heure")=NULL) OR
+		(DB_CTRL_GET_VALUE@(va_fenetre,"BS_minute")=NULL)
+	{
+			INFO_MESSAGE@("L'horodate doit être renseignée")
+   			RETURN (COM_NOK)
+	}
+
+	/*on se connecte a la base du CI */
+   /*	vl_canal = SQL_CONNECT@ (COM_NOM_SGBD, COM_USER, COM_MOT_PASSE,
+     			COM_BASE, COM_HOTE, COM_SERVEUR ++ XDC_NOM_SITE_CI)
+        SQL_CHANNEL_MASTER@ (vl_canal, 0)
+        SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,vl_canal)*/
+
+	vl_indice2 = 0
+	/*A pour chaque section*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_sections)-1)
+		vl_parametres[0].type = SYB#INT4_
+		vl_parametres[0].data = tm_sections[vl_indice].prdebut
+		vl_parametres[0].output = FALSE
+
+		vl_parametres[1].type = SYB#INT4_
+		vl_parametres[1].data = tm_sections[vl_indice].prfin
+		vl_parametres[1].output = FALSE
+
+		vl_parametres[2].type = SYB#INT4_
+		vl_parametres[2].data = tm_sections[vl_indice].autoroute
+		vl_parametres[2].output = FALSE
+	
+		vl_parametres[3].type = SYB#DATETIME_
+		vl_parametres[3].data = vl_horodate
+		vl_parametres[3].output = FALSE
+	
+		vl_parametres[4].type = SYB#INT4_
+		vl_parametres[4].data = vl_vit_hors_trv
+		vl_parametres[4].output = FALSE
+	
+		vl_parametres[5].type = SYB#INT4_
+		vl_parametres[5].data = vl_vit_bau
+		vl_parametres[5].output = FALSE
+	
+		vl_parametres[6].type = SYB#INT4_
+		vl_parametres[6].data = vl_vit_voies
+		vl_parametres[6].output = FALSE
+	
+		vl_parametres[7].type = SYB#INT4_
+		vl_parametres[7].data = vl_vit_bascul
+		vl_parametres[7].output = FALSE
+
+		/*A execution requete base*/
+		IF COM50_DateHistorique(vl_horodate)
+		{
+			IF COM41_SQL_Procedure_HIS (XZAS23_Gene_Travaux,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+   				RETURN (COM_NOK)
+		}
+		ELSE
+		{
+			IF (vm_simplifie=TRUE) 
+			{
+				IF COM39_SQL_Procedure_PCS (XZAS23_Gene_Travaux,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+   				RETURN (COM_NOK)
+			}
+			ELSE
+			{
+				IF COM05_SQL_Procedure (XZAS23_Gene_Travaux,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+   				RETURN (COM_NOK)
+			}
+		}
+
+		IF (tm_sections[vl_indice][0] = SECTION_AIX_A52) {
+			tl_info_Aix_A52=vl_resultats.select_results[0]
+			tl_data[vl_indice2][0]= SECTION_AIX_TOULON
+			vl_indice2 = vl_indice2 +1
+			tl_data[vl_indice2][0]= SECTION_TOULON_AIX
+			vl_indice2 = vl_indice2 +1
+		}
+		ELSE IF (tm_sections[vl_indice][0] = SECTION_A50_TOULON)
+			tl_info_A50_Toulon=vl_resultats.select_results[0]
+		ELSE {
+
+			tl_gene_section = FormaterGeneTravaux(tm_sections[vl_indice][0], 
+									tm_sections[vl_indice][4], 
+									vl_resultats.select_results[0])
+			tl_data[vl_indice2] = tl_gene_section[0]
+			tl_data[vl_indice2+1] = tl_gene_section[1]
+			vl_indice2 = vl_indice2 +2
+		}
+
+
+	NEXT vl_indice
+
+	/*liberer la connexion au CI*/
+	if (vm_simplifie)
+	  SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+
+	/*A regrouper la gene travaux des sections Aix en provence-A52 et A50-Toulon */
+	vl_indice = ARRAY_INDEX@(ARRAY_COLUMN@(tl_data,0), SECTION_AIX_TOULON)
+	tl_info = tl_info_Aix_A52
+
+	tl_info[0].longueur = tl_info[0].longueur + 
+					tl_info_A50_Toulon[0].longueur
+	tl_info[0].perte_temps = tl_info[0].perte_temps + 
+					tl_info_A50_Toulon[0].perte_temps
+	tl_info[0].temps_theorique = tl_info[0].temps_theorique + 
+					tl_info_A50_Toulon[0].temps_theorique
+	tl_info[0].temps_reel = tl_info[0].temps_reel + 
+					tl_info_A50_Toulon[0].temps_reel
+
+	tl_info[1].longueur = tl_info[1].longueur + 
+					tl_info_A50_Toulon[1].longueur
+	tl_info[1].perte_temps = tl_info[1].perte_temps + 
+					tl_info_A50_Toulon[1].perte_temps
+	tl_info[1].temps_theorique = tl_info[1].temps_theorique + 
+					tl_info_A50_Toulon[1].temps_theorique
+	tl_info[1].temps_reel = tl_info[1].temps_reel + 
+					tl_info_A50_Toulon[1].temps_reel
+
+	/*A Formater la gene travaux de la section Aix en provence-Toulon */
+	tl_gene_section = FormaterGeneTravaux(tl_data[vl_indice][0], 
+									tl_data[vl_indice+ 1][0], tl_info)
+	tl_data[vl_indice] = tl_gene_section[0]
+	tl_data[vl_indice+1] = tl_gene_section[1]
+
+RETURN (tl_data)
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  formater les donnees pour une section.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION FormaterGeneTravaux (va_Section_sens_sud,va_Section_sens_nord, va_Info)
+
+VAR FORMAT TGT_gene tl_info_sens_nord
+VAR FORMAT TGT_gene tl_info_sens_sud
+VAR	tl_data
+VAR	vl_indice
+
+/* initialiser les variables */
+vl_indice = 0
+tl_info_sens_sud = va_Info[0]
+tl_info_sens_nord = va_Info[1]
+
+/* sens normal */
+tl_data[vl_indice][0]= va_Section_sens_sud
+
+if tl_info_sens_sud.temps_theorique <> 0
+{
+	tl_data[vl_indice][1]= tl_info_sens_sud.longueur
+	tl_data[vl_indice][2]= (tl_info_sens_sud.perte_temps\60) ++ " mn " ++ 
+				(tl_info_sens_sud[1]- 
+					60 * (tl_info_sens_sud.perte_temps\60)) 
+				++ " s"
+	tl_data[vl_indice][3]= INT@(((tl_info_sens_sud.perte_temps/ 
+						tl_info_sens_sud.temps_theorique)*1000)+1/2)/10
+
+	if tl_data[vl_indice][3]=0
+	 	tl_data[vl_indice][4] = "NEANT"
+	else	if tl_data[vl_indice][3]< CL_NEGLIGEABLE
+	 	tl_data[vl_indice][4] = "NEGLIGEABLE"
+	else if tl_data[vl_indice][3] > CL_SENSIBLE
+		tl_data[vl_indice][4] = "SENSIBLE"
+	else
+		tl_data[vl_indice][4] = "MODERE"
+}
+
+vl_indice = vl_indice +1
+
+/* sens inverse */
+tl_data[vl_indice][0]= va_Section_sens_nord
+if tl_info_sens_nord[2] <> 0
+{
+	tl_data[vl_indice][1]= tl_info_sens_nord.longueur
+	tl_data[vl_indice][2]= (tl_info_sens_nord.perte_temps\60) ++ " mn " ++ (tl_info_sens_nord[1] - 60 * (tl_info_sens_nord.perte_temps\60)) ++ " s"
+	tl_data[vl_indice][3]= 	INT@(((tl_info_sens_nord.perte_temps/ 
+						tl_info_sens_nord.temps_theorique)*1000)+1/2)/10
+
+	if tl_data[vl_indice][3]=0
+	 	tl_data[vl_indice][4] = "NEANT"
+	else	if tl_data[vl_indice][3]< CL_NEGLIGEABLE
+	 	tl_data[vl_indice][4] = "NEGLIGEABLE"
+	else if tl_data[vl_indice][3] > CL_SENSIBLE
+		tl_data[vl_indice][4] = "SENSIBLE"
+	else
+		tl_data[vl_indice][4] = "MODERE"
+}
+
+return (tl_data)
+
+ENDMACRO
+

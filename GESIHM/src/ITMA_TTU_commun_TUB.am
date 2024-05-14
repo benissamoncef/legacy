@@ -1,0 +1,327 @@
+/*E*/
+/*  Fichier : $Id: ITMA_TTU_commun_TUB.am,v 1.8 2020/11/03 17:47:38 pc2dpdy Exp $        Release : $Revision: 1.8 $        Date : $Date: 2020/11/03 17:47:38 $
+------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE MTTU * FICHIER  ITMA_TTU_commun_TUB.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*  Module commun de fonctions de commande des equipements tunnels.
+*
+------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JPL	17/10/07 : creation 1.1
+* JPL	24/06/08 : ajout macro de commande d'un tunnel renove (DEM 783) 1.4
+* PNI	11/03/2020 : Ajout autorisation tunnel pour EXPLOITATION_PC2 1.7
+* LCL	31/03/20 : Ajout site local MOVIS DEM-SAE93 1.8
+--------------------------------------------------------------------- */
+
+
+/*A Description des modules a inclure
+* ----------------------------------- */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+
+/*A Description des procedures stockees a appeler
+* ----------------------------------------------- */
+INCLUDE	"../inc/xzac06sp.h"
+INCLUDE	"../inc/xzac100sp.h"
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Initialisation du module commun
+*
+* ----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_commun_TUB ()
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Envoyer une sequence de commandes a un tunnel
+*			par ecriture de la commande dans la base de donnees
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Commun_Cmd_Seq_Tunnel (va_Module, va_NumOperateur, va_Manuelle, va_NumSequence,
+                                          va_NumEvt, va_CleEvt, va_NumTube,
+                                          va_Priorite, va_DistanceEvt,
+                                          va_NumAction)
+
+/* -----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*		va_Module		:	nom du module appelant
+*		va_NumOperateur	:		numero de l'operateur
+*		va_Manuelle		:	type manuel ou auto
+*		va_NumSequence		:	numero de la sequence
+*		va_NumEvt		:	numero de l'evenement
+*		va_CleEvt		:	cle de l'evenement
+*		va_NumTube		:	numero du tunnel
+*		va_Priorite		:	priorite de l'evenement
+*		va_DistanceEvt		:	distance de l'evenement
+*
+* ARGUMENTS EN SORTIE :
+*		va_NumAction		:	le numero d'action retourné par la base
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*		Toute macro pilotant un tunnel
+*
+* FONCTION
+*   		Ecrire en base de donnees la sequence de commande.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	VAR	vl_Heure			' heure courante
+
+	/*A Tester les droits d'acces à cette fonction */
+	if (NOT COM04_Operateur_A_Le_Droit_De (XDC_FAM_EXPLOITATION_DISTRICT) ) AND (NOT COM04_Operateur_A_Le_Droit_De (XDC_FAM_EXPLOITATION_PC2))
+	{
+		ITMA_TTU_Commun_Acces_interdit ("piloter un tunnel", "ITMA_TTU_Commun_Cmd_Seq_Tunnel")
+		RETURN (COM_NOK)
+	}
+
+	vl_Heure = COM09_Date_Courante()
+
+	/*A Trace de l'appel de la procedure */
+	COM01_Trace (0, vl_Heure ++ " ---> Appel de la procedure 'XZAC06_Commande_Seq_Tunnel")
+
+	/*A Preparation des parametres de la requete */
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = va_NumEvt+0				' Numero evenement
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#INT1_
+	vl_parametres[1].data = va_CleEvt+0				' Cle evenement
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type = SYB#INT2_
+	vl_parametres[2].data = va_NumOperateur+0			' Numero operateur
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type = SYB#INT2_
+	vl_parametres[3].data = va_NumTube+0				' Numero equipement
+	vl_parametres[3].output = FALSE
+
+	vl_parametres[4].type = SYB#DATETIME_
+	vl_parametres[4].data = vl_heure				' Heure de lancement
+	vl_parametres[4].output = FALSE
+
+	vl_parametres[5].type = SYB#BIT_
+	vl_parametres[5].data = va_Manuelle				' Manu ou Auto
+	vl_parametres[5].output = FALSE
+
+	vl_parametres[6].type = SYB#INT1_
+	vl_parametres[6].data = va_Priorite				' Priorité
+	vl_parametres[6].output = FALSE
+
+	vl_parametres[7].type = SYB#INT4_
+	vl_parametres[7].data = va_DistanceEvt				' DistanceEvt
+	vl_parametres[7].output = FALSE
+
+	vl_parametres[8].type = SYB#INT1_
+	vl_parametres[8].data = va_NumSequence+0			' N° de la sequence
+	vl_parametres[8].output = FALSE
+
+	vl_parametres[9].type = SYB#INT4_
+	vl_parametres[9].data = NULL					' NumAction
+	vl_parametres[9].output = TRUE
+
+        vl_parametres[11].type = SYB#CHAR_
+        vl_parametres[11].data = SYSTEM_VAR@(vg_nom_site)                             ' Site local
+        vl_parametres[11].output = FALSE
+
+	IF COM05_SQL_Procedure (XZAC06_Commande_Seq_Tunnel,
+					vl_parametres, vl_resultats, va_Module) <> COM_OK
+	{
+		va_NumAction = NULL
+		RETURN (COM_NOK)
+	}
+
+	va_NumAction = vl_resultats.return_parameters[0]
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Envoyer une sequence de commandes a un tunnel renove
+*			par ecriture de la commande dans la base de donnees
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Commun_Cmd_Seq_Tunnel_Renove (va_Module, va_NumOperateur, va_Manuelle, va_NumSequence,
+                                                 va_NumEvt, va_CleEvt, va_NumTube,
+                                                 va_Priorite, va_DistanceEvt,
+                                                 va_NumAction)
+
+/* -----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*		va_Module		:	nom du module appelant
+*		va_NumOperateur	:		numero de l'operateur
+*		va_Manuelle		:	type manuel ou auto
+*		va_NumSequence		:	numero de la sequence
+*		va_NumEvt		:	numero de l'evenement
+*		va_CleEvt		:	cle de l'evenement
+*		va_NumTube		:	numero du tunnel
+*		va_Priorite		:	priorite de l'evenement
+*		va_DistanceEvt		:	distance de l'evenement
+*
+* ARGUMENTS EN SORTIE :
+*		va_NumAction		:	le numero d'action retourné par la base
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*		Toute macro pilotant un tunnel
+*
+* FONCTION
+*   		Ecrire en base de donnees la sequence de commande.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	VAR	vl_Heure			' heure courante
+
+        VAR     vl_NomSite                      ' Nom du site
+
+	/*A Tester les droits d'acces à cette fonction */
+	if (NOT COM04_Operateur_A_Le_Droit_De (XDC_FAM_EXPLOITATION_DISTRICT)) AND (NOT COM04_Operateur_A_Le_Droit_De (XDC_FAM_EXPLOITATION_PC2))
+	{
+		ITMA_TTU_Commun_Acces_interdit ("piloter un tunnel", "ITMA_TTU_Commun_Cmd_Seq_Tunnel_Renove")
+		RETURN (COM_NOK)
+	}
+
+	vl_Heure = COM09_Date_Courante()
+
+        vl_NomSite = SYSTEM_VAR@("vg_nom_site")
+
+	/*A Trace de l'appel de la procedure */
+	COM01_Trace (0, vl_Heure ++ " ---> Appel de la procedure 'XZAC100_Commande_Seq_SIG")
+
+	/*A Preparation des parametres de la requete */
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = va_NumEvt+0				' Numero evenement
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#INT1_
+	vl_parametres[1].data = va_CleEvt+0				' Cle evenement
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type = SYB#INT2_
+	vl_parametres[2].data = va_NumOperateur+0			' Numero operateur
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type = SYB#INT1_
+	vl_parametres[3].data = XDC_EQT_TUB				' Type equipement
+	vl_parametres[3].output = FALSE
+
+	vl_parametres[4].type = SYB#INT2_
+	vl_parametres[4].data = va_NumTube+0				' Numero equipement
+	vl_parametres[4].output = FALSE
+
+	vl_parametres[5].type = SYB#DATETIME_
+	vl_parametres[5].data = vl_heure				' Heure de lancement
+	vl_parametres[5].output = FALSE
+
+	vl_parametres[6].type = SYB#BIT_
+	vl_parametres[6].data = va_Manuelle				' Manu ou Auto
+	vl_parametres[6].output = FALSE
+
+	vl_parametres[7].type = SYB#INT1_
+	vl_parametres[7].data = va_Priorite				' Priorité
+	vl_parametres[7].output = FALSE
+
+	vl_parametres[8].type = SYB#INT4_
+	vl_parametres[8].data = va_DistanceEvt				' DistanceEvt
+	vl_parametres[8].output = FALSE
+
+	vl_parametres[9].type = SYB#INT1_
+	vl_parametres[9].data = va_NumSequence+0			' N° de la sequence
+	vl_parametres[9].output = FALSE
+
+	vl_parametres[10].type = SYB#INT4_
+	vl_parametres[10].data = NULL					' NumAction
+	vl_parametres[10].output = TRUE
+
+        vl_parametres[11].type = SYB#CHAR_
+        vl_parametres[11].data = vl_NomSite                             ' Site local
+        vl_parametres[11].output = FALSE
+
+	IF COM05_SQL_Procedure (XZAC100_Commande_Seq_SIG,
+					vl_parametres, vl_resultats, va_Module) <> COM_OK
+	{
+		va_NumAction = NULL
+		RETURN (COM_NOK)
+	}
+
+	va_NumAction = vl_resultats.return_parameters[0]
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU : Trace l'acces interdit a une fonction (trace la macro)
+*                 et affiche un message d'erreur a l'operateur.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Commun_Acces_interdit (va_NomFonction, va_NomMacro)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*		va_NomFonction	:	la fonction concernee
+*		va_NomMacro	:	le nom de la macro interdite
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: Aucun
+
+* CONDITION D'UTILISATION :
+*   Appel d'une macro avec les droits d'accès insuffisant.
+*
+* FONCTION :
+*	Ecrit en trace un message indiquant la macro.
+*---------------------------------------------------------------------------- */
+
+	var		vl_tptext			' zone de text tampon
+
+	/*A Tracer l'appel de la macro */
+	vl_tptext =  " Accès Macro " ++ va_NomMacro ++ " refusé pour " ++ SYSTEM_VAR@ (vg_operateur)
+	COM01_Trace(0, vl_tptext)
+
+	/*A Afficher un message d'erreur à l'opérateur */
+	vl_tptext = "Vous n'avez pas les droits suffisants" ++ NUM_TO_STRING@(10) ++ "pour " ++ va_NomFonction
+	INFO_MESSAGE@ (vl_tptext)
+
+ENDMACRO

@@ -1,0 +1,1 @@
+#define XZAO435_Calcul_TDP_RTFM	 "XZAO435"

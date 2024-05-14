@@ -1,0 +1,1999 @@
+/*E*/
+/* Fichier : $Id: ITMA_TBR_Bureautique.am,v 1.14 2011/11/25 09:51:09 gesconf Exp $      Release : $Revision: 1.14 $        Date : $Date: 2011/11/25 09:51:09 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TBR * FICHIER ITMA_TBR_Bureautique.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Primitives personnalisees des outils Applix
+* (ouverture, sauvegarde, renommage, importation, exportation de fichiers)
+*
+*   Non decrit dans le DCG
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain  	15 Mar 1995  	Creation								V1.1
+* Guilhou		19 Sep 1995	ajout consultation fichiers dyn			V1.2
+* Torregrossa	22 Sep 1995	remplace sous repertoire de travail 
+*                             fichiers local par mbo					V1.4
+* Torregrossa	07 Dec 1995	Ajout de macro d'import et export en format csv 
+*                             et correction nom fichier a l'import et export V1.5 
+* Torregrossa	19 Dec 1995	Modif extension en format csv				V1.6
+* Torregrossa	11 Jan 1996	Correction sauvegarde wp et gr			V1.7
+*                             et importer exporter en config
+* Noel		02 Fev 1996	Mise en place de l'accès à l'administrateur 
+*						système de l'aide en ligne (DEM554)		V1.8
+* Torregrossa	06 Fev 1996	Ajout sauvegarde sous pour le spreadsheet en 
+*                             configuration							V1.9
+* Torregrossa	13 Fev 1996	Ajout import format tiff pour graphique		V1.10 
+* Torregrossa	23 Avr 1996	Ajout import de fichiers ayant un suffixe quelconque V1.11 (1007)
+* ESCOTA	16 fev 1999	format export excel est Excel 3.0 1.12
+* JPL		03/07/09 : Ajout macro gerant les barres de menu et leur id. de maniere unique (lie a DEM 530) 1.13
+* JPL		24/11/11 : Ajout macros de frappe d'un caractere sous ME et SS  1.14
+---------------------------------------------------------------------------- */
+
+INCLUDE	"fileinf_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TBR.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+
+
+/*A
+ * Suffixes de fichiers
+ * --------------------
+ */
+
+DEFINE	C_SFX_EXCEL	"xls"
+DEFINE	C_SFX_ASCII	"txt"
+DEFINE	C_SFX_CSV	"cfg"
+DEFINE	C_SFX_TIFF	"tiff"
+
+
+
+/*A
+ * Definition des formats de fichiers
+ * ----------------------------------
+ */
+
+DEFINE	C_FORMAT_WP		1
+
+DEFINE	C_FORMAT_SS		1
+DEFINE	C_FORMAT_EXCEL		10
+DEFINE	C_FORMAT_CSV		5
+DEFINE	C_FORMAT_ASCII		6
+
+DEFINE	C_FORMAT_GR		11			' ie ASCII compresse
+
+DEFINE	C_ORIG_REV		311			' ??? (Graphics)
+
+
+
+/*A
+ * Droits attribues aux nouveaux fichiers
+ * --------------------------------------
+ */
+
+DEFINE	C_DROITS_GRP	2
+DEFINE	C_DROITS_TOUS	1
+
+
+
+/*A
+ * Noms des fichiers de configuration des applications Applix
+ * ----------------------------------------------------------
+ */
+
+DEFINE	CM_FICH_MENU_SS_GEN	"itex_men_ss.syn"
+DEFINE	CM_FICH_MENU_SS_CFG	"itex_men_ss_config.syn"
+DEFINE	CM_FICH_MENU_SS_DYN	"itex_men_ss_dyn.syn"
+DEFINE	CM_FICH_MENU_SS_AST	"itex_men_ss_ast.syn"
+
+DEFINE	CM_FICH_MENU_WP_GEN	"itex_men_wp.syn"
+DEFINE	CM_FICH_MENU_WP_AID	"itex_men_aide.syn"
+DEFINE	CM_FICH_MENU_WP_FAQ	"itex_men_wp_faq.syn"
+
+DEFINE	CM_FICH_MENU_GFX_GEN	"itex_men_gr.syn"
+
+
+
+/*A
+ * Libelles des messages affiches
+ * ------------------------------
+ */
+
+DEFINE	C_LIB_CHOISIR_FICH	"Veuillez choisir un nom de fichier"
+DEFINE	C_LIB_CHOISIR_FORMAT	"Veuillez choisir un format de fichier"
+DEFINE	C_LIB_FICH_EXISTE	"Un fichier portant ce nom existe. Voulez-vous vraiment le remplacer ?"
+DEFINE	C_LIB_FICH_MODIFIE	"Des modifications ont été apportées. Voulez-vous vraiment les annuler ?"
+
+
+
+/*A
+ * Uniquement pour provoquer le chargement du fichier
+ * --------------------------------------------------
+ */
+
+MACRO ITMA_TBR_Bureautique ()
+RETURN (COM_OK)
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Macro de frappe d'un caractere sous les applications Applix :
+*  Macro editor (Word Processor), SpreadSheet ...
+*  a installer avec raccourci clavier comportant le modificateur 'ALT'.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO WP_Tilde ()
+	/* WP_ENTER_CHARS_FACE@("~", "Courier")*/	' Obtenu par enregistrement macro
+	WP_ENTER_CHAR@("~")
+ENDMACRO
+
+MACRO WP_Diese ()
+	WP_ENTER_CHAR@("#")
+ENDMACRO
+
+MACRO WP_AccoladeG ()
+	WP_ENTER_CHAR@("{")
+ENDMACRO
+
+MACRO WP_CrochetG ()
+	WP_ENTER_CHAR@("[")
+ENDMACRO
+
+MACRO WP_BarreV ()
+	WP_ENTER_CHAR@("|")
+ENDMACRO
+
+MACRO WP_Grave ()
+	WP_ENTER_CHAR@("`")
+ENDMACRO
+
+MACRO WP_Antislash ()
+	WP_ENTER_CHAR@("\\")
+ENDMACRO
+
+MACRO WP_Circonflexe ()
+	WP_ENTER_CHAR@("^")
+ENDMACRO
+
+MACRO WP_Arobase ()
+	WP_ENTER_CHAR@("@")
+ENDMACRO
+
+MACRO WP_CrochetD ()
+	WP_ENTER_CHAR@("]")
+ENDMACRO
+
+MACRO WP_AccoladeD ()
+	WP_ENTER_CHAR@("}")
+ENDMACRO
+
+
+
+MACRO SS_Tilde ()
+	SS_TYPE@("~")
+ENDMACRO
+
+MACRO SS_Diese ()
+	SS_TYPE@("#")
+ENDMACRO
+
+MACRO SS_AccoladeG ()
+	SS_TYPE@("{")
+ENDMACRO
+
+MACRO SS_CrochetG ()
+	SS_TYPE@("[")
+ENDMACRO
+
+MACRO SS_BarreV ()
+	SS_TYPE@("|")
+ENDMACRO
+
+MACRO SS_Grave ()
+	SS_TYPE@("`")
+ENDMACRO
+
+MACRO SS_Antislash ()
+	SS_TYPE@("\\")
+ENDMACRO
+
+MACRO SS_Circonflexe ()
+	SS_TYPE@("^")
+ENDMACRO
+
+MACRO SS_Arobase ()
+	SS_TYPE@("@")
+ENDMACRO
+
+MACRO SS_CrochetD ()
+	SS_TYPE@("]")
+ENDMACRO
+
+MACRO SS_AccoladeD ()
+	SS_TYPE@("}")
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit le fichier de configuration definissant un menu particulier
+*  pour une application Applix (traitement de texte, tableur, ...)
+*  et retourne a l'appelant un identifiant unique
+*  adequat selon le type d'application.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Menu_Appli_Applix (va_type_menu)
+
+	VAR	vl_id_menu
+	VAR	vl_fichier_menu
+	VAR	vl_menu
+
+ON ERROR {
+	ERROR_BOX@ ()
+	RETURN (vl_id_menu)
+}
+
+
+/* Valeur par defaut, invalide */
+vl_id_menu = -1
+
+/*A
+ * Definir un identifiant unique et son fichier de configuration pour le type de menu
+ * ----------------------------------------------------------------------------------
+ */
+
+CASE OF va_type_menu
+CASE TBR_MENU_MIGRAZUR
+	vl_id_menu = 0
+
+CASE TBR_MENU_SS_GEN
+	vl_id_menu = 101
+	vl_fichier_menu = CM_FICH_MENU_SS_GEN
+CASE TBR_MENU_SS_CFG
+	vl_id_menu = 103
+	vl_fichier_menu = CM_FICH_MENU_SS_CFG
+CASE TBR_MENU_SS_DYN
+	vl_id_menu = 106
+	vl_fichier_menu = CM_FICH_MENU_SS_DYN
+CASE TBR_MENU_SS_AST
+	vl_id_menu = 107
+	vl_fichier_menu = CM_FICH_MENU_SS_AST
+
+CASE TBR_MENU_WP_GEN
+	vl_id_menu = 201
+	vl_fichier_menu = CM_FICH_MENU_WP_GEN
+CASE TBR_MENU_WP_AID
+	vl_id_menu = 202
+	vl_fichier_menu = CM_FICH_MENU_WP_AID
+CASE TBR_MENU_WP_FAQ
+	vl_id_menu = 203
+	vl_fichier_menu = CM_FICH_MENU_WP_FAQ
+
+CASE TBR_MENU_GFX_GEN
+	vl_id_menu = 301
+	vl_fichier_menu = CM_FICH_MENU_GFX_GEN
+
+DEFAULT
+	ERROR@ (1, "Menu Applix personnalise de type inconnu !", NULL)
+ENDCASE
+
+
+/*A
+ * Lire le fichier de configuration de barre de menu
+ *  et attacher le menu a son identifiant unique
+ * -------------------------------------------------
+ */
+
+vl_menu = READ_DATA_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+                              COM_SOUS_REP_IHM ++ vl_fichier_menu)
+SET_SELECTIONS@ (vl_id_menu, vl_menu)
+
+RETURN (vl_id_menu)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Reinitialise le document Applix Spreadsheet courant.
+*  Reecrit pour les deux raisons suivantes :
+*   . pour eviter l'appel au menu "Sauvegarder sous" initial ;
+*   . pour reinitialiser le NOM du document.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Nouveau_Fichier_SS ()
+
+    VAR     vl_nouveau
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF SS_MODIFIED@ ()
+    vl_nouveau = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_nouveau = TRUE
+
+IF vl_nouveau {
+    SS_REVERT@
+    SS_NEW_DLG@ ()
+    SET_SYSTEM_VAR@ (vg_nom_fichier_ss, NULL)
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Ouvre un fichier Applix Spreadsheet.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Ouvrir_Fichier_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a ouvrir
+    VAR     vl_path				' Chemin d'acces complet
+    VAR     vl_ouvrir
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF SS_MODIFIED@ ()
+    vl_ouvrir = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_ouvrir = TRUE
+
+IF vl_ouvrir {
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+    vl_fichier = ITMA_TBR_Choisir_Fichier ("Ouvrir", vl_path, SS#SFX)
+
+    IF vl_fichier <> NULL {
+	SS_LOAD_FILE@ (vl_path ++ vl_fichier)
+	SET_SYSTEM_VAR@ (vg_nom_fichier_ss, vl_fichier)
+    }
+}
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Ouvre un fichier Applix Spreadsheet.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Ouvrir_Fichier_SS_Dyn ()
+
+    VAR     vl_fichier				' Nom du fichier a ouvrir
+    VAR     vl_path				' Chemin d'acces complet
+    VAR     vl_ouvrir
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF SS_MODIFIED@ ()
+    vl_ouvrir = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_ouvrir = TRUE
+
+IF vl_ouvrir {
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_DYN
+    vl_fichier = ITMA_TBR_Choisir_Fichier ("Ouvrir", vl_path, SS#SFX)
+
+    IF vl_fichier <> NULL {
+	SS_LOAD_FILE@ (vl_path ++ vl_fichier)
+	SET_SYSTEM_VAR@ (vg_nom_fichier_ss, vl_fichier)
+    }
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Sauvegarde le document Applix Spreadsheet courant.
+*  Reecrit pour les deux raisons suivantes :
+*   . pour eviter l'appel au menu "Sauvegarder sous" initial ;
+*   . parce que le Spreadsheet "oublie" le nom du document en l'exportant.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Ecrire_Fichier_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a ecrire
+    VAR     vl_path				' Chemin d'acces complet
+
+
+/*A
+ * Si le document est celui d'un fichier alors l'y ecrire
+ * sinon demander un nom de fichier ou sauvegarder le texte
+ * --------------------------------------------------------
+ */
+
+vl_fichier = SYSTEM_VAR@ (vg_nom_fichier_ss)
+IF vl_fichier = NULL
+    ITMA_TBR_Renommer_Fichier_SS ()
+ELSE {
+    MACRO_WINS_BUSY@ ()
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+    SS_SAVE_AS@(vl_path ++ vl_fichier, C_FORMAT_SS, C_DROITS_GRP, C_DROITS_TOUS)
+}
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Sauvegarde le document Applix Spreadsheet courant.
+*  Reecrit pour les deux raisons suivantes :
+*   . pour eviter l'appel au menu "Sauvegarder sous" initial ;
+*   . parce que le Spreadsheet "oublie" le nom du document en l'exportant.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Ecrire_Fichier_SS_Dyn ()
+
+    VAR     vl_fichier				' Nom du fichier a ecrire
+    VAR     vl_path				' Chemin d'acces complet
+
+
+/*A
+ * Si le document est celui d'un fichier alors l'y ecrire
+ * sinon demander un nom de fichier ou sauvegarder le texte
+ * --------------------------------------------------------
+ */
+
+vl_fichier = SYSTEM_VAR@ (vg_nom_fichier_ss)
+IF vl_fichier = NULL
+    ITMA_TBR_Renommer_Fic_SS_Dyn ()
+ELSE {
+    MACRO_WINS_BUSY@ ()
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_DYN
+    SS_SAVE_AS@(vl_path ++ vl_fichier, C_FORMAT_SS, C_DROITS_GRP, C_DROITS_TOUS)
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Sauvegarde le document Applix Spreadsheet courant sous un autre nom.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Renommer_Fichier_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a creer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR FORMAT doc_format_ vl_infos		' Infos sur le document courant
+
+/*A
+ * Determiner le nom a proposer pour le fichier cree
+ * -------------------------------------------------
+ */
+
+vl_fichier = SYSTEM_VAR@ (vg_nom_fichier_ss)
+IF vl_fichier = NULL {
+    vl_infos = SS_GET_DOC_INFO@ ()
+    PARSE_PATHNAME@ (vl_infos.name, vl_path, vl_fichier)
+}
+vl_fichier = SUBSTRING@ (vl_fichier, 1, LEN@(vl_fichier) - (LEN@(SS#SFX) + 1))
+vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+
+vl_fichier = ITMA_TBR_Creer_Fichier ("Sauvegarder", vl_path, SS#SFX, vl_fichier)
+
+IF vl_fichier <> NULL {
+    MACRO_WINS_BUSY@ ()
+    SS_SAVE_AS@(vl_path ++ vl_fichier, C_FORMAT_SS, C_DROITS_GRP, C_DROITS_TOUS)
+    SET_SYSTEM_VAR@ (vg_nom_fichier_ss, vl_fichier)
+}
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Sauvegarde le document Applix Spreadsheet courant sous un autre nom.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Renommer_Fic_SS_Dyn ()
+
+    VAR     vl_fichier				' Nom du fichier a creer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR FORMAT doc_format_ vl_infos		' Infos sur le document courant
+
+/*A
+ * Determiner le nom a proposer pour le fichier cree
+ * -------------------------------------------------
+ */
+
+vl_fichier = SYSTEM_VAR@ (vg_nom_fichier_ss)
+IF vl_fichier = NULL {
+    vl_infos = SS_GET_DOC_INFO@ ()
+    PARSE_PATHNAME@ (vl_infos.name, vl_path, vl_fichier)
+}
+vl_fichier = SUBSTRING@ (vl_fichier, 1, LEN@(vl_fichier) - (LEN@(SS#SFX) + 1))
+vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_DYN
+
+vl_fichier = ITMA_TBR_Creer_Fichier ("Sauvegarder", vl_path, SS#SFX, vl_fichier)
+
+IF vl_fichier <> NULL {
+    MACRO_WINS_BUSY@ ()
+    SS_SAVE_AS@(vl_path ++ vl_fichier, C_FORMAT_SS, C_DROITS_GRP, C_DROITS_TOUS)
+    SET_SYSTEM_VAR@ (vg_nom_fichier_ss, vl_fichier)
+}
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Importe un fichier Excel dans Applix Spreadsheet.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Importer_Xls_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a importer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR     vl_importer
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF SS_MODIFIED@ ()
+    vl_importer = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_importer = TRUE
+
+IF vl_importer {
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+    vl_fichier = ITMA_TBR_Choisir_Fichier ("Importer", vl_path, C_SFX_EXCEL)
+
+    IF vl_fichier <> NULL {
+	MACRO_WINS_BUSY@ ()
+	SS_IMPORT_XLS@ (vl_path ++ vl_fichier, TRUE)
+	SET_SYSTEM_VAR@ (vg_nom_fichier_ss, NULL)
+    }
+}
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Importe un fichier Excel dans Applix Spreadsheet.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Importer_Xls_SS_Dyn ()
+
+    VAR     vl_fichier				' Nom du fichier a importer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR     vl_importer
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF SS_MODIFIED@ ()
+    vl_importer = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_importer = TRUE
+
+IF vl_importer {
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_DYN
+    vl_fichier = ITMA_TBR_Choisir_Fichier ("Importer", vl_path, C_SFX_EXCEL)
+
+    IF vl_fichier <> NULL {
+	MACRO_WINS_BUSY@ ()
+	SS_IMPORT_XLS@ (vl_path ++ vl_fichier, TRUE)
+	SET_SYSTEM_VAR@ (vg_nom_fichier_ss, NULL)
+    }
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Exporte un fichier Applix Spreadsheet sous le format Excel.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Exporter_SS_Xls ()
+
+    VAR     vl_fichier				' Nom du fichier a creer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR FORMAT doc_format_ vl_infos		' Infos sur le document courant
+
+vl_fichier = SYSTEM_VAR@ (vg_nom_fichier_ss)
+IF vl_fichier = NULL {
+    vl_infos = SS_GET_DOC_INFO@ ()
+    PARSE_PATHNAME@ (vl_infos.name, vl_path, vl_fichier)
+}
+vl_fichier = SUBSTRING@ (vl_fichier, 1, LEN@(vl_fichier) - (LEN@(SS#SFX) + 1))
+vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+
+vl_fichier = ITMA_TBR_Creer_Fichier ("Exporter", vl_path, C_SFX_EXCEL,
+					vl_fichier ++ "." ++ C_SFX_EXCEL)
+
+IF vl_fichier <> NULL {
+    MACRO_WINS_BUSY@ ()
+    SS_SAVE_AS@ (vl_path ++ vl_fichier,
+		 C_FORMAT_EXCEL, C_DROITS_GRP, C_DROITS_TOUS)
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Termine la session Applix Spreadsheet courante.
+*  Reecrit uniquement pour eviter l'appel au menu "Sauvegarder sous" initial.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Quitter_SS ()
+
+    VAR     vl_quitter
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF SS_MODIFIED@ ()
+    vl_quitter = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_quitter = TRUE
+
+IF vl_quitter {
+    SS_REVERT@
+  	SET_SYSTEM_VAR@ (vg_nom_fichier_ss, NULL)
+  SS_QUIT_DLG@ ()
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Reinitialise le document Applix Words courant.
+*  Reecrit uniquement pour eviter l'appel au menu "Sauvegarder sous" initial.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Nouveau_Fichier_WP ()
+
+    VAR     vl_nouveau
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF WP_MODIFIED@ ()
+    vl_nouveau = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_nouveau = TRUE
+
+IF vl_nouveau {
+    WP_REVERT@
+    WP_NEW_DLG@ ()
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Ouvre un fichier Applix Words.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Ouvrir_Fichier_WP ()
+
+    VAR     vl_fichier				' Nom du fichier a ouvrir
+    VAR     vl_path				' Chemin d'acces complet
+    VAR     vl_ouvrir
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF WP_MODIFIED@ ()
+    vl_ouvrir = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_ouvrir = TRUE
+
+IF vl_ouvrir {
+
+	If COM04_Operateur_A_Le_Droit_De (XDC_FAM_DEVEL_CONFIG)
+	{
+    		vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_CONFIG
+		vl_fichier = ITMA_TBR_Choisir_Rep ("Ouvrir", vl_path, DC#SFX)
+		vl_path = vl_fichier
+	}
+	else
+	{
+    		vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+		vl_fichier = ITMA_TBR_Choisir_Fichier ("Ouvrir", vl_path, DC#SFX)
+		vl_path = vl_path ++ vl_fichier
+	}
+
+    	IF vl_fichier <> NULL 
+	{
+		WP_LOAD_FILE@ (vl_path)
+		WP_SET_MODIFIED@ (FALSE)
+    	}
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Sauvegarde le document Applix Words courant.
+*  Reecrit pour eviter l'appel au menu "Sauvegarder sous" initial.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Ecrire_Fichier_WP ()
+
+   VAR FORMAT doc_format_ vl_infos		' Infos sur le document courant
+    VAR     vl_fichier				' Nom du fichier a creer
+    VAR     vl_path				' Chemin d'acces complet
+
+/*A
+ * Si le document est celui d'un fichier alors l'y ecrire
+ * sinon demander un nom de fichier ou sauvegarder le texte
+ * --------------------------------------------------------
+ */
+vl_infos = WP_GET_DOC_INFO@ ()
+PARSE_PATHNAME@ (vl_infos.name, vl_path, vl_fichier)
+
+IF vl_infos.on_disk {
+    MACRO_WINS_BUSY@ ()
+
+	If NOT COM04_Operateur_A_Le_Droit_De (XDC_FAM_DEVEL_CONFIG)
+    		vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+    	WP_SAVE_RENAME@ (vl_path ++ "/" ++ vl_fichier,
+		     C_FORMAT_WP, C_DROITS_GRP, C_DROITS_TOUS)
+}
+ELSE ITMA_TBR_Renommer_Fichier_WP ()
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Sauvegarde le document Applix Words courant sous un autre nom.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Renommer_Fichier_WP ()
+
+    VAR     vl_fichier				' Nom du fichier a creer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR FORMAT doc_format_ vl_infos		' Infos sur le document courant
+
+/*A
+ * Determiner le nom a proposer pour le fichier cree
+ * -------------------------------------------------
+ */
+
+vl_infos = WP_GET_DOC_INFO@ ()
+PARSE_PATHNAME@ (vl_infos.name, vl_path, vl_fichier)
+vl_fichier = SUBSTRING@ (vl_fichier, 1, LEN@(vl_fichier) - (LEN@(DC#SFX) + 1))
+
+If NOT COM04_Operateur_A_Le_Droit_De (XDC_FAM_DEVEL_CONFIG)
+	vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+
+vl_fichier = ITMA_TBR_Creer_Fichier ("Sauvegarder", vl_path, DC#SFX, vl_fichier)
+
+/*A
+ * Sauvegarde du fichier dans le repertoire MBO
+ * -------------------------------------------------
+ */
+IF vl_fichier <> NULL {
+    MACRO_WINS_BUSY@ ()
+    WP_SAVE_RENAME@ (vl_path ++ "/" ++ vl_fichier,
+		     C_FORMAT_WP, C_DROITS_GRP, C_DROITS_TOUS)
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Termine la session Applix Words courante.
+*  Reecrit uniquement pour eviter l'appel au menu "Sauvegarder sous" initial.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Quitter_WP ()
+
+    VAR     vl_quitter
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF WP_MODIFIED@ ()
+    vl_quitter = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_quitter = TRUE
+
+IF vl_quitter {
+    WP_REVERT@
+    WP_QUIT_DLG@ ()
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Reinitialise le document Applix Graphics courant.
+*  Reecrit uniquement pour eviter l'appel au menu "Sauvegarder sous" initial.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Nouveau_Fichier_GR ()
+
+    VAR     vl_nouveau
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF GR_MODIFIED@ ()
+    vl_nouveau = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_nouveau = TRUE
+
+IF vl_nouveau {
+    GR_REVERT@
+    GR_NEW_DLG@ ()
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Ouvre un fichier Applix Graphics.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Ouvrir_Fichier_GR ()
+
+    VAR     vl_fichier				' Nom du fichier a ouvrir
+    VAR     vl_path				' Chemin d'acces complet
+    VAR     vl_ouvrir
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF GR_MODIFIED@ ()
+    vl_ouvrir = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_ouvrir = TRUE
+
+IF vl_ouvrir {
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+    vl_fichier = ITMA_TBR_Choisir_Fichier ("Ouvrir", vl_path, GE#SFX)
+
+    IF vl_fichier <> NULL
+	GR_LOAD_FILE@ (vl_path ++ vl_fichier)
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Colle un fichier (format Applix Graphics uniquement) au graphique courant.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Coller_Fichier_GR ()
+
+    VAR     vl_fichier				' Nom du fichier a ouvrir
+    VAR     vl_path				' Chemin d'acces complet
+
+
+vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+vl_fichier = ITMA_TBR_Choisir_Fichier ("Coller", vl_path, GE#SFX)
+
+IF vl_fichier <> NULL
+    GR_PASTE_GR@ (vl_path ++ vl_fichier)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Importer un fichier au format tiff (pour 3D) au graphique courant.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Importer_TIFF_GR ()
+
+    VAR     vl_fichier				' Nom du fichier a ouvrir
+    VAR     vl_path				' Chemin d'acces complet
+
+
+vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+vl_fichier = ITMA_TBR_Choisir_Fichier ("Importer", vl_path, C_SFX_TIFF)
+
+IF vl_fichier <> NULL {
+    MACRO_WINS_BUSY@ ()
+    GR_IMPORT_TIF@ (vl_path ++ vl_fichier)
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Sauvegarde le document Applix Graphics courant.
+*  Reecrit pour eviter l'appel au menu "Sauvegarder sous" initial.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Ecrire_Fichier_GR ()
+
+    VAR     vl_fichier				' Nom du fichier a creer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR FORMAT doc_format_ vl_infos		' Infos sur le document courant
+
+/*A
+ * Si le document est celui d'un fichier alors l'y ecrire
+ * sinon demander un nom de fichier ou sauvegarder le texte
+ * --------------------------------------------------------
+ */
+
+vl_infos = GR_GET_DOC_INFO@ ()
+PARSE_PATHNAME@ (vl_infos.name, vl_path, vl_fichier)
+
+IF vl_infos.on_disk {
+    MACRO_WINS_BUSY@ ()
+	vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+    vl_infos = NULL
+    vl_infos.name = vl_path ++ vl_fichier
+    vl_infos.docid = NULL
+    vl_infos.on_disk = NULL
+    vl_infos.save_mode = C_FORMAT_GR
+    vl_infos.grp_access = C_DROITS_GRP
+    vl_infos.all_access = C_DROITS_TOUS
+    vl_infos.writeable = 1
+    vl_infos.orig_rev = C_ORIG_REV
+    GR_SAVE_AS@ (vl_infos)
+}
+ELSE ITMA_TBR_Renommer_Fichier_GR ()
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Sauvegarde le document Applix Graphics courant sous un autre nom.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Renommer_Fichier_GR ()
+
+    VAR     vl_fichier				' Nom du fichier a creer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR FORMAT doc_format_ vl_infos		' Infos sur le document courant
+
+/*A
+ * Determiner le nom a proposer pour le fichier cree
+ * -------------------------------------------------
+ */
+
+vl_infos = GR_GET_DOC_INFO@ ()
+PARSE_PATHNAME@ (vl_infos.name, vl_path, vl_fichier)
+vl_fichier = SUBSTRING@ (vl_fichier, 1, LEN@(vl_fichier) - (LEN@(GE#SFX) + 1))
+
+vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+vl_fichier = ITMA_TBR_Creer_Fichier ("Sauvegarder", vl_path, GE#SFX, vl_fichier)
+
+IF vl_fichier <> NULL {
+    MACRO_WINS_BUSY@ ()
+    vl_infos = NULL
+    vl_infos.name = vl_path ++ vl_fichier
+    vl_infos.docid = NULL
+    vl_infos.on_disk = NULL
+    vl_infos.save_mode = C_FORMAT_GR
+    vl_infos.grp_access = C_DROITS_GRP
+    vl_infos.all_access = C_DROITS_TOUS
+    vl_infos.writeable = 1
+    vl_infos.orig_rev = C_ORIG_REV
+    GR_SAVE_AS@ (vl_infos)
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Termine la session Applix Graphics courante.
+*  Reecrit uniquement pour eviter l'appel au menu "Sauvegarder sous" initial.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Quitter_GR ()
+
+    VAR     vl_quitter
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF GR_MODIFIED@ ()
+    vl_quitter = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_quitter = TRUE
+
+IF vl_quitter {
+    GR_REVERT@
+    GR_QUIT_DLG@ ()
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Propose la liste des fichiers du repertoire indique dont le nom correspond
+*  au format indique et permet d'en choisir un.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Choisir_Fichier (va_action, va_repertoire, va_suffixe,va_suffixe_supprime)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_action          : Nom de l'action pour laquelle le choix est effectue ;
+*  va_repertoire      : Nom du repertoire a explorer ;
+*  va_suffixe         : Suffixe des noms de fichier a proposer.
+*  va_suffixe_supprime: Suffixe des noms de fichier a ne pas proposer.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Le nom du fichier selectionne, NULL si aucun.
+*
+* CONDITION D'UTILISATION
+*   Macros d'ouverture, de copie, de publication de fichier.
+*
+* FONCTION
+*   Permet a l'operateur de choisir un fichier dans la liste de ceux
+*   correspondant a un format donne.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_la_fenetre_est_active
+
+    VAR     vl_format				' Format de nom de fichier
+    VAR     vl_l_fichiers			' Liste des fichiers proposes
+    VAR     vl_l_fichiers_supprimes	' Liste des fichiers a ne pas proposer
+    VAR     vl_fichier				' Fichier selecte et retourne
+    VAR     vl_lgr, vl_index, i
+
+
+ON ERROR {
+    ERROR_BOX@
+    RETURN (NULL)
+}
+
+
+/*A
+ * Charger la fenetre
+ * ------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TBR_Fichiers")
+
+DB_TITLE@ (vl_fenetre, va_action)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Choix", TRUE)
+DB_CTRL_PICK_DEFAULT@ (vl_fenetre, "BL_Choix", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Choix", -1)
+
+DB_CTRL_VALUE@ (vl_fenetre, "BS_Format", "*")
+
+DB_CTRL_TITLE@ (vl_fenetre, "BP_Valider", va_action)
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider", TRUE)
+
+
+/*A
+ * Initialiser la visualisation (listes des fichiers)
+ * --------------------------------------------------
+ */
+
+vl_format = "*"
+IF va_suffixe <> NULL
+    vl_format = vl_format ++ "." ++ va_suffixe
+
+vl_l_fichiers = FILE_SYSTEM_INFO@ (va_repertoire, vl_format,
+				    FALSE, TRUE, 4, FALSE, FALSE)
+vl_l_fichiers = ARRAY_COLUMN@ (vl_l_fichiers, 0)
+
+IF va_suffixe_supprime <> NULL 
+{
+	vl_format = "*"
+	vl_format = vl_format ++ "." ++ va_suffixe_supprime
+	vl_l_fichiers_supprimes = FILE_SYSTEM_INFO@ (va_repertoire, vl_format,
+				    FALSE, TRUE, 4, FALSE, FALSE)
+	vl_l_fichiers_supprimes = ARRAY_COLUMN@ (vl_l_fichiers_supprimes, 0)
+
+	FOR i=0 TO ARRAY_SIZE@ (vl_l_fichiers_supprimes)-1
+		vl_index = ARRAY_INDEX@ (vl_l_fichiers,vl_l_fichiers_supprimes[i])
+		vl_l_fichiers = ARRAY_DELETE@ (vl_l_fichiers,vl_index)
+	NEXT i
+}
+	
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_Choix", vl_l_fichiers)
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+    CASE OF vl_objet_selecte
+
+    CASE "BP_Annuler"
+	vl_fichier = NULL
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur choix "Rechercher", afficher les fichiers correspondant au format
+     * ---------------------------------------------------------------------
+     */
+
+    CASE "BP_Rechercher"
+	vl_format = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Format")
+	IF vl_format = NULL
+	    INFO_MESSAGE@ (C_LIB_CHOISIR_FORMAT)
+	ELSE {
+	    IF va_suffixe <> NULL
+		vl_format = vl_format ++ "." ++ va_suffixe
+	    vl_l_fichiers = FILE_SYSTEM_INFO@ (va_repertoire, vl_format,
+						FALSE, TRUE, 4, FALSE, FALSE)
+	    vl_l_fichiers = ARRAY_COLUMN@ (vl_l_fichiers, 0)
+	    DB_CTRL_STRINGS@ (vl_fenetre, "BL_Choix", vl_l_fichiers)
+	    DB_CTRL_VALUE@ (vl_fenetre, "BL_Choix", -1)
+
+	    DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Rechercher", TRUE)
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider", TRUE)
+	}
+
+
+    /*A
+     * Sur selection d'un fichier, autoriser la validation
+     * ---------------------------------------------------
+     */
+
+    CASE "BL_Choix"
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider", FALSE)
+	DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Valider", TRUE)
+
+
+    /*A
+     * Sur choix "Valider", terminer et retourner le fichier choisi
+     * ------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Choix")
+	vl_fichier = vl_l_fichiers[vl_index]
+
+	/*B Si un suffixe est precise, l'ajouter s'il n'y figure pas */
+	IF va_suffixe <> NULL {
+	    vl_lgr = LEN@ (vl_fichier) - LEN@ (va_suffixe)
+	    IF vl_lgr < 1
+		vl_fichier = vl_fichier ++ "." ++ va_suffixe
+	    ELSE IF SUBSTRING@ (vl_fichier, vl_lgr) <> "." ++ va_suffixe
+		vl_fichier = vl_fichier ++ "." ++ va_suffixe
+	}
+
+	vl_la_fenetre_est_active = FALSE
+    ENDCASE
+WEND
+
+
+RETURN (vl_fichier)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Propose la liste des fichiers existants dans le repertoire indique dont le
+*  nom correspond au format indique ;
+*  Permet de saisir un (nouveau) nom et effectue un controle d'existence.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Creer_Fichier (va_action, va_repertoire, va_suffixe, va_propose)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_action          : Nom de l'action de sauvegarde ;
+*  va_repertoire      : Nom du repertoire a explorer ;
+*  va_suffixe         : Suffixe des noms de fichiers a proposer ;
+*  va_propose         : Valeur a proposer pour nom du fichier.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Le nom du fichier saisi, NULL si aucun.
+*
+* CONDITION D'UTILISATION
+*   Macros de sauvegarde, d'exportation de fichier.
+*
+* FONCTION
+*   Permet a l'operateur de choisir un fichier dans la liste de ceux existants
+*   ou de saisir un nouveau nom.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_la_fenetre_est_active
+
+    VAR     vl_format				' Format de nom de fichier
+    VAR     vl_l_fichiers			' Liste des fichiers proposes
+    VAR     vl_fichier				' Fichier selecte et retourne
+    VAR     vl_lgr, vl_index
+
+
+ON ERROR {
+    ERROR_BOX@
+    RETURN (NULL)
+}
+
+
+/*A
+ * Charger la fenetre
+ * ------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TBR_Nom_Fichier")
+
+DB_TITLE@ (vl_fenetre, va_action)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Choix", TRUE)
+DB_CTRL_PICK_DEFAULT@ (vl_fenetre, "BL_Choix", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Choix", -1)
+
+DB_CTRL_VALUE@ (vl_fenetre, "BS_Nom", va_propose)
+
+DB_CTRL_TITLE@ (vl_fenetre, "BP_Valider", va_action)
+
+
+/*A
+ * Initialiser la visualisation (listes des fichiers)
+ * --------------------------------------------------
+ */
+
+IF va_suffixe <> NULL
+    vl_format = "*." ++ va_suffixe
+ELSE vl_format = "*"
+vl_l_fichiers = FILE_SYSTEM_INFO@ (va_repertoire, vl_format,
+				    FALSE, TRUE, 4, FALSE, FALSE)
+vl_l_fichiers = ARRAY_COLUMN@ (vl_l_fichiers, 0)
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_Choix", vl_l_fichiers)
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+    CASE OF vl_objet_selecte
+
+    CASE "BP_Annuler"
+	vl_fichier = NULL
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur selection d'un fichier, proposer son nom en saisie
+     * ------------------------------------------------------
+     */
+
+    CASE "BL_Choix"
+	vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Choix")
+	vl_fichier = vl_l_fichiers[vl_index]
+	DB_CTRL_VALUE@ (vl_fenetre, "BS_Nom", vl_fichier)
+
+
+    /*A
+     * Sur choix "Valider", verifier qu'un nom a ete saisi puis
+     * si un fichier portant ce nom existe demander confirmation
+     * ---------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	vl_fichier = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Nom")
+	IF vl_fichier = NULL
+	    INFO_MESSAGE@ (C_LIB_CHOISIR_FICH)
+	ELSE {
+	    /*B Si un suffixe est precise, l'ajouter s'il n'y figure pas */
+	    IF va_suffixe <> NULL {
+		vl_lgr = LEN@ (vl_fichier) - LEN@ (va_suffixe)
+		IF vl_lgr < 1
+		    vl_fichier = vl_fichier ++ "." ++ va_suffixe
+		ELSE IF SUBSTRING@ (vl_fichier, vl_lgr) <> "." ++ va_suffixe
+		    vl_fichier = vl_fichier ++ "." ++ va_suffixe
+	    }
+
+	    IF FILE_EXISTS@ (va_repertoire ++ "/" ++ vl_fichier)
+		vl_la_fenetre_est_active = NOT YES_NO_PROMPT@(C_LIB_FICH_EXISTE)
+	    ELSE vl_la_fenetre_est_active = FALSE
+	}
+    ENDCASE
+WEND
+
+
+RETURN (vl_fichier)
+
+ENDMACRO
+
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Propose une liste de sous-repertoires et permet d'en choisir un.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Choisir_Rep (va_action, va_repertoire,va_suffixe,va_suffixe_supprime)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_action          : Nom de l'action pour laquelle le choix est effectue ;
+*  va_repertoire      : Nom du repertoire a explorer ;
+*  va_suffixe_supprime: suffixe a ne pas proposer ;
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Le nom du fichier selectionne, NULL si aucun.
+*
+* CONDITION D'UTILISATION
+*   Macros d'ouverture, de copie, de publication de fichier.
+*
+* FONCTION
+*   Permet a l'operateur de choisir un fichier dans la liste de ceux
+*   correspondant a un format donne.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_la_fenetre_est_active
+
+    VAR     vl_format				' Format de nom de fichier
+    VAR     vl_l_fichiers			' Liste des fichiers proposes
+    VAR     vl_fichier				' Fichier selecte et retourne
+    VAR     vl_lgr, vl_index
+	VAR vl_dir
+	
+ON ERROR {
+    ERROR_BOX@
+    RETURN (NULL)
+}
+
+
+/*A
+ * Charger la fenetre
+ * ------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TBR_Fichiers")
+
+DB_TITLE@ (vl_fenetre, va_action)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+DB_CTRL_DISPLAY@ (vl_fenetre,"BS_Format",FALSE)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Choix", TRUE)
+DB_CTRL_PICK_DEFAULT@ (vl_fenetre, "BL_Choix", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Choix", -1)
+
+DB_CTRL_TITLE@ (vl_fenetre, "BP_Valider", va_action)
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider", TRUE)
+
+
+/*A
+ * Initialiser la visualisation (listes des fichiers)
+ * --------------------------------------------------
+ */
+
+vl_l_fichiers = LIST_OF_DIRS@  (va_repertoire)
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_Choix", vl_l_fichiers)
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+    CASE OF vl_objet_selecte
+
+    CASE "BP_Annuler"
+	vl_fichier = NULL
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur selection d'un fichier, autoriser la validation
+     * ---------------------------------------------------
+     */
+
+    CASE "BL_Choix"
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider", FALSE)
+	DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Valider", TRUE)
+
+
+    /*A
+     * Sur choix "Valider", terminer et retourner le fichier choisi
+     * ------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Choix")
+	vl_dir = vl_l_fichiers[vl_index]
+
+	vl_fichier=ITMA_TBR_Choisir_Fichier ("Ouvrir", va_repertoire++"/"++vl_dir, va_suffixe,va_suffixe_supprime)
+
+	vl_la_fenetre_est_active = FALSE
+    ENDCASE
+WEND
+
+IF (vl_fichier<>NULL) {
+	SET_SYSTEM_VAR@ (vg_nom_fichier_ss, vl_dir++"/"++vl_fichier)
+	RETURN (va_repertoire++vl_dir++"/"++vl_fichier)
+}
+ELSE
+{
+	SET_SYSTEM_VAR@ (vg_nom_fichier_ss, NULL)
+	RETURN (NULL)
+}
+
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Ouvre un repertoire.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Ouvrir_Rep_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a ouvrir
+    VAR     vl_path				' Chemin d'acces complet
+    VAR     vl_ouvrir
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF SS_MODIFIED@ ()
+    vl_ouvrir = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_ouvrir = TRUE
+
+IF vl_ouvrir {
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_CONFIG
+    vl_fichier = ITMA_TBR_Choisir_Rep ("Ouvrir", vl_path, SS#SFX)
+
+    IF vl_fichier <> NULL {
+	SS_LOAD_FILE@ (vl_fichier)
+    }
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Sauvegarde le document Applix Spreadsheet courant.
+*  Reecrit pour les deux raisons suivantes :
+*   . pour eviter l'appel au menu "Sauvegarder sous" initial ;
+*   . parce que le Spreadsheet "oublie" le nom du document en l'exportant.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Ecrire_Fichier_Cfg_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a ecrire
+    VAR     vl_path				' Chemin d'acces complet
+
+
+/*A
+ * Si le document est celui d'un fichier alors l'y ecrire
+ * sinon demander un nom de fichier ou sauvegarder le texte
+ * --------------------------------------------------------
+ */
+
+vl_fichier = SYSTEM_VAR@ (vg_nom_fichier_ss)
+
+IF vl_fichier = NULL
+    ITMA_TBR_Ren_Fichier_Cfg_SS ()
+ELSE {
+    MACRO_WINS_BUSY@ ()
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_CONFIG
+    SS_SAVE_AS@(vl_path ++ vl_fichier, C_FORMAT_SS, C_DROITS_GRP, C_DROITS_TOUS)
+}
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Sauvegarde le document Applix Spreadsheet courant sous un autre nom.
+*  (renommage d'un fichier existant)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Ren_Fichier_Cfg_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a creer
+    VAR     vl_path					' Chemin d'acces complet
+    VAR FORMAT doc_format_ vl_infos	' Infos sur le document courant
+
+/*A
+ * Determiner le nom a proposer pour le fichier cree
+ * (le nom proposé est celui du fichier en cours)
+ * -------------------------------------------------
+ */
+
+vl_infos = SS_GET_DOC_INFO@ ()
+PARSE_PATHNAME@ (vl_infos.name, vl_path, vl_fichier)
+
+vl_fichier = SUBSTRING@ (vl_fichier, 1, LEN@(vl_fichier) - (LEN@(SS#SFX) + 1))
+
+vl_fichier = ITMA_TBR_Creer_Fichier ("Sauvegarder", vl_path, SS#SFX, vl_fichier)
+
+IF vl_fichier <> NULL {
+    MACRO_WINS_BUSY@ ()
+    SS_SAVE_AS@(vl_path ++ "/" ++ vl_fichier, C_FORMAT_SS, C_DROITS_GRP, C_DROITS_TOUS)
+    SET_SYSTEM_VAR@ (vg_nom_fichier_ss, vl_fichier)
+}
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Exporte un fichier Applix Spreadsheet sous le format csv.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Exp_Cfg_CSV_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a creer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR FORMAT doc_format_ vl_infos		' Infos sur le document courant
+
+vl_fichier = SYSTEM_VAR@ (vg_nom_fichier_ss)
+
+IF vl_fichier = NULL 
+	INFO_MESSAGE@("Pas de fichier en cours d'édition")
+ELSE{
+
+vl_fichier = SUBSTRING@ (vl_fichier, 1, LEN@(vl_fichier) - (LEN@(SS#SFX) + 1))
+vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_CONFIG
+
+MACRO_WINS_BUSY@ ()
+SS_SAVE_AS@ (vl_path ++ vl_fichier ,
+		 C_FORMAT_CSV, C_DROITS_GRP, C_DROITS_TOUS)
+}
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Importe un fichier CSV dans Applix Spreadsheet.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Imp_Cfg_CSV_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a importer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR     vl_importer
+    VAR     vl_fichier_en_cours
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF SS_MODIFIED@ ()
+    vl_importer = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_importer = TRUE
+
+IF vl_importer {
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_CONFIG
+
+
+    vl_fichier = ITMA_TBR_Choisir_Rep ("Importer", vl_path, C_SFX_CSV)
+
+   IF vl_fichier <> NULL {
+	MACRO_WINS_BUSY@ ()
+	SS_IMPORT_CSV@ (vl_fichier, TRUE)
+
+	/* repositionner le fichier en cours */
+	vl_fichier_en_cours = SYSTEM_VAR@(vg_nom_fichier_ss)
+   	SET_SYSTEM_VAR@(vg_nom_fichier_ss, vl_fichier_en_cours++ "."++SS#SFX)
+   }
+
+}
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Importe un fichier CSV de suffixe quelconque dans Applix Spreadsheet.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Imp_Cfg_Autre_CSV_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a importer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR     vl_importer
+    VAR     vl_fichier_en_cours
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF SS_MODIFIED@ ()
+    vl_importer = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_importer = TRUE
+
+IF vl_importer {
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_CONFIG
+
+
+    vl_fichier = ITMA_TBR_Choisir_Rep ("Importer", vl_path, null,SS#SFX)
+
+   IF vl_fichier <> NULL {
+	MACRO_WINS_BUSY@ ()
+	SS_IMPORT_CSV@ (vl_fichier, TRUE)
+
+	/* repositionner le fichier en cours */
+	vl_fichier_en_cours = SYSTEM_VAR@(vg_nom_fichier_ss)
+   	SET_SYSTEM_VAR@(vg_nom_fichier_ss, vl_fichier_en_cours++ "."++SS#SFX)
+   }
+
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Exporte un fichier Applix Spreadsheet sous le format Excel.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Exp_Cfg_Ascii_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a creer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR FORMAT doc_format_ vl_infos		' Infos sur le document courant
+
+vl_fichier = SYSTEM_VAR@ (vg_nom_fichier_ss)
+
+IF vl_fichier = NULL 
+	INFO_MESSAGE@("Pas de fichier en cours d'édition")
+ELSE{
+	/*B exporter le fichier */
+	vl_fichier = SUBSTRING@ (vl_fichier, 1, LEN@(vl_fichier) - (LEN@(SS#SFX) + 1))
+	vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_CONFIG
+
+	MACRO_WINS_BUSY@ ()
+	SS_SAVE_AS@ (vl_path ++ vl_fichier,
+		 C_FORMAT_ASCII, C_DROITS_GRP, C_DROITS_TOUS)
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Importe un fichier ASCII dans Applix Spreadsheet.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Imp_Cfg_Ascii_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a importer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR     vl_importer
+    VAR     vl_fichier_en_cours
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF SS_MODIFIED@ ()
+    vl_importer = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_importer = TRUE
+
+IF vl_importer {
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_CONFIG
+    vl_fichier = ITMA_TBR_Choisir_Rep ("Importer", vl_path, C_SFX_ASCII)
+
+    IF vl_fichier <> NULL {
+	MACRO_WINS_BUSY@ ()
+	SS_IMPORT_GRID@ (vl_fichier, TRUE)
+
+	/* repositionner le fichier en cours au nom au nom du fichier importe avec l'extension as */
+	vl_fichier_en_cours = SYSTEM_VAR@(vg_nom_fichier_ss)
+   	SET_SYSTEM_VAR@(vg_nom_fichier_ss, vl_fichier_en_cours++ "."++SS#SFX)
+    }
+}
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Importe un fichier ASCII de suffixe quelconque dans Applix Spreadsheet.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Imp_Cfg_Autre_Ascii_SS ()
+
+    VAR     vl_fichier				' Nom du fichier a importer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR     vl_importer
+    VAR     vl_fichier_en_cours
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF SS_MODIFIED@ ()
+    vl_importer = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_importer = TRUE
+
+IF vl_importer {
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_CONFIG
+    vl_fichier = ITMA_TBR_Choisir_Rep ("Importer", vl_path, null,SS#SFX)
+
+    IF vl_fichier <> NULL {
+	MACRO_WINS_BUSY@ ()
+
+	SS_IMPORT_GRID@ (vl_fichier, TRUE)
+
+	/* repositionner le fichier en cours au nom au nom du fichier importe avec l'extension as */
+	vl_fichier_en_cours = SYSTEM_VAR@(vg_nom_fichier_ss)
+   	SET_SYSTEM_VAR@(vg_nom_fichier_ss, vl_fichier_en_cours++ "."++SS#SFX)
+    }
+}
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Importe un fichier ASCII dans Applix Spreadsheet.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBR_Imp_Dyn_Ascii ()
+
+    VAR     vl_fichier				' Nom du fichier a importer
+    VAR     vl_path				' Chemin d'acces complet
+    VAR     vl_importer
+
+/*A
+ * Si le document courant a ete modifie, demander confirmation
+ * -----------------------------------------------------------
+ */
+
+IF SS_MODIFIED@ ()
+    vl_importer = YES_NO_PROMPT@ (C_LIB_FICH_MODIFIE)
+ELSE vl_importer = TRUE
+
+IF vl_importer {
+    vl_path = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_DYN
+    vl_fichier = ITMA_TBR_Choisir_Fichier ("Importer", vl_path, C_SFX_ASCII)
+
+    IF vl_fichier <> NULL {
+	MACRO_WINS_BUSY@ ()
+	SS_IMPORT_GRID@ (vl_path ++ vl_fichier, FALSE)
+	SET_SYSTEM_VAR@ (vg_nom_fichier_ss, NULL)
+    }
+}
+
+ENDMACRO
+
+

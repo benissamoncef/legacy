@@ -1,0 +1,1 @@
+DEFINE	XZAE166_Lire_Message_Crise	"XZAE166"

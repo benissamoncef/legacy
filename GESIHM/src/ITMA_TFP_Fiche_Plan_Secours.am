@@ -1,0 +1,869 @@
+/*E*/
+/* Fichier : $Id: ITMA_TFP_Fiche_Plan_Secours.am,v 1.22 2012/05/29 09:58:34 pc2dpdy Exp $      Release : $Revision: 1.22 $        Date : $Date: 2012/05/29 09:58:34 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TFP * FICHIER ITMA_TFP_Fiche_Plan_Secours.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fiche consignes du plan de secours.
+*
+*   Cf. DCG 2.4.31
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 16 Dec 1994	: Creation                                        V1.1
+* Lecrivain 05 Jan 1995	: Ajout type FMC, gestion consignes               V1.2
+* Lecrivain 31 Mai 1995	: Ajout impression (reserve 391)                  V1.7
+* Noel      15 Jui 1995	: changement de COM28_Exec_Synoptique en
+*				COM34_Exec_Synoptique_cfg		  V1.8
+* Torregrossa 20 Jui 1995: Ajout bouton sur listes astreintes             V1.9
+* Guilhou		31 Aou 1995 : Alimentation localisation fiche dans appel à
+*						ITMA_TMC_Fiche_Main_Courante				V1.10
+* Niepceron   05 Sep 1995: Correction d'un oubli de modif de COM28_ en COM34_
+									v1.11->1.13
+* Noel	    11 Sep 1995 :  Remise en place de la lecture du fichier des consignes
+*									V1.14
+* Noel	    21 Sep 1995 :  Introduction de la procédure commune
+*				d'impression				V1.15
+* Noel      29 Avr 1996 : Changement du repertoire d'acces des plan de secours
+*				(DEM 1096)				V1.16
+* Niepceron	9 Aou 1999 : dem/1766 itineraire delestage / SIG: suppression des appels à ticfg  v1.17
+* Cluchague     14 Jan 2003 : Quand on selectionne un plan de secours on affiche la consigne mais egalement
+		la vue correspondante automatiquement (REPERE1) V1.18
+* Cluchague     15 Jan 2003 : REPERE2 bouton creer fmc remplace par 2 boutons delestage et deviation
+* Lecrivain	22 Fev 2007 : Creation de FMC consequence par MTMC (DEM 624) 1.20
+* JPL		19/03/2009 : Restauration argument appelant pour homogeneite (lie a DEM 112) 1.21
+* JMG		29/05/12 : linux 1.22
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TMC.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"../inc/ITMA_TLV.h"
+INCLUDE "../../XDMICG/inc/xzaec_ax.h"
+INCLUDE "../inc/isyn_svu_applix_ax.h"
+INCLUDE "../inc/xzao11sp.h"
+INCLUDE "../inc/xzao12sp.h"
+
+
+
+DEFINE	C_MODULE	"MTFP"				' Nom du module
+
+
+
+/*A
+ * Localisation et nom des fichiers de consignes plans de secours
+ * --------------------------------------------------------------
+ */
+
+DEFINE	C_REPERTOIRE_CONSIGNES	COM_SOUS_REP_IGN
+DEFINE	C_RACINE_CONSIGNES	"plan_"
+DEFINE	C_SUFFIXE_CONSIGNES	".scr"
+
+
+
+/*A
+ * Localisation et nom du fichier modele d'impression
+ * --------------------------------------------------
+ */
+
+DEFINE	C_MODELE_PLAN_SECOURS	"ITMA_TFP_Plan_Secours"	' Modele d'impression
+DEFINE	C_SOUS_REP_MODELES	COM_SOUS_REP_IHM	' Repertoire des modeles
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+DEFINE	C_LIB_HOMONYMIE		"Un plan de secours portant ce nom existe déjà"
+DEFINE	C_LIB_TRAJET_EXISTE	"Un plan de secours entre ces deux échangeurs existe déjà"
+
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	TFP_Plan_Secours
+	numero,						' Numero plan de secours
+	nom,						' Nom du plan
+	ech_sortie,					' Id. echangeur sortie
+	ech_reinject					' Echangeur reinjection
+
+
+
+VAR FORMAT TFP_Plan_Secours vm_t_plans			' Liste plans de secours
+
+VAR FORMAT TDO_Echangeur vm_t_echangeurs		' Liste des echangeurs
+VAR     vm_num_echangeurs				' Liste id. echangeurs
+VAR     vm_nom_echangeurs				' Liste noms. echangeurs
+
+VAR     vm_l_types_FMC					' Liste types proposes
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Gestion des plans de secours.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFP_Fiche_Plan_Secours (va_appelant, va_mode_config, FORMAT TMC_fmc_a_creer ta_fmc_cause)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*  va_mode_config     : Indicateur de mode de configuration ;
+*  ta_fmc_cause       : type FMC a creer et cause (creation de consequence).
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMS
+*
+* FONCTION
+*   Dialogue de gestion des plan de secours.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_plan			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_numero_plan, vl_nom_plan
+    VAR     vl_ech_sortie, vl_ech_reinj		' Echangeurs selectionnes
+
+    VAR     vl_nom_fichier_plan			' Nom du fichier de consignes
+    VAR     vl_t_texte				' Le texte saisi par l'operateur
+
+    VAR     vl_fichier
+    VAR     vl_arguments
+    VAR     vl_pos, vl_select
+    VAR     vl_tache
+	VAR		vl_sens,vl_pr
+	VAR vl_indice
+	VAR vl_sortie,vl_reinj
+	VAR FORMAT TDO_Echangeur	vl_ech
+	VAR FORMAT TDO_Echangeur	vl_ech1
+	VAR FORMAT TMC_fmc_a_creer	tl_fmc_cause
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Fiche Plan de Secours"
+ * ------------------------------------------
+ */
+
+vl_fenetre_plan = DB_LOAD@ ("ITMA_TFP")
+DB_WINDOW_REMAIN@ (vl_fenetre_plan, TRUE)
+DB_DISPLAY_ONLY@ (vl_fenetre_plan, TRUE)
+
+IF NOT va_mode_config {
+    vl_pos = DB_CTRL_GET_YPOS@ (vl_fenetre_plan, "BP_Ajouter") -
+		DB_CTRL_GET_YPOS@ (vl_fenetre_plan, "BP_Aide")
+    DB_HEIGHT@ (vl_fenetre_plan, DB_GET_HEIGHT@ (vl_fenetre_plan) - vl_pos)
+}
+
+DB_XPOS@ (vl_fenetre_plan, 0)
+DB_YPOS@ (vl_fenetre_plan, 93)
+COM27_Agrandir_Fenetre (vl_fenetre_plan, COM_LARGEUR_FMC, COM_HAUTEUR_MAX)
+COM02_Attacher_Aide (vl_fenetre_plan, "ITMA_TFP_Fiche_Plan_Secours")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_plan, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_plan, "TA_Plans", TRUE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_plan, "TA_Plans", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_plan, "TA_Plans", FALSE)
+
+DB_CTRL_VALUE@ (vl_fenetre_plan, "BL_Ech_Sortie", 0)
+DB_CTRL_VALUE@ (vl_fenetre_plan, "BL_Ech_Reinjection", -1)
+
+
+IF va_mode_config {
+    vl_pos = DB_CTRL_GET_YPOS@ (vl_fenetre_plan, "BP_Ajouter")
+    DB_CTRL_YPOS@ (vl_fenetre_plan, "BP_Rechercher", vl_pos)
+    DB_CTRL_YPOS@ (vl_fenetre_plan, "BP_Quitter", vl_pos)
+    DB_CTRL_YPOS@ (vl_fenetre_plan, "BP_Aide", vl_pos)
+    DB_CTRL_YPOS@ (vl_fenetre_plan, "BL_Ech_Reinjection",
+		      DB_CTRL_GET_YPOS@ (vl_fenetre_plan, "BL_Ech_Sortie"))
+
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BP_Afficher", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BP_Creer_FMC_Delestage", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BP_Creer_FMC_Deviation", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BO_Type_FMC", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BP_astreintes", FALSE)
+} ELSE {
+    DB_CTRL_YPOS@ (vl_fenetre_plan, "BP_Afficher",
+		      DB_CTRL_GET_YPOS@ (vl_fenetre_plan, "BP_Modifier"))
+
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "LI_Ech_Reinjection", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BL_Ech_Reinjection", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "LI_Nom_Plan", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BS_Nom_Plan", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BP_Ajouter", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BP_Modifier", FALSE)
+}
+
+IF NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION)) {
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BP_Creer_FMC_Delestage", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BP_Creer_FMC_Deviation", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BO_Type_FMC", FALSE)
+    DB_CTRL_DISPLAY@ (vl_fenetre_plan, "BP_astreintes", FALSE)
+}
+
+
+/*A
+ * Initialiser la visualisation (liste des consignes)
+ * --------------------------------------------------
+ */
+
+IF TFP_Init_Visualisation (vl_fenetre_plan) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY_ONLY@ (vl_fenetre_plan, FALSE)
+    DB_DISPLAY@ (vl_fenetre_plan)
+    DB_DISPLAY_ONLY@ (vl_fenetre_plan, TRUE)
+
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_plan)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_plan)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+	/* Si on est en mode configuration, on demande à la tache ticfg.x de se tuer */
+		/* v1.17 SIG
+	if va_mode_config
+		NEW_TASK@("COM34_Exec_Synoptique_cfg", CM_ARRET_CFG, NULL) */
+
+    CASE "BP_astreintes"
+	vl_tache = COM21_Tache_De_La_Macro ("ITMA_TLS_Liste_Astreintes")
+	IF vl_tache = NULL
+		NEW_TASK@ ("ITMA_TLS_Liste_Astreintes", C_MODULE)
+	ELSE {
+		DB_SEND_POKE@ (COM_CANAL_MTLS)
+	}
+
+    /*A
+     * Sur choix "Rechercher", lire la liste des plans de secours
+     * dont l'echangeur de sortie est celui selectionne
+     * ----------------------------------------------------------
+     */
+
+    CASE "BP_Rechercher"
+	vl_ech_sortie = DB_CTRL_GET_VALUE@ (vl_fenetre_plan, "BL_Ech_Sortie")
+	IF vl_ech_sortie = 0
+	    vl_ech_sortie = NULL
+	ELSE vl_ech_sortie = vm_t_echangeurs[vl_ech_sortie - 1].numero
+
+	IF TFP_Liste_Plans (vl_fenetre_plan, vl_ech_sortie) = COM_OK {
+	    DB_EDITBOX_CLEAR@ (vl_fenetre_plan, "BE_Consignes")
+	    DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Modifier", TRUE)
+	    DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Afficher", TRUE)
+	    DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Imprimer", TRUE)
+	    DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Creer_FMC_Delestage", TRUE)
+	    DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Creer_FMC_Deviation", TRUE)
+	}
+
+
+    /*A
+     * Sur selection d'un plan de secours, lire et afficher ses consignes
+     * ------------------------------------------------------------------
+     */
+
+    CASE "TA_Plans"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_plan, "TA_Plans")
+	if va_mode_config
+		vl_fichier = SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+			     COM_SOUS_REP_CONFIG_IGN ++
+			     C_RACINE_CONSIGNES ++
+			     vm_t_plans[vl_select[0]].numero ++
+			     C_SUFFIXE_CONSIGNES
+	else
+		vl_fichier = SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+			     C_REPERTOIRE_CONSIGNES ++
+			     C_RACINE_CONSIGNES ++
+			     vm_t_plans[vl_select[0]].numero ++
+			     C_SUFFIXE_CONSIGNES
+
+	vl_t_texte = READ_ASCII_FILE@ (vl_fichier)
+	DB_EDITBOX_SET_DATA@ (vl_fenetre_plan, "BE_Consignes", vl_t_texte)
+
+	DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Modifier", FALSE)
+	DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Afficher", FALSE)
+	DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Imprimer", FALSE)
+	DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Creer_FMC_Delestage", FALSE)
+	DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Creer_FMC_Deviation", FALSE)
+
+     /* REPERE1 On affiche egalement la vue gif correspondante */
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_plan, "TA_Plans")
+
+	NEW_TASK@("COM54_ExecSynoptiqueFlash",CM_AFFPLAN, vm_t_plans[vl_select[0]].numero)
+	NEW_TASK@ ("COM28_Exec_Synoptique",
+			CM_AFFPLAN, vm_t_plans[vl_select[0]].numero)
+
+
+    /*A
+     * Sur choix "Ajouter", verifier qu'un nom de plan de secours
+     * ainsi qu'un echangeur de sortie et de reinjection sont saisis
+     * -------------------------------------------------------------
+     */
+
+    CASE "BP_Ajouter"
+	vl_ech_sortie = DB_CTRL_GET_VALUE@ (vl_fenetre_plan, "BL_Ech_Sortie")
+	IF vl_ech_sortie = 0
+	    ERROR@ (C_ERR_IHM, COM_LIB_NON_SAISI, "Echangeur de sortie")
+	ELSE vl_ech_sortie = vl_ech_sortie - 1
+
+	vl_ech_reinj = DB_CTRL_GET_VALUE@(vl_fenetre_plan, "BL_Ech_Reinjection")
+	IF vl_ech_reinj < 0
+	    ERROR@(C_ERR_IHM, COM_LIB_NON_SAISI, "Echangeur de réinjection")
+
+	vl_nom_plan = DB_CTRL_GET_VALUE@ (vl_fenetre_plan, "BS_Nom_Plan")
+
+	/*A
+	 * puis si la creation s'effectue correctement en base,
+	 * ajouter le plan a la liste, demander au synoptique
+	 * le trace du trajet et archiver les consignes du plan
+	 * ----------------------------------------------------
+	 */
+
+	IF TFP_Creer_Plan (vl_nom_plan,
+				vm_t_echangeurs[vl_ech_sortie].numero,
+				vm_t_echangeurs[vl_ech_reinj].numero,
+				vl_numero_plan) = COM_OK {
+	    vl_select[0] = ARRAY_SIZE@ (vm_t_plans)
+	    vm_t_plans[vl_select[0]] = vl_numero_plan,
+					vl_nom_plan,
+					vm_t_echangeurs[vl_ech_sortie].nom,
+					vm_t_echangeurs[vl_ech_reinj].nom
+	    DB_TABLE_SET_NEW_DATA@ (vl_fenetre_plan, "TA_Plans", vm_t_plans, 0)
+	    DB_TABLE_SET_SELECTIONS@ (vl_fenetre_plan, "TA_Plans", vl_select)
+	    DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Modifier", FALSE)
+	    DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Imprimer", FALSE)
+
+	    vl_arguments = vl_numero_plan, XDC_AJOUT
+	/* v1.17 SIG
+	    NEW_TASK@ ("COM34_Exec_Synoptique_cfg", CM_CFGIGN, vl_arguments)*/
+
+	    vl_t_texte = DB_EDITBOX_GET_DATA@ (vl_fenetre_plan, "BE_Consignes")
+	    vl_fichier = SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+				 COM_SOUS_REP_CONFIG_IGN ++
+				 C_RACINE_CONSIGNES ++ vl_numero_plan ++
+				 C_SUFFIXE_CONSIGNES
+	    WRITE_ASCII_FILE@ (vl_fichier, vl_t_texte)
+	}
+
+
+    /*A
+     * Sur choix "Modifier", demander au synoptique la modification
+     * du trajet entre les deux echangeurs puis archiver les consignes
+     * ---------------------------------------------------------------
+     */
+
+    CASE "BP_Modifier"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_plan, "TA_Plans")
+	vl_select = vl_select[0]
+
+	vl_arguments = vm_t_plans[vl_select].numero, XDC_MODIF
+	/* v1.17 SIG
+	NEW_TASK@ ("COM34_Exec_Synoptique_cfg", CM_CFGIGN, vl_arguments)*/
+
+	vl_t_texte = DB_EDITBOX_GET_DATA@ (vl_fenetre_plan, "BE_Consignes")
+	vl_fichier = SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+			   COM_SOUS_REP_CONFIG_IGN ++
+			   C_RACINE_CONSIGNES ++ vm_t_plans[vl_select].numero ++
+			   C_SUFFIXE_CONSIGNES
+	WRITE_ASCII_FILE@ (vl_fichier, vl_t_texte)
+
+
+    /*A
+     * Sur choix "Afficher", demander au synoptique l'affichage du plan
+     * ----------------------------------------------------------------
+     */
+
+    CASE "BP_Afficher"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_plan, "TA_Plans")
+
+	NEW_TASK@ ("COM28_Exec_Synoptique",
+			CM_AFFPLAN, vm_t_plans[vl_select[0]].numero)
+
+
+    /*A
+     * Sur choix "Creer FMC", invoquer MTMC pour creer une fiche main courante
+     * -----------------------------------------------------------------------
+     */
+
+    CASE "BP_Creer_FMC_Deviation"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_plan, "TA_Plans")
+	vl_select = vl_select[0]
+
+	/*recuperation echangeurs sortie et entree*/
+	vl_sortie=vm_t_plans[vl_select].ech_sortie
+	vl_reinj=vm_t_plans[vl_select].ech_reinject
+
+	/*recherche infos sur les echangeurs*/
+	IF (vl_sortie<>NULL) 
+		vl_indice=ARRAY_INDEX@(vm_nom_echangeurs,vl_sortie)
+	ELSE
+		vl_indice=-1
+
+	IF (vl_indice<>-1)
+		vl_ech=vm_t_echangeurs[vl_indice]
+	ELSE
+		vl_ech=NULL
+
+	IF (vl_reinj<>NULL) 
+		vl_indice=ARRAY_INDEX@(vm_nom_echangeurs,vl_reinj)
+	ELSE
+		vl_indice=-1
+
+	IF (vl_indice<>-1)
+		vl_ech1=vm_t_echangeurs[vl_indice]
+	ELSE
+		vl_ech1=NULL
+
+	/*calcul du sens*/
+	IF (vl_ech<>NULL) AND (vl_ech1<>NULL)
+	  vl_pr=vl_ech1.pr - vl_ech.pr
+	ELSE
+        vl_pr=XDC_PR_INCONNU
+	
+	IF (vl_pr<>XDC_PR_INCONNU) {
+		IF (vl_pr>=0)
+			vl_sens = XDC_SENS_SORTIE_SUD
+		ELSE
+			vl_sens = XDC_SENS_SORTIE_NORD
+	}
+	ELSE
+		vl_sens=XDC_SENS_INCONNU
+
+	tl_fmc_cause = ta_fmc_cause
+	tl_fmc_cause.type = XZAEC_FMC_Deviation		' si aucun type n'etait choisi
+	vl_arguments = XZAEC_FMC_Deviation,
+			  vm_t_plans[vl_select].numero,
+			  vm_t_plans[vl_select].nom,
+			  vm_t_plans[vl_select].ech_sortie,
+			  vl_ech.numero,
+			  vl_ech.autoroute,
+			  vl_ech.pr,
+			  vl_sens
+	NEW_TASK@ ("ITMA_TMC_Fiche_Main_Courante", "ITMA_TFP_Fiche_Plan_Secours",
+	              tl_fmc_cause, 1, XDC_FMC_ETAT_TRAI, vl_arguments)
+	vl_la_fenetre_est_active = FALSE
+
+    CASE "BP_Creer_FMC_Delestage"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_plan, "TA_Plans")
+	vl_select = vl_select[0]
+
+	/*recuperation echangeurs sortie et entree*/
+	vl_sortie=vm_t_plans[vl_select].ech_sortie
+	vl_reinj=vm_t_plans[vl_select].ech_reinject
+
+	/*recherche infos sur les echangeurs*/
+	IF (vl_sortie<>NULL) 
+		vl_indice=ARRAY_INDEX@(vm_nom_echangeurs,vl_sortie)
+	ELSE
+		vl_indice=-1
+
+	IF (vl_indice<>-1)
+		vl_ech=vm_t_echangeurs[vl_indice]
+	ELSE
+		vl_ech=NULL
+
+	IF (vl_reinj<>NULL) 
+		vl_indice=ARRAY_INDEX@(vm_nom_echangeurs,vl_reinj)
+	ELSE
+		vl_indice=-1
+
+	IF (vl_indice<>-1)
+		vl_ech1=vm_t_echangeurs[vl_indice]
+	ELSE
+		vl_ech1=NULL
+
+	/*calcul du sens*/
+	IF (vl_ech<>NULL) AND (vl_ech1<>NULL)
+	  vl_pr=vl_ech1.pr - vl_ech.pr
+	ELSE
+        vl_pr=XDC_PR_INCONNU
+	
+	IF (vl_pr<>XDC_PR_INCONNU) {
+		IF (vl_pr>=0)
+			vl_sens = XDC_SENS_SORTIE_SUD
+		ELSE
+			vl_sens = XDC_SENS_SORTIE_NORD
+	}
+	ELSE
+		vl_sens=XDC_SENS_INCONNU
+
+	tl_fmc_cause = ta_fmc_cause
+	tl_fmc_cause.type = XZAEC_FMC_Delestage		' si aucun type n'etait choisi
+	vl_arguments = XZAEC_FMC_Delestage,
+			  vm_t_plans[vl_select].numero,
+			  vm_t_plans[vl_select].nom,
+			  vm_t_plans[vl_select].ech_sortie,
+			  vl_ech.numero,
+			  vl_ech.autoroute,
+			  vl_ech.pr,
+			  vl_sens
+	NEW_TASK@ ("ITMA_TMC_Fiche_Main_Courante", "ITMA_TFP_Fiche_Plan_Secours",
+	              tl_fmc_cause, 1, XDC_FMC_ETAT_TRAI, vl_arguments)
+	vl_la_fenetre_est_active = FALSE
+
+
+
+    /*A
+     * Sur choix "Imprimer", produire un fichier decrivant
+     * le plan de secours puis demander l'impression du fichier
+     * --------------------------------------------------------
+     */
+
+    CASE "BP_Imprimer"
+	DB_CTRL_GRAYED@ (vl_fenetre_plan, "BP_Imprimer", TRUE)
+	DB_DISPLAY@ (vl_fenetre_plan)
+
+	/*B Ouvrir une fenetre ApplixWord non visible et charger le modele */
+	WP_APPLICATION_DLG@ (NULL, TRUE)
+	WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+			   C_SOUS_REP_MODELES ++ C_MODELE_PLAN_SECOURS ++ ".aw")
+
+	/*B Valuer le nom du plan, les echangeurs et les consignes */
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_plan, "TA_Plans")
+	vl_select = vl_select[0]
+	WP_SET_DOC_VAR@("nom_plan", vm_t_plans[vl_select].nom)
+	WP_SET_DOC_VAR@("echangeur_sortie", vm_t_plans[vl_select].ech_sortie)
+	WP_SET_DOC_VAR@("echangeur_reinjection", vm_t_plans[vl_select].ech_reinject)
+	WP_SET_DOC_VAR@("consignes",
+			 DB_EDITBOX_GET_DATA@ (vl_fenetre_plan, "BE_Consignes"))
+
+	/*B Produire un fichier contenant le document en format PCL */
+	vl_fichier= C_MODELE_PLAN_SECOURS ++ "_" ++ SYSTEM_VAR@(vg_numero_poste)
+	COM36_Imprimer_Texte(vl_fichier)
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des echangeurs et des types FMC proposes.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFP_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFP_Fiche_Plan_Secours
+*
+* FONCTION
+*   Initialise les valeurs de la liste des echangeurs et de la liste des types
+*   FMC proposes pour creer une fiche main courante.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_noms_echangeurs			' Liste des echangeurs affichee
+    VAR     vl_types_FMC			' Liste des types FMC
+    VAR     vl_t_titres				' Titres colonnes table plans
+    VAR     i, j
+
+
+vm_l_types_FMC = XZAEC_FMC_Deviation, XZAEC_FMC_Delestage
+vl_types_FMC = "Déviation", "Délestage"
+DB_CTRL_STRINGS@ (va_fenetre, "BO_Type_FMC", vl_types_FMC)
+
+
+/*A
+ * Lire dans l'environnement la liste des echangeurs ;
+ * ajouter un element "Aucun" aux echangeurs de sortie
+ * ---------------------------------------------------
+ */
+
+vm_t_echangeurs = SYSTEM_VAR@ (vg_les_echangeurs)
+vm_num_echangeurs = ARRAY_COLUMN@ (vm_t_echangeurs, TDO_NUMERO_ECHANGEUR)
+
+vm_nom_echangeurs = ARRAY_COLUMN@ (vm_t_echangeurs, TDO_NOM_ECHANGEUR)
+vl_noms_echangeurs = vm_nom_echangeurs
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Ech_Sortie",
+		     ARRAY_INSERT@ (vl_noms_echangeurs, "Aucun", 0))
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Ech_Reinjection", vl_noms_echangeurs)
+
+
+/*A
+ * Definir les titres des colonnes de la table des plans de secours
+ * ----------------------------------------------------------------
+ */
+
+vl_t_titres[0] = "Numéro",		0	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Nom",			255
+vl_t_titres[2] = "Echangeur Sortie",	255
+vl_t_titres[3] = "Echangeur Réinjection", 255
+vl_t_titres[4] = "", 0
+
+
+/*A
+ * Afficher la table
+ * -----------------
+ */
+
+DB_DISPLAY@ (va_fenetre)
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Plans", vm_t_plans, vl_t_titres)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recherche en base de donnees et affiche la liste des plans de secours
+*  repondant aux criteres definis par les parametres.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFP_Liste_Plans (va_fenetre, va_echangeur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre courante ;
+*   va_echangeur      : Numero de l'echangeur de sortie.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFP_Fiche_Plan_Secours
+*
+* FONCTION
+*   Recherche en base de donnees la liste des plans de secours dont l'echangeur
+*   de sortie est celui indique (ou tous les plans de secours s'il est NULL).
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     i, j
+
+
+/*A
+ * Rechercher les plans de secours en base de donnees
+ * --------------------------------------------------
+ */
+
+vl_parametres[0].type = COM_Identifiant_Echangeur
+vl_parametres[0].data = va_echangeur
+vl_parametres[0].output = FALSE
+
+IF COM05_SQL_Procedure (XZAO11_Liste_Plans,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Traduire les identifiants d'echangeurs en noms
+ * puis afficher la liste des plans de secours
+ * ----------------------------------------------
+ */
+
+vm_t_plans = vl_resultats.select_results[0]
+
+FOR i = 0  TO ARRAY_SIZE@ (vm_t_plans) - 1
+    j = ARRAY_INDEX@ (vm_num_echangeurs, vm_t_plans[i].ech_sortie)
+    IF j >= 0
+	vm_t_plans[i].ech_sortie = vm_t_echangeurs[j].nom
+    ELSE vm_t_plans[i].ech_sortie = NULL
+
+    j = ARRAY_INDEX@ (vm_num_echangeurs, vm_t_plans[i].ech_reinject)
+    IF j >= 0
+	vm_t_plans[i].ech_reinject = vm_t_echangeurs[j].nom
+    ELSE vm_t_plans[i].ech_reinject = NULL
+NEXT i
+
+
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_Plans", 0, -1)
+DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_Plans", vm_t_plans, 0)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Cree un nouveau plan de secours.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFP_Creer_Plan (va_nom_plan, va_ech_sortie, va_ech_reinj, va_numero_plan)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_nom_plan       : Nom du plan a creer ;
+*   va_ech_sortie     : Identifiant de l'echangeur de sortie ;
+*   va_ech_reinj      : Identifiant de l'echangeur de reinjection.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_numero_plan    : Numero du plan cree.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFP_Fiche_Plan_Secours
+*
+* FONCTION
+*   Execute la requete adequate pour creer un nouveau plan de secours avec
+*   le nom et les echangeurs indiques ;
+*   value en retour le numero du plan s'il a ete cree.
+*
+*   Leve une exception si un plan de nom identique ou comportant le meme
+*   couple d'echangeurs de sortie et de reinjection existe deja.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = va_nom_plan
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Echangeur
+vl_parametres[1].data = va_ech_sortie
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Echangeur
+vl_parametres[2].data = va_ech_reinj
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#INT2_
+vl_parametres[3].output = TRUE
+
+vl_parametres[4].type = SYB#INT4_		' Statut : plan cree, homonymie
+vl_parametres[4].output = TRUE			' ou {sortie, reinj}deja present
+
+IF COM05_SQL_Procedure (XZAO12_Creer_Plan,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+IF vl_resultats.return_parameters[1] = XDC_NOK
+    ERROR@ (C_ERR_IHM, C_LIB_HOMONYMIE)
+
+IF vl_resultats.return_parameters[1] = XDC_ECHEC
+    ERROR@ (C_ERR_IHM, C_LIB_TRAJET_EXISTE)
+
+va_numero_plan = vl_resultats.return_parameters[0]
+
+RETURN (COM_OK)
+
+ENDMACRO

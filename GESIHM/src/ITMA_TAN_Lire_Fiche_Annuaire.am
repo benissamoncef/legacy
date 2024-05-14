@@ -1,0 +1,224 @@
+/*E*/
+/* Fichier : $Id: ITMA_TAN_Lire_Fiche_Annuaire.am,v 1.15 2017/04/25 11:07:17 devgfi Exp $      Release : $Revision: 1.15 $        Date : $Date: 2017/04/25 11:07:17 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TAN * FICHIER ITMA_TAN_Lire_Fiche_Annuaire.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Fiche annuaire ou fiche astreinte.
+*
+*   Cf. DCG 2.4.27, 2.4.32
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain  17 Oct 1994 : Creation                                         V1.1
+* Lecrivain  17 Oct 1994 : Ajout heure, minute a date validite commentaire  V1.3
+* Lecrivain  15 Dec 1994 : Fonctions de traitements de dates differentes    V1.4
+* Torregrossa  14 Fev 1996 : Suppression des blancs V1.5
+* Guilhou 20 nov 1996	: refonte de la gestion des astreintes (DEM/1306)    1.6
+* ESCOTA        02 fev 1999     : ajout gestion sites responsablfe et concerne 1.7
+* Claudel 09 Jul 2007 : Suppression DY 1.8
+* JMG	31/10/07	: ajout adresse email 1.9
+* JPL	04/02/09	: suppression espaces du 'commentaire' (lie a DEM 834) 1.10
+* JMG   29/09/09:       : SECTO DEM 887
+* JMG   09/03/17        : REGIONALISATION - DEM1220 1.13
+* JPL	23/03/17	: Fromat du fichier source - Identique precedente  1.14
+* JPL	27/03/17	: Liste des sites lue en variable publique (regionalisation DEM 1173)  1.15
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TFA.h"
+INCLUDE "../inc/ITMA_TFC.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+INCLUDE "../inc/xzan10sp.h"
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit la fiche annuaire de numero indique et l'affiche.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TAN_Lire_Fiche_Annuaire (va_num_fiche, va_module, va_fenetre, va_num_comp)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_fiche      : Numero de la fiche annuaire a lire ;
+*   va_module         : Nom du module appelant ;
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_num_comp       : Identifiant de la competence attachee a la fonction.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFA_Fiche_Annuaire
+*   ITMA_TFS_Fiche_Astreinte
+*
+* FONCTION
+*   Lit en base de donnees les informations de la fiche annuaire de numero
+*   indique en argument, puis initialise les differents champs de saisie de
+*   la fenetre avec les valeurs lues.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+    VAR     vl_data					' Parametres retournes
+    VAR     vl_jj, vl_mm, vl_aa, vl_hh, vl_mn
+    VAR		vl_index,vm_l_districts,vm_l_sites
+
+
+vl_parametres[0].type = TFA_Numero_Fiche_Annuaire	' Numero fiche a lire
+vl_parametres[0].data = va_num_fiche
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#CHAR_			' Nom interlocuteur
+vl_parametres[1].output = TRUE
+
+vl_parametres[2].type = SYB#CHAR_			' Fonction
+vl_parametres[2].output = TRUE
+
+vl_parametres[3].type = TFC_Numero_Competence		' Numero competence
+vl_parametres[3].output = TRUE
+
+vl_parametres[4].type = SYB#CHAR_			' Adresse
+vl_parametres[4].output = TRUE
+
+vl_parametres[5].type = SYB#CHAR_			' Explications Tel1
+vl_parametres[5].output = TRUE
+
+vl_parametres[6].type = SYB#CHAR_			' Telephone 1
+vl_parametres[6].output = TRUE
+
+vl_parametres[7].type = SYB#CHAR_			' Explications Tel2
+vl_parametres[7].output = TRUE
+
+vl_parametres[8].type = SYB#CHAR_			' Telephone 2
+vl_parametres[8].output = TRUE
+
+vl_parametres[9].type = SYB#CHAR_			' Explications Tel3
+vl_parametres[9].output = TRUE
+
+vl_parametres[10].type = SYB#CHAR_			' Telephone 3
+vl_parametres[10].output = TRUE
+
+vl_parametres[11].type = SYB#CHAR_			' Explications Fax
+vl_parametres[11].output = TRUE
+
+vl_parametres[12].type = SYB#CHAR_			' Fax
+vl_parametres[12].output = TRUE
+
+vl_parametres[13].type = SYB#CHAR_			' Explications Bip
+vl_parametres[13].output = TRUE
+
+vl_parametres[14].type = SYB#CHAR_			' Bip
+vl_parametres[14].output = TRUE
+
+vl_parametres[15].type = TFA_Identifiant_Type_Bip	' Type Bip
+vl_parametres[15].output = TRUE
+
+vl_parametres[16].type = SYB#CHAR_			' Commentaire
+vl_parametres[16].output = TRUE
+
+vl_parametres[17].type = SYB#DATETIME_			' Validite commentaire
+vl_parametres[17].output = TRUE
+
+vl_parametres[18].type = SYB#CHAR_			' Telephone commentaire
+vl_parametres[18].output = TRUE
+
+vl_parametres[19].type = SYB#CHAR_			' radio
+vl_parametres[19].output = TRUE
+
+vl_parametres[20].type = SYB#CHAR_                      ' radio comment
+vl_parametres[20].output = TRUE
+
+vl_parametres[21].type = SYB#INT4_                      ' site responsable
+vl_parametres[21].output = TRUE
+
+vl_parametres[22].type = SYB#INT4_                      ' site concerne
+vl_parametres[22].output = TRUE
+
+vl_parametres[23].type = SYB#CHAR_                      ' adresse email
+vl_parametres[23].output = TRUE
+
+IF COM05_SQL_Procedure (XZAN10_Lire_Fiche_Annuaire,
+			   vl_parametres, vl_resultats, va_module) <> COM_OK
+    RETURN (COM_NOK)
+
+
+vl_data = vl_resultats.return_parameters
+
+DB_CTRL_VALUE@ (va_fenetre, "BS_Nom", trim@(vl_data[0]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Fonction", trim@(vl_data[1]))
+
+va_num_comp = vl_data[2]
+
+DB_CTRL_VALUE@ (va_fenetre, "BS_Adresse", trim@(vl_data[3]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Explication_Tel1", trim@(vl_data[4]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Telephone1", trim@(vl_data[5]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Explication_Tel2", trim@(vl_data[6]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Telephone2", trim@(vl_data[7]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Explication_Tel3", trim@(vl_data[8]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Telephone3", trim@(vl_data[9]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Explication_Fax", trim@(vl_data[10]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Fax", trim@(vl_data[11]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Explication_Bip", trim@(vl_data[12]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Bip", trim@(vl_data[13]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Adresse_Email", trim@(vl_data[22]))
+
+DB_CTRL_VALUE@ (va_fenetre, "BO_Type_Bip", vl_data[14])
+
+DB_CTRL_VALUE@ (va_fenetre, "BS_Commentaire", trim@(vl_data[15]))
+
+COM24_Afficher_Horodate (COM18_Date_SGBD_Formatee (trim@(vl_data[16])),
+			   va_fenetre, "BS_Jour_Validite",
+			   "BS_Mois_Validite", "BS_Annee_Validite",
+			   "BS_Heure_Validite", "BS_Minute_Validite")
+
+DB_CTRL_VALUE@ (va_fenetre, "BS_Tel_Commentaire", trim@(vl_data[17]))
+
+DB_CTRL_VALUE@ (va_fenetre, "BS_radio",trim@(vl_data[18]))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Explication_radio",trim@(vl_data[19]))
+
+
+/*recherche du site responsable*/
+vm_l_sites=SYSTEM_VAR@(vg_les_districts)
+vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_sites, TDO_NUMERO_DISTRICT),vl_data[20])
+if (vl_index=-1)
+  vl_index=0
+DB_CTRL_VALUE@(va_fenetre, "BO_Site_responsable",vl_index)
+
+/*recherche du site responsable*/
+vm_l_districts[0] = NULL, "Tous"
+vm_l_districts = ARRAY_APPEND@ (vm_l_districts, vm_l_sites)
+vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_districts, TDO_NUMERO_DISTRICT),vl_data[21])
+if (vl_index=-1)
+  vl_index=0
+DB_CTRL_VALUE@(va_fenetre, "BO_Site_concerne",vl_index)
+
+/*si je ne suis pas le site responsable et que je ne suis pas le CI*/
+if (vl_data[20]<>SYSTEM_VAR@(vg_site) AND (SYSTEM_VAR@(vg_site)<>XDC_CI) ){
+  DB_CTRL_GRAYED@(va_fenetre, "BO_Site_concerne",TRUE)
+  DB_CTRL_GRAYED@(va_fenetre, "BO_Site_responsable",TRUE)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO

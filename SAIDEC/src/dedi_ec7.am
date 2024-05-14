@@ -1,0 +1,416 @@
+/*E*/
+/* Fichier : $Id: dedi_ec7.am,v 1.3 1996/05/23 14:14:20 noel Exp $	      Release : $Revision: 1.3 $        Date : $Date: 1996/05/23 14:14:20 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec7.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* interlocuteurs a appeler 
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	07 dec 1994	: Creation						V1.1
+* Thomas	16 mars 1995	: Ajout BS_astreinte, BS_modifier
+* Thomas	30 jan 1996	: Modif 768 : choix d'au moins un moyen obligatoire V1.2
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+
+VAR	FORMAT dedi_astreinte	tm_astreintes
+VAR FORMAT dedi_interl		tm_interl
+VAR 						vm_fichier
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* retourne la liste des interlocuteurs a appeler 
+* avec leurs moyens d'appel
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec7 (va_mode)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_mode: PC OU CI
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_selection,vl_selectionInterl
+var vl_indice
+var vl_afficheMoyens
+var tl_pokes
+var vl_bascule
+var vl_taille
+var vl_listeModifiee
+var vl_astreinte,tl_data
+
+/*A initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec7")
+
+/*A on n'a pas encore affiche la liste des moyens d'appel*/
+vl_afficheMoyens=FALSE
+vl_listeModifiee=FALSE
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+IF (va_mode="PC")
+{
+	vm_fichier=AX_PATH++IE_FILE_MOYENS_PC
+	DB_TITLE@(vl_fenetre,"Interlocuteurs PC")
+}
+ELSE
+{
+	vm_fichier=AX_PATH++IE_FILE_MOYENS_CI
+	DB_TITLE@(vl_fenetre,"Interlocuteurs CI")
+}
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,0)
+DB_YPOS@(vl_fenetre,74)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec7_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A choix d'un element dans la liste des interlocuteurs */
+		CASE "TA_appels"
+			/*A indice de l'evt selectionne*/
+			vl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,vl_evt)
+			vl_selection=vl_selection[0]
+
+			/*A met les controles a jour*/
+			DB_CTRL_TITLE@(vl_fenetre,"LI_nom",
+						tm_interl[vl_selection].nom)
+			DB_CTRL_VALUE@(vl_fenetre,"BA_appel",
+						tm_interl[vl_selection].appel)
+			DB_CTRL_VALUE@(vl_fenetre,"BA_fax",
+						tm_interl[vl_selection].fax)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_astreinte",
+						tm_interl[vl_selection].astreinte)
+
+		/*A appui sur la bascule fax*/
+		CASE "BA_fax"
+			IF ((vl_selection++"")<>null)
+			{
+				vl_bascule=-1*DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)
+
+				/*A met a jour la liste des moyens*/
+				tm_interl[vl_selection].fax=vl_bascule
+
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_appels",tm_interl)
+				vl_indice[0]=vl_selection
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_appels",vl_indice)
+			}
+
+		/*A appui sur la bascule appel*/
+		CASE "BA_appel"
+			IF ((vl_selection++"")<>null)
+			{
+				vl_bascule=-1*DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)
+
+				/*met a jour la liste des moyens*/
+				tm_interl[vl_selection].appel=vl_bascule
+
+				/*A si je choisis d'appeler*/
+				IF (vl_bascule=1) {
+					/*A j'ajoute cet appel dans la liste des actions*/
+					tl_data=tm_interl[vl_selection].nom,
+							tm_interl[vl_selection].numero
+					DB_SEND_POKE@(dedi_canal_ec43_ajinterl,tl_data)
+				}
+				ELSE
+					/*A sinon je le supprime de cette liste*/
+					DB_SEND_POKE@(dedi_canal_ec43_supinterl,
+								tm_interl[vl_selection].nom)
+	
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_appels",tm_interl)
+				vl_indice[0]=vl_selection
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_appels",vl_indice)
+			}
+
+		/*A appui sur le bouton modifier*/
+		CASE "BP_modifier"
+
+			vl_astreinte = DB_CTRL_GET_VALUE@(vl_fenetre,"BS_astreinte")
+			IF vl_astreinte <> NULL 
+			{
+				/*A verifie que l'astreinte fait partie des interlocuteurs*/
+				IF ARRAY_INDEX@(ARRAY_COLUMN@(tm_interl,0), vl_astreinte) = -1
+					INFO_MESSAGE@("L'astreinte associee doit faire partie des interlocuteurs a prevenir.")
+
+				/*A met a jour la liste des interlocuteurs*/
+				ELSE
+					tm_interl[vl_selection].astreinte = vl_astreinte
+			}
+
+		/*A appui sur le bouton supprimer*/
+		CASE "BP_supprimer"
+			/*A si un interlocuteur est selectionne*/
+			IF ((vl_selection++"")<>null)
+			{
+				/*A je memorise que la liste a ete modifiee*/
+				vl_listeModifiee=TRUE
+
+				IF (SYSTEM_VAR@(vg_presence_ec13)=FALSE)
+					/*A lance la tache de gestion des cas*/
+					NEW_TASK@("dedi_ec13",va_mode)
+
+				/*A je supprime l'interlocuteur dans la liste ec13*/
+				DB_SEND_POKE@(dedi_canal_ec13_supinterl,
+								tm_interl[vl_selection].nom)
+
+				/*A je supprime l'interlocuteur dans la liste des actions*/
+				IF (tm_interl[vl_selection].appel=1)
+					DB_SEND_POKE@(dedi_canal_ec43_supinterl,
+								tm_interl[vl_selection].nom)
+
+				/*A efface cet element de la table*/
+				tm_interl=ARRAY_DELETE@(tm_interl,vl_selection)
+				DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_appels",0,-1)
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_appels",tm_interl,0)
+		
+				/*A initialise les controles*/
+				DB_CTRL_TITLE@(vl_fenetre,"LI_nom",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BA_appel",FALSE)
+				DB_CTRL_VALUE@(vl_fenetre,"BA_fax",FALSE)
+
+				vl_selection=null
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_astreintes",
+											vl_selection)
+			}
+			
+		/*A choix d'un element dans la liste des astreintes de la base*/
+		CASE "TA_astreintes"
+			/*A indice de l'evt selectionne*/
+			vl_selectionInterl=DB_TABLE_GET_SELECTIONS@(vl_fenetre,vl_evt)
+			vl_selectionInterl=vl_selectionInterl[0]
+
+			/*A je regarde s'il n'est pas deja dans la liste
+			* des appels*/
+			vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_interl,
+										dedi_pos_numeroInterl),
+							tm_astreintes[vl_selectionInterl].numero)
+
+			/*A s'il n'y est pas*/
+			IF (vl_indice=-1)
+			{
+				/*A je memorise que la liste a ete modifiee*/
+				vl_listeModifiee=TRUE
+
+				IF (SYSTEM_VAR@(vg_presence_ec13)=FALSE)
+					/*A lance la tache de gestion des cas*/
+					NEW_TASK@("dedi_ec13",va_mode)
+
+				/*A je l'ajoute a la table*/
+				vl_taille=ARRAY_SIZE@(tm_interl)
+				tm_interl[vl_taille].nom=tm_astreintes[vl_selectionInterl].nom
+				tm_interl[vl_taille].numero=
+						tm_astreintes[vl_selectionInterl].numero
+				tm_interl[vl_taille].fax=0
+				tm_interl[vl_taille].appel=0
+				tm_interl[vl_taille].astreinte=""
+				DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_appels",0,-1)
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_appels",tm_interl,0)
+				
+				/*A j'ajoute l'interlocuteur dans la liste ec13*/
+				tl_data=	tm_interl[vl_taille].numero,
+						tm_interl[vl_taille].nom
+				DB_SEND_POKE@(dedi_canal_ec13_ajinterl,tl_data)
+				}
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*A je valide*/
+			IF ec7_valide()
+			{
+				/*A si OK : je previens les taches concernees que j'ai valide*/
+				DB_SEND_POKE@(dedi_canal_ec13_valide)
+				DB_SEND_POKE@(dedi_canal_ec43_valide)
+				RETURN
+			}
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			/*A je previens les taches concernees que j'ai annule*/
+			DB_SEND_POKE@(dedi_canal_ec13_annule)
+			DB_SEND_POKE@(dedi_canal_ec43_annule)
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec7_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR tl_titres
+VAR vl_index
+
+	/*A chargement des astreintes de la base*/
+	tm_astreintes=SYSTEM_VAR@(vg_astreintes)
+
+	/*A chargement des evenements a me pas inclure depuis le fichier de config*/
+	tl_data=READ_ASCII_FILE@(vm_fichier)
+
+	/*A parcourt le tableau lu et extrait les champs*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tm_interl[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+											DEDI_CAR_SEPAR)
+		vl_index=ARRAY_INDEX@(
+					ARRAY_COLUMN@(tm_astreintes,1),
+					tm_interl[vl_indice].nom)
+		tm_interl[vl_indice].numero=tm_interl[vl_indice].nom
+		tm_interl[vl_indice].nom=tm_astreintes[vl_index][0]
+	NEXT vl_indice
+
+	/*A affichage des donnees lues*/
+	tl_titres[0][0] = "Nom"
+	tl_titres[0][1] = 400
+	DB_TABLE_SET_DATA@(va_fenetre,"TA_astreintes",tm_astreintes,tl_titres)
+
+	/*A affichage des donnees lues*/
+	tl_titres[0][0] = "Nom"
+	tl_titres[0][1] = 200
+	tl_titres[1][0] = "Fax"
+	tl_titres[1][1] = 40
+	tl_titres[2][0] = "Appel"
+	tl_titres[2][1] = 40
+	DB_TABLE_SET_DATA@(va_fenetre,"TA_appels",tm_interl,tl_titres)
+
+	/*A active ces deux tables*/
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"TA_astreintes",TRUE)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"TA_appels",TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_appels",TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_astreintes",TRUE)
+
+	/*A active les bascules*/
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BA_appel",TRUE)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BA_fax",TRUE)
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec7_valide ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : TRUE / FALSE
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*	verifie que chque interlocuteur a au moins un moyen d'appel associé. 
+---------------------------------------------------------------------------- */
+VAR vl_indice
+VAR tl_data
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_interl)-1)
+
+		/*A verifie qu'au moins un moyen est associe a l'interlocuteur*/
+		IF (tm_interl[vl_indice].appel = 0) AND (tm_interl[vl_indice].fax = 0)
+		{
+			INFO_MESSAGE@("Vous devez sélectionner au moins un moyen d'appel pour chaque interlocuteur.")
+			RETURN(FALSE)
+		}
+
+		/*A transforme le tableau en une chaine*/
+		tl_data[vl_indice]=tm_interl[vl_indice].numero++DEDI_CAR_SEPAR++
+						tm_interl[vl_indice].fax++DEDI_CAR_SEPAR++
+						tm_interl[vl_indice].appel++DEDI_CAR_SEPAR++
+						tm_interl[vl_indice].astreinte++DEDI_CAR_SEPAR
+	NEXT vl_indice
+
+	WRITE_ASCII_FILE@(vm_fichier,tl_data)	
+	RETURN(TRUE)
+ENDMACRO
+

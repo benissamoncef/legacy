@@ -1,0 +1,1 @@
+DEFINE	XZAX03_Supprimer_Periode_Vacances	"XZAX03"

@@ -1,0 +1,1 @@
+DEFINE XZAE15_Transmettre_Droit_Enrichir	"XZAE15"

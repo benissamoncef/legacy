@@ -1,0 +1,981 @@
+/*E*/
+/* Fichier : $Id: ITMA_TLX_fenetre_alarmes.am,v 1.21 2021/05/03 13:53:18 pc2dpdy Exp $      Release : $Revision: 1.21 $        Date : $Date: 2021/05/03 13:53:18 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER ITMA_TLX_fenetre_alarmes.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* fenetre alarmes depuis le LT.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Cornu 	23 Dec 1994 : Creation								1.1
+* Cornu	30 Mar 1995 : Modif tri alarmesordre décroissant			1.11
+* Charles 30 Mai 1995 : Modif tri alarmes par nom équipement		1.12
+* Mismer  08 Avr 1997 : Modif pour lecture alarme sur POCMA(DEM/1418)	1.13
+* Mismer  08 Avr 1997 : Ajout tri par horodate (DEM/1418)			1.14
+* Diaz	17 Jui  1999 : Ajout de la gestion du siècle 			1.16
+* JMG	11/10/05	: ajout PMVA BAF BAD 	1.17
+* PNI	06/11/08	: Correction des libellés LIB_EQT DEM840 v1.18
+* JMG	29/03/13 	 : ajout PRV 1.19
+* LCL	09/04/18	: ajout controleurs de feux CTRL_FEUX 1.20 DEM1284
+* CGR	13/01/21	: ajout IMU DEM-SAE155 1.21
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes générales
+ * ------------------------------------*/
+DEFINE	C_MODULE			"MTLX"		' Nom du module
+DEFINE	REP_ALARME		"../fichiers/ala/"
+DEFINE	REP_CONFIG		"../fichiers/"
+DEFINE	LIB_EQT			{"RADT","DAI","PMV","PICTO","NAV","GTC","RAU","SYSVIDEO","EQTX","UGTP","PAL","PMVA","BAF","BAD","PRV", "CFE", "IMU"}
+
+
+/*A Description des modules à inclures
+ * ----------------------------------
+ */
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_PMV_format.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+/*A Description des variables globales
+ * ----------------------------------*/
+var     	vm_fenetre			' item de la fenetre du module
+var     	vm_objet_selecte		' L'objet courant de la fenetre
+var     	vm_la_fenetre_est_active	' flag d'activation de la fenetre
+var		vm_NomOperateur
+var		vm_NomMachine			' nom de la machine
+var		vm_F_alarmes			' fichier d'aide
+var		vm_F_Equipement		' fichier d'equipement
+var		vm_F_TypeAlarme		' fichier des type d'alarme
+var		vm_F_Machine			' fichier des machine
+var		vm_TypeAlarme			' type d'alarme selectionné
+var		vm_table_alarme
+var		vm_titre_table_alarme
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Appel de la fenetre alarmes
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLX_fenetre_alarmes (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+
+var		vl_text
+var		vl_erreur				' flag d'erreur
+var		vl_messages_acceptes	' messages acceptes par sockets
+var		vl_rang				' rang de la selection
+var		vl_rang_avant			' rang de la selection
+var		vl_date				' date
+var		vl_numeqt				' n° d'eqt selectionné
+var		vl_Liste_Eqt			' liste de type d'equipement
+var		vl_Par_LT				' Appel par menu LT ou POCMA
+var		vl_horodate
+
+vm_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vm_NomOperateur = SUBSTRING@(vm_NomOperateur, 1, 25)
+vm_NomMachine = SYSTEM_VAR@(vg_poste)
+vm_F_alarmes = ""
+
+
+vl_Liste_Eqt = LIB_EQT
+
+/*A Definition du traitement a realiser en cas d'erreur
+* -----------------------------------------------------*/
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+vl_text = "------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = "Start ITMA_TLX_fenetre_alarmes " ++ " par " ++ va_appelant
+COM01_Trace(0,vl_text)
+
+if ( TRIM@(va_appelant) = "ITMA_TMT" )
+{	vl_Par_LT	= TRUE}
+else 
+{	vl_Par_LT	= FALSE}
+
+if ( NOT vl_Par_LT )
+{
+	vm_NomMachine = Pend_For_New_Task@("ITMA_TLX_Choix_Machine")
+	if vm_NomMachine = NULL
+	{
+   		RETURN
+	}
+}
+else
+{
+	/*A
+	* Siècle par défaut pour saisie de dates
+	* ---------------------------------------
+	*/
+	vl_horodate = DECOMPOSE_TIME@ (CURRENT_TIME@())
+	if (vl_horodate[5]<80)
+		SET_SYSTEM_VAR@ (vg_siecle,2000)
+	else
+		SET_SYSTEM_VAR@ (vg_siecle, 1900)
+}
+
+
+/*A Charger la fenetre LCR
+ * ----------------------*/
+vm_fenetre = DB_LOAD@("ITMA_TLX_liste_alarmes_LT")
+vl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vm_fenetre, vl_messages_acceptes)
+DB_DISPLAY_ONLY@(vm_fenetre,TRUE)
+DB_WINDOW_REMAIN@ (vm_fenetre, TRUE)
+DB_XPOS@ (vm_fenetre, 25)
+DB_YPOS@ (vm_fenetre, 100)
+
+/*A capture des clicks sur liste et bascule 
+* -------------------*------------------------*/
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_equipement",FALSE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_type_alarme",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BO_type_eqt",TRUE)
+
+/*A Definir les caracteristiques (initiales) des objets graphiques
+* --------------------------------------------------------------*/
+vl_date = COM09_Date_Courante ()
+COM24_Afficher_Horodate (vl_date, vm_fenetre, "BS_debut_jour",  "BS_debut_mois", "BS_debut_annee", "BS_debut_heure", "BS_debut_minute")
+COM24_Afficher_Horodate (vl_date, vm_fenetre, "BS_fin_jour",  "BS_fin_mois", "BS_fin_annee", "BS_fin_heure", "BS_fin_minute")
+DB_CTRL_VALUE@(vm_fenetre,"BS_debut_heure","00")
+DB_CTRL_VALUE@(vm_fenetre,"BS_debut_minute","00")
+
+DB_TITLE@(vm_fenetre,"Liste des alarmes "++vm_NomMachine)
+
+/*A Affichage de la fenetre
+* -------------------------*/
+DB_DISPLAY@(vm_fenetre)
+
+vm_table_alarme 			= ""
+vm_table_alarme[0,0]		=" "
+vm_table_alarme[0,1]		=" "
+vm_table_alarme[0,2]		=" "
+vm_table_alarme[0,3]		=" "
+vm_titre_table_alarme 		= ""
+vm_titre_table_alarme[0,0] 	= "Date"
+vm_titre_table_alarme[0,1]	= 130
+vm_titre_table_alarme[1,0] 	= "Id"
+vm_titre_table_alarme[1,1]	= 30
+vm_titre_table_alarme[2,0] 	= "Nom"
+vm_titre_table_alarme[2,1]	= 140
+vm_titre_table_alarme[3,0] 	= "Etat"
+vm_titre_table_alarme[3,1]	= 50
+vm_titre_table_alarme[4,0] 	= "Urgence"
+vm_titre_table_alarme[4,1]	= 60
+vm_titre_table_alarme[5,0] 	= "Libellé"
+vm_titre_table_alarme[5,1]	= 300
+DB_TABLE_SET_DATA@(	vm_fenetre,
+				"TA_alarme",
+				vm_table_alarme,
+				vm_titre_table_alarme)
+
+
+
+ 
+/*A Lecture du fichier des equipements   
+*   ------------------------- */
+ITMA_TLX_MAJ_eqt("RADT")
+vl_rang_avant = DB_CTRL_GET_VALUE@(vm_fenetre,"BO_type_eqt")
+
+/*A Lecture du fichier des type d'alarme  
+*   ----------------------------------- */
+ITMA_TLX_MAJ_type_alarme ()
+vm_TypeAlarme = ""
+
+
+if ( NOT vl_Par_LT )
+{
+	vl_text = "Status : Recopie fichier alarme de  "++vm_NomMachine++" en cours..."
+	DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_text )
+	DB_DISPLAY@ (vm_fenetre,TRUE)
+	vl_text = "rcp PODFA:/users/gesconf/migrazur/fichiers/deq/alarme.txt "++REP_CONFIG++"deq/"
+	vl_text = SHELL_COMMAND@( vl_text )
+/*	if ( vl_text[0] <> NULL ) { INFO_MESSAGE@(vl_text[0]) }*/
+	if ( NOT FILE_EXISTS@(REP_ALARME) )
+	{
+		vl_text = SHELL_COMMAND@( "mkdir " ++ REP_ALARME )	
+	}
+	vl_text = "rcp " ++ vm_NomMachine ++ ":/produits/migrazur/appliSD/fichiers/ala/Alarmes_" ++ vm_NomMachine ++ " " ++ REP_ALARME
+	vl_text = SHELL_COMMAND@( vl_text ) 
+/*	if ( vl_text[0] <> NULL ) 
+	{
+		INFO_MESSAGE@(vl_text[0] ++ "\nTravail sur l'ancien fichier.") 
+		DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : Recopie fichier alarme impossible" )
+	}
+	else
+	{*/
+		vl_text = "Status : Recopie fichier alarme de  "++vm_NomMachine++" terminée."
+		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_text )
+/* }*/
+}
+
+
+/*A flag de capture des évenements dans la fenetre
+* ------------------------------------------------*/
+DB_DISPLAY_ONLY@(vm_fenetre,FALSE)
+
+
+
+/*A Gestion des événements liés à la fiche 'Pilotage des PMV'
+* --------------------------------------------------------*/
+vm_la_fenetre_est_active = TRUE
+WHILE (vm_la_fenetre_est_active)
+
+	/*A
+	 * Lecture de la date system et MAJ du libellé
+	 * -------------------------------------------
+	 */
+
+	DB_DISPLAY@ (vm_fenetre,TRUE)
+
+    	vm_objet_selecte = DB_EXIT_CTRL@ (vm_fenetre)
+    	IF SYSTEM_VAR@ (vg_verrou) vm_objet_selecte = NULL
+
+	CASE OF vm_objet_selecte
+
+	CASE "BP_quitter"
+		vm_la_fenetre_est_active = FALSE
+
+	CASE "BO_type_eqt"
+
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre,"BO_type_eqt")
+		vl_erreur = ITMA_TLX_MAJ_eqt(vl_Liste_Eqt[vl_rang])
+		if vl_erreur = COM_NOK
+		{
+			DB_CTRL_VALUE@(vm_fenetre,"BO_type_eqt",vl_rang_avant)
+			ITMA_TLX_MAJ_eqt(vl_Liste_Eqt[vl_rang_avant])
+		}
+		else
+		{
+			DB_TABLE_CLEAR_DATA@(vm_fenetre,"TA_alarme",0,-1,TRUE)
+			db_ctrl_title@(vm_fenetre,"LI_alarme","Liste des alarmes :")
+		}
+		vl_rang_avant = DB_CTRL_GET_VALUE@(vm_fenetre,"BO_type_eqt")
+
+	CASE "BP_tout"
+		DB_TABLE_CLEAR_DATA@(vm_fenetre,"TA_alarme",0,-1,TRUE)
+		/*A appel de la macro de MAJ de la liste des alarmes */
+		vl_erreur =  ITMA_TLX_MAJ_alarmes("",0)
+		if vl_erreur = COM_OK
+		{DB_CTRL_TITLE@(vm_fenetre,"LI_alarme","Liste des alarmes (tout type d'eqt.) :") }
+
+	CASE "BL_equipement"
+		
+		/*A capture du n° d'eqt */
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre,"BL_equipement")
+		if vl_rang>0 {vl_NumEqt = SUBSTRING@(vm_F_equipement[vl_rang],1,3) + 0}
+		else { vl_NumEqt = 0 }
+
+		/*A appel de la macro de MAJ de la liste des alarmes */
+		DB_TABLE_CLEAR_DATA@(vm_fenetre,"TA_alarme",0,-1,TRUE)
+		vl_erreur =  ITMA_TLX_MAJ_alarmes(vl_Liste_Eqt[vl_rang_avant],vl_NumEqt)
+
+		if vl_erreur = COM_OK
+		{db_ctrl_title@(vm_fenetre,"LI_alarme","Liste des alarmes (type  "++vl_Liste_Eqt[vl_rang_avant]++")  : "++vm_F_equipement[vl_rang])}
+
+	CASE "BL_type_alarme"
+		
+		/*A capture d'un type d'alarme */
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre,"BL_type_alarme")
+		if vl_rang>0 {vm_TypeAlarme = vm_F_TypeAlarme[vl_rang]}
+		else { vm_TypeAlarme = "" }
+
+
+   	CASE "poke_"
+
+     	CASE OF  DB_GET_POKE@ (vm_fenetre)
+
+     	CASE COM_CANAL_FIN
+    			vm_la_fenetre_est_active = FALSE
+
+		ENDCASE
+
+	ENDCASE
+	
+WEND
+
+
+vl_text = "Stop ITMA_TLX_fenetre_alarmes "
+COM01_Trace(0,vl_text)
+RETURN(COM_QUITTE)
+
+ENDMACRO
+
+
+
+
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Mise à jour de la table d'alarme par rapport à 
+*				l'equipement désiré & à l'interval...
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TLX_MAJ_alarmes(va_TypeEQT,va_NumEqt)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_TypeEQT			:	Type d'equipement choisi
+*		va_NumEqt			:	Numero d'equipement choisi
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TPM_pilotage_PMV_LT
+*
+* FONCTION :
+*	 Mise à jour de la table d'alarme par rapport à 
+*				l'equipement désiré & à l'interval....
+* ------------------------------------------------------------------------------- */
+
+	var vl_F_tpm
+	var vl_tpm
+	var vl_ligne
+	var vl_alarme_ligne
+	var vl_tpm_alarme
+	var vl_taille
+	var vl_taille2
+	var i,j,k
+	var vl_date1
+	var vl_date2
+	var vl_date
+	var vl_t_date
+	var vl_t_date1
+	var vl_t_date2
+	var vl_dedans
+	var vl_rang
+
+	ALL_WINDOWS_BUSY@()
+	DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : MAJ alarmes")
+
+
+/*A Lecture du fichier d'alarmes  
+*   ------------------------- */
+if NOT IS_ARRAY@(vm_F_alarmes)
+{
+	if LEN@(vm_NomMachine)>0
+	{
+  		if NOT FILE_EXISTS@(REP_ALARME++"Alarmes_"++vm_NomMachine)
+  		{	info_message@("Fichier demandé inexistant : " ++REP_ALARME++"Alarmes_"++vm_NomMachine)
+		return(COM_NOK)
+  		}
+		vl_F_tpm = SORT@(READ_ASCII_FILE@(REP_ALARME++"Alarmes_"++vm_NomMachine))
+		vl_alarme_ligne = ""
+		vl_ligne = ""
+		vl_taille = ARRAY_SIZE@(vl_F_tpm)-1
+		for i = 0 to vl_taille
+			vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+			vl_alarme_ligne[i] = vl_F_tpm[i]
+			vl_taille2 = ARRAY_SIZE@(vl_ligne)-1
+			for j = 0 to vl_taille2
+				vm_F_alarmes[i,j] = TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+			next j
+		next i
+	}
+	else
+	{
+  		info_message@("Pas de nom machine pour lire le fichier correspondant...")
+		return(COM_NOK)
+  
+	}
+}
+
+
+
+/*A test et MAJ de la date de debut */
+vl_t_date1[0]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_jour") + 0
+vl_t_date1[1]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_mois") + 0
+vl_t_date1[2]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_annee") + 0
+vl_t_date1[3]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_heure") + 0
+vl_t_date1[4]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_minute") + 0
+vl_t_date1 = ITMA_TLX_test_date(vl_t_date1)
+
+vl_date1 = COM06_Date_Formatee (vl_t_date1[0], vl_t_date1[1], vl_t_date1[2], vl_t_date1[3], vl_t_date1[4])
+
+COM24_Afficher_Horodate (vl_date1, vm_fenetre, "BS_debut_jour",  "BS_debut_mois", "BS_debut_annee", "BS_debut_heure", "BS_debut_minute")
+
+vl_t_date1[0]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_jour") 
+vl_t_date1[1]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_mois") 
+vl_t_date1[2]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_annee") 
+vl_t_date1[3]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_heure") 
+vl_t_date1[4]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_minute") 
+vl_date1 = vl_t_date1[2] ++ vl_t_date1[1] ++ vl_t_date1[0] ++  vl_t_date1[3] ++ vl_t_date1[4]
+vl_date1 = vl_date1 + 0
+
+
+/*A test et MAJ de la date de fin */
+vl_t_date2[0]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_jour")+0
+vl_t_date2[1]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_mois")+0
+vl_t_date2[2]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_annee")+0
+vl_t_date2[3]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_heure")+0
+vl_t_date2[4]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_minute")+0
+vl_t_date2 = ITMA_TLX_test_date(vl_t_date2)
+
+vl_date2 = COM06_Date_Formatee (vl_t_date2[0], vl_t_date2[1], vl_t_date2[2], vl_t_date2[3], vl_t_date2[4])
+
+COM24_Afficher_Horodate (vl_date2, vm_fenetre, "BS_fin_jour",  "BS_fin_mois", "BS_fin_annee", "BS_fin_heure", "BS_fin_minute")
+
+vl_t_date2[0]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_jour")
+vl_t_date2[1]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_mois")
+vl_t_date2[2]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_annee")
+vl_t_date2[3]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_heure")
+vl_t_date2[4]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_minute")
+vl_date2 = vl_t_date2[2] ++ vl_t_date2[1] ++ vl_t_date2[0] ++  vl_t_date2[3] ++ vl_t_date2[4]
+vl_date2 = vl_date2 + 0
+
+
+
+/*A tri & MAJ TA_alarmes
+* -------------------*/
+vl_taille = ARRAY_SIZE@(vm_F_alarmes)-1
+j = 0
+vm_table_alarme = ""
+for i = 1 to vl_taille
+	
+	/*A si bon type d'eqt et bon numero */
+	if (vm_F_alarmes[i,1]=va_TypeEQT or va_TypeEQT = "") and 
+	  (vm_F_alarmes[i,2]=va_NumEqt or va_NumEqt=0) 
+	{
+		/*A décomposition de l'horodate */
+		vl_t_date[0]	= SUBSTRING@ (vm_F_alarmes[i,0], 1, 2) 	' jour
+		vl_t_date[1]	= SUBSTRING@ (vm_F_alarmes[i,0], 4, 2) 	' mois
+		vl_t_date[2]	= SUBSTRING@ (vm_F_alarmes[i,0], 7, 4) 	' annee
+		vl_t_date[3]	= SUBSTRING@ (vm_F_alarmes[i,0], 12, 2)	' heure
+		vl_t_date[4]	= SUBSTRING@ (vm_F_alarmes[i,0], 15, 2)	' minute
+		vl_t_date = ITMA_TLX_test_date(vl_t_date)
+		vl_date = vl_t_date[2] ++ vl_t_date[1] ++ vl_t_date[0] ++  vl_t_date[3] ++ 		
+				vl_t_date[4]
+		vl_date = vl_date + 0
+
+		/*A test si l'alarme est dans l'interval de temps */
+		vl_dedans = TRUE
+
+		/*a si la date est inferieur : dehors */
+		if vl_date1>vl_date { vl_dedans = FALSE }
+
+		/*a si la date est superieur : dehors */
+		if vl_date2<vl_date { vl_dedans = FALSE }
+
+		/*A si dedans : ajout à la liste à afficher */
+		if (vl_dedans = TRUE ) and 
+	 	   ((vm_TypeAlarme = "") or 
+	 	    (STRING_INDEX@(vm_F_alarmes[i,4],vm_TypeAlarme) > 0))
+		{
+			vm_table_alarme[j,0] = vm_F_alarmes[i,0]
+			vm_table_alarme[j,1] = vm_F_alarmes[i,2]
+			vm_table_alarme[j,2] = vm_F_alarmes[i,3]
+			if (SUBSTRING@(vm_F_alarmes[i,4],1,5) = "DEBUT")
+			{	vm_table_alarme[j,3] = "Début" }
+			else
+			{	vm_table_alarme[j,3] = "Fin" }
+			vl_rang = STRING_INDEX@(vm_F_alarmes[i,4],"MINEURE" )
+			if (  vl_rang > 0 )
+			{	
+				vm_table_alarme[j,4] = "Mineure" 
+			}
+			else
+			{
+				vm_table_alarme[j,4] = "Majeure" 
+				vl_rang = STRING_INDEX@(vm_F_alarmes[i,4],"MAJEURE" )
+			}
+			vl_rang = vl_rang + 7
+			vm_table_alarme[j,5] = SUBSTRING@(vm_F_alarmes[i,4],vl_rang)
+			j = j + 1
+		}
+	}
+next i
+
+/*A inversion de l'ordre d'affichage de la liste des alarmes */
+if IS_ARRAY@(vm_table_alarme)
+{	vl_taille = ARRAY_size@(vm_table_alarme)-1
+	for i = 0 to vl_taille
+		vl_tpm_alarme[vl_taille-i] = vm_table_alarme[i]
+	next i
+	vm_table_alarme = vl_tpm_alarme
+}
+
+/*A si au moins une ligne : MAJ du tableau */
+DB_TABLE_CLEAR_DATA@(vm_fenetre,"TA_alarme",0,-1,TRUE)
+if IS_ARRAY@(vm_table_alarme) 
+{
+	DB_TABLE_SET_DATA@(	vm_fenetre,
+				"TA_alarme",
+				vm_table_alarme,
+				vm_titre_table_alarme)
+}
+else
+{
+	DB_CTRL_TITLE@(vm_fenetre,"LI_alarme","Liste des alarmes (vide) :")
+}
+
+/*B code retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Mise à jour de la table d'equipement...
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TLX_MAJ_eqt(va_TypeEQT)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_TypeEQT			:	Type d'equipement choisi
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TPM_pilotage_PMv_LT
+*
+* FONCTION :
+*	 Mise à jour de la table d'equipement....
+*
+* ------------------------------------------------------------------------------- */
+
+	var vl_F_tpm
+	var vl_tpm
+	var vl_ligne
+	var vl_taille
+	var vl_taille2
+	var i,j,k
+	var vl_fichier
+
+
+	ALL_WINDOWS_BUSY@()
+	DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : MAJ equipements")
+
+
+/*A Lecture de la liste des equipements disponibles   
+*   ----------------------------------------------- */
+
+vl_fichier = REP_CONFIG++"deq/Config_"++va_TypeEQT++"_LCR"
+if FILE_EXISTS@(vl_fichier) { vl_F_tpm = READ_ASCII_FILE@(vl_fichier) }
+
+vm_F_Equipement = ""
+vm_F_Equipement[0] = "Tous"
+
+k = 1
+vl_taille = ARRAY_SIZE@(vl_F_tpm)-1
+for i = 0 to vl_taille
+	vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+	vl_taille2 = ARRAY_SIZE@(vl_ligne)-1
+	for j = 0 to vl_taille2
+		vl_tpm[i,j] = TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+		if LEN@(vl_tpm[i,1])=1 {vl_tpm[i,1] = "00"++vl_tpm[i,1]}
+		if LEN@(vl_tpm[i,1])=2 {vl_tpm[i,1] = "0"++vl_tpm[i,1]}
+	next j
+	if TRIM@(vl_tpm[i,2]) = TRIM@(vm_NomMachine)
+	{ 
+		vm_F_Equipement[k] = vl_tpm[i,1] ++ "  " ++ vl_tpm[i,0]
+		k = k + 1 
+	}
+next i
+
+if ( vm_F_Equipement[1] = NULL )
+{
+	vm_F_Equipement[0] = "Aucun"
+	DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_equipement",FALSE)
+}
+else
+{
+	DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_equipement",TRUE)
+}
+DB_CTRL_STRINGS@(vm_fenetre,"BL_equipement",vm_F_Equipement)
+
+
+/*B code retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Mise à jour de la table des machines...
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TLX_MAJ_machine()
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*
+* FONCTION :
+*	 Mise à jour de la table des machines....
+*
+* ------------------------------------------------------------------------------- */
+
+var vl_F_tpm
+var vl_Liste_Eqt
+var vl_tpm
+var vl_ligne
+var vl_taille
+var i,j
+var vl_fichier
+
+
+ALL_WINDOWS_BUSY@()
+
+vm_F_Machine[0] = "POLTM01"
+vl_Liste_Eqt = LIB_EQT
+
+/*A Lecture de la liste des machine disponibles   
+*   ----------------------------------------------- */
+for i = 0 to ARRAY_SIZE@(vl_Liste_Eqt)-1
+
+	vl_fichier = REP_CONFIG++"deq/Config_"++vl_Liste_Eqt[i]++"_LCR"
+	if FILE_EXISTS@(vl_fichier) 
+	{ 
+		vl_F_tpm = READ_ASCII_FILE@(vl_fichier)
+		vl_taille = ARRAY_SIZE@(vl_F_tpm)-1
+		for j = 0 to vl_taille
+			vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[j],",")
+			vl_tpm = TRIM@(TABS_TO_SPACES@(vl_ligne[2]))
+			vm_F_Machine = ARRAY_INSERT_ORDERED@(vm_F_Machine, vl_tpm, 
+										TRUE,FALSE)
+		next j
+	}	
+next i
+
+
+/*B code retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Mise à jour de la table des types d'alarme...
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TLX_MAJ_type_alarme ()
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   
+*
+* FONCTION :
+*	 Mise à jour de la table des types d'alarme....
+*
+* ------------------------------------------------------------------------------- */
+
+	var vl_F_tpm
+	var vl_ligne
+	var vl_taille
+	var i
+	var vl_fichier
+
+
+	ALL_WINDOWS_BUSY@()
+	DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : MAJ Type alarme")
+
+
+/*A Lecture de la liste des equipements disponibles   
+*   ----------------------------------------------- */
+
+vl_fichier = REP_CONFIG++"deq/alarme.txt"
+if FILE_EXISTS@(vl_fichier) { vl_F_tpm = READ_ASCII_FILE@(vl_fichier) }
+
+vm_F_TypeAlarme = ""
+vm_F_TypeAlarme[0] = " "
+
+vl_taille = ARRAY_SIZE@(vl_F_tpm)-1
+for i = 0 to vl_taille
+	vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],"	")
+	if (SUBSTRING@(vl_ligne[0],1,1) <> "#")
+	{
+		vm_F_TypeAlarme = ARRAY_INSERT_ORDERED@(vm_F_TypeAlarme, vl_ligne[1], 
+										TRUE,FALSE)
+	}
+next i
+vm_F_TypeAlarme[0] = "Tous"
+
+DB_CTRL_STRINGS@(vm_fenetre,"BL_type_alarme",vm_F_TypeAlarme)
+
+
+/*B code retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Construit et retourne une chaine de caracteres representant une horodate
+*  dans un format valide pour interface avec le SGBD.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLX_test_date(va_t_date)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_t_date         : tabhleau de date en cours,
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* VALEUR RETOURNEE    : La chaine construite, de la forme "jj/mm/aaaa hh:mm".
+*
+* CONDITION D'UTILISATION
+*   Toute macro.
+*
+* FONCTION
+*   Construit et retourne une chaine de caracteres representant une horodate
+*   dans un format fixe, accepte par le SGBD, a partir des valeurs indiquees
+*   en arguments.
+*
+*   * Les chaines d'heure et minute en entree peuvent etre vides, auquel cas
+*     les valeurs sont prises egales a "00".
+*   * La valeur des secondes n'est pas fournie.
+*
+---------------------------------------------------------------------------- */
+
+
+
+if va_t_date[4]>60
+{
+	va_t_date[4] = va_t_date[4] - 60
+	va_t_date[3] = va_t_date[3] + 1
+}
+
+if va_t_date[3]>24
+{
+	va_t_date[3] = va_t_date[3] - 24
+	va_t_date[0] = va_t_date[0] + 1
+}
+
+if va_t_date[0]>31 and ( va_t_date[1]=12 or va_t_date[1]=10 or va_t_date[1]=8 or va_t_date[1]=7 or va_t_date[1]=5 or va_t_date[1]=3 or va_t_date[1]=1 )
+{
+	va_t_date[0] = va_t_date[0] - 31
+	va_t_date[1] = va_t_date[1] + 1
+}
+
+if va_t_date[0]>30 and ( va_t_date[1]=11 or va_t_date[1]=9 or va_t_date[1]=6 or va_t_date[1]=4 ) 
+{
+	va_t_date[0] = va_t_date[0] - 30
+	va_t_date[1] = va_t_date[1] + 1
+}
+
+if va_t_date[0]>29 and va_t_date[1]=2 
+{
+	va_t_date[0] = va_t_date[0] - 29
+	va_t_date[1] = va_t_date[1] + 1
+}
+
+if va_t_date[1]>12 
+{
+	va_t_date[1] = va_t_date[1] - 12
+	va_t_date[2] = va_t_date[2] + 1
+}
+
+if va_t_date[2]<100 
+{
+	va_t_date[2] = va_t_date[2] + 1900
+}
+
+RETURN (va_t_date)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Choisir une machine pour recup fichier alarme
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLX_Choix_Machine (  )
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+
+/*A Déclaration des variables statiques */
+var		vl_fenetre_choix
+var		vl_fenetre_active
+var		vl_controle_sortie
+var		vl_rang		/* rang selectionné dans la liste */
+var		vl_messages_acceptes
+
+
+ITMA_TLX_MAJ_machine()
+
+
+/*A Ouvertue de la liste des sequences */
+vl_fenetre_choix = DB_LOAD@("ITMA_TLX_Liste_LT")
+vl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_choix, vl_messages_acceptes)
+
+/*A Positionnement de la fenetre  
+*   --------------------------  */
+DB_XPOS@(vl_fenetre_choix,100)
+DB_YPOS@(vl_fenetre_choix,100)
+
+DB_DISPLAY_ONLY@(vl_fenetre_choix,True)
+DB_DISPLAY@(vl_fenetre_choix)
+DB_DISPLAY_ONLY@(vl_fenetre_choix,False)
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_choix,"BL_machine",True)
+DB_CTRL_STRINGS@(vl_fenetre_choix,"BL_machine",vm_F_Machine)
+
+/*A Boucle de capture des événements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_choix)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_choix)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action liste machine */
+	CASE "BL_machine"
+		/*A Capture du rang dans la liste des destination */
+		vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_choix,"BL_machine")
+
+		/*A Capture du libellé de la destination choisie */
+		vm_NomMachine = vm_F_Machine[vl_rang]
+		DB_CTRL_GRAYED@(vl_fenetre_choix, "BP_valider", FALSE)
+
+	/*A sur action valider */
+	CASE "BP_valider"
+		/*A fermer la fenetre */
+		RETURN(vm_NomMachine)
+
+	/*A sur action annuler */
+	CASE "BP_quitter"
+		/* fermeture de la fenetre */
+		RETURN(NULL)
+
+	/*A sur reception de poke */
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vl_fenetre_choix)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/* fermeture de la fenetre */
+			RETURN(NULL)
+
+		ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+
+ENDMACRO
+
+
+
+
+
+

@@ -1,0 +1,91 @@
+/*E*/
+/* Fichier : @(#)ITMA_TIME_TDP_RTFM.am	1.2      Release : 1.2        Date : 09/27/95
+********************************************************************************
+* STERIA	* PROJET MIGRAZUR		*   
+********************************************************************************
+* MODULE: MTIM			* FICHIER ITMA_TIME_TDP_RTFM.am
+********************************************************************************
+* AUTEUR: C.  HILMARCHER		 DATE DE CREATION 11/07/2005
+********************************************************************************
+* DESCRIPTION DU MODULE: 
+* Tache envoyant des signaux remplacant les timers
+*
+* REFERENCES AU DCG: 
+*
+********************************************************************************
+* HISTORIQUE DES MODIFICATIONS:
+*
+* CHI	11/07/2005:	Creation v1.1 - v1.2
+* PNI 	01/09/2011:	Modification du timer v1.4 DEM990
+********************************************************************************/
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+
+DEFINE C_FREQUENCE_MINUTES	15
+DEFINE C_FREQUENCE_SECONDES	(C_FREQUENCE_MINUTES*60)
+
+MACRO ITMA_TIME_TDP_RTFM
+
+	VAR vl_fenetre
+	VAR vl_evt
+	VAR vl_horodate
+	VAR vl_delta
+	VAR vl_cpt
+
+	vl_cpt=0
+
+	/* charge une BD vide pour pouvoir recevoir des pokes */
+	vl_fenetre = DB_LOAD@("ITMA_TIME")
+	DB_WIDTH@(vl_fenetre,0)
+	DB_HEIGHT@(vl_fenetre,0)
+/* Recupère l'horodate courante vl_horodate[1] sont les minutes et vl_horodate[0] les secondes */
+	vl_horodate = DECOMPOSE_TIME@ (CURRENT_TIME@ ())
+
+/* DEM520 : recherche le nb de secondes à attendre pour atteindre les minutes : 14, 29, 44, 59 */
+	vl_delta= C_FREQUENCE_MINUTES - ((vl_horodate[1]+1) mod C_FREQUENCE_MINUTES)
+	vl_delta= vl_delta * 60 - vl_horodate[0]
+	DB_TIMER@(vl_fenetre, vl_delta)
+			COM01_Trace (COM_WARNING,"attente init ="++vl_delta)
+
+		vl_cpt=vl_cpt+1
+		DB_CTRL_TITLE@(vl_fenetre,"LI_cpt",vl_cpt)
+	DB_DISPLAY@(vl_fenetre)
+
+	   /*B attente d'un evenement*/
+	   vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+			DB_SEND_POKE@(COM_CANAL_MTDP_TIMER)
+			COM01_Trace (COM_WARNING,"poke tdp envoye")
+
+
+		vl_horodate = DECOMPOSE_TIME@ (CURRENT_TIME@ ())
+
+	/* DEM520 : recherche le nb de secondes à attendre pour atteindre les minutes : 14, 29, 44, 59 */
+		vl_delta= C_FREQUENCE_MINUTES - ((vl_horodate[1]+1) mod C_FREQUENCE_MINUTES)
+		vl_delta= vl_delta * 60 - vl_horodate[0]
+		DB_TIMER@(vl_fenetre, vl_delta)
+			COM01_Trace (COM_WARNING,"attente init ="++vl_delta)
+
+
+
+
+	/*A boucle infinie de traitement des evenements */
+	WHILE 1
+		/* Recupère l'horodate courante vl_horodate[1] sont les minutes et 			vl_horodate[0] les secondes */
+		vl_cpt=vl_cpt+1
+		DB_CTRL_TITLE@(vl_fenetre,"LI_cpt",vl_cpt)
+
+	   DB_DISPLAY@(vl_fenetre)
+
+	   /*B attente d'un evenement*/
+	   vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+			DB_SEND_POKE@(COM_CANAL_MTDP_TIMER)
+'			COM01_Trace (COM_WARNING,"poke tdp envoye"++vl_evt)
+			COM01_Trace (COM_WARNING,"poke tdp envoye")
+
+	WEND
+ENDMACRO

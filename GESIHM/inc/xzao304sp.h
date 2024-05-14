@@ -1,0 +1,1 @@
+DEFINE	XZAO304_Liste_Lits_Arret_Ax	"XZAO;304"

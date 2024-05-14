@@ -1,0 +1,210 @@
+/*E*/
+/* Fichier : @(#)ITMA_TPM_BAF.am	1.1      Release : 1.1        Date : 11/09/05
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE UTIL * FICHIER ITMA_TPM_BAF.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*  pmv acces simplfie
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* PCL   20/10/04        creation et mise au point v1.2 
+-------------------------------------------------------------------------------
+*/
+
+INCLUDE	"dbase_.am"
+INCLUDE	"app_ids_.am"				'pour récupérer le nom des appli Applix
+INCLUDE	"windows_.am"				'pour récupérer le nom des appli Applix
+
+DEFINE	C_MODULE	"MTOU"			' Nom du module
+DEFINE	CL_TRI_ALPHA	4			' tri par ordre alphabetique
+
+DEFINE	VUE_COMMUN	"VUES_Commun.elo"
+DEFINE	VUE_APPLIX	"CVUEM_ApplixData.elo"
+
+
+FORMAT T_BAF
+	nom,
+	numero,
+	LT
+
+VAR FORMAT T_BAF tm_baf
+
+DEFINE FIC_CMD_LCR	"baf_cmd.lcr"
+DEFINE FIC_RES_LCR	"baf_res.lcr"
+DEFINE BAF_TYPE	47
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Creation d'une boite de dialogue pour permettre le  pilotage des BAF
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPM_BAF()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Appel depuis le menu principal
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR 	vl_exit_value
+	VAR	vl_la_fenetre_est_active
+	VAR 	vl_fenetre			 
+
+     VAR vl_liste_machines
+	VAR vl_indice
+	VAR vl_fichier_commande
+	VAr vl_fichier_resultat
+      VAR vl_index
+      VAR vl_machine
+      VAR vl_type_equipement
+      VAR vl_numero_equipement
+
+	VAR vl_t1, vl_t2, vl_t3, vl_t4, vl_t5
+	VAR vl_flash
+	VAR tl_lignes
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	RETURN
+}
+  tm_baf[0].nom="BAF DU 195330 SENS 1"
+  tm_baf[0].numero = 7
+  tm_baf[0].LT = "POLTN04"
+
+
+/*  tm_baf[0].nom="BAF ESSAI SUR BRA"
+  tm_baf[0].numero = 11
+  tm_baf[0].LT = "POLTN04"
+*/
+
+/*A
+ * Charger la fenetre "menu principal"
+ * ----------------------------------
+ */
+INSTALL_FILE@ ("/produits/migrazur/appliSD/exec/ITMA_TIE_fenetre_LCR.elo")
+vl_fenetre = DB_LOAD@ ("ITMA_TPM_BAF")
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93 )
+
+  DB_CTRL_STRINGS@(vl_fenetre,"BO_baf",ARRAY_COLUMN@(tm_baf,0))
+
+vl_la_fenetre_est_active = TRUE
+/*A boucle infinie de traitement des evenements*/
+WHILE vl_la_fenetre_est_active
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+
+      /***************************/
+	/*B si demande d'execution */
+     /***************************/
+	CASE "BP_activer"
+		tl_lignes=NULL
+		MACRO_WINS_BUSY@()
+
+		/*BAF a piloter*/
+		vl_indice = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_baf")
+
+
+		tl_lignes[0] = "P ID=SAE/MIG AM=1.1 AF=1 AM=1.2 AF=1 AM=2.1 AF=1 AM=2.2 AF=1"
+
+/*		tl_lignes[0] = "P ID=SAE/MIG AM=1.2 AF=DANG"*/
+	WRITE_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/deq/"++FIC_CMD_LCR,tl_lignes)
+
+                ITMA_TIE_XZEX01( BAF_TYPE , tm_baf[vl_indice].numero , 
+					FIC_CMD_LCR, FIC_RES_LCR ,  0 , 0 , 0 , 
+					tm_baf[vl_indice].LT )
+		INFO_MESSAGE@("Commande des feux exécutée")
+		DELAY@(2)
+
+		tl_lignes[0] = "P ID=SAE/MIG AM=1.5 AF=1 AM=2.5 AF=1"
+
+/*		tl_lignes[0] = "P ID=SAE/MIG AM=1.2 AF=DANG"*/
+	WRITE_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/deq/"++FIC_CMD_LCR,tl_lignes)
+
+                ITMA_TIE_XZEX01( BAF_TYPE , tm_baf[vl_indice].numero , 
+					FIC_CMD_LCR, FIC_RES_LCR ,  0 , 0 , 0 , 
+					tm_baf[vl_indice].LT )
+		INFO_MESSAGE@("Commande des listels et des barrieres exécutée")
+
+      /********************************/
+	/*B si demande de desactivation */
+     /********************************/
+	CASE "BP_desactiver"
+		tl_lignes=NULL
+		MACRO_WINS_BUSY@()
+
+		/*BAF a piloter*/
+		vl_indice = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_baf")
+
+
+		tl_lignes[0] = "P ID=SAE/MIG AM=1.5 AF=0 AM=2.5 AF=0"
+
+	
+/*		tl_lignes[0] = "P ID=SAE/MIG AM=1.2 AF=0"*/
+
+WRITE_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/deq/"++FIC_CMD_LCR,tl_lignes)
+
+                ITMA_TIE_XZEX01( BAF_TYPE , tm_baf[vl_indice].numero , 
+					FIC_CMD_LCR, FIC_RES_LCR ,  0 , 0 , 0 , 
+					tm_baf[vl_indice].LT )
+		INFO_MESSAGE@("Commande de redressement des barrieres exécutée")
+		DELAY@(5)
+
+		tl_lignes[0] = "P ID=SAE/MIG AM=1.1 AF=0 AM=1.2 AF=0 AM=2.1 AF=0 AM=2.2 AF=0"
+
+	
+/*		tl_lignes[0] = "P ID=SAE/MIG AM=1.2 AF=0"*/
+		WRITE_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/deq/"++FIC_CMD_LCR,tl_lignes)
+
+                ITMA_TIE_XZEX01( BAF_TYPE , tm_baf[vl_indice].numero , 
+					FIC_CMD_LCR, FIC_RES_LCR ,  0 , 0 , 0 , 
+					tm_baf[vl_indice].LT )
+		INFO_MESSAGE@("Commande d'extinction des feux et listels exécutée")
+
+
+
+     /*********************************/
+     /* si demande sortie             */
+     /*********************************/
+	CASE "BP_quitter"
+		RETURN
+	ENDCASE	
+
+WEND
+ENDMACRO
+
+

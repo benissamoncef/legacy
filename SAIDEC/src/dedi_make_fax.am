@@ -1,0 +1,937 @@
+/*E*/
+/* Fichier : $Id: dedi_make_fax.am,v 1.6 1995/10/25 14:16:31 thomas Exp $	      Release : $Revision: 1.6 $        Date : $Date: 1995/10/25 14:16:31 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_make_fax.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* genere les fichiers ASCII de la politique FAX
+* (format RTie ou format Texte, en fonction de vg_mode)   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Thomas	30 Jan 1995	: Creation						V1.1
+* Thomas	20 Sep 1995	: suppression du "goto pol"			V1.3
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+DEFINE dedi_size_file_nature			14
+DEFINE dedi_size_file_fin			5
+DEFINE dedi_cas_gn					"NATURE_GN"
+DEFINE dedi_cas_gv					"NATURE_GV"
+DEFINE dedi_cas_fin					"FIN"
+
+/* compteur du nombre de regles msg_elt_gn, msg_elt_gv, msg_elt_fin */
+VAR vm_indice_nature
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* genere les regles FAX
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_make_fax()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+* dedi
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR tl_commentaire
+VAR syntaxe_correcte
+VAR tl_arg
+
+	trace_chaine("")
+	trace_chaine("POLITIQUE FAX")
+	trace_chaine("")
+
+	/*A
+	**  on exploite le fichier d'option de mise en evidence des textes travaux 
+	*/
+	trace_chaine("Mise en evidence des textes relatifs aux travaux ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_MEV_FAX)
+	fax_mev_travaux(tl_data)
+	
+	tl_commentaire[0] = "*        POLITIQUE FAX :" 
+	tl_commentaire[1] = "*        mise en evidence des textes relatifs aux travaux"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_MEV_FAX, IE_SUFFIXE_RL, tl_commentaire)
+
+
+	/*A
+	**  on exploite le fichier IE_FILE_INTITULE_FAX
+	*/
+	trace_chaine("Formulation des intitules des rubriques")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_INTITULE_FAX)
+
+	/*B on applique tfm_lit_intitule() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		fax_lit_intitule(tl_data[vl_indice], vl_indice)
+	NEXT vl_indice
+
+		/*B on genere le fichier fax_elt.ob */
+	tl_commentaire[0] = "*        POLITIQUE FAX :" 
+	tl_commentaire[1] = "*        expressions a utiliser pour indiquer"
+	tl_commentaire[2] = "*        les libelles des elements du fax"
+	dedi_shell(IE_MODELE_INTITULE_FAX, IE_SUFFIXE_OB, tl_commentaire)
+
+
+	/*A
+	**  on construit la structure du fax 
+	*/
+	trace_chaine("Definition de la structure du fax")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_STRUCT_FAX)
+
+	/*B on applique fax_construit_def*/
+	trace_point()
+	fax_construit_def(tl_data)
+
+	/*B on genere le fichier fax_def.rl */
+	tl_commentaire[0] = "*        POLITIQUE FAX :" 
+	tl_commentaire[1] = "*        structure d'un fax"
+ 	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_DEF_FAX, IE_SUFFIXE_RL, tl_commentaire)
+
+
+	/*A
+	**  on exploite la rubrique Voies bloquees du fax
+	*/
+	trace_chaine("Formulation de la rubrique Voies Bloquees")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_BLOQUE_FAX)
+	trace_point()
+
+	/*A on applique le modele ax-word */
+	dedi_genere(IE_MODELE_BLOQUE_FAX,1,tl_data)
+
+	/*B on genere le fichier fax_elt_bloque.rl */
+	tl_commentaire[0] = "*        POLITIQUE FAX :" 
+	tl_commentaire[1] = "*        rubrique Voies Bloquees"
+ 	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_BLOQUE_FAX, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	**  on exploite le fichier IE_FILE_SECTION_FAX
+	*/
+	trace_chaine("Formulation de la rubrique section ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_SECTION_FAX)
+
+	/*B on applique tfm_lit_elt() */
+	syntaxe_correcte = fax_lit_elt(tl_data, IE_FILE_SECTION_FAX,"section",
+												IE_MODELE_SECTION_FAX)
+	
+	/*B on genere le fichier fax_elt_section.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE FAX :" 
+		tl_commentaire[1] = "*        formulation de la rubrique Section"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_SECTION_FAX, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES FAX IMPOSSIBLES.")
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier IE_FILE_AUTOROUTE_FAX
+	*/
+	trace_chaine("Formulation de la rubrique autoroute ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_AUTOROUTE_FAX)
+
+	/*B on applique fax_lit_elt() */
+	syntaxe_correcte = fax_lit_elt(tl_data, IE_FILE_AUTOROUTE_FAX, "autoroute",
+												IE_MODELE_AUTOROUTE_FAX)
+
+	/*B on genere le fichier fax_elt_autoroute.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE FAX :" 
+		tl_commentaire[1] = "*        formulation de la rubrique Autoroute"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_AUTOROUTE_FAX, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES FAX IMPOSSIBLES.")
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier IE_FILE_CIRCULATION_FAX
+	*/
+	trace_chaine("Formulation de la rubrique Difficultes de Circulation ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_CIRCULATION_FAX)
+
+	/*B on applique fax_lit_elt() */
+	syntaxe_correcte = fax_lit_elt(tl_data, IE_FILE_CIRCULATION_FAX, "autoroute",
+											IE_MODELE_CIRCULATION_FAX)
+
+	/*B on genere le fichier fax_elt_circulation.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE FAX :" 
+		tl_commentaire[1] = "*        formulation de la rubrique Difficultes de Circulation"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_CIRCULATION_FAX, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES FAX IMPOSSIBLES.")
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier IE_FILE_FIN_FAX
+	*/
+	trace_chaine("Formulation de la rubrique Heure de fin ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_FIN_FAX)
+
+	/*B on applique fax_lit_elt() */
+	syntaxe_correcte = fax_lit_elt(tl_data, IE_FILE_FIN_FAX, "heure de fin",
+											IE_MODELE_FIN_FAX)
+
+	/*B on genere le fichier fax_elt_fin.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE FAX :" 
+		tl_commentaire[1] = "*        formulation de la rubrique Heure de fin"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_FIN_FAX, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES FAX IMPOSSIBLES.")
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier IE_FILE_DEBUT_FAX
+	*/
+	trace_chaine("Formulation de la rubrique Heure de debut ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_DEBUT_FAX)
+
+	/*B on applique fax_lit_elt() */
+	syntaxe_correcte = fax_lit_elt(tl_data, IE_FILE_DEBUT_FAX, "heure de debut",
+											IE_MODELE_DEBUT_FAX)
+
+	/*B on genere le fichier fax_elt_debut.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE FAX :" 
+		tl_commentaire[1] = "*        formulation de la rubrique Heure de debut"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_DEBUT_FAX, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES FAX IMPOSSIBLES.")
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier IE_FILE_MATIERE_FAX
+	*/
+	trace_chaine("Formulation de la rubrique Matieres Dangereuses ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_MATIERE_FAX)
+
+	/*B on applique fax_lit_elt() */
+	syntaxe_correcte = fax_lit_elt(tl_data, IE_FILE_MATIERE_FAX, 
+										"matieres dangereuses",
+										IE_MODELE_MATIERE_FAX)
+
+	/*B on genere le fichier fax_elt_matdang.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE FAX :" 
+		tl_commentaire[1] = "*        formulation de la rubrique Matieres Dangereuses"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_MATIERE_FAX, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES FAX IMPOSSIBLES.")
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier IE_FILE_PR_FAX
+	*/
+	trace_chaine("Formulation de la rubrique PR ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_PR_FAX)
+
+	/*B on applique fax_lit_elt() */
+	syntaxe_correcte = fax_lit_elt(tl_data, IE_FILE_PR_FAX, 
+										"PR",
+										IE_MODELE_PR_FAX)
+
+	/*B on genere le fichier fax_elt_pr.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE FAX :" 
+		tl_commentaire[1] = "*        formulation de la rubrique PR"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_PR_FAX, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES FAX IMPOSSIBLES.")
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier IE_FILE_GRAVITE_FAX
+	*/
+	trace_chaine("Formulation de la rubrique Gravite ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_GRAVITE_FAX)
+
+	/*B on applique fax_lit_elt() */
+	syntaxe_correcte = fax_lit_elt(tl_data, IE_FILE_GRAVITE_FAX, 
+										"gravite",
+										IE_MODELE_GRAVITE_FAX)
+
+	/*B on genere le fichier fax_elt_gravite.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE FAX :" 
+		tl_commentaire[1] = "*        formulation de la rubrique Gravite"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_GRAVITE_FAX, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES FAX IMPOSSIBLES.")
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier de config de l'elt voies bloquees
+	*/
+	trace_chaine("Formulation de la rubrique voies bloquees ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_BLOQUE_FAX)
+
+	/*B on applique le modele AW */
+	dedi_genere(IE_MODELE_BLOQUE_FAX,1,tl_data)
+
+	/*B on genere le fichier fax_elt_bloque.rl */
+	tl_commentaire[0] = "*        POLITIQUE FAX :" 
+	tl_commentaire[1] = "*        formulation de la rubrique Voies Bloquees"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_BLOQUE_FAX, IE_SUFFIXE_RL, tl_commentaire)
+
+
+	/*A
+	**  on exploite le fichier de config de l'elt voies neutralisees
+	*/
+	trace_chaine("Formulation de la rubrique voies neutralisees")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_NEUTRAL_FAX)
+
+	/*B on applique le modele AW */
+	dedi_genere(IE_MODELE_NEUTRAL_FAX,1,tl_data)
+
+	/*B on genere le fichier fax_elt_bloque.rl */
+	tl_commentaire[0] = "*        POLITIQUE FAX :" 
+	tl_commentaire[1] = "*        formulation de la rubrique Voies Neutralisees"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_NEUTRAL_FAX, IE_SUFFIXE_RL, tl_commentaire)
+
+
+	/*A
+	**  on exploite le fichier IE_FILE_NBVEH_FAX
+	*/
+	trace_chaine("Formulation de la rubrique Nombre de véhicules ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_NBVEH_FAX)
+
+	/*B on applique fax_lit_elt() */
+	syntaxe_correcte = fax_lit_elt(tl_data, IE_FILE_NBVEH_FAX, 
+										"nombre de véhicules",
+										IE_MODELE_NBVEH_FAX)
+
+	/*B on genere le fichier fax_elt_nbveh.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE FAX :" 
+		tl_commentaire[1] = "*        formulation de la rubrique Nombre de véhicules"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_NBVEH_FAX, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES FAX IMPOSSIBLES.")
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier IE_FILE_OBJET_FAX
+	*/
+	trace_chaine("Formulation de la rubrique Objet")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_OBJET_FAX)
+
+	/*B on met a jour la variable globale vg_evts_ie */
+	syntaxe_correcte = fax_lit_objet(tl_data)
+
+	/*B on genere le fichier fax_elt_objet.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE FAX :" 
+		tl_commentaire[1] = "*        formulation de la rubrique Objet"
+		tl_commentaire[2] = "*        cas particuliers"
+ 		dedi_shell(IE_MODELE_OBJET_FAX, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES FAX IMPOSSIBLES.")
+		RETURN
+	}
+
+	/*A
+	**  on exploite vg_evts_ie APRES maj des champs objet_fax
+	*/
+	trace_chaine("Definition des types d'evenements et operations")
+	dedi_make_fmc()
+
+	/*A
+	** on construit les fax prédefinis
+	*/
+	trace_chaine("Formulation des fax predefinis")
+
+	/*B on applique fax_construit_predefinis*/
+	syntaxe_correcte = fax_construit_predefinis()
+
+	/*B on genere le fichier fax_spe.rl */
+	IF syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE FAX :" 
+		tl_commentaire[1] = "*        regles de calcul des fax predefinis"
+ 		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_SPE_FAX, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	ELSE
+	{
+		trace_chaine("GENERATION DES REGLES FAX IMPOSSIBLES.")
+		RETURN
+	}
+
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION fax_construit_ligne (va_texte, va_fichier)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_texte : texte comprenant des constantes et des variables
+*	va_fichier : fichier par rapport auquel chercher la "traduction" des variables
+*
+* ARGUMENTS EN SORTIE : l'expression a utiliser dans les regles RTie
+*
+* CODE RETOUR         : texte / NULL si il y a une erreur de syntaxe
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: construit l'expression RTie correspondant au texte d'entree
+*
+---------------------------------------------------------------------------- */
+VAR	tl_texte
+VAR vl_indice
+VAR tl_ct
+
+	/*A le principe est le meme que pour le module PMV */
+	tl_texte = pmv_construit_ligne(va_texte, va_fichier)
+
+	/*A si il y a une seule ligne, on renvoie une cte */ 
+	IF ARRAY_SIZE@(tl_texte) = 1
+		RETURN(tl_texte[0])
+
+	/*A si il y a plusieurs lignes on construit le concat */ 
+	IF ARRAY_SIZE@(tl_texte) > 1
+	{
+		/*B on ajoute les tabulations */
+		FOR vl_indice=0 TO (ARRAY_SIZE@(tl_texte)-1)
+			tl_texte[vl_indice] = "        " ++ tl_texte[vl_indice]
+		NEXT vl_indice
+
+		/*B on ajoute les separateurs */
+		FOR vl_indice=0 TO (ARRAY_SIZE@(tl_texte)-2)
+			tl_texte[vl_indice] = tl_texte[vl_indice] ++ ","
+		NEXT vl_indice
+
+		/*B on ajoute Concat( */
+		tl_ct[0] = "Concat("
+		tl_texte = ARRAY_APPEND@(tl_ct, tl_texte)
+
+		/*B on ajoute ) */
+		tl_ct[0] = "        )"
+		tl_texte = ARRAY_APPEND@(tl_texte, tl_ct)
+
+		/*B on renvoie le resultat */
+		RETURN(tl_texte)
+
+	}
+
+	RETURN(NULL)
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION fax_mev_travaux (ta_data)
+
+/*
+* ARGUMENTS EN ENTREE : ta_data
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere le fichier fax_mev_travaux.tie
+*
+---------------------------------------------------------------------------- */
+VAR tl_arg
+
+	/*A on construit les arguments */
+	IF ta_data[0] = 1
+	{
+		tl_arg=null
+		tl_arg[0] = NULL
+	}
+	ELSE
+		tl_arg = ta_data
+
+	/*A on applique le modele ax-word */
+	dedi_genere(IE_MODELE_MEV_FAX,1,tl_arg)
+
+	trace_point()
+	
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION fax_construit_def (ta_def)
+
+/*
+* ARGUMENTS EN ENTREE : ta_def
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere le fichier fax_def.tie
+*
+---------------------------------------------------------------------------- */
+VAR tl_obj, tl_duree
+VAR vl_i
+VAR tl_tmp
+VAR tl_def
+VAR tl_data
+VAR vl_nomfichier,vl_indice
+
+	/*A on construit les conclusions*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(ta_def)-1)
+		trace_point()
+		tl_tmp=null
+		tl_def=ARRAY_FROM_STRING@(ta_def[vl_indice],DEDI_CAR_SEPAR)
+		tl_tmp[0]=tl_def[1]
+		tl_tmp[1]=tl_def[0]
+
+		/*on applique le modele sur chaque rubrique du fax*/
+		vl_nomfichier = dedi_genere(IE_MODELE_CONC_DEF_FAX,vl_indice,tl_tmp)
+
+		/*on concatene le fichier resultat a tl_obj[0]*/
+		tl_data = READ_ASCII_FILE@(vl_nomfichier)
+
+		/*! on supprime la derniere ligne (qui est vide) et on concatene la 
+		**  derniere ligne de tl_obj[0] et la premiere ligne du resultat */
+		IF (tl_obj[0]=null)
+		{		
+			tl_data=ARRAY_DELETE@(tl_data,ARRAY_SIZE@(tl_data)-1)
+			tl_obj[0]=tl_data
+		}
+		ELSE
+		{	
+			tl_obj[0][ARRAY_SIZE@(tl_obj[0])-1]=
+							tl_obj[0][ARRAY_SIZE@(tl_obj[0])-1]++
+							tl_data[0]
+			tl_data=ARRAY_DELETE@(tl_data,0)
+			tl_data=ARRAY_DELETE@(tl_data,ARRAY_SIZE@(tl_data)-1)
+			tl_obj[0]=ARRAY_APPEND@(tl_obj[0],tl_data)
+		}
+
+		/*B on supprime le fichier de travail */
+		DELETE_FILE@(vl_nomfichier)
+	NEXT vl_indice
+
+	/*A on applique le modele ax-word */
+	dedi_genere(IE_MODELE_DEF_FAX,1,tl_obj)
+	
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION fax_lit_elt (ta_data, va_fichier,va_elt,va_modele)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_data :		(texte, texte, texte, ...)
+*	va_fichier :	pour dedi_var_convert()
+*	va_elt :		le nom de l'elt (pour les messages d'erreur)
+*	va_modele :	le nom du modele AxWord
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere le fichier fax_elt_section.tie
+*
+*
+---------------------------------------------------------------------------- */
+VAR syntaxe_correcte
+VAR vl_indice
+VAR tl_arg
+
+	syntaxe_correcte = TRUE
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(ta_data) - 1)
+
+		/*A on construit l'expression Rtie */
+		tl_arg[vl_indice] = fax_construit_ligne(ta_data[vl_indice], va_fichier)
+
+	/*	IF (IS_ARRAY@(tl_arg[vl_indice]))
+			tl_arg[vl_indice]=ARRAY_TO_STRING@(tl_arg[vl_indice],")*/
+
+		IF tl_arg[vl_indice] = NULL
+		{
+			trace_chaine("Erreur de syntaxe dans la formulation de l'element " ++ va_elt ++ " cas " ++ (vl_indice+1) ++ ".")
+			syntaxe_correcte = FALSE
+		}
+	
+		/*A on conserve l'expression texte */
+		tl_arg[vl_indice+ARRAY_SIZE@(ta_data)] = ta_data[vl_indice]
+
+		trace_point()
+
+	NEXT vl_indice
+
+	/*A on applique le modele ax-word */
+	IF syntaxe_correcte
+		dedi_genere(va_modele,1,tl_arg)
+	trace_point()
+
+	RETURN(syntaxe_correcte)
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION fax_lit_objet (ta_data)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_data	:	(fmc|gn ct|gn cas 1|gn cas 2|...)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: met a jour vg_evts_ie et genere les fichiers fax_elt_objet.tie
+*
+*
+---------------------------------------------------------------------------- */
+VAR vl_fichier, vl_modele, vl_size
+VAR FORMAT dedi_evt	tl_evts_ie
+VAR vl_indice, vl_i
+VAR tl_ligne
+VAR syntaxe_correcte
+
+	syntaxe_correcte = TRUE
+	vm_indice_nature = 0
+
+	/*A on initialise vl_fichier et vl_modele*/
+	vl_fichier = IE_FILE_OBJET_FAX
+	vl_modele = IE_MODELE_OBJET_FAX
+	vl_size=8
+	/*A on recupere le tableau des donnees RTie sur les evts */
+	tl_evts_ie = SYSTEM_VAR@(vg_evts_ie)
+
+	/*A on exploite ta_data ligne par ligne */
+	FOR vl_indice = 0 TO (ARRAY_SIZE@(tl_evts_ie)-1)
+
+		/*B on isole les arguments */
+		tl_ligne = ARRAY_FROM_STRING@(ta_data[vl_indice], DEDI_CAR_SEPAR)
+
+		/*B si la ligne a 2 elts et pas de variable, on met a jour le tableau des donnees Rtie*/
+		IF (ARRAY_SIZE@(tl_ligne)=2 
+		AND ARRAY_SIZE@(ARRAY_FROM_STRING@(tl_ligne[1], DEDI_CAR_VAR))<2 )
+		{
+			tl_evts_ie[vl_indice].objet_fax= tl_ligne[1]
+
+		}
+
+		/*B sinon on genere un fichier fax_elt_objet.tie*/
+		ELSE
+		{
+			tl_ligne[vl_size] = tl_ligne[0]
+			tl_ligne[0] = ie_classe(tl_ligne[0])
+
+			FOR vl_i=1 TO (vl_size-1)
+				IF tl_ligne[vl_i] <> NULL
+				{
+					tl_ligne[vl_i+vl_size] = tl_ligne[vl_i]
+					tl_ligne[vl_i] = fax_construit_ligne(tl_ligne[vl_i],
+											vl_fichier)
+					IF tl_ligne[vl_i]=NULL
+					{
+						syntaxe_correcte = FALSE
+						trace_chaine("Erreur de syntaxe dans la formulation de l'element "++", cas "++tl_ligne[vl_size]++".")
+					}
+				}
+			NEXT vl_i
+
+			IF syntaxe_correcte
+			{
+				vm_indice_nature = vm_indice_nature + 1
+				dedi_genere(vl_modele,vm_indice_nature,tl_ligne)
+			}
+		}
+
+		trace_point()
+
+	NEXT vl_indice
+
+	/*A si la syntaxe est correcte, on met a jour vg_evts_ie */
+	IF syntaxe_correcte
+		SET_SYSTEM_VAR@(vg_evts_ie, tl_evts_ie)
+
+	/*A on renvoie le resultat */
+	RETURN(syntaxe_correcte)
+
+ENDFUNCTION
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION fax_lit_intitule (ta_intitule, va_indice)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_autoroute (rubrique|intitule|nom ie)
+*	va_indice
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere le fichier autoroute.tie
+*
+*
+---------------------------------------------------------------------------- */
+VAR tl_arg
+VAR tl_def
+
+	/*A on construit les arguments */
+	tl_arg = ARRAY_FROM_STRING@(ta_intitule, DEDI_CAR_SEPAR)
+
+	/*A on les recupere dans le bon ordre*/
+	tl_def[0]=tl_arg[2]
+	tl_def[1]=tl_arg[1]
+	tl_def[2]=tl_arg[0]
+
+	/*A on applique le modele ax-word */
+	dedi_genere(IE_MODELE_INTITULE_FAX,va_indice,tl_def)
+	trace_point()
+	
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION fax_construit_predefinis ()
+
+/*
+* ARGUMENTS EN ENTREE : ta_def
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, false sinon
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere le fichier fax_spe.tie
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR tl_texte
+VAR vl_indice
+VAR tl_arg
+
+	/*A fax POLICE*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_POLICE_FAX)
+
+		/*B on construit l'expression RTie*/
+	tl_texte = ""
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tl_texte = tl_texte ++ DEDI_CAR_SEPAR ++ tl_data[vl_indice]
+	NEXT vl_indice
+	tl_arg[0]=fax_construit_ligne(tl_texte,IE_FILE_POLICE_FAX)
+
+		/*B on conserve l'expression texte*/
+	tl_arg[5] = tl_data
+	trace_point()
+
+
+	/*A fax depanneur arrete*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_DEPANNEUR_ARRETE_FAX)
+
+		/*B on construit l'expression Rtie*/
+	tl_texte = ""
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tl_texte = tl_texte ++ DEDI_CAR_SEPAR ++ tl_data[vl_indice]
+	NEXT vl_indice
+	tl_arg[1]=fax_construit_ligne(tl_texte,IE_FILE_DEPANNEUR_ARRETE_FAX)
+	
+		/*B on conserve l'expression texte*/
+	tl_arg[6] = tl_data
+	trace_point()
+
+	/*A fax depanneur en panne*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_DEPANNEUR_PANNE_FAX)
+
+		/*B on construit l'expression Rtie*/
+	tl_texte = ""
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tl_texte = tl_texte ++ DEDI_CAR_SEPAR ++ tl_data[vl_indice]
+	NEXT vl_indice
+	tl_arg[2]=fax_construit_ligne(tl_texte,IE_FILE_DEPANNEUR_PANNE_FAX)
+	
+		/*B on conserve l'expression texte*/
+	tl_arg[7] = tl_data
+	trace_point()
+
+	/*A fax depanneur en feu*/	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_DEPANNEUR_FEU_FAX)
+
+		/*B on construit l'expression Rtie*/
+	tl_texte = ""
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tl_texte = tl_texte ++ DEDI_CAR_SEPAR ++ tl_data[vl_indice]
+	NEXT vl_indice
+	tl_arg[3]=fax_construit_ligne(tl_texte,IE_FILE_DEPANNEUR_FEU_FAX)
+	
+		/*B on conserve l'expression texte*/
+	tl_arg[8] = tl_data
+	trace_point()
+
+	/*A fax depanneur accident*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_DEPANNEUR_ACCIDENT_FAX)
+
+		/*B on construit l'expression Rtie*/
+	tl_texte = ""
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tl_texte = tl_texte ++ DEDI_CAR_SEPAR ++ tl_data[vl_indice]
+	NEXT vl_indice
+	tl_arg[4]=fax_construit_ligne(tl_texte,IE_FILE_DEPANNEUR_ACCIDENT_FAX)
+
+		/*B on conserve l'expression texte*/
+	tl_arg[9] = tl_data
+	trace_point()
+
+	/*A on applique le modele ax-word */
+	IF 	(tl_arg[0] = NULL) 
+		OR (tl_arg[1] = NULL)
+		OR (tl_arg[2] = NULL)
+		OR (tl_arg[3] = NULL)
+		OR (tl_arg[4] = NULL)
+		RETURN(FALSE)
+		
+	dedi_genere(IE_MODELE_SPE_FAX,1,tl_arg)
+	RETURN(TRUE)
+
+ENDFUNCTION

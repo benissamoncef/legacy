@@ -1,0 +1,1 @@
+DEFINE XZAC62_Commande_Fin_NAV	"XZAC;62" 

@@ -1,0 +1,150 @@
+/*E*/
+/* Fichier : $Id: pmva_cagnes.am,v 1.1 2002/12/24 16:47:45 gesconf Exp $      Release : $Revision: 1.1 $        Date : $Date: 2002/12/24 16:47:45 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE UTIL * FICHIER pmva_cagnes.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*  pmva_cagnes simplifie
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* cluchague	20/12/02	creation
+-------------------------------------------------------------------------------
+*/
+
+INCLUDE	"dbase_.am"
+INCLUDE	"app_ids_.am"				'pour récupérer le nom des appli Applix
+INCLUDE	"windows_.am"				'pour récupérer le nom des appli Applix
+
+DEFINE	C_MODULE	"MTOU"			' Nom du module
+DEFINE	CL_TRI_ALPHA	4			' tri par ordre alphabetique
+
+DEFINE	VUE_COMMUN	"VUES_Commun.elo"
+DEFINE	VUE_APPLIX	"CVUEM_ApplixData.elo"
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Creation d'une boite de dialogue pour permettre le  pilotage du pmva de cagnes sur mer
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO pmva_cagnes()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Appel depuis le menu principal
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR 	vl_exit_value
+	VAR	vl_la_fenetre_est_active
+	VAR 	vl_fenetre			 
+
+     VAR vl_liste_machines
+	VAR vl_indice
+	VAR vl_fichier_commande
+	VAr vl_fichier_resultat
+      VAR vl_index
+      VAR vl_machine
+      VAR vl_type_equipement
+      VAR vl_numero_equipement
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	RETURN
+}
+
+
+/*A
+ * Charger la fenetre "menu principal"
+ * ----------------------------------
+ */
+INSTALL_FILE@ ("/produits/migrazur/appliSD/exec/ITMA_TIE_fenetre_LCR.elo")
+vl_fenetre = DB_LOAD@ ("pmva_cagnes")
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, -35)
+
+vl_la_fenetre_est_active = TRUE
+/*A boucle infinie de traitement des evenements*/
+WHILE vl_la_fenetre_est_active
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+
+	/*B si demande d'execution */
+	CASE "BP_valider"
+		MACRO_WINS_BUSY@()
+
+		/*recupere la position a piloter */
+		vl_indice=DB_CTRL_GET_VALUE@(vl_fenetre,"BR_position")
+		If vl_indice=-1
+			INFO_MESSAGE@("Choisir d'abord une position")
+		ELSE
+		{		
+                        if ( vl_indice = 0 )
+                        {
+                          vl_fichier_resultat =
+                 "pmva_cagnes_res.lcr"
+                          vl_fichier_commande =
+                 "pmva_cagnes_n.lcr"
+                        }
+                        else if ( vl_indice = 1 )
+                        {
+                          vl_fichier_resultat =
+                 "pmva_cagnes_res.lcr"
+                          vl_fichier_commande =
+                 "pmva_cagnes_b.lcr"
+                        }
+                         else if ( vl_indice = 2 )
+                        {
+                          vl_fichier_resultat = 
+                 "pmva_cagnes_res.lcr"
+                          vl_fichier_commande = 
+                 "pmva_cagnes_f.lcr"
+                        }
+                        vl_type_equipement = 23
+                        vl_numero_equipement = 16
+                        vl_machine = "POLTM08"
+                        ITMA_TIE_XZEX01( vl_type_equipement , vl_numero_equipement , vl_fichier_commande , vl_fichier_resultat ,  0 , 0 , 0 , vl_machine )
+                }
+		INFO_MESSAGE@("Commande executee")
+
+
+	CASE "BP_quitter"
+		RETURN
+	ENDCASE	
+
+WEND
+ENDMACRO

@@ -1,0 +1,1 @@
+DEFINE	XZAC90_Fin_Cmd_Manu_BAF		"XZAC90"

@@ -1,0 +1,1455 @@
+/*E*/
+/* Fichier : $Id: ITMA_TSAGA_pilotage_BAF.am,v 1.1 2017/03/31 18:02:52 pc2dpdy Exp $      Release : $Revision: 1.1 $        Date : $Date: 2017/03/31 18:02:52 $
+------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE MTPM * FICHIER  ITMA_TSAGA_pilotage_BAF.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de commande des BAF.
+*
+*
+------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG	28/11/05	creation
+* PNI	11/10/07	Mise à jour, à l'init de la fen. de pilotage , la partie etat nouveau avec l'état terrain v1.4 DEM712
+* JMG   31/10/07        : ajout site de gestion 1.5
+* PNI	03/03/2008	: Si l'état terrain remonté est incohérent alors raz barrière v1.6 DEM778
+* JMG   29/09/2009      : SECTO DEM 887
+* PNI	29/04/2010	: Sur les systèmes à 2 barriéres , lors du repli d'une barrière, le feu ne sera pas éteint si la barrière et le feu opposé sont actifs DEM 932 1.8
+* JPL	31/01/2011	: Envoi message a la fenetre de pilotage rapide pour associer camera (DEM 949)  1.9
+* JMG	05/12/11	: linux
+--------------------------------------------------------------------- */
+
+
+
+/*A Description des modules a inclures 
+* ------------------------------------ */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+INCLUDE	"GESIHM/inc/ITMA_TBAF.h"
+INCLUDE "GESIHM/inc/ITMA_TSAGA_pilotage_PMV.h"
+INCLUDE "GESIHM/inc/ITMA_PMV_format.h"
+
+ /*A Description des procedures sotckees a appeler
+* ------------------------------------------------ */
+INCLUDE	"GESIHM/inc/xzao162sp.h"
+INCLUDE	"GESIHM/inc/xzao163sp.h"
+INCLUDE	"GESIHM/inc/xzao164sp.h"
+INCLUDE	"GESIHM/inc/xzae72sp.h"
+INCLUDE	"GESIHM/inc/xzat35sp.h"
+INCLUDE	"GESIHM/inc/xzat01sp.h"
+INCLUDE	"GESIHM/inc/xzat06sp.h"
+INCLUDE	"GESIHM/inc/xzao05sp.h"
+INCLUDE	"GESIHM/inc/xzap31sp.h"
+
+DEFINE  C_PIX_M11_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m11_eteint.im"
+DEFINE  C_PIX_M11_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m11_allume.im"
+DEFINE  C_PIX_M21_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m21_eteint.im"
+DEFINE  C_PIX_M21_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m21_allume.im"
+DEFINE  C_PIX_M15_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m15_eteint_vertical2.im"
+DEFINE  C_PIX_M15_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m15_allume_vertical.im"
+DEFINE  C_PIX_M25_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m15_eteint_vertical2.im"
+DEFINE  C_PIX_M25_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m25_allume_vertical180.im"
+DEFINE  C_PIX_M12_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_eteint_vertical.im"
+DEFINE  C_PIX_M12_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_allume_vertical.im"
+DEFINE  C_PIX_M22_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_eteint_vertical.im"
+DEFINE  C_PIX_M22_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_allume_vertical.im"
+
+DEFINE C_PIX_NAV_RENTREE	"/produits/migrazur/appliSD/fichiers/pic/pix_NAV_rentree.im"
+DEFINE C_PIX_NAV_SORTIE		"/produits/migrazur/appliSD/fichiers/pic/pix_NAV_5.im"
+
+/*A Declaration des variables globales 
+* ------------------------------------ */
+var	vm_auto	'mode automatique
+var format Config_SAGA		vm_Config_SAGA	
+var vm_district
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Commande le pilotage des BAF
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TSAGA_pilotage_BAF(va_appelant,va_1,va_2,va_3,va_4,
+											va_5,va_6,va_7)
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 a va_6		: Suivant la procedure d'appel
+*
+*	Trois appels possibles:
+*
+*		ITMA_TPA	<Numero plan d'action>	<Numero d'ordre>
+*
+*			^			^				^
+*			|			|				|
+*			|		Numero FMC		Numero cle FMC	
+*			|
+*			|
+*		Appel depuis le plan d'action
+*
+*
+*
+*		ITMA_TMT
+*
+*			^
+*			|
+*		Appel depuis le menu textuel --> Liste des BAFs
+*
+*
+*
+*		ISYN_SOP	<Numero de la BAF>
+*
+*			^
+*			|
+*		Appel depuis le synoptique Bp de droite
+*
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant resultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> BAF dans MTMT
+*
+* FONCTION
+*    Pilote les BAF
+*
+--------------------------------------------------------------------- */
+
+/*A Declaration des variables */
+/*A ------------------------- */
+
+/*A Variables secondaires ou de travail */
+/*A ----------------------------------- */
+
+VAR FORMAT 	TMC_actionFiche	vl_ficheAction
+
+var	vl_appel_connu		' Flag de reconnaisance de l'appel
+var	vl_Poste			' Le nom de la machine
+var	vl_fenetre_active	' flag de fenetre active
+var	vl_controle_sortie	' flag de sortie
+var	vl_erreur			' flag d'erreur
+var	i,j,vl_mess		' index de loop
+var	vl_taille			' taille de tableau
+var	vl_message		' message affiche
+var	vl_objet			' objet en edition
+var	vl_rang			' rang de la selection dans la liste
+var	vl_expliquer		' expliquation du PA
+var	vl_abt_panneau		' flag d'abonnement des panneaux
+var	vl_manuel			' flag de commande manuelle
+var	vl_trouve			' flag pour trouver le bon scenario 		d'après le code
+var	vl_fmc			' libelle fmc a construire
+var	vl_lib_fmc		' tableau du libelle fmc a construire
+var	vl_renvoi_appel	' flag de renvoi d'appel
+var	vl_repondeur		' flag de renvoi d'appel
+var	vl_cpt			' compte-rendu
+var	vl_sens			' Sens de la boucle d'envoi des CMD manu
+var	vl_debut			' Origine de la boucle d'envoi des CMD  manu
+var	vl_fin			' Limite de la boucle d'envoi des CMD manuelles
+var	tl_data,tl_retour	' param. table evenements
+var	tl_titres			' titre evenements
+var	vl_1,vl_2,vl_3,vl_4	' var locales pour l'appel de la camera
+var	vl_flag			' flag de condition
+var	vl_Appel			' appelant
+var	vl_panneau_interdiction_doubler	' Indice du tableau correspondant au panneau interdiction de doubler sur la BAF
+var	vl_lecture		' le n° d'evenement lie + cle
+var	vl_Nummachine		' n° de la machine
+var	vl_NumAction		' Numero d'action
+var	vl_mode_formation	' Mode Formation
+var	tl_liste_causes
+var	vl_text			' text en edition
+var	vl_etat_actuel_man	' Etat actuel recherche pour la cmd manuelle
+var	vl_message_man		' Message envoye par la commande manuelle
+var	vl_autorisation_executer	'Autorisation d'executer la commande "excuter" depuis le CI
+
+/*A Variables principales */
+/*A --------------------- */
+
+/*A Numero du district
+*/
+var	vl_District
+
+/*A Item de la fenetre du module
+*/
+var 	vl_fenetre_TBAF
+
+/*A Messages acceptes dans la boucle principale
+*/
+var	vl_messages_acceptes
+
+/*A Nom du site en cours
+*/
+var	vl_NomSite
+
+/*A Nom de l'operateur
+*/
+var	vl_NomOperateur
+
+/*A Mode de retour du plan d'action
+*/
+var	vl_mode_PA
+var vl_str
+
+
+var 	vl_Module11
+var	vl_Module12
+var	vl_Module15
+var	vl_Module21
+var	vl_Module22
+var	vl_Module25
+
+var 	vl_Module11_terrain
+var	vl_Module12_terrain
+var	vl_Module15_terrain
+var	vl_Module21_terrain
+var	vl_Module22_terrain
+var	vl_Module25_terrain
+
+var	vl_init
+var	vl_type_saga
+
+/*A Liste des BAF et leurs infos associees Table sur indice numero BAF
+*/
+
+var format T_commande           vl_cmd
+var format T_commande 	vl_cmd_actuel
+
+/*A Liste de nom des BAF disponibles
+*/
+var	vl_liste_nom_BAF_dispo
+
+/*A Booleen utilise par "Executer" pour savoir si la CMD est une fin
+												d'action
+*/
+var	vl_fin_action
+
+/*A Structure infos BAF plan d'action
+*/
+/*var	FORMAT PA_BAF vl_BAF*/
+
+
+/*A MAJ des variables statiques */
+vm_Config_SAGA 	= SYSTEM_VAR@(vg_type_SAGA)
+
+
+vl_District 	= SYSTEM_VAR@(vg_site)
+vm_district = vl_district
+vl_NomSite 	= SYSTEM_VAR@(vg_nom_site)
+vl_mode_formation = (SYSTEM_VAR@ (vg_formation) <> NULL)
+vl_poste 		= SYSTEM_VAR@(vg_numero_operateur)
+vl_abt_panneau	= FALSE
+vl_manuel 	= FALSE
+vl_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vl_Nummachine 	= SYSTEM_VAR@(vg_numero_poste)
+vl_NomOperateur = SUBSTRING@(vl_NomOperateur, 1, 25)
+vl_mode_PA 	= COM_QUITTE
+vl_Appel		= SUBSTRING@(va_appelant,1,8)
+vm_auto=0
+vl_module11=0
+vl_module12=0
+vl_module15=0
+vl_module21=0
+vl_module22=0
+vl_module25=0
+vl_appel_connu=FALSE
+vl_init=FALSE
+
+/*B trace du debut du traitement */
+vl_text = "------------------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = " Start ITMA_TSAGA_pilotage_BAF   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+vl_text = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_text)
+
+if NOT(IS_ARRAY@(va_1))
+{	vl_text = "va_1 : " ++ va_1
+	COM01_Trace(0,vl_text)}
+else 
+{	vl_text = "va_1  est un tableau"
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_2))
+{	vl_text = "va_2 : " ++ va_2
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_3))
+{	vl_text = "va_3 : " ++ va_3
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_4))
+{	vl_text = "va_4 : " ++ va_4
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_5))
+{	vl_text = "va_5 : " ++ va_5
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_6))
+{	vl_text = "va_6 : " ++ va_6
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_7))
+{	vl_text = "va_7 : " ++ va_7
+	COM01_Trace(0,vl_text)
+}
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace(COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN(COM_NOK)
+}
+
+/*A Pour initialiser les procedures communes */
+/*  ---------------------------------------- */
+install_file@("ITMA_TSAGA_Lecture_Etat_SAGA.elo")
+install_file@("ITMA_TBAF_commun_BAF.elo")
+
+
+COM01_Trace(COM_DEBUG1,"init 3")
+
+vl_liste_nom_BAF_dispo = ITMA_TSAGA_Liste_Eqt_BAF_Dispo ()
+
+
+/*A Si la liste des BAF dispo est vide */
+ 
+if vl_liste_nom_BAF_dispo[0]=""
+{
+	/*A Alors */ 
+	if (vl_Appel = "ITMA_TMT" or vl_Appel = "ITMA_TPA") 
+	{
+ 		info_message@("Aucun barriere SAGA n'est disponible pour ce secteur !") 
+		RETURN(COM_NOK)
+	}
+}
+/*A Finsi */
+
+vl_cmd.Priorite	= 0
+vl_cmd.Distance	= XDC_DISTANCE_INCONNUE
+
+/*A si l'appelant est le menu textuel */
+ 
+if vl_Appel ="ITMA_TMT" 
+{
+
+  /*A Ouverture de la liste des BAF */
+
+  vl_fenetre_TBAF = DB_LOAD@("ITMA_TSAGA_liste_BAF") 
+  vl_messages_acceptes[0] = COM_CANAL_FIN 
+  vl_messages_acceptes[1] = COM_CANAL_MTSAGA_ETAT 
+  DB_ACCEPT_POKES@ (vl_fenetre_TBAF, vl_messages_acceptes)
+
+  /*A Positionnement de la fenetre   
+  *   ---------------------------- */
+  DB_XPOS@(vl_fenetre_TBAF,0)
+
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+  DB_YPOS@(vl_fenetre_TBAF,93)
+else
+  DB_YPOS@(vl_fenetre_TBAF,105)
+
+
+  DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TBAF,"BL_BAF",True)
+
+  DB_CTRL_STRINGS@(vl_fenetre_TBAF,"BL_BAF",vl_liste_nom_BAF_dispo)
+  DB_CTRL_VALUE@(vl_fenetre_TBAF,"BL_BAF",-1)
+  DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_piloter",True)
+  DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"T_piloter",True)
+
+  /*A Boucle de capture des evenements de la boite de dialogue  
+  *   -------------------------------------------------------- */
+  vl_fenetre_active = TRUE
+
+  /*A tant que la fenetre est active */
+  WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_TBAF)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_TBAF)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+
+	CASE "BP_quitter"
+
+		/*A fermer la fenetre */
+		RETURN(COM_NOK)
+
+	/*A sur action piloter */
+
+	CASE "BP_piloter"
+
+		/*A fermer la fenetre */
+		vl_fenetre_active = FALSE
+
+	/*A sur  liste BAF */
+
+	CASE "BL_BAF"
+
+		/*A Capture du rang dans la liste des BAF */
+
+		vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_TBAF,"BL_BAF")
+
+		i = STRING_INDEX@(vl_liste_nom_BAF_dispo[vl_rang],"(")
+		vl_str = substring@(vl_liste_nom_BAF_dispo[vl_rang],1,i-1)
+		
+		for i=0 to ARRAY_SIZE@(vm_config_sAGA)
+
+			if vm_config_sAGA[i].Identifiant= TRIM@(vl_str)
+			{
+				vl_cmd_actuel.numero_eqt = vm_config_sAGA[i].numeqt
+				vl_cmd.numero_eqt = vm_config_sAGA[i].numeqt
+				vl_type_saga= vm_config_sAGA[i].typeSAGA
+			}
+		next i
+		DB_CTRL_GRAYED@(vl_fenetre_TBAF,"BP_piloter",False)
+	
+	/*A sur reception de poke */
+
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+
+		CASE OF DB_GET_POKE@(vl_fenetre_TBAF)
+
+		/*A si poke de fin de canal */
+
+		CASE COM_CANAL_FIN
+
+			/*A fermer la fenetre */
+
+			RETURN(COM_NOK)
+
+		ENDCASE
+
+	ENDCASE
+
+  /*A fin tant que */
+  WEND
+
+ /*A lecture de l'etat actuel du BAF */
+ ITMA_TSAGA_Lecture_Etat_SAGA(FALSE, vl_cmd_actuel, TRUE, C_MODULE)
+/* ITMA_TBAF_Lecture_BAF(vl_BAF.NumEqt,vl_BAF)*/
+
+ ITMA_TsAGA_init_boite_dialogue_pilotage(vl_fenetre_TBAF,
+		vl_messages_acceptes,vl_type_saga) /*vl_info_liste_BAF[vl_BAF.NumEqt].Type*/
+
+ ITMA_TBAF_deselectionne_objet_PA(vl_fenetre_TBAF,vl_expliquer,
+							vl_lecture,vm_config_saga,vl_cmd_actuel)
+	vl_appel_connu=TRUE
+}
+
+/*A Si l'appelant est le synoptique BP de droite */
+
+if vl_Appel = "ISYN_SOP"
+{
+	if NOT(IS_ARRAY@(va_1))
+	{
+		vl_cmd.numero_eqt = va_1+0
+	}
+	else
+	{
+		vl_cmd.numero_eqt = va_1[0] +0
+	}
+	if (ARRAY_INDEX@(ARRAY_COLUMN@(vm_config_saga, 0), vl_cmd.numero_eqt)=-1)
+		AND (SYSTEM_VAR@(vg_poste)<>XDC_PODFA) AND (SYSTEM_VAR@(vg_poste)<>XDC_POCI3)
+	{
+		info_message@("Le BAF demande n'est pas disponible")
+		RETURN(COM_NOK)
+	} 
+     if NOT vl_mode_formation  and
+     NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) and  
+	  NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+     NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+       NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI) and
+	    (SYSTEM_VAR@(vg_site) = XDC_CI)) and (SYSTEM_VAR@(vg_poste)<>XDC_PODFA)
+	{               
+		vl_text=" Appel pilotage BAF depuis syno par un utilisateur non autorisé"
+		COM01_Trace(0,vl_text)
+		RETURN(COM_OK)
+	}
+
+	/* Au CI si appel depuis depuis le synoptique prendre le district du BAF  */
+	if vl_District = XDC_CI 
+	{ 
+		vl_text=""
+	}
+	else
+	{ 
+		if (vl_District <> vm_config_saga[position(vl_cmd.numero_eqt)].sitegestion)
+		{ 
+			vl_text=
+			" Appel pilotage BAF depuis syno pour un BAF hors secteur"
+
+			COM01_Trace(0,vl_text)
+			RETURN(COM_OK)
+ 		}
+	}
+
+				vl_type_saga= vm_config_sAGA[position(vl_cmd.numero_eqt)].typeSAGA
+	/*A lecture de l'etat actuel du BAF */
+ ITMA_TSAGA_Lecture_Etat_SAGA(FALSE, vl_cmd, TRUE, C_MODULE)
+
+	ITMA_TSAGA_init_boite_dialogue_pilotage(vl_fenetre_TBAF,
+		vl_messages_acceptes,vl_type_saga)
+
+	ITMA_TBAF_deselectionne_objet_PA(vl_fenetre_TBAF,vl_expliquer,
+							vl_lecture,vm_config_saga,vl_cmd)
+	vl_appel_connu=TRUE
+}
+
+/*A si l'appelant est le PA */
+
+if vl_Appel="ITMA_TPA" 
+{
+	vl_init=TRUE
+	/*A lecture de la proposition du PA */
+	
+	vm_auto=0
+	vm_auto=va_3
+	/*dump_array@(va_1,3)
+	dump_array@(va_2,3)*/
+	vl_cmd = va_2
+	vl_module11=vl_cmd.barriere
+	vl_module21=0
+	vl_module22=0
+	vl_module25=0
+	
+
+	vl_type_saga= vm_config_sAGA[position(vl_cmd.numero_eqt)].typeSAGA
+	
+
+
+	ITMA_TSAGA_init_boite_dialogue_pilotage(vl_fenetre_TBAF,
+		vl_messages_acceptes,vl_type_saga)
+
+	/*A Activation des boutons lies au PA */
+
+	DB_CTRL_GRAYED@(vl_fenetre_TBAF,"BP_expliquer",False)
+	DB_CTRL_GRAYED@(vl_fenetre_TBAF,"BP_refuser",False)
+	DB_CTRL_GRAYED@(vl_fenetre_TBAF,"BP_executer",False)
+
+
+		/*A MAJ du libelle status */
+		DB_CTRL_TITLE@(vl_fenetre_TBAF,
+				"LI_status","PA ")
+
+		/*A MAJ du libelle fmc nouveau */
+		ITMA_COM_Lire_Evenement ( vl_cmd.numero_evt, vl_cmd.cle_evt, vl_lib_fmc, C_MODULE) 
+		vl_fmc = COM11_Libelle_FMC(vl_lib_fmc)
+		DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_fmc_nouveau",vl_fmc)
+
+	ITMA_TSAGA_MAJ_BAF(vl_cmd.numero_eqt,vl_cmd.barriere,vl_cmd.barriere,vl_cmd.barriere,
+				0,0,0,
+							vl_fenetre_TBAF,vl_type_saga,
+							"sad")
+			
+	vl_appel_connu=TRUE
+}
+
+/* Autoriser la commande executer */
+
+if NOT vl_mode_formation and (vl_district=XDC_CI and
+   NOT (ITMA_COM_District_pilotable(
+			vm_config_saga[vl_cmd.numero_eqt].sitegestion, 
+			XDC_LIB_BAF,FALSE)) )
+{
+	vl_autorisation_executer=True
+}
+else
+{
+	vl_autorisation_executer=False
+}
+
+
+
+/* Si l'appel est connu ( ici ITMA_TMT ou ITMA_TPA ou ITMA_SOP ) */
+
+if(vl_appel_connu=FALSE)
+{
+	/* Alors */
+	/* Retourner une erreur */
+
+	info_message@("L'appel '"++vl_Appel++
+			"' n'est pas reconnu pas la boite de dialogue "++ 
+									"Pilotage d'un BAF")
+	RETURN(COM_NOK)
+}
+/* Finsi */
+/*A MAJ du titre de la fenetre */
+DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_nom",
+					vm_config_saga[position(vl_cmd.numero_eqt)].Identifiant)
+
+/*A Abonnement a l'etat des panneaux */ 
+
+vl_erreur = ITMA_TSAGA_Abt_Etat_SAGA(
+					COM51_NomSite(vm_config_saga[position(vl_cmd.numero_eqt)].sitegestion))
+
+
+if (vl_erreur <> COM_NOK)
+{
+	vl_abt_panneau = TRUE
+}
+
+
+
+/*A Boucle de capture des evenements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+/* Si pilotage automatique alors on execute le scenario */
+if (vm_auto=TRUE)
+{
+		/*A Recherche du champ fin d'action */
+
+		vl_fin_action=FALSE
+		
+
+
+			/*A si le scenario est une fin d'action */
+			vl_cmd.barriere = vl_Module11
+				vl_cmd.bandeau= vl_cmd.barriere ++""
+
+		if vl_Module11=0 
+			{
+				/* recuperation du n° d'action dans la base */
+				vl_cpt=ITMA_TSAGA_Commander_fin(vl_cmd)
+			}
+			/*A sinon cmd BAF classique */
+			else
+			{
+				/* recuperation du n° d'action dans la base */			
+				vl_NumAction = 0 		
+				vl_cpt=ITMA_TSAGA_Commander(vl_cmd)
+ 
+			}
+		
+			/*A si mode manuel */
+			if vl_manuel = TRUE
+			{
+				vl_mode_PA = COM_REFUSE
+				info_message@("Pilotage manuel non exécuté")
+			}
+
+	   
+
+	vl_fenetre_active=FALSE
+}
+
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_TBAF)
+
+	/*A capture de l'evenement dans la BD TBAF */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_TBAF)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL
+ 
+	if substring@(vl_controle_sortie,1,len@(OBJET_ETAT_ACTUEL))=
+											OBJET_ETAT_ACTUEL
+	{
+		vl_erreur=ITMA_TBAF_modif_picto(vl_controle_sortie,
+								vl_fenetre_TBAF)
+		vl_mode_PA = COM_REFUSE
+	}
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+
+	CASE "BP_quitter"
+
+		vl_fenetre_active = FALSE
+
+
+	CASE "BP_nouveau"
+
+		info_message@(vl_type_saga)
+		if (vl_module11_terrain=1) {
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module11_nouveau",FALSE)
+			if (vl_type_saga=XDC_SAGA_BAF)
+			  DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module11_nouveau",C_PIX_M11_ALLUME)
+			else
+			  DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module11_nouveau",C_PIX_NAV_SORTIE)
+			DB_REFRESH@(vl_fenetre_TBAF)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module11_nouveau",TRUE)
+			vl_module11=1
+		}
+		else
+		{
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module11_nouveau",FALSE)
+			if (vl_type_saga=XDC_SAGA_BAF)
+			  DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module11_nouveau",C_PIX_M11_ETEINT)
+			else
+			  DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module11_nouveau",C_PIX_NAV_RENTREE)
+			DB_REFRESH@(vl_fenetre_TBAF)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module11_nouveau",TRUE)
+			vl_module11=0
+		}		
+
+
+		if (vl_module12_terrain=1) {
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module12_nouveau",FALSE)
+			DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module12_nouveau",C_PIX_M12_ALLUME)
+			DB_REFRESH@(vl_fenetre_TBAF)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module12_nouveau",TRUE)
+			vl_module12=1
+		}
+		else
+		{
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module12_nouveau",FALSE)
+			DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module12_nouveau",C_PIX_M12_ETEINT)
+			DB_REFRESH@(vl_fenetre_TBAF)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module12_nouveau",TRUE)
+			vl_module12=0
+		}		
+
+		if (vl_module15_terrain=1) {
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module15_nouveau",FALSE)
+			DB_CTRL_YPOS@(vl_fenetre_tbaf, "BP_module15_nouveau", 580)
+			DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module15_nouveau",C_PIX_M15_ALLUME)
+			DB_REFRESH@(vl_fenetre_TBAF)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module15_nouveau",TRUE)
+			vl_module15=1
+		}
+		else
+		{
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module15_nouveau",FALSE)
+			DB_CTRL_YPOS@(vl_fenetre_tbaf, "BP_module15_nouveau", 690)
+
+			DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module15_nouveau",C_PIX_M15_ETEINT)
+			DB_REFRESH@(vl_fenetre_TBAF)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module15_nouveau",TRUE)
+			vl_module15=0
+		}		
+		if (vl_module22_terrain=1) {
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module22_nouveau",FALSE)
+			DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module22_nouveau",C_PIX_M22_ALLUME)
+			DB_REFRESH@(vl_fenetre_TBAF)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module22_nouveau",TRUE)
+			vl_module22=1
+		}
+		else
+		{
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module22_nouveau",FALSE)
+			DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module22_nouveau",C_PIX_M22_ETEINT)
+			DB_REFRESH@(vl_fenetre_TBAF)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module22_nouveau",TRUE)
+			vl_module22=0
+		}		
+
+		if (vl_module25_terrain=1) {
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module25_nouveau",FALSE)
+			DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module25_nouveau",C_PIX_M25_ALLUME)
+			DB_REFRESH@(vl_fenetre_TBAF)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module25_nouveau",TRUE)
+			vl_module25=1
+		}
+		else
+		{
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module25_nouveau",FALSE)
+			DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module25_nouveau",C_PIX_M25_ETEINT)
+			DB_REFRESH@(vl_fenetre_TBAF)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module25_nouveau",TRUE)
+			vl_module25=0
+		}		
+
+
+		
+
+
+
+
+	CASE "BP_module11_nouveau"
+	CASE "BP_module12_nouveau"
+	CASE "BP_module15_nouveau"
+		if (vl_module11=0) {
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module11_nouveau",FALSE)
+			if (vl_type_saga=XDC_SAGA_BAF) {
+			  DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module11_nouveau",C_PIX_M11_ALLUME)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module11_nouveau",TRUE)
+			/* Mise à jour des feux flash aussi */
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module12_nouveau",FALSE)
+			DB_CTRL_YPOS@(vl_fenetre_tbaf, "BP_module15_nouveau", 580)
+			DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module15_nouveau",C_PIX_M15_ALLUME)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module12_nouveau",TRUE)
+			DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module12_nouveau",C_PIX_M12_ALLUME)
+			}
+			else {
+			  DB_CTRL_YPOS@(vl_fenetre_tbaf, "BP_module11_nouveau",500)
+			  DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module11_nouveau",C_PIX_NAV_SORTIE)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module11_nouveau",TRUE)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module12_nouveau",FALSE)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module15_nouveau",FALSE)
+			}
+			vl_module11=1
+			DB_REFRESH@(vl_fenetre_TBAF)
+			vl_module12=1
+		}
+		else
+		{
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module11_nouveau",FALSE)
+			if (vl_type_saga=XDC_SAGA_BAF) {
+			  DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module11_nouveau",C_PIX_M11_ETEINT)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module11_nouveau",TRUE)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module12_nouveau",FALSE)
+			DB_CTRL_YPOS@(vl_fenetre_tbaf, "BP_module15_nouveau", 690)
+				DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module15_nouveau",C_PIX_M15_ETEINT)
+			DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module12_nouveau",C_PIX_M12_ETEINT)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module12_nouveau",TRUE)
+			}
+			else  {
+			  DB_CTRL_YPOS@(vl_fenetre_tbaf, "BP_module11_nouveau",500)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module12_nouveau",FALSE)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module15_nouveau",FALSE)
+			  DB_CTRL_TITLE@(vl_fenetre_TBAF,"BP_module11_nouveau",C_PIX_NAV_RENTREE)
+			DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"BP_module11_nouveau",TRUE)
+			}
+			vl_module11=0
+			DB_REFRESH@(vl_fenetre_TBAF)
+			vl_module12=0
+		}		
+
+		
+
+
+
+	/*A sur action refuser */
+
+	CASE "BP_refuser"
+
+		vl_mode_PA = COM_REFUSE
+		vl_fenetre_active = FALSE
+
+
+	/*A sur action lier FMC */
+	CASE "BP_lier_FMC"
+ 		DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_status",
+									"Status : appel lien FMC")
+
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+									"ITMA_TSAGA_pilotage_BAF")
+		tl_liste_causes=tl_data[0]
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"TA_Evenements",TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TBAF,"TA_Evenements",TRUE)
+		DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre_TBAF, "TA_Evenements", 25)
+		DB_TABLE_ALLOW_COLUMN_RESIZING@(
+							vl_fenetre_TBAF,"TA_Evenements",True)
+		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,
+								COM_CAUSE_LONG_LOCALISATION
+		DB_TABLE_SET_DATA@(vl_fenetre_TBAF,"TA_Evenements",
+										tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_TBAF, "TA_Evenements", 0, tl_data[2])
+
+
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+ 		DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_status",
+								"Status : selection evenement")
+
+		tl_retour=ITMA_COM_Validite_Cause("ITMA_TSAGA_pilotage_BAF",
+								vl_fenetre_TBAF,tl_liste_causes)
+		vl_cmd.Numero_Evt = tl_retour[0][0]
+		vl_cmd.Cle_Evt = tl_retour[0][1]
+		vl_fmc = tl_retour[1]
+		DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"TA_Evenements",FALSE)
+		DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_fmc_nouveau",vl_fmc)
+		vl_cmd.fmc_liee = vl_fmc
+		DB_CTRL_GRAYED@(vl_fenetre_TBAF,"BP_executer",FALSE)
+
+	/*A sur action executer OK*/
+	CASE "BP_ok"
+
+
+		DB_CTRL_GRAYED@(vl_fenetre_TBAF,"BP_quitter",False)
+		DB_CTRL_GRAYED@(vl_fenetre_TBAF,"BP_executer",
+								vl_autorisation_executer)
+		DB_CTRL_GRAYED@(vl_fenetre_TBAF,"BP_lier_FMC",False)
+		DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_status",
+							"Status : Bonne execution confirmee")
+info_message@("ici")
+/*		ITMA_TBAF_Fin_Cmd_Manu_BAF(vl_NumAction,XDC_VRAI,
+							vl_Module11,vl_Module11,vl_Module11,
+					0,0,0,vl_NomOperateur)*/
+
+
+	/*A sur action executer NOK*/
+	CASE "BP_nok"
+
+		DB_CTRL_GRAYED@(vl_fenetre_TBAF,"BP_quitter",False)
+		DB_CTRL_GRAYED@(vl_fenetre_TBAF,"BP_executer",
+								vl_autorisation_executer)
+		DB_CTRL_GRAYED@(vl_fenetre_TBAF,"BP_lier_FMC",False)
+		DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_status",
+						"Status : Mauvaise execution confirmee")
+	/*	ITMA_TBAF_Fin_Cmd_Manu_BAF(vl_NumAction,XDC_FAUX,
+							vl_Module11,vl_Module12,vl_Module15,
+					vl_Module21,vl_Module22,vl_Module25,vl_NomOperateur)*/
+
+
+	/*A sur action executer */
+	CASE "BP_executer"
+
+		/*A Recherche du champ fin d'action */
+
+		vl_fin_action=FALSE
+
+		if vl_Module11=0 		{
+			vl_fin_action=TRUE
+		}
+
+		if NOT vl_fin_action and vl_cmd.Numero_Evt=0 and vl_cmd.Cle_Evt=0
+		{
+			info_message@(
+				"Veuillez d'abord lier cette action a une F.M.C")
+		}
+		else
+		{
+			/*A Griser le bouton Executer */
+
+			DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_fmc_actuel",vl_fmc)
+	/*		DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_fmc_nouveau","")*/
+
+			/*A si le scenario est une fin d'action */
+
+			if vl_fin_action=TRUE
+			{
+				/* recuperation du n° d'action dans la base */
+				vl_cmd.barriere = vl_Module11
+				vl_cmd.bandeau= vl_cmd.barriere ++""
+				vl_cpt=ITMA_TSAGA_Commander_fin(vl_cmd)
+			}
+			/*A sinon cmd BAF classique */
+			else
+			{
+				/* recuperation du n° d'action dans la base */			
+				vl_NumAction = 0 		
+				vl_cmd.barriere = vl_Module11
+				vl_cmd.bandeau= vl_cmd.barriere ++""
+				vl_cpt=ITMA_TSAGA_Commander(vl_cmd)
+			}
+		}
+			if vl_cpt = COM_OK
+			{
+		    		DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_status",
+								"Status : Commande envoyee")
+				if vl_Appel="ITMA_TPA"				
+				{
+					vl_mode_PA=COM_VALIDE
+		    			DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_status",
+								"Status : Validation du PA")	
+				}
+				else
+				{
+					vl_mode_PA=COM_QUITTE
+					if vl_erreur <> COM_NOK
+					{
+						DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_status",
+								"Status : Pilotage BAF !!!")
+					}
+					else
+					{
+						DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_status",
+							"Status : Problème Pilotage BAF !!!")
+					}
+				}
+			}
+			else
+			{	
+				DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_status",
+					"Status : Commande refusee (manque lien FMC)") 
+			}
+	   /*	 vl_baf.NumEvt = 0
+		 vl_baf.CleEvt = 0*/
+	   
+
+
+	/*A sur action BP_expliquer */
+	CASE "BP_expliquer"
+
+		/* appel de MTEX avec passage en argument de l'explication */
+		vl_erreur = Pend_For_NEW_TASK@("ITMA_TEX_Explication_Propo",
+							"ITMA_TSAGA_pilotage_BAF",vl_expliquer)
+
+
+
+
+
+
+	/*A sur reception de poke */		
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vl_fenetre_TBAF)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_MTSAGA_ETAT
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vl_fenetre_TBAF)
+
+			/*A trace de la reception du message */
+			vl_text = "   MsgPoke MTBAF : " ++ vl_message[0]
+			COM01_Trace(0,vl_text)
+			COM01_Trace(0," ")
+
+			/*A decomposition des messages en tableau */
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+			/*A si numero de BAF en cours d'edition */
+			if vl_mess[0]+0 =  vl_cmd.numero_eqt+0
+			{				
+				ITMA_TSAGA_MAJ_BAF(vl_cmd.numero_eqt,vl_mess[20],vl_mess[20],
+							vl_mess[20],vl_mess[20],
+							vl_mess[20],vl_mess[20],
+							vl_fenetre_TBAF,vl_type_saga,
+							"pilotage")
+
+				vl_Module11_terrain=vl_mess[20]+0
+				vl_Module12_terrain=vl_mess[20]+0
+				vl_Module15_terrain=vl_mess[20]+0
+				vl_Module21_terrain=0
+				vl_Module22_terrain=0
+				vl_Module25_terrain=0
+
+				/* si "nouvel etat" non initialisé alors on l'initialise comme état actuel */
+				if ( vl_init=FALSE )
+				{					ITMA_TSAGA_MAJ_BAF(vl_cmd.numero_eqt,vl_mess[20],vl_mess[20],
+							vl_mess[20],vl_mess[20],
+							vl_mess[20],vl_mess[20],
+							vl_fenetre_TBAF,vl_type_saga,
+							"sad")
+					vl_init=TRUE
+					vl_Module11=vl_mess[20]+0
+					vl_Module12=vl_mess[20]+0
+					vl_Module15=vl_mess[20]+0
+					vl_Module21=0
+					vl_Module22=0
+					vl_Module25=0
+
+					/* Si l'état terrain remonté est incohérent alors raz barrière */
+					if (vl_Module15<>0) and (vl_Module11=0) then vl_Module15=0
+					if (vl_Module25<>0) and (vl_Module11=0) then vl_Module25=0
+				}
+				
+			}
+			
+		ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+
+
+
+
+/*B trace de la fin de traitement */
+vl_text = " Stop ITMA_TSAGA_pilotage_BAF   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+RETURN(vl_mode_PA)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Initialisation generale de la boite de dialogue
+*												Pilotage
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TSAGA_init_boite_dialogue_pilotage(va_fenetre_TBAF,
+			va_messages_acceptes,va_type_baf)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_fenetre_TBAF			:	Item de la boite de dialogue
+*												Pilotage
+*	va_messages_acceptes	:	Liste des messages acceptes par la
+*											boite de dialogue
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*  	va_fenetre_TBAF			:	Item de la boite de dialogue
+*												Pilotage
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*    Initialisation generale de la boite de dialogue Pilotage
+*
+--------------------------------------------------------------------- */
+
+var i
+
+/*A Ouverture de la fiche de pilotage BAF */
+
+va_fenetre_TBAF = DB_LOAD@("ITMA_TSAGA_pilotage_BAF")
+
+va_messages_acceptes[0] = COM_CANAL_FIN
+va_messages_acceptes[1] = COM_CANAL_MTSAGA_ETAT 
+DB_ACCEPT_POKES@ (va_fenetre_TBAF, va_messages_acceptes)
+
+DB_CTRL_GRAYED@(va_fenetre_TBAF,"BP_lier_FMC",False)
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_HEIGHT@(va_fenetre_TBAF,880)
+DB_XPOS@(va_fenetre_TBAF,0)
+ if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+DB_YPOS@(va_fenetre_TBAF, 1000)
+ELSE
+DB_YPOS@(va_fenetre_TBAF, 105)
+DB_WIDTH@(va_fenetre_TBAF,960)
+
+if (va_type_baf = XDC_SAGA_BRA) {
+DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module11_nouveau",C_PIX_NAV_RENTREE)
+}
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module21_nouveau",FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module22_nouveau",FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module25_nouveau",FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module21_terrain",FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module22_terrain",FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module25_terrain",FALSE)
+
+
+DB_CTRL_DISPLAY@(va_fenetre_tbaf, "BP_camera", FALSE)
+
+/*A Griser le bouton 'Executer' */
+DB_CTRL_GRAYED@(va_fenetre_TBAF,"BP_executer",True)
+
+/* si on n'est pas en automatique alors on affiche la fenetre */
+if (vm_auto=0)
+{
+	DB_DISPLAY_ONLY@(va_fenetre_TBAF,TRUE)
+	DB_DISPLAY@(va_fenetre_TBAF)
+	DB_DISPLAY_ONLY@(va_fenetre_TBAF,FALSE)
+}
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Deselection les objets lies au PA
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBAF_deselectionne_objet_PA(va_fenetre_TBAF,va_expliquer,
+				va_lecture,FORMAT Config_BAF va_info_liste_BAF,
+										FORMAT T_Commande va_BAF)
+
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_fenetre_TBAF			:	Item de la boite de dialogue
+*												Pilotage
+*	va_expliquer			:	Explication sur le plan d'action
+*	va_lecture			:
+*	va_info_liste_BAF		:	Liste d'info sur les BAF
+*	va_BAF				:	Structure de donnees sur le BAF
+*									en cours en traitement
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*    	Deselection les objets lies au PA
+*
+--------------------------------------------------------------------- */
+
+/*A Griser les boutons lies au PA */
+
+va_expliquer = "L'appelant n'est pas le System Expert"
+DB_CTRL_GRAYED@(va_fenetre_TBAF,"BP_refuser",True)
+DB_CTRL_GRAYED@(va_fenetre_TBAF,"BP_expliquer",True)
+va_lecture = ""
+va_lecture[0] = ""
+
+/*A MAJ du titre de la fenetre */
+DB_CTRL_TITLE@(va_fenetre_TBAF,"LI_nom",
+					vm_config_saga[position(va_BAF.numero_eqt)].Identifiant)
+DB_CTRL_TITLE@(va_fenetre_TBAF,"LI_fmc_actuel",va_BAF.fmc_liee)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des équipements disponibles
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TSAGA_Liste_Eqt_BAF_Dispo
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		aucun
+*
+* ARGUMENTS EN SORTIE : 
+*		ListeEqts		: la liste des équipements correspondants
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TSAGA_pilotage_d_un_PMV
+*
+*
+* FONCTION
+*   	Lecture des équipements en disponibilités.
+*
+---------------------------------------------------------------------------- */
+	var	FORMAT COM_Donnees_Equipements vl_info_equip
+	var	vl_Liste		' liste formattée
+	var vl_type
+	var	i,k			' index de loop
+	var vl_district
+
+	if vm_District = XDC_CI
+	{	vl_District	= NULL	}
+	else
+	{	vl_District	= vm_District	}
+
+	ITMA_COM_Lire_Equipements (XDC_EQT_SAGA, vl_District,
+				 XDC_EQT_MINEUR, XDC_EQT_MINEUR,
+				 XDC_EQT_HS + XDC_EQT_MAJEUR + XDC_EQT_CRITIQUE + XDC_EQT_DESACTIVE + XDC_EQT_INHIBE, 0,vl_info_equip,
+			C_MODULE)
+
+
+	/*A Construction de la liste des équipements */
+	k = 0
+	if  IS_ARRAY@(vl_info_equip)
+	{
+	   for i = 0 to ARRAY_SIZE@(vl_info_equip) - 1
+	vl_type = vm_Config_SAGA[position(vl_info_equip[i].numero)].typeSAGA
+			if (((vl_type = XDC_SAGA_BAF) OR (vl_type=XDC_SAGA_BRA))  AND 
+                         ((vl_info_equip[i].sitegestion = vm_District) OR 
+			   (vm_District = XDC_CI )))
+			{
+			if (vl_type = XDC_SAGA_BAF)
+			  vl_Liste[k] = vm_Config_SAGA[position(vl_info_equip[i].numero)].Identifiant ++ " (BAF)"
+			else
+			  vl_Liste[k] = vm_Config_SAGA[position(vl_info_equip[i].numero)].Identifiant ++ " (NAV)"
+			k= k + 1
+			}
+	    
+		next i
+	}
+	else
+	{
+		vl_Liste[0]		= 	""
+		info_message@("Pas de barriere SAGA diponible dans ce secteur...")
+	}
+
+
+	RETURN (vl_Liste)
+
+ENDMACRO
+
+
+FUNCTION position(va_numero)
+
+
+return (ARRAY_INDEX@(ARRAY_COLUMN@(vm_config_saga,0),va_numero))
+ENDFUNCTION
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :       MAJ du panneau dans la vue actuelle
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TSAGA_MAJ_BAF(va_equipement,va_module11,va_module12,va_module15,va_module21,va_module22,va_module25,va_fenetre_TBAF,va_type_baf,va_type_fenetre)
+
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*       va_equipement   :       l'equipement dans la BAF
+*       va_etat         :       l'etat a positionner
+*       va_fenetre_TBAF :       Item de la fenetre module
+*       va_ST_aff_msg   :       Structure contenant les donnees d'affichage
+*                                       et de messages vers les equipements
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   appel de la reception de socket
+*
+* FONCTION
+*    MAJ du panneau dans la vue actuelle
+*
+--------------------------------------------------------------------- */
+
+var             vl_nom_fichier_pix
+var             vl_etat_objet
+var             vl_objet
+var             i
+var             vl_extension
+var             vl_mod15_1
+
+        if va_type_fenetre="sad"
+        {
+                vl_extension="_nouveau"
+                if (va_Module15<>0) and (va_Module11=0) then va_Module15=0
+                if (va_Module25<>0) and (va_Module11=0) then va_Module25=0
+        }
+        else
+                vl_extension="_terrain"
+
+        DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module11"++vl_extension,FALSE)
+        DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module12"++vl_extension,FALSE)
+        DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module15"++vl_extension,FALSE)
+        if va_module11=0
+        {
+		if (va_type_baf=XDC_SAGA_BAF)
+                  DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module11"++vl_extension,C_PIX_M11_ETEINT)
+		else {
+  		  DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module11"++vl_extension,C_PIX_NAV_RENTREE)
+		 if (vl_extension="_nouveau")
+		    DB_CTRL_YPOS@(va_fenetre_tbaf, "BP_module11_nouveau",500)
+		 else
+		    DB_CTRL_YPOS@(va_fenetre_tbaf, "BP_module11_terrain",130)
+		}
+        }
+        else
+        {
+		if (va_type_baf=XDC_SAGA_BAF)
+                  DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module11"++vl_extension,C_PIX_M11_ALLUME)
+		else {
+		 if (vl_extension="_nouveau")
+		  DB_CTRL_YPOS@(va_fenetre_tbaf, "BP_module11_nouveau",500)
+		  else
+		  DB_CTRL_YPOS@(va_fenetre_tbaf, "BP_module11_terrain",130)
+		  DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module11"++vl_extension,C_PIX_NAV_SORTIE)
+		}
+        }
+        if va_module12=0
+        {
+                DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module12"++vl_extension,C_PIX_M12_ETEINT)
+        }
+        else
+        {
+                DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module12"++vl_extension,C_PIX_M12_ALLUME)
+        }
+        if va_module15=0
+        {
+                DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module15"++vl_extension,C_PIX_M15_ETEINT)
+                if va_type_fenetre="pilotage"
+                        DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15"++vl_extension, 320)
+                else if va_type_fenetre="consultation"
+                        DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15"++vl_extension, 347)
+                else
+                        DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15"++vl_extension, 690)
+        }
+        else
+        {
+                DB_CTRL_TITLE@(va_fenetre_TBAF,"BP_module15"++vl_extension,C_PIX_M15_ALLUME)
+                if va_type_fenetre="pilotage"
+                        DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15"++vl_extension, 218)
+                else if va_type_fenetre="consultation"
+                        DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15"++vl_extension, 235)
+                else
+                        DB_CTRL_YPOS@(va_fenetre_tbaf,"BP_module15"++vl_extension,580)
+        }
+        DB_REFRESH@(va_fenetre_TBAF)
+	if (va_type_baf=XDC_SAGA_BAF) {
+        DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module11"++vl_extension,TRUE)
+        DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module12"++vl_extension,TRUE)
+        DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module15"++vl_extension,TRUE)
+ 	}
+	else {
+        DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module11"++vl_extension,TRUE)
+        DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module12"++vl_extension,FALSE)
+        DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module15"++vl_extension,FALSE)
+	}
+        DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module21"++vl_extension,FALSE)
+        DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module22"++vl_extension,FALSE)
+        DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module25"++vl_extension,FALSE)
+        DB_REFRESH@(va_fenetre_TBAF)
+                Return(COM_OK)
+ENDMACRO
+

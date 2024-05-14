@@ -1,0 +1,168 @@
+/*E*/
+/* Fichier : $Id: ITMA_TEX_Explication_Propo.am,v 1.6 1994/12/15 11:18:12 noel Exp $      Release : $Revision: 1.6 $        Date : $Date: 1994/12/15 11:18:12 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TEX * FICHIER ITMA_TEX_Explication_Propo.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Afficher le texte d'explication d'une proposition d'appel
+*
+*   Cf. DCG 2.4.26
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	26 Sep 1994	: Creation						V1.1
+* Guilhou	13 Oct 1994	: inclusion xzic_ax.h				V1.3
+* Guilhou	14 oct 1994	: inclusion xdc_ax.h				V1.4
+* Noel B.	06 Dec 1994	: Modification de la position de la boite de dialogue.	V1.6
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE    "../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTEX"			' Nom du module
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Afficher le texte d'une proposition d'appel
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TEX_Explication_Propo (va_appelant,va_proposition)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+* va_proposition	: Proposition a afficher
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTAP
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR tl_message
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Explication Proposition"
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TEX")
+
+DB_XPOS@ (vl_fenetre, 521)
+DB_YPOS@ (vl_fenetre, 735)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TEX_Explication_Propo")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+/*A
+ * affiche le texte passe en argument*/
+tl_message[0]=va_proposition
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAy@(vl_fenetre)
+DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_explication",tl_message)
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		/*A
+		* choix du bouton Quitter*/
+		CASE "BP_quitter"
+			/*A
+			bye*/
+			RETURN
+
+		/*A
+		on recoit un poke*/
+		CASE "poke_"
+			/*A
+			* suivant le poke*/
+			CASE OF DB_GET_POKE@(vl_fenetre)
+				/*A
+				* poke de fin*/
+				CASE COM_CANAL_FIN
+					/*A
+					* bye*/
+					RETURN
+			ENDCASE
+		
+	ENDCASE
+WEND
+ENDMACRO
+

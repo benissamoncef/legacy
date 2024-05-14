@@ -1,0 +1,576 @@
+/*E*/
+/* Fichier : $Id: ITMA_TSC_etape_scenario.am,v 1.7 1998/04/30 10:46:07 gesconf Exp $      Release : $Revision: 1.7 $        Date : $Date: 1998/04/30 10:46:07 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTSC * FICHIER ITMA_TSC_etape_scenario.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* permet de passer d'un etape a une autre dans un scenario
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	15 jan 1994	: Creation						V1.1
+* Torregrossa	29 jan 1995	: modif repertoire de stockage des fichiers V 1.4
+* Torregrossa	16 fev 1996	: ajout des secondes pour la datation des etapes V 1.5
+* Torregrossa	06 mar 1996	: Remplacement des appels aux fonctions rpc pour les synoptiques
+*                                 par un newtasks de COM28 V1.6
+* Niepceron 20/04/1998 : ajout maj de vg_formation à null en sortie (dem/1657) v1.7
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TLV.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../inc/isyn_svu_applix_ax.h"
+
+
+DEFINE	C_MODULE	"MTSC"			' Nom du module
+
+FORMAT TSC_fichier
+		numero_scenario,
+		horodate,
+		type,
+		numero_fiche,
+		cle_fiche
+
+
+VAR vm_mode_construction
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TSC_etape_scenario (va_appelant,va_nom,va_numero,
+						FORMAT TSC_fichier ta_etapes)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_appelant	: macro appelante
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MSCO, MTPM, ....
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR tl_retour,tl_poke_data
+	VAR tl_message
+	VAR vl_horodate,vl_horodate_suivante
+	VAR tl_listeHorodates
+	VAR vl_indice
+	VAR tl_listeFormatee
+	VAR vl_indexEtape
+	VAR tl_data,vl_string,vl_fichier
+	VAR vl_horodateDeformatee
+	VAR vl_horodateContexte
+	VAR vl_rpc_retour
+	VAR vl_repertoire
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A
+ * Charger la fenetre 
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TSC_etape")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 400)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TSC_etape")
+
+/*A
+ * Repertoire de travail
+ * ---------------------
+ */
+vl_repertoire=SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_DYN
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+MACRO_WINS_BUSY@()
+/*A recupere le mode d'appel*/
+IF (va_appelant="ITMA_TSC_creer_scenario")
+{
+	vm_mode_construction=TRUE
+	DB_CTRL_TITLE@(vl_fenetre,"BP_etape","Valider l'étape")
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BL_etapes",TRUE)
+}
+ELSE
+{
+	vm_mode_construction=FALSE
+	DB_CTRL_DISPLAY@(vl_fenetre,"BL_etapes",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"LI_etape_scenario",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"BP_supprimer",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"BP_contexte",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"BP_horohelp",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"BS_jour",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"BS_mois",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"BS_annee",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"BS_heure",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"BS_minute",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"BS_seconde",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"LI_jour",TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"LI_mois",TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"LI_annee",TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"LI_heure",TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"LI_minute",TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"LI_seconde",TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"LI_horodate",TRUE)
+}
+
+IF (ta_etapes<>null)
+{
+	/*A trie la liste des horodates des etapes*/
+	tl_listeHorodates=SORT@(ARRAY_COLUMN@(ta_etapes,1),FALSE)
+
+	/*A formatte ces horodates*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_listeHorodates)-1)
+		vl_horodate=tl_listeHorodates[vl_indice]
+		tl_listeFormatee[vl_indice]=SUBSTRING@ (vl_horodate, 7, 2)++"/"++
+								SUBSTRING@ (vl_horodate, 5, 2)++"/"++
+								SUBSTRING@ (vl_horodate, 1, 4)++" "++
+								SUBSTRING@ (vl_horodate, 9,2)++":"++		
+								SUBSTRING@ (vl_horodate, 11,2)++":"++
+								SUBSTRING@ (vl_horodate, 13,2)
+	NEXT vl_indice
+
+	/*A affiche le commentaire associe*/
+	vl_fichier=SYSTEM_VAR@(vg_numero_scenario)++"_"++
+						tl_listeHorodates[0]++"_G_x_x.fmt"
+	IF (FILE_EXISTS@(vl_repertoire++vl_fichier))
+	{
+		tl_data=READ_ASCII_FILE@(vl_repertoire++vl_fichier)
+		tl_data=ARRAY_DELETE@(tl_data,0)
+
+		DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_comment",tl_data)
+	}
+
+	/*A recupere horodate de la premiere etape*/
+	vl_horodate=tl_listeFormatee[0]
+
+	/*A affiche cette horodate*/
+	IF (vm_mode_construction=TRUE)
+	{
+		COM24_Afficher_Horodate(vl_horodate,
+							vl_fenetre,
+							"BS_jour",
+							"BS_mois",
+							"BS_annee",
+							"BS_heure",
+							"BS_minute",
+							"BS_seconde")
+		DB_CTRL_STRINGS@(vl_fenetre,"BL_etapes",tl_listeFormatee)
+	}
+	ELSE
+	{
+		DB_CTRL_TITLE@(vl_fenetre,"LI_jour",SUBSTRING@(vl_horodate,1,2))
+		DB_CTRL_TITLE@(vl_fenetre,"LI_mois",SUBSTRING@(vl_horodate,4,2))
+		DB_CTRL_TITLE@(vl_fenetre,"LI_annee",SUBSTRING@(vl_horodate,7,4))
+		DB_CTRL_TITLE@(vl_fenetre,"LI_heure",SUBSTRING@(vl_horodate,12,2))
+		DB_CTRL_TITLE@(vl_fenetre,"LI_minute",SUBSTRING@(vl_horodate,15,2))		
+		DB_CTRL_TITLE@(vl_fenetre,"LI_seconde",SUBSTRING@(vl_horodate,18,2))		
+	}
+
+}
+
+/*A si je ne suis pas en train de construire le scenario*/
+IF (vm_mode_construction=FALSE)
+{	
+	DB_REFRESH@(vl_fenetre)
+	
+	IF (ARRAY_SIZE@(tl_listeFormatee)<=1)
+		DB_CTRL_GRAYED@(vl_fenetre,"BP_etape",TRUE)	
+
+	/*A demander l'affichage du synoptique a l'horodate*/
+	tl_data[0]=vl_horodate
+	NEW_TASK@("COM28_Exec_Synoptique", CM_INIT_FORM, tl_data)
+
+	/*A je recupere le contexte*/
+	DB_SEND_POKE@(COM_CANAL_MTLT_FIN)
+	vl_horodate=vl_horodate
+	SET_SYSTEM_VAR@(vg_horodate_formation,vl_horodate)
+	NEW_TASK@("ITMA_TLT_Liste_FMC_A_Traiter",
+					"ITMA_TSC_etape_scenario",
+					vl_horodate)
+}
+
+
+vl_indexEtape=0
+
+/*A afficher le nom du scenario*/
+DB_TITLE@(vl_fenetre,"Scénario "++va_nom)
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		/*A supprimer l'etape courante*/
+		CASE "BP_supprimer"
+			MACRO_WINS_BUSY@()
+			DB_SEND_POKE@(COM_CANAL_MTLT_FIN)
+
+			/*A recupere horodate de l'etape a effacer*/
+			vl_indexEtape=DB_CTRL_GET_VALUE@(vl_fenetre,"BL_etapes")
+			vl_horodate=tl_listehorodates[vl_indexEtape]
+
+			/*A efface l'horodate de la liste*/
+			tl_listeHorodates=ARRAY_DELETE@(tl_listeHorodates,vl_indexEtape)
+			tl_listeFormatee=ARRAY_DELETE@(tl_listeFormatee,vl_indexEtape)
+			DB_CTRL_STRINGS@(vl_fenetre,"BL_etapes",tl_listeFormatee)
+			vl_indexEtape=0
+
+			/*A efface tous les fichiers associes a l'etape*/
+			vl_fichier=SYSTEM_VAR@(vg_numero_scenario)++"_"++
+						vl_horodate++"*.fmt"
+			SHELL_COMMAND@("rm "++vl_repertoire++vl_fichier)
+
+			IF (tl_listeFormatee[vl_indexEtape]=null)
+			{
+				/*A efface la boite d'edition*/
+				DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_comment",null)
+
+				vl_horodate=null
+				COM24_Afficher_Horodate(vl_horodate,
+								vl_fenetre,
+								"BS_jour",
+								"BS_mois",
+								"BS_annee",
+								"BS_heure",
+								"BS_minute",
+								"BS_seconde")
+			}
+			ELSE
+			{
+				/*A efface la boite d'edition*/
+				DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_comment",null)
+
+				vl_horodate=tl_listeFormatee[vl_indexEtape]
+				COM24_Afficher_Horodate(vl_horodate,
+								vl_fenetre,
+								"BS_jour",
+								"BS_mois",
+								"BS_annee",
+								"BS_heure",
+								"BS_minute",
+								"BS_seconde")
+
+				/*A affiche le commentaire associe de la 1° etape*/
+				vl_fichier=SYSTEM_VAR@(vg_numero_scenario)++"_"++
+							tl_listeHorodates[vl_indexEtape]++"_G_x_x.fmt"
+				DB_CTRL_VALUE@(vl_fenetre,"BL_etapes",0)
+				IF (FILE_EXISTS@(vl_repertoire++vl_fichier))
+				{
+					tl_data=READ_ASCII_FILE@(vl_repertoire++vl_fichier)
+					tl_data=ARRAY_DELETE@(tl_data,0)
+					DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_comment",tl_data)
+				}
+			}	
+
+		/*A etape suivante ou validation de l'etape courante*/
+		CASE "BP_etape"
+			MACRO_WINS_BUSY@()
+			DB_SEND_POKE@(COM_CANAL_MTLT_FIN)
+			IF (vm_mode_construction=TRUE)
+			{
+				/*A recupere horodate de l'etape courante*/
+				vl_horodate=COM23_Horodate(vl_fenetre,
+									"BS_jour",
+									"BS_mois",
+									"BS_annee",
+									"BS_heure",
+									"BS_minute",
+									"BS_seconde")				
+
+				IF (vl_horodate=null)
+					INFO_MESSAGE@("L'horodate ne peut être nulle")
+				ELSE
+				{
+					/*A je deformate l'horodate de cette etape*/
+					vl_horodateDeformatee=SUBSTRING@ (vl_horodate,7,4)++
+								SUBSTRING@ (vl_horodate,4,2)++			
+								SUBSTRING@ (vl_horodate,1,2)++
+								SUBSTRING@ (vl_horodate,12,2)++
+								SUBSTRING@ (vl_horodate,15,2)++
+								SUBSTRING@ (vl_horodate,18,2)
+					
+					/*A je regarde si l'etape existe deja*/
+					vl_indice=ARRAY_INDEX@(tl_listeHorodates, vl_horodateDeformatee)
+
+					/*A si elle existe*/
+					IF (vl_indice<>-1)
+						/*A je vais la sauver*/
+						goto POS_SAVE
+
+					/*A j'insere cet element dans la liste des etapes*/
+					vl_indice=0
+					WHILE (vl_indice<ARRAY_SIZE@(tl_listeHorodates))
+						IF (vl_horodateDeformatee< tl_listeHorodates[vl_indice])
+						{
+							tl_listeHorodates=ARRAY_INSERT@( tl_listeHorodates,
+											vl_horodateDeformatee,
+											vl_indice)
+							tl_listeFormatee=ARRAY_INSERT@( tl_listeFormatee,
+											vl_horodate,
+											vl_indice)
+							goto POS_SAVE
+						}
+						ELSE 
+							vl_indice=vl_indice+1
+					WEND
+				
+					IF (vl_indice=ARRAY_SIZE@(tl_listeHorodates))
+					{
+						tl_listeHorodates[vl_indice]=vl_horodateDeformatee
+						tl_listeFormatee[vl_indice]=vl_horodate
+					}
+
+POS_SAVE:
+					vl_indexEtape=vl_indice
+
+					/*A sauve le commentaire associe*/
+					tl_data=DB_EDITBOX_GET_DATA@(vl_fenetre,"BE_comment")
+					tl_data=ARRAY_INSERT@(tl_data,va_nom,0)
+					vl_fichier=SYSTEM_VAR@(vg_numero_scenario)++"_"++
+						tl_listeHorodates[vl_indexEtape]++"_G_x_x.fmt"
+					WRITE_ASCII_FILE@(vl_repertoire++vl_fichier,tl_data)
+
+					/*A met a jour la liste des etapes*/
+					DB_CTRL_STRINGS@(vl_fenetre,"BL_etapes",tl_listeFormatee)
+					DB_CTRL_VALUE@(vl_fenetre,"BL_etapes",vl_indexEtape)
+				}
+			}	
+			ELSE
+			{
+				/*A efface la boite d'edition*/
+				DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_comment",null)
+
+				vl_indexEtape=vl_indexEtape+1
+				vl_horodate=tl_listeFormatee[vl_indexEtape]
+				DB_CTRL_TITLE@(vl_fenetre,"LI_jour",
+								SUBSTRING@(vl_horodate,1,2))
+				DB_CTRL_TITLE@(vl_fenetre,"LI_mois",
+								SUBSTRING@(vl_horodate,4,2))
+				DB_CTRL_TITLE@(vl_fenetre,"LI_annee",
+								SUBSTRING@(vl_horodate,7,4))
+				DB_CTRL_TITLE@(vl_fenetre,"LI_heure",
+								SUBSTRING@(vl_horodate,12,2))
+				DB_CTRL_TITLE@(vl_fenetre,"LI_minute",
+								SUBSTRING@(vl_horodate,15,2))
+				DB_CTRL_TITLE@(vl_fenetre,"LI_seconde",
+								SUBSTRING@(vl_horodate,18,2))
+		
+				/*A affiche le commentaire associe*/
+				vl_fichier=SYSTEM_VAR@(vg_numero_scenario)++"_"++
+						tl_listeHorodates[vl_indexEtape]++"_G_x_x.fmt"
+				IF (FILE_EXISTS@(vl_repertoire++vl_fichier))
+				{
+					tl_data=READ_ASCII_FILE@(vl_repertoire++vl_fichier)
+					tl_data=ARRAY_DELETE@(tl_data,0)
+					DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_comment",tl_data)
+				}
+
+				DB_REFRESH@(vl_fenetre)
+
+				/*A je recupere le contexte*/
+				vl_horodate=vl_horodate
+				SET_SYSTEM_VAR@(vg_horodate_formation,vl_horodate)
+
+				/*A demander l'affichage du synoptique a l'horodate*/
+				tl_data[0]=vl_horodate
+				NEW_TASK@("COM28_Exec_Synoptique", CM_INIT_FORM, tl_data)
+
+				NEW_TASK@("ITMA_TLT_Liste_FMC_A_Traiter",
+							"ITMA_TSC_etape_scenario",
+							vl_horodate)
+
+				/*A si l'etape suivante existe*/
+				IF (tl_listeFormatee[vl_indexEtape+1]=null)
+					DB_CTRL_GRAYED@(vl_fenetre,"BP_etape",TRUE)
+			}
+
+		/*A choix d'une etape dans la liste*/
+		CASE "BL_etapes"
+			DB_SEND_POKE@(COM_CANAL_MTLT_FIN)
+			/*A affiche l'horodate de l'etape selectionnee*/
+			vl_indexEtape=DB_CTRL_GET_VALUE@(vl_fenetre,"BL_etapes")
+			vl_horodate=tl_listeFormatee[vl_indexEtape]
+
+			IF (tl_listeFormatee[vl_indexEtape]=null)
+				INFO_MESSAGE@("C'est la dernière étape")
+			ELSE
+			{
+				/*A efface la boite d'edition*/
+				DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_comment",null)
+
+				COM24_Afficher_Horodate(vl_horodate,
+								vl_fenetre,
+								"BS_jour",
+								"BS_mois",
+								"BS_annee",
+								"BS_heure",
+								"BS_minute",
+								"BS_seconde")
+
+				/*A affiche le commentaire associe de l'etape suivante*/
+				vl_fichier=SYSTEM_VAR@(vg_numero_scenario)++"_"++
+						tl_listeHorodates[vl_indexEtape]++"_G_x_x.fmt"
+				IF (FILE_EXISTS@(vl_repertoire++vl_fichier))
+				{
+					tl_data=READ_ASCII_FILE@(vl_repertoire++vl_fichier)
+					tl_data=ARRAY_DELETE@(tl_data,0)
+					DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_comment",tl_data)
+				}
+			}	
+
+		/*A recuperation contexte*/
+		CASE "BP_contexte"
+			DB_SEND_POKE@(COM_CANAL_MTLT_FIN)
+
+			/*A recupere l'horodate de l'etape courante*/
+			vl_horodate=COM23_Horodate(vl_fenetre,
+									"BS_jour",
+									"BS_mois",
+									"BS_annee",
+									"BS_heure",
+									"BS_minute",
+									"BS_seconde")
+
+			/*A si pas d'horodate*/
+			IF (vl_horodate=null)	
+				INFO_MESSAGE@("L'horodate ne peut être nulle")
+			ELSE
+			{
+				MACRO_WINS_BUSY@()
+				DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_comment",null)
+
+				/*A demander l'affichage du synoptique a l'horodate*/
+				tl_data[0]=vl_horodate
+				NEW_TASK@("COM28_Exec_Synoptique", CM_INIT_FORM, tl_data)
+
+				/*A affiche la liste des fmc a traiter*/
+				vl_horodate=vl_horodate
+				SET_SYSTEM_VAR@(vg_horodate_formation,vl_horodate)
+				NEW_TASK@("ITMA_TLT_Liste_FMC_A_Traiter",
+							"ITMA_TSC_etape_scenario",
+							vl_horodate)
+
+			}
+			
+			/*A si on n'est pas en train de construire le scenario*/
+			IF (vm_mode_construction=FALSE)
+				/*A si c'est la derniere etape*/
+				IF (ARRAY_SIZE@(tl_listeFormatee)>1)
+					/*A on l'affiche*/
+					DB_CTRL_GRAYED@(vl_fenetre,"BP_etape",FALSE)	
+
+
+		/*A aide composition de l'horodate*/
+		CASE "BP_horohelp"
+			vl_horodate=COM09_Date_Courante(TRUE)
+			COM24_Afficher_Horodate(vl_horodate,
+								vl_fenetre,
+								"BS_jour",
+								"BS_mois",
+								"BS_annee",
+								"BS_heure",
+								"BS_minute",
+								"BS_seconde")
+
+		/*A
+		* choix du bouton fin*/
+		CASE "BP_fin"
+			SET_SYSTEM_VAR@(vg_formation,NULL)
+			DB_SEND_POKE@(COM_CANAL_MTLT_FIN)
+			RETURN
+
+
+
+		/*A
+		on recoit un poke*/
+		CASE "poke_"
+			/*A
+			* suivant le poke*/
+			CASE OF DB_GET_POKE@(vl_fenetre)
+				/*A
+				* poke de fin*/
+				CASE COM_CANAL_FIN
+					/*A
+					* bye*/
+					RETURN (COM_NOK)
+
+			ENDCASE
+		
+	ENDCASE
+WEND
+ENDMACRO

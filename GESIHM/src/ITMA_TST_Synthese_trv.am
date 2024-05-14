@@ -1,0 +1,746 @@
+/*E*/
+/* Fichier : $Id: ITMA_TST_Synthese_trv.am,v 1.12 2020/11/03 17:46:54 pc2dpdy Exp $      Release : $Revision: 1.12 $        Date : $Date: 2020/11/03 17:46:54 $
+-------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------
+* MODULE ITMA_TBN * FICHIER ITMA_TST_Synthese_Trv.am
+-------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Affiche la synthèse d'une fiche main courante
+*
+*   Cf. DCG 2.4.65
+*
+-------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Torregrossa    04 Aou 1995 : Creation                     V1.1
+* Torregrossa    04 Aou 1995 : Suppression commentaire      V1.2
+* Noel		 21 Sep 1995 : Introduction de la procedure
+*				commune d'impression	    V1.4
+* Torregrossa	 19 Oct 1995 : Modif test pour ligne --- pour version 4.1 Applix V1.5
+* Verdier		 02 Sept 1996 : Ajout filtrage par district (DEM1171) V1.6
+* Guilhou	06 Sep 1996 : Ajout calcul au PC simplifie (RADT) V1.7
+* Guilhou	19 Sep 1996 : correction calcul mode degrade sur PC simplifie (RADT) V1.8
+* Guilhou	30 sep 1996 : filtrage du bouton district au pc simplifie (RADt) V1.9
+* Guilhou	17 oct 1996 : bouton valider par defaut (DEM/1243) V1.10
+* Torregrossa	25 nov 1996 : Ajout bau etroite (SAD4) (1283) V1.11
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+---------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"wp_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../inc/xzae87sp.h"
+INCLUDE	"../inc/xzao30sp.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+DEFINE	C_MODULE	"MTST"			' Nom du module
+
+
+
+/*A
+ * Definition des images digitalisees visualisant les configurations de voies
+ * --------------------------------------------------------------------------
+ */
+
+DEFINE	C_PICTO_INEXISTANT		"\\i(pix_neutre_16_16)"			' Pour cadrage
+DEFINE	C_PICTO_BAU_NORMALE		"\\i(pix_cadre_16_16)"
+DEFINE	C_PICTO_VOIE_BLOQUEE	"\\i(pix_croix_rouge_16_16)"
+DEFINE	C_PICTO_NEUTRALISEE		"\\i(pix_balise_16_16)"
+DEFINE	C_PICTO_BLOQ_NEUTRALISE	"\\i(pix_balise_barree_16_16)"
+DEFINE	C_PICTO_VOIE_NORMALE	"\\i(pix_fleche_haut_verte_16_16)"
+DEFINE	C_PICTO_VOIE_INVERSE	"\\i(pix_fleche_bas_bleue_16_16)"
+DEFINE	C_PICTO_VOIE_I_NORMALE	"\\i(pix_fleche_bas_verte_16_16)"
+DEFINE	C_PICTO_VOIE_I_INVERSE	"\\i(pix_fleche_haut_bleue_16_16)"
+
+DEFINE  C_PICTO_ETROIT_INEXISTANT       "\\i(pix_etroit_neutre_16_16)"  ' Pour cadrage
+DEFINE  C_PICTO_ETROIT_BAU_NORMALE      "\\i(pix_etroit_cadre_16_16)"
+DEFINE  C_PICTO_ETROIT_VOIE_BLOQUEE     "\\i(pix_etroit_croix_rouge_16_16)"
+DEFINE  C_PICTO_ETROIT_NEUTRALISEE      "\\i(pix_etroit_balise_16_16)"
+DEFINE  C_PICTO_ETROIT_BLOQ_NEUTRALISE  "\\i(pix_etroit_balise_barree_16_16)"
+DEFINE  C_PICTO_ETROIT_VOIE_NORMALE     "\\i(pix_etroit_fleche_haut_verte_16_16)"
+DEFINE  C_PICTO_ETROIT_VOIE_INVERSE     "\\i(pix_etroit_fleche_bas_bleue_16_16)"
+DEFINE  C_PICTO_ETROIT_VOIE_I_NORMALE   "\\i(pix_etroit_fleche_bas_verte_16_16)"
+DEFINE  C_PICTO_ETROIT_VOIE_I_INVERSE   "\\i(pix_etroit_fleche_haut_bleue_16_16)"
+
+DEFINE	C_PICTO_SEPARATION		"\\i(pix_barreV_neutre_16_16)"
+
+DEFINE	W_PICTO_INEXISTANT		"pix_neutre_16_16.im"			' Pour cadrage
+DEFINE	W_PICTO_BAU_NORMALE		"pix_cadre_16_16.im"
+DEFINE	W_PICTO_VOIE_BLOQUEE	"pix_croix_rouge_16_16.im"
+DEFINE	W_PICTO_NEUTRALISEE		"pix_balise_16_16.im"
+DEFINE	W_PICTO_BLOQ_NEUTRALISE	"pix_balise_barree_16_16.im"
+DEFINE	W_PICTO_VOIE_NORMALE	"pix_fleche_haut_verte_16_16.im"
+DEFINE	W_PICTO_VOIE_INVERSE	"pix_fleche_bas_bleue_16_16.im"
+DEFINE	W_PICTO_VOIE_I_NORMALE	"pix_fleche_bas_verte_16_16.im"
+DEFINE	W_PICTO_VOIE_I_INVERSE	"pix_fleche_haut_bleue_16_16.im"
+
+DEFINE  W_PICTO_ETROIT_INEXISTANT               "pix_etroit_neutre_16_16.im"                    ' Pour cadrage
+DEFINE  W_PICTO_ETROIT_BAU_NORMALE              "pix_etroit_cadre_16_16.im"
+DEFINE  W_PICTO_ETROIT_VOIE_BLOQUEE     "pix_etroit_croix_rouge_16_16.im"
+DEFINE  W_PICTO_ETROIT_NEUTRALISEE              "pix_etroit_balise_16_16.im"
+DEFINE  W_PICTO_ETROIT_BLOQ_NEUTRALISE  "pix_etroit_balise_barree_16_16.im"
+DEFINE  W_PICTO_ETROIT_VOIE_NORMALE     "pix_etroit_fleche_haut_verte_16_16.im"
+DEFINE  W_PICTO_ETROIT_VOIE_INVERSE     "pix_etroit_fleche_bas_bleue_16_16.im"
+DEFINE  W_PICTO_ETROIT_VOIE_I_NORMALE   "pix_etroit_fleche_bas_verte_16_16.im"
+DEFINE  W_PICTO_ETROIT_VOIE_I_INVERSE   "pix_etroit_fleche_haut_bleue_16_16.im"
+
+DEFINE	W_PICTO_SEPARATION		"pix_barreV_neutre_16_16.im"
+
+DEFINE	W_LIGNE		"-------------------------------------------------------------------------------------------"
+DEFINE	C_LIGNE		"--------------------------------------------------------------------------------------------------------------------------------------------"
+
+DEFINE	C_MODELE_SYNTHESE_TRV	"ITMA_TST_Synthese_Trv"	' Modele d'impression
+DEFINE	C_SOUS_REP_MODELES	COM_SOUS_REP_IHM		' Repertoire des modeles
+
+
+/*A
+ * position des infos de la synthese
+ * ---------------------------------
+ */
+DEFINE  C_COL_BAU       6
+DEFINE  C_COL_BAU_I     11
+
+FORMAT TST_Synthese
+	libelle,
+	horodate,
+	vr,
+	vm2,
+	vm1,
+	vl,
+	bau,
+	vr_i,
+	vm2_i,
+	vm1_i,
+	vl_i,
+	bau_i,
+	bau_etroite,
+	bau_i_etroite
+
+
+
+VAR vm_l_picto_voies						' Liste de pictos des voies normales
+VAR vm_l_picto_voies_i						' Liste de pictos des voies inverses
+
+VAR vm_l_symboles_voies						' Liste symboles de voies normales
+VAR vm_l_symboles_voies_i					' Liste symboles de voies inverses
+
+VAR tm_pictos,tm_pictos_i, tm_sites
+
+VAR vm_simplifie
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* afficher la synthèse d'une fiche main courante
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TST_Synthese_Trv (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_appelant: module appelant
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+
+	VAR FORMAT TST_Synthese tl_synthese
+	VAR vl_horodate
+	VAR vl_fichier
+	VAR vl_cmd, vl_params
+	VAR vl_liste, vl_sel, i
+	VAR vl_indice,vl_picto
+	VAR vl_index
+	VAR vl_Date
+	VAR tl_tmp
+    	VAR FORMAT SQL_Procedure_Params@    vl_parametres
+    	VAR FORMAT SQL_Procedure_Result@    vl_resultats
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    if (vm_simplifie and SYSTEM_VAR@(vg_canal_SGBD_pcs)<>NULL) {
+	  SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+	  SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+    }
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Synthese travaux"
+ * ---------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TST")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TST_Synthese_Trv")
+
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  vm_simplifie=TRUE
+else
+  vm_simplifie=FALSE
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_synthese", TRUE)
+DB_CTRL_MONOSPACE@ (vl_fenetre, "BL_synthese", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_synthese", -1)
+
+/*A Le bouton "Valider" est choisi par defaut */
+DB_CTRL_DEFAULT_BUTTON@(vl_fenetre,"BP_valider",TRUE)
+
+
+/*A
+ * Initialiser les tables de pictogrammes de configuration des voies
+ * -----------------------------------------------------------------
+ */
+
+vm_l_picto_voies[XDC_VOIE_SENS_NORMAL] = C_PICTO_VOIE_NORMALE
+vm_l_picto_voies[XDC_VOIE_SENS_INVERSE] = C_PICTO_VOIE_INVERSE
+vm_l_picto_voies[XDC_VOIE_BLOQUEE] = C_PICTO_VOIE_BLOQUEE
+vm_l_picto_voies[XDC_VOIE_NEUTRALISEE] = C_PICTO_NEUTRALISEE
+vm_l_picto_voies[XDC_VOIE_BLOQUEE_NEUTRALISEE] = C_PICTO_BLOQ_NEUTRALISE
+vm_l_picto_voies[XDC_VOIE_BAU_NORMALE] = C_PICTO_BAU_NORMALE
+
+vm_l_picto_voies[XDC_VOIE_SENS_NORMAL+XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_VOIE_NORMALE
+vm_l_picto_voies[XDC_VOIE_SENS_INVERSE+XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_VOIE_INVERSE
+vm_l_picto_voies[XDC_VOIE_BLOQUEE+XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_VOIE_BLOQUEE
+vm_l_picto_voies[XDC_VOIE_NEUTRALISEE+XDC_VOIE_BAU_ETROITE] = C_PICTO_NEUTRALISEE
+vm_l_picto_voies[XDC_VOIE_BLOQUEE_NEUTRALISEE+XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_BLOQ_NEUTRALISE
+vm_l_picto_voies[XDC_VOIE_BAU_NORMALE+XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_BAU_NORMALE
+
+vm_l_picto_voies_i[XDC_VOIE_SENS_NORMAL] = C_PICTO_VOIE_I_NORMALE
+vm_l_picto_voies_i[XDC_VOIE_SENS_INVERSE] = C_PICTO_VOIE_I_INVERSE
+vm_l_picto_voies_i[XDC_VOIE_BLOQUEE] = C_PICTO_VOIE_BLOQUEE
+vm_l_picto_voies_i[XDC_VOIE_NEUTRALISEE] = C_PICTO_NEUTRALISEE
+vm_l_picto_voies_i[XDC_VOIE_BLOQUEE_NEUTRALISEE] = C_PICTO_BLOQ_NEUTRALISE
+vm_l_picto_voies_i[XDC_VOIE_BAU_NORMALE] = C_PICTO_BAU_NORMALE
+
+vm_l_picto_voies_i[XDC_VOIE_SENS_NORMAL+XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_VOIE_I_NORMALE
+vm_l_picto_voies_i[XDC_VOIE_SENS_INVERSE+XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_VOIE_I_INVERSE
+vm_l_picto_voies_i[XDC_VOIE_BLOQUEE+XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_VOIE_BLOQUEE
+vm_l_picto_voies_i[XDC_VOIE_NEUTRALISEE+XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_NEUTRALISEE
+vm_l_picto_voies_i[XDC_VOIE_BLOQUEE_NEUTRALISEE+XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_BLOQ_NEUTRALISE
+vm_l_picto_voies_i[XDC_VOIE_BAU_NORMALE+XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_BAU_NORMALE
+
+
+tm_pictos[XDC_VOIE_SENS_NORMAL] = W_PICTO_VOIE_NORMALE
+tm_pictos[XDC_VOIE_SENS_INVERSE] = W_PICTO_VOIE_INVERSE
+tm_pictos[XDC_VOIE_BLOQUEE] = W_PICTO_VOIE_BLOQUEE
+tm_pictos[XDC_VOIE_NEUTRALISEE] = W_PICTO_NEUTRALISEE
+tm_pictos[XDC_VOIE_BLOQUEE_NEUTRALISEE] = W_PICTO_BLOQ_NEUTRALISE
+tm_pictos[XDC_VOIE_BAU_NORMALE] = W_PICTO_BAU_NORMALE
+
+tm_pictos[XDC_VOIE_SENS_NORMAL+XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_VOIE_NORMALE
+tm_pictos[XDC_VOIE_SENS_INVERSE+XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_VOIE_INVERSE
+tm_pictos[XDC_VOIE_BLOQUEE+XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_VOIE_BLOQUEE
+tm_pictos[XDC_VOIE_NEUTRALISEE+XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_NEUTRALISEE
+tm_pictos[XDC_VOIE_BLOQUEE_NEUTRALISEE+XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_BLOQ_NEUTRALISE
+tm_pictos[XDC_VOIE_BAU_NORMALE+XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_BAU_NORMALE
+
+tm_pictos_i[XDC_VOIE_SENS_NORMAL] = W_PICTO_VOIE_I_NORMALE
+tm_pictos_i[XDC_VOIE_SENS_INVERSE] = W_PICTO_VOIE_I_INVERSE
+tm_pictos_i[XDC_VOIE_BLOQUEE] = W_PICTO_VOIE_BLOQUEE
+tm_pictos_i[XDC_VOIE_NEUTRALISEE] = W_PICTO_NEUTRALISEE
+tm_pictos_i[XDC_VOIE_BLOQUEE_NEUTRALISEE] = W_PICTO_BLOQ_NEUTRALISE
+tm_pictos_i[XDC_VOIE_BAU_NORMALE] = W_PICTO_BAU_NORMALE
+
+tm_pictos_i[XDC_VOIE_SENS_NORMAL+XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_VOIE_I_NORMALE
+tm_pictos_i[XDC_VOIE_SENS_INVERSE+XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_VOIE_I_INVERSE
+tm_pictos_i[XDC_VOIE_BLOQUEE+XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_VOIE_BLOQUEE
+tm_pictos_i[XDC_VOIE_NEUTRALISEE+XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_NEUTRALISEE
+tm_pictos_i[XDC_VOIE_BLOQUEE_NEUTRALISEE+XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_BLOQ_NEUTRALISE
+tm_pictos_i[XDC_VOIE_BAU_NORMALE+XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_BAU_NORMALE
+
+
+
+vm_l_symboles_voies[XDC_VOIE_SENS_NORMAL] = NUM_TO_STRING@ (173)
+vm_l_symboles_voies[XDC_VOIE_SENS_INVERSE] = NUM_TO_STRING@ (175)
+vm_l_symboles_voies[XDC_VOIE_BLOQUEE] = NUM_TO_STRING@ (180)
+vm_l_symboles_voies[XDC_VOIE_NEUTRALISEE] = NUM_TO_STRING@ (68)
+vm_l_symboles_voies[XDC_VOIE_BLOQUEE_NEUTRALISEE] = NUM_TO_STRING@ (92)
+vm_l_symboles_voies[XDC_VOIE_BAU_NORMALE] = NUM_TO_STRING@ (188)
+
+vm_l_symboles_voies_i[XDC_VOIE_SENS_NORMAL] = NUM_TO_STRING@ (175)
+vm_l_symboles_voies_i[XDC_VOIE_SENS_INVERSE] = NUM_TO_STRING@ (173)
+vm_l_symboles_voies_i[XDC_VOIE_BLOQUEE] = NUM_TO_STRING@ (180)
+vm_l_symboles_voies_i[XDC_VOIE_NEUTRALISEE] = NUM_TO_STRING@ (68)
+vm_l_symboles_voies_i[XDC_VOIE_BLOQUEE_NEUTRALISEE] = NUM_TO_STRING@ (92)
+vm_l_symboles_voies_i[XDC_VOIE_BAU_NORMALE] = NUM_TO_STRING@ (188)
+
+
+/*A chargement des districts */
+vl_parametres = NULL
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = XDC_BASE_CFG
+vl_parametres[0].output = FALSE
+
+IF COM05_SQL_Procedure (XZAO30_Rech_Liste_Districts,
+                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+	info_message@("Problème d'accès à la base")
+    RETURN (COM_NOK)
+}
+
+
+tm_sites=vl_resultats.select_results[0]
+tl_tmp=null
+tl_tmp[0][0]=0
+tl_tmp[0][1]="Tous"
+tl_tmp[0][2]="Tous"
+tm_sites=ARRAY_APPEND@(tl_tmp, tm_sites)
+/* Suppression de l'enregistrement CI (le code_CI=43) */
+/*-------------------------------------------------- */
+vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_sites,0),XDC_CI)
+if vl_index<0
+	vl_index=0
+tm_sites=ARRAY_DELETE@(tm_sites, vl_index)
+DB_CTRL_STRINGS@ (vl_fenetre, "BO_District",
+							 ARRAY_COLUMN@(tm_sites,1))
+
+if (vm_simplifie)  {
+  DB_CTRL_DISPLAY@(vl_fenetre, "BO_District",FALSE)
+  vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_sites,0),SYSTEM_VAR@(vg_site))
+  if vl_index<0
+	vl_index=0
+  DB_CTRL_VALUE@(vl_fenetre, "BO_District",vl_index)
+}
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+	DB_DISPLAY@(vl_fenetre)
+	DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+
+		/*A
+		* appui sur le bouton chrono*/
+		CASE "BP_HoroDeb"
+			COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+								"BS_jour_debut",
+								"BS_mois_debut",
+								"BS_annee_debut",
+								"BS_heure_debut",
+								"BS_minute_debut")
+							
+		/*A
+		* appui sur le bouton quitter*/
+		CASE "BP_quitter"
+			/*A Bye*/
+			if (vm_simplifie and SYSTEM_VAR@(vg_canal_SGBD_pcs)<>NULL) {
+			  SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+			  SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+       			}
+			RETURN (COM_QUITTE)
+
+		/*A
+		* demande de synthese et affichage*/
+		CASE "BP_valider"
+			vl_Date=COM23_Horodate(vl_fenetre,
+						"BS_jour_debut",
+						"BS_mois_debut",
+						"BS_annee_debut",
+						"BS_heure_debut",
+						"BS_minute_debut")
+
+			IF IS_NULL@(vl_Date)
+				ERROR@ (COM_ERR_DATE_INVAL, COM_LIB_DATE_INVAL)
+
+			MACRO_WINS_BUSY@()
+
+			/* rechercher la synthese en base */
+			tl_synthese = ITMA_TST_Recup_Synthese_Trv(vl_Date,vl_fenetre)
+
+			/* afficher la synthese */
+			vl_index=0
+			vl_liste=null
+			FOR i = 0  TO ARRAY_SIZE@ (tl_synthese) - 1
+				IF (tl_synthese[i].horodate <> NULL) 
+ 					IF (SUBSTRING@(tl_synthese[i].horodate,1,4) <> XDC_DATE_NULLE)
+					{
+						vl_liste[vl_index]=C_LIGNE
+						vl_index=vl_index+1
+					}
+				IF TST_Voies_Decrites (tl_synthese[i])
+					vl_liste[vl_index] = TST_Libelle_Evt_Et_Voies (tl_synthese[i])
+				ELSE vl_liste[vl_index] = tl_synthese[i].libelle
+				vl_index=vl_index+1
+			NEXT i
+
+			DB_CTRL_STRINGS@ (vl_fenetre, "BL_synthese", vl_liste)
+
+			/* autoriser l'impression */
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_imprimer", FALSE)
+
+
+		/*A
+		* demande d'impression*/
+		CASE "BP_imprimer"
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_imprimer", TRUE)
+			DB_DISPLAY@ (vl_fenetre)
+
+			/*B Ouvrir une fenetre ApplixWord non visible et charger le modele*/
+			WP_APPLICATION_DLG@ (NULL, TRUE)
+			WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+							C_SOUS_REP_MODELES ++ C_MODELE_SYNTHESE_TRV ++ ".aw")
+			WP_SET_DOC_VAR@ ("date", vl_Date)
+			WP_SET_DOC_VAR@ ("district",tm_sites[DB_CTRL_GET_VALUE@(vl_fenetre,
+												 "BO_District")][1] )
+			WP_GOTO_END@()
+			WP_TEXT_COURIER@()
+
+			/*B Se positionner a la table et ecrire chacune des lignes */
+			FOR i = 0  TO ARRAY_SIZE@ (tl_synthese) - 1
+				IF (tl_synthese[i].horodate <> NULL) 
+ 					IF (SUBSTRING@(tl_synthese[i].horodate,1,4) <> XDC_DATE_NULLE)
+					{
+						WP_ENTER_TEXT@(W_LIGNE)
+						WP_ENTER_TEXT@ ("\n")
+					}
+
+				WP_ENTER_TEXT@ (tl_synthese[i].libelle)
+				WP_ENTER_TEXT@ ("\n")
+				IF TST_Voies_Decrites (tl_synthese[i]) {
+					WP_ENTER_TEXT@ ("	")
+					FOR vl_indice=C_COL_BAU_I TO (C_COL_BAU+1) STEP -1
+						IF (vl_indice=C_COL_BAU_I)
+							vl_picto=tm_pictos_i[tl_synthese[i][vl_indice] + 
+										XDC_VOIE_BAU_ETROITE * 
+										tl_synthese[i].bau_i_etroite]
+						ELSE	vl_picto=tm_pictos_i[tl_synthese[i][vl_indice]]
+						IF (vl_picto<>null)
+					WP_LINK_EXT_AXBITMAP@(SYSTEM_VAR@ (vg_repertoire_migrazur)
+								++"fichiers/pic/"++vl_picto)
+						IF (vl_indice=C_COL_BAU_I)
+							WP_ENTER_TEXT@("  ")	
+					NEXT vl_indice
+
+					WP_LINK_EXT_AXBITMAP@(SYSTEM_VAR@ (vg_repertoire_migrazur)
+								++"fichiers/pic/"++W_PICTO_SEPARATION)
+
+					FOR vl_indice=(C_COL_BAU-4) TO C_COL_BAU
+						IF (vl_indice=C_COL_BAU)
+							vl_picto=tm_pictos[tl_synthese[i][vl_indice] +
+									XDC_VOIE_BAU_ETROITE *
+									tl_synthese[i].bau_etroite]
+						ELSE	vl_picto=tm_pictos[tl_synthese[i][vl_indice]]
+						IF (vl_picto<>null)
+					WP_LINK_EXT_AXBITMAP@(SYSTEM_VAR@ (vg_repertoire_migrazur)
+								++"fichiers/pic/"++vl_picto)
+						IF (vl_indice=C_COL_BAU-1)
+							WP_ENTER_TEXT@("  ")	
+					NEXT vl_indice
+					WP_ENTER_TEXT@ ("\n")
+				}
+			NEXT i
+
+			/*B Produire un fichier contenant le document en format PCL */
+			vl_fichier = C_MODELE_SYNTHESE_TRV ++ "_" ++SYSTEM_VAR@(vg_numero_poste)
+			COM36_Imprimer_Texte(vl_fichier)
+	ENDCASE
+WEND
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* recupere la synthese des travaux sur 7 jours
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TST_Recup_Synthese_Trv (va_Date_in, va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_date_in: date de debut de recherche
+*
+* ARGUMENTS EN SORTIE : Synthese des travaux
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR vl_msg, vl_indice
+
+vl_indice=0
+vl_parametres[vl_indice].type = SYB#datetime_
+vl_parametres[vl_indice].data = va_Date_in
+vl_parametres[vl_indice].output = FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].type = SYB#datetime_
+vl_parametres[vl_indice].data = XDC_DATE_NULLE
+vl_parametres[vl_indice].output = FALSE
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].type = SYB#INT2_
+vl_parametres[vl_indice].data = tm_sites[DB_CTRL_GET_VALUE@(va_fenetre,
+													 "BO_District")][0]
+vl_parametres[vl_indice].output = FALSE
+
+/*B Site local */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#CHAR_
+vl_parametres[vl_indice].data = SYSTEM_VAR@(vg_nom_site)
+vl_parametres[vl_indice].output = FALSE
+
+
+/*au PC simplifie et si la connexion avec le CI marche*/
+if (vm_simplifie)  and (SYSTEM_VAR@(vg_comm_CI)=XDC_OK) {
+    /*calcul au CI*/
+	IF COM39_SQL_Procedure_PCS (XZAE87_SyntheseTravaux,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		CASE OF (vl_resultats.status)
+			CASE XDC_ARG_INV
+				vl_msg="Arguments invalides"
+
+			CASE XDC_PAS_SYN
+				vl_msg="Pas de travaux en cours ou en prévision"
+
+			CASE XDC_NOK
+				vl_msg="Erreur lors de la génération de la synthèse des travaux"
+		ENDCASE
+
+		INFO_MESSAGE@(vl_msg)
+     		RETURN (NULL)
+	}
+}
+else { /*si on est en mode degrade sur PC simplifie ou si on est ailleurs*/
+	IF COM05_SQL_Procedure (XZAE87_SyntheseTravaux,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		CASE OF (vl_resultats.status)
+			CASE XDC_ARG_INV
+				vl_msg="Arguments invalides"
+
+			CASE XDC_PAS_SYN
+				vl_msg="Pas de travaux en cours ou en prévision"
+
+			CASE XDC_NOK
+				vl_msg="Erreur lors de la génération de la synthèse des travaux"
+		ENDCASE
+
+		INFO_MESSAGE@(vl_msg)
+     		RETURN (NULL)
+	}
+}
+/*A
+ * mode de liste*/
+RETURN (vl_resultats.select_results[0])
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Construit et retourne le libelle de l'evenement indique, contenant les
+*  pictogrammes de description des voies.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TST_Libelle_Evt_Et_Voies (FORMAT TST_Synthese ta_travaux)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   ta_travaux            : Informations evenement brutes (libelle, config. voies)
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Le libelle construit
+*
+* CONDITION D'UTILISATION
+*   ITMA_TST_Synthese_Trv
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_voies
+	VAR	i
+
+/*A
+ * Construire la liste des configurations des voies de sens inverse
+ * ----------------------------------------------------------------
+ */
+
+FOR i = C_COL_BAU_I  TO (C_COL_BAU+1)  STEP -1
+	CASE OF ta_travaux[i]
+	CASE XDC_VOIE_INCONNUE, XDC_VOIE_INEXISTANTE
+		vl_voies = C_PICTO_INEXISTANT ++ vl_voies
+
+	DEFAULT
+	IF i = C_COL_BAU_I
+		vl_voies = vl_voies ++ vm_l_picto_voies_i[ta_travaux[i] +
+				XDC_VOIE_BAU_ETROITE * ta_travaux.bau_i_etroite]
+	ELSE	vl_voies = vl_voies ++ vm_l_picto_voies_i[ta_travaux[i]]
+	ENDCASE
+
+	/* Distinguer la BAU des autres voies */
+	IF i = C_COL_BAU_I
+		vl_voies = vl_voies ++ "  "
+NEXT i
+
+
+/*A
+ * Ajouter la separation puis les configurations des autres voies
+ * --------------------------------------------------------------
+ */
+
+vl_voies = vl_voies ++ C_PICTO_SEPARATION
+
+FOR i = (C_COL_BAU-4)  TO C_COL_BAU
+	CASE OF ta_travaux[i]
+	CASE XDC_VOIE_INCONNUE, XDC_VOIE_INEXISTANTE
+		NOTHING
+
+	DEFAULT
+	IF i = C_COL_BAU
+		vl_voies = vl_voies ++ vm_l_picto_voies[ta_travaux[i] + 
+				XDC_VOIE_BAU_ETROITE * ta_travaux.bau_etroite]
+	ELSE	vl_voies = vl_voies ++ vm_l_picto_voies[ta_travaux[i]]
+	ENDCASE
+
+	/* Distinguer la BAU des autres voies */
+	IF i = C_COL_BAU - 1
+		vl_voies = vl_voies ++ "  "
+NEXT i
+
+
+/*A
+ * Ajouter les configurations de voies au libelle, formate pour les aligner
+ * ------------------------------------------------------------------------
+ */
+
+RETURN (FORMAT@ ("%-120s", ta_travaux.libelle) ++ vl_voies)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  tester s'il existe au moins une voie
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TST_Voies_Decrites (FORMAT TST_Synthese ta_travaux)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   ta_travaux            : Informations evenement brutes (libelle, config. voies)
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Le texte construit
+*
+* CONDITION D'UTILISATION
+*   ITMA_TST_Synthese_Trv
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+
+
+RETURN
+	((ta_travaux.vl <> XDC_VOIE_INCONNUE AND ta_travaux.vl <> XDC_VOIE_INEXISTANTE) OR
+	 (ta_travaux.vr <> XDC_VOIE_INCONNUE AND ta_travaux.vr <> XDC_VOIE_INEXISTANTE) OR
+	 (ta_travaux.vl_i <> XDC_VOIE_INCONNUE AND ta_travaux.vl_i <> XDC_VOIE_INEXISTANTE) OR
+	 (ta_travaux.vr_i <> XDC_VOIE_INCONNUE AND ta_travaux.vr_i <> XDC_VOIE_INEXISTANTE))
+
+ENDMACRO

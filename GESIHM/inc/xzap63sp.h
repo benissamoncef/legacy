@@ -1,0 +1,1 @@
+DEFINE	XZAP63_Lire_Prop_PRV			"XZAP63"

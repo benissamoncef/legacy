@@ -1,0 +1,1410 @@
+/* Fichier : $Id: ITMA_TCPT_Config_CdP_Toulon.am,v 1.9 2021/10/15 15:25:17 pc2dpdy Exp $        $Revision: 1.9 $        $Date: 2021/10/15 15:25:17 $
+----------------------------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR
+----------------------------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+----------------------------------------------------------------------------------------------------
+* MODULE MTCPT * FICHIER ITMA_TCPT_Config_CdP_Toulon.am
+----------------------------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fonctions "Coup de poing".
+*   Sous-module de configuration des actions "Coup de poing" au tunnel de Toulon.
+*
+----------------------------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JPL	05/03/18 : Creation d'apres ITMA_TCP_Config_Coup_De_Poing V1.33 (DEM 1277)  1.1
+* JPL	16/03/18 : Version operationnelle avec support panneaux SAGA  1.2
+* JPL	20/03/18 : Support des equipements Tunnel et Echangeur conserve  1.3
+* JPL	20/03/18 : Suppression du support de la phase 2  1.4
+* JPL	21/03/18 : Support des BRA, BAF et Systeme SAGA  1.5
+* JPL	28/03/18 : Activation du support des equipements Tunnel et Echangeur  1.6
+* JPL	04/03/20 : Integration de la GTC Toulon - Suppression de SAGA (SAE-114)  1.7
+* JPL	02/03/21 : Support des actions de sonorisation par le RAU (SAE-256)  1.8
+* LCL	14/10/21 : Support des actions d'insertion de messages d'urgence par l'IMU (SAE-250)  1.9
+------------------------------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"GESIHM/inc/xzao790sp.h"
+INCLUDE	"GESIHM/inc/xzao231sp.h"
+INCLUDE	"GESIHM/inc/xzao125sp.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TCPT.h"
+
+/*******************************************************************************
+  Seul l'un des quatre fichiers suivants peut etre inclus sans conflit de noms
+  d'ou les definitions de structures suivantes en remplacement
+INCLUDE	"GESIHM/inc/ITMA_TBAF.h"
+INCLUDE	"GESIHM/inc/ITMA_TNA.h"
+*******************************************************************************/
+INCLUDE	"GESIHM/inc/ITMA_TPP.h"
+
+
+/*
+** Format des donnees de configuration
+** -----------------------------------
+*/
+
+FORMAT	Clone__Config_BRA
+		NumType,						' numero du type
+		Identifiant,						' Id. du BRA (30 char.)
+		nom_machine_LT,						' Nom de la machine dont depend la NAV
+		Autoroute,						' Autoroute d'implantation du BRA
+		PR,							' PR d'implantation du BRA
+		Sens,							' Sens d'implantation du BRA
+		NomSite,						' Nom site du BRA
+		NumSite,						' Numero du site du BRA
+		Disponible,						' Disponibilite de l'equipement TRUE / FALSE
+		SiteGestion
+
+
+/* Donnees de scenario, auxquelles est adjoint un libelle pour les PAL */
+FORMAT	TCP_Config_Scenario
+		NomScenario,					' nom du scenario (4 char.)
+		LibScenario					' libelle du scenario (50 char.)
+
+
+
+/*
+** Declaration des constantes
+** --------------------------
+*/
+
+DEFINE	CM_MODULE		"MTCPT"						' Nom du module
+
+
+DEFINE	CM_NUM_TUN_TOULON1	37						' Tube sens 1
+DEFINE	CM_NUM_TUN_TOULON2	38						' Tube sens 2
+
+
+DEFINE	CM_NUM_RAU_A52		3						' RAU zone tunnel
+
+
+
+/* Materiel de traitement des fichiers de configuration */
+DEFINE	TCPT_FIC_CFG_CDP	"coup_de_poing_toulon_s"
+
+
+DEFINE	CM_CAR_CMT		"#"						' Marque de commentaire
+
+DEFINE	CM_CAR_SEP_VRS		"|"						' Separateur de versions (selon type evenement)
+DEFINE	CM_CAR_SEP_PHASE	";"						' Separateur de versions (selon type evenement) pour IMU
+
+DEFINE	CM_CAR_SEP_SCE_LOC	"/"
+
+
+
+/* Messages d'erreur de configuration */
+DEFINE	CM_MSG_CFG		"Configuration Coup de Poing Toulon : "		' En-tete
+
+DEFINE	CM_ERR_EQT_INVAL	"Equipement inconnu : %s (%s)"
+DEFINE	CM_ERR_EQT_SITE		"Equipement hors site : %s (%s)"
+
+DEFINE	CM_ERR_ECH_DEV		"echangeur de sortie '%s' invalide pour deviation en sens %s"
+
+DEFINE	CM_ERR_SCE_NBR		"scenarios superflus pour %s : %s ..."
+
+DEFINE	CM_ERR_VAL_NBR		"nombre de valeurs incorrect pour commande %s niche %s : %s"
+DEFINE	CM_ERR_INV_SNS		"valeur de sens invalide '%s' pour commande %s niche %s"
+DEFINE	CM_ERR_INV_PRS		"valeurs de PR invalides pour commande %s niche %s : %s"
+DEFINE	CM_ERR_INV_SCN		"numero de scenario invalide '%s' pour commande %s niche %s"
+DEFINE	CM_ERR_INV_INT		"%s niche %s : valeurs intervalle (%s) cycle (%s) duree (%s) incorrectes (entier attendu)"
+DEFINE	CM_ERR_INV_STR		"%s niche %s : valeurs chaine IMU (%s) incorrecte (message|zone1|zone2|... attendu)"
+
+
+DEFINE	CM_ERR_SEQ_TUB		"sequence invalide '%s' pour tube %s (%s)"
+
+DEFINE	CM_ERR_DOMAINE		"domaine GTC absent ou invalide pour %s (%s)"
+
+DEFINE	CM_ERR_SEQ_TUB_TLN	"scenario invalide '%s' pour %s"
+
+DEFINE	CM_ERR_SEQ_DOM		"sequence hors domaine '%s' pour %s (%s)"
+
+
+DEFINE	CM_ERR_SEQ_ECH		"sequence invalide '%s' pour echangeur %s (%s)"
+
+DEFINE	CM_ERR_NBL_PAN		"commande au panneau '%s' de plus de %s lignes"
+
+DEFINE	CM_ERR_CMD_PAL		"commande invalide '%s' pour PAL %s (%s)"
+
+DEFINE	CM_ERR_CMD_BRA		"commande invalide '%s' pour BRA %s (%s)"
+'DEFINE	CM_ERR_SNTX_BRA		"delimitation des phases incorrecte pour BRA %s:%s-"
+
+DEFINE	CM_ERR_CMD_BAF		"commande invalide '%s' pour BAF %s (%s)"
+'DEFINE	CM_ERR_SNTX_BAF		"delimitation des phases incorrecte pour BAF %s:%s-"
+
+
+
+/*
+** Format des donnees de sequence, prive a ce module
+** pour lecture de la configuration des sequences tunnels et echangeurs
+** --------------------------------------------------------------------
+*/
+
+FORMAT	TCPT_Sequence_Eqt
+	num_eqt,
+	type_sequence,
+	num_sequence,
+	nom_sequence
+
+
+
+/*
+** Donnees de definition des equipements
+** -------------------------------------
+*/
+
+VAR	FORMAT	TCPT_Niche			tm_Niches
+
+VAR	FORMAT	COM_Donnees_Equipements		tm_TUB, tm_TUB_Site
+VAR	FORMAT	COM_Donnees_Equipements		tm_ECH, tm_ECH_Site
+
+VAR	FORMAT	COM_Donnees_Equipements		tm_PMV, tm_PMV_Site
+VAR	FORMAT	COM_Donnees_Equipements		tm_PMVA, tm_PMVA_Site
+VAR	FORMAT	COM_Donnees_Equipements		        tm_PAL_Site
+VAR	FORMAT	COM_Donnees_Equipements		        tm_BRA_Site
+VAR	FORMAT	COM_Donnees_Equipements		tm_BAF, tm_BAF_Site
+
+VAR	FORMAT	COM_Donnees_Equipements		tm_RAU
+VAR	FORMAT	COM_Donnees_Equipements		tm_IMU, tm_IMU_Site
+
+
+/*
+** Donnees de configuration des commandes aux equipements
+** ------------------------------------------------------
+*/
+
+VAR	FORMAT	TCPT_Sequence_Eqt		tm_seq_TUB
+VAR	FORMAT	TCPT_Sequence_Eqt		tm_seq_ECH
+
+VAR	FORMAT	Config_PAL			tm_cfg_PAL
+VAR	FORMAT	TCP_Config_Scenario		tm_scenarios_PAL
+
+VAR	FORMAT	Clone__Config_BRA		tm_cfg_BRA
+VAR	FORMAT	Config_Scenario			tm_scenarios_BRA
+
+
+VAR	vm_numero_A50, vm_numero_A57				' Identifiants des autoroutes
+
+VAR	vm_site_CdP						' Site de l'action Coup de Poing
+
+
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Lit la configuration des actions de signalisation et neutralisation
+*   pour la fonction "coup de poing" sur les niches du tunnel de Toulon.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Config_CdP_Toulon ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK / COM_NOK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TDO
+*
+* FONCTION
+*   Initialise les variables publiques "vg_cdp_toulon_xxx"
+*   contenant la liste des niches, equipements et actions associees.
+*
+--------------------------------------------------------------------------- */
+
+VAR	vl_chemin, vl_fichier
+VAR	vl_nom_site
+VAR	vl_cr
+VAR	i
+
+VAR	FORMAT TDO_Autoroute	tl_autoroutes
+VAR	vl_i_autoroute
+
+VAR	vl_ST_aff_msg, vl_BL_scenario, vl_liste_scenario_autorises
+VAR	FORMAT ST_scenario vl_ST_scenario
+
+/*A
+** Ne pas lire la configuration sur un site ou elle n'est pas exploitee
+** --------------------------------------------------------------------
+*/
+
+vl_nom_site = SYSTEM_VAR@ (vg_nom_site)
+IF (vl_nom_site <> XDC_NOM_SITE_DP)  AND  (vl_nom_site <> XDC_NOM_SITE_CI)
+	RETURN (COM_OK)
+
+vl_cr = COM_OK
+
+ITMA_TCP_Trace (COM_INFO, "==========   Debut lecture configuration Coup de Poing Toulon   ==========")
+
+
+/*B
+** Initialiser les identifiants des autoroutes
+** -------------------------------------------
+*/
+
+tl_autoroutes = SYSTEM_VAR@ (vg_les_autoroutes)
+vl_i_autoroute = COM45_IndexEnColonne (tl_autoroutes, TDO_NOM_AUTOROUTE, "A50")
+IF (vl_i_autoroute >= 0) { vm_numero_A50 = tl_autoroutes[vl_i_autoroute].numero }
+vl_i_autoroute = COM45_IndexEnColonne (tl_autoroutes, TDO_NOM_AUTOROUTE, "A57")
+IF (vl_i_autoroute >= 0) { vm_numero_A57 = tl_autoroutes[vl_i_autoroute].numero }
+
+
+/*A
+** Initialiser les listes des equipements
+** --------------------------------------
+*/
+
+ITMA_TCPT_Liste_Niches (tm_Niches)
+
+IF ITMA_TCPT_Lire_Tunnels (tm_TUB) <> COM_OK {
+	ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ "erreur lors de la lecture en base des tunnels")
+}
+
+ITMA_COM_Lire_Equipements (XDC_EQT_ECH, NULL, XDC_EQT_HS, XDC_EQT_NON_HS, 0, 0, tm_ECH, CM_MODULE)
+
+ITMA_COM_Lire_Equipements (XDC_EQT_PMV, NULL, XDC_EQT_MINEUR, XDC_EQT_NON_MINEUR, 0, 0, tm_PMV, CM_MODULE)
+
+ITMA_COM_Lire_Equipements (XDC_EQT_PMVA, NULL, XDC_EQT_MINEUR, XDC_EQT_NON_MINEUR, 0, 0, tm_PMVA, CM_MODULE)
+
+ITMA_TPP_commun_PAL ()
+ITMA_TPP_Init_Config_PAL (tm_cfg_PAL, tm_scenarios_PAL)
+/* Initialiser en supplement la liste des scenarios qui ne l'a pas ete precedemment */
+FOR i = 0  TO (ARRAY_SIZE@ (tm_cfg_PAL) - 1)
+	IF NOT IS_NULL@ (tm_cfg_PAL[i]) {
+		IF IS_NULL@ (tm_scenarios_PAL[tm_cfg_PAL[i].NumType]) {
+			ITMA_TPP_fichier_scenario_PAL (vl_ST_aff_msg, vl_BL_scenario, vl_ST_scenario,
+							  tm_cfg_PAL[i].NumType, vl_liste_scenario_autorises)
+			tm_scenarios_PAL[tm_cfg_PAL[i].NumType].NomScenario = ARRAY_COLUMN@ (vl_ST_scenario, 0)
+			tm_scenarios_PAL[tm_cfg_PAL[i].NumType].LibScenario = vl_BL_scenario
+		}
+	}
+NEXT i
+
+ITMA_TNA_commun_NAV ()
+ITMA_TNA_Init_Config_BRA (tm_cfg_BRA, tm_scenarios_BRA)
+
+ITMA_COM_Lire_Equipements (XDC_EQT_BAF, NULL, XDC_EQT_MINEUR, XDC_EQT_NON_MINEUR, 0, 0, tm_BAF, CM_MODULE)
+
+ITMA_COM_Lire_Equipements (XDC_EQT_RAU, NULL, XDC_EQT_MINEUR, XDC_EQT_NON_MINEUR, 0, 0, tm_RAU, CM_MODULE)
+
+ITMA_COM_Lire_Equipements (XDC_EQT_IMU, NULL, XDC_EQT_MINEUR, XDC_EQT_NON_MINEUR, 0, 0, tm_IMU, CM_MODULE)
+
+
+/*A
+** Verifier leur existence et lire les fichiers de configuration pour les deux sens
+** --------------------------------------------------------------------------------
+*/
+
+SET_SYSTEM_VAR@ (vg_cdp_toulon ++ "1", NULL)
+SET_SYSTEM_VAR@ (vg_cdp_toulon ++ "2", NULL)
+SET_SYSTEM_VAR@ (vg_cdp_toulon_eqts ++ "1", { })
+SET_SYSTEM_VAR@ (vg_cdp_toulon_eqts ++ "2", { })
+
+vl_chemin = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_BDC
+
+/* Lire les fichiers de configuration unidirectionnelle */
+vl_fichier = TCPT_FIC_CFG_CDP ++ "1" ++ ".txt"
+IF FILE_EXISTS@ (vl_chemin ++ vl_fichier) {
+	ITMA_TCP_Trace (COM_INFO, "----------   Configuration coup de poing sens 1   ----------")
+	IF ITMA_TCPT_Lire_Fichier_Configuration (vl_fichier, XDC_SENS_1, vg_cdp_toulon ++ "1", vg_cdp_toulon_eqts ++ "1") <> COM_OK
+		vl_cr = COM_NOK
+} ELSE {
+	ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ "la configuration coup de poing sens 1 est introuvable")
+	vl_cr = COM_NOK
+}
+
+vl_fichier = TCPT_FIC_CFG_CDP ++ "2" ++ ".txt"
+IF FILE_EXISTS@ (vl_chemin ++ vl_fichier) {
+	ITMA_TCP_Trace (COM_INFO, "----------   Configuration coup de poing sens 2   ----------")
+	IF ITMA_TCPT_Lire_Fichier_Configuration (vl_fichier, XDC_SENS_2, vg_cdp_toulon ++ "2", vg_cdp_toulon_eqts ++ "2") <> COM_OK
+		vl_cr = COM_NOK
+} ELSE {
+	ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ "la configuration coup de poing sens 2 est introuvable")
+	vl_cr = COM_NOK
+}
+
+ITMA_TCP_Trace (COM_INFO, "==========   Fin lecture configuration Coup de Poing Toulon   ==========")
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Lit l'un des fichiers de configuration des actions "coup de poing"
+*   et memorise son contenu dans la variable publique indiquee.
+-------------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCPT_Lire_Fichier_Configuration (va_fichier_config, va_sens_cdp, va_vg_config, va_vg_cfg_eqts)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fichier_config : nom du fichier de configuration a lire
+*   va_sens_cdp       : sens de circulation de la configuration 
+*   va_vg_config      : nom de la variable publique resultat
+*   va_vg_cfg_eqts    : nom de la variable publique des equipements configures
+*
+*
+* ARGUMENTS EN SORTIE :
+*   La table de configuration en variable publique de nom va_vg_config
+*
+*
+* CODE RETOUR         : COM_OK / COM_NOK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TDO
+*
+* FONCTION
+*   Definit la valeur de la variable publique de nom indique avec
+*   la liste des tunnels et des actions associees du fichier indique.
+*
+*   ATTENTION ( au CI notamment ) : les declarations des equipements
+*   sont analysees relativement a la zone a laquelle la configuration
+*   est dediee, et non au site local.
+*
+--------------------------------------------------------------------------- */
+
+VAR	vl_F_cdp, vl_ligne, vl_champ1
+VAR	vl_chemin
+VAR	vl_i_niche
+VAR	i, j
+VAR	vl_cr
+VAR	vl_ligne_cmt
+
+VAR	ll_nums_autoroutes
+VAR	FORMAT TDO_Echangeur	tl_echangeurs
+
+VAR	ll_titres					' Ligne de titres (commentaires precedant EVENTUELLEMENT les id. des niches)
+VAR	ll_niches					' Les identifiants des niches (1ere ligne non commentee)
+VAR	ll_ech_deviation				' Liste des echangeurs de deviation (2eme ligne)
+
+VAR	FORMAT  TCPT_Niche	tl_coup_de_poing	' Configuration complete
+VAR	FORMAT  TCPT_Niche	vl_niche		' Niche trait?e (une colonne)
+
+VAR	FORMAT	TCPT_Equipement	tl_eqts			' Les equipements (1ere colonne)
+
+VAR	tl_types_cmd					' Les types de commande (indiques avec le nom en 2eme colonne)
+
+VAR	FORMAT	TCPT_Action	vl_action		' Action (commandes) decrite dans une cellule de la configuration
+VAR	tl_txt_actions					' Matrice des actions lues en configuration
+
+VAR	vl_sortie					' Numero de sortie d'autoroute pour deviation
+
+
+vl_cr = COM_OK
+tl_coup_de_poing = { }
+
+/*A
+** Lire le fichier de configuration, supprimer les commentaires et
+** extraire les listes d'objets particuliers et la table d'actions
+** ---------------------------------------------------------------
+*/
+
+vl_chemin = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_BDC
+vl_F_cdp = READ_ASCII_FILE@ (vl_chemin ++ va_fichier_config)
+FOR i = 0  TO (ARRAY_SIZE@ (vl_F_cdp) - 1)
+	vl_F_cdp[i] = TRIM@ (TABS_TO_SPACES@ (vl_F_cdp[i]))
+	vl_ligne = ARRAY_FROM_STRING@ (vl_F_cdp[i], ",")		' Ligne decoupee en champs
+	vl_champ1 = UPPERCASE@ (TRIM@ (vl_ligne[0]))			' Cellule de la premiere colonne
+
+	/*B Si c'est une ligne vide alors l'ignorer */
+	IF (vl_F_cdp[i] = "") {
+		NOTHING
+	} ELSE IF (SUBSTRING@ (vl_champ1, 1, 1) = CM_CAR_CMT) {
+		/*B sinon si c'est un commentaire alors le memoriser */
+		vl_ligne_cmt = vl_ligne
+	} ELSE {
+
+		/*B La 1ere ligne de donnees contient les identifiants des niches */
+		IF IS_NULL@ (ll_niches) {
+'			ll_titres = vl_ligne_cmt			' Ligne precedente
+			ll_niches = vl_ligne
+		} ELSE IF STRING_INDEX@ (vl_champ1, "CHANGEUR") > 0  AND  STRING_INDEX@ (vl_champ1, "VIATION") > 0 {
+			/*B renseigner la liste d'echangeurs de deviation si elle n'est pas deja lue */
+			IF IS_NULL@ (ll_ech_deviation) {
+				ll_ech_deviation = vl_ligne
+			} ELSE {
+				ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ "ligne inattendue : " ++ vl_champ1 ++ " ...")
+			}
+		} ELSE {
+			/*B les autres lignes sont des lignes d'actions */
+			tl_txt_actions[ARRAY_SIZE@ (tl_txt_actions)] = vl_ligne
+		}
+	}
+NEXT i
+
+
+/*A
+** Definir le site du Coup de Poing et determiner les equipements PILOTABLES DANS LE SITE
+** --------------------------------------------------------------------------------------
+*/
+
+IF IS_NULL@ (vm_site_CdP)
+{
+	vm_site_CdP = XDC_DP
+
+	/*A Filtrer les equipements de chaque type sur le site du coup de poing */
+	ll_nums_autoroutes = { vm_numero_A50, vm_numero_A57 }
+	tm_TUB_Site = COM44_ValeursEnColonne (tm_TUB, COM_AUTO_EQUIPEMENT, ll_nums_autoroutes, TRUE)
+	tm_ECH_Site = COM44_ValeursEnColonne (tm_ECH, COM_AUTO_EQUIPEMENT, ll_nums_autoroutes, TRUE)
+
+	tm_PMV_Site = COM44_ValeursEnColonne (tm_PMV, COM_AUTO_EQUIPEMENT, ll_nums_autoroutes, TRUE)
+	tm_PMVA_Site = COM44_ValeursEnColonne (tm_PMVA, COM_AUTO_EQUIPEMENT, ll_nums_autoroutes, TRUE)
+	tm_BAF_Site = COM44_ValeursEnColonne (tm_BAF, COM_AUTO_EQUIPEMENT, ll_nums_autoroutes, TRUE)
+	tm_IMU_Site = COM44_ValeursEnColonne (tm_IMU, COM_AUTO_EQUIPEMENT, ll_nums_autoroutes, TRUE)
+
+	/*A Lire TOUS les PAL et BRA en base, puis filtrer sur leur localisation */
+	ITMA_COM_Lire_Equipements (XDC_EQT_PAL, NULL, XDC_EQT_MINEUR, XDC_EQT_NON_MINEUR, 0, 0, tm_PAL_Site, CM_MODULE)
+	tm_PAL_Site = COM44_ValeursEnColonne (tm_PAL_Site, COM_AUTO_EQUIPEMENT, ll_nums_autoroutes, TRUE)
+
+	ITMA_COM_Lire_Equipements (XDC_EQT_NAV, NULL, XDC_EQT_MINEUR, XDC_EQT_NON_MINEUR, 0, 0, tm_BRA_Site, CM_MODULE)
+	tm_BRA_Site = COM44_ValeursEnColonne (tm_BRA_Site, COM_AUTO_EQUIPEMENT, ll_nums_autoroutes, TRUE)
+}
+
+
+/*A
+** Extraire et verifier la liste des equipements impliques dans le Coup de Poing
+** Extraire egalement les types de commande mentionnes dans les noms d'equipements
+** -------------------------------------------------------------------------------
+*/
+
+IF ITMA_TCPT_Liste_Equipements (tl_txt_actions, vm_site_CdP, tl_eqts, tl_types_cmd) <> COM_OK {
+	vl_cr = COM_NOK
+}
+
+
+/*A
+** Pour chaque niche, construire les listes des actions
+** ----------------------------------------------------
+*/
+
+FOR j = 2  TO (ARRAY_SIZE@ (ll_niches) - 1)
+	ll_niches[j] = TRIM@ (ll_niches[j])
+	vl_i_niche = COM45_IndexEnColonne (tm_Niches, TCPT_NOM_NICHE, ll_niches[j])
+
+	IF SUBSTRING@ (ll_niches[j], 1, 1) = CM_CAR_CMT {
+		IF (ll_niches[j] <> CM_CAR_CMT) {
+			ITMA_TCP_Trace (COM_INFO, CM_MSG_CFG ++ "niche inhib?e : " ++ SUBSTRING@ (ll_niches[j], 2))
+		}
+	} ELSE IF (vl_i_niche < 0) {
+		ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ "niche inconnue : " ++ ll_niches[j])
+		vl_cr = COM_NOK
+	} ELSE IF (tm_Niches[vl_i_niche].sens <> va_sens_cdp) {
+		ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ "niche situee en sens oppose, ignoree : " ++ ll_niches[j])
+		vl_cr = COM_NOK
+	} ELSE {
+		vl_niche = NULL
+		vl_niche.nom = ll_niches[j]
+		vl_niche.sens = tm_Niches[vl_i_niche].sens
+		vl_niche.PR = tm_Niches[vl_i_niche].PR
+
+		/*A Determiner les particularites de la sequence decrite pour ce tunnel */
+		vl_niche.conditions = NULL
+
+		/*A Determiner le numero d'echangeur de deviation si une sortie est indiquee */
+		vl_sortie = TRIM@ (ll_ech_deviation[j])
+		IF (vl_sortie <> "")  AND  (vl_sortie <> "0")  AND  (SUBSTRING@ (vl_sortie, 1, 1) <> CM_CAR_CMT)
+		{
+			IF (va_sens_cdp = XDC_SENS_1) {
+				vl_niche.ech_deviation = TDO_Echangeur_En_Sortie (vl_sortie, vm_numero_A50, va_sens_cdp)
+			} ELSE {
+				/* En sens 2, chercher l'echangeur sur l'A57 (EN SENS 1 !) */
+				vl_niche.ech_deviation = TDO_Echangeur_En_Sortie (vl_sortie, vm_numero_A57, XDC_SENS_1)
+				IF (vl_niche.ech_deviation = NULL) {
+					/* sinon chercher sur l'A50 (EN SENS 2 !) un echangeur AVANT LE TUNNEL */
+					vl_niche.ech_deviation = TDO_Echangeur_En_Sortie (vl_sortie, vm_numero_A50, XDC_SENS_2)
+					tl_echangeurs = COM44_ValeursEnColonne (SYSTEM_VAR@ (vg_les_echangeurs), TDO_NUMERO_ECH,
+					                                           { vl_niche.ech_deviation }, TRUE)
+					IF (vl_niche.ech_deviation <> NULL) {
+						IF (tl_echangeurs[0].PR < tm_Niches[vl_i_niche].PR) {
+							vl_niche.ech_deviation = NULL
+						}
+					}
+				}
+			}
+
+			IF (vl_niche.ech_deviation = NULL) {
+				ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_ECH_DEV, vl_sortie, va_sens_cdp))
+			}
+		}
+		FOR i = 0  TO (ARRAY_SIZE@ (tl_eqts) - 1)
+			/* si une ou des actions sont decrites et l'equipement est valide alors */
+			IF (tl_txt_actions[i][j] <> "")  AND  NOT IS_NULL@ (tl_eqts[i]) {
+				vl_action = { }
+				IF ITMA_TCPT_Config_Action (tm_Niches[vl_i_niche], tl_txt_actions[i][j], tl_eqts[i], tl_types_cmd[i],
+				                               vl_action) <> COM_OK
+				{
+					vl_cr = COM_NOK
+				}
+				/* prendre en compte l'action si une partie est valide */
+				IF NOT ( IS_NULL@ (vl_action.cmd_phase1) )
+				{
+					vl_action.idx_eqt = i
+					vl_action.num_eqt = tl_eqts[i].numero
+					vl_niche.actions[ARRAY_SIZE@ (vl_niche.actions)] = vl_action
+				}
+			}
+		NEXT i
+
+		tl_coup_de_poing[ARRAY_SIZE@ (tl_coup_de_poing)] = vl_niche
+	}
+NEXT j
+
+
+/*A
+** Mettre en variable publique la configuration Coup de Poing lue dans le fichier
+** ------------------------------------------------------------------------------
+*/
+
+SET_SYSTEM_VAR@ (va_vg_config, tl_coup_de_poing)
+
+/* Mettre en variable publique la liste des equipements configures */
+SET_SYSTEM_VAR@ (va_vg_cfg_eqts, tl_eqts)
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Extrait le type de commande d'un libelle d'equipement le contenant
+*   dans le cas de la GTC Tunnel ; le type recherche est le domaine GTC.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ITMA_TCPT_Type_Domaine_GTC (va_libelle_cmd)
+
+VAR	vl_libelle, vl_k
+
+vl_libelle = UPPERCASE@ (va_libelle_cmd)
+vl_k = STRING_INDEX@ (vl_libelle, "DOMAINE")
+IF (vl_k = 0) {						' Domaine non trouve
+	RETURN (NULL)
+}
+
+vl_libelle = TRIM@ (SUBSTRING@ (vl_libelle, vl_k + LEN@ ("DOMAINE")))
+
+IF (SUBSTRING@ (vl_libelle, 1, LEN@ ("SIGNALISATION")) = "SIGNALISATION") {
+	RETURN (XDC_ACT_GTC_SIG)
+}
+
+IF (SUBSTRING@ (vl_libelle, 1, LEN@ ("VENTILATION")) = "VENTILATION") {
+	RETURN (XDC_ACT_GTC_VEN)
+}
+
+IF (SUBSTRING@ (vl_libelle, 1, LEN@ ("EXPLOITATION")) = "EXPLOITATION") {
+	RETURN (XDC_ACT_GTC_EXP)
+}
+
+RETURN (NULL)
+
+ENDFUNCTION
+
+
+
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Extrait de la configuration la liste des equipements (1ere colonne)
+*   et verifie qu'ils sont pilotables dans le secteur du Coup de Poing.
+*   Extrait les types de commande adjoints au nom d'equipement (en 2eme colonne)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Liste_Equipements (ta_actions, va_site, FORMAT TCPT_Equipement ta_eqts, ta_types_cmd)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   ta_actions        : table des actions lue en fichier de configuration
+*   va_site           : secteur du Coup de Poing
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_eqts           : Liste des donnees des equipements mis en jeu
+*   ta_types_cmd      : Liste des types de commande aux equipements
+*
+*
+* CODE RETOUR         : COM_OK / COM_NOK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPT_Lire_Fichier_Configuration
+*
+* FONCTION
+*   Analyse les couples des type et numero d'equipement declares
+*   en premiere colonne de la table d'actions ;
+*   construit et retourne leur liste comportant les donnees principales
+*   en conservant les equipements inconnus ou hors site mis a NULL.
+*
+--------------------------------------------------------------------------- */
+
+VAR	tl_noms_eqts					' Les noms significatifs extraits de la colonne des noms
+
+VAR	vl_nums_eqt					' Couple (type, numero) de l'eqt. traite
+VAR	FORMAT COM_Donnees_Equipements	vl_eqt		' Donnees de l'equipement traite
+VAR	vl_i_eqt, vl_i_eqt_site
+VAR	ll_mots, vl_car
+VAR	i, k
+VAR	vl_cr
+
+
+vl_cr = COM_OK
+
+/*A
+** Extraire les noms significatifs des equipements
+** -----------------------------------------------
+*/
+
+tl_noms_eqts = { }
+
+FOR i = 0  TO (ARRAY_SIZE@ (ta_actions) - 1)
+	/* si le nom en colonne 2 comporte plusieurs informations alors ne conserver que les deux premiers mots */
+	ll_mots = ARRAY_FROM_STRING@ (TRIM@ (ta_actions[i][1]), " ")
+	tl_noms_eqts[i] = ll_mots[0]
+
+	/* regarder s'il y a un deuxieme mot (i.e. dont l'initiale est une lettre) */
+	FOR k = 1  TO (ARRAY_SIZE@ (ll_mots) - 1)
+		IF (ll_mots[k] <> "") {
+			vl_car = SUBSTRING@ (UPPERCASE@ (ll_mots[k]), 1, 1)
+			IF ((vl_car >>= "A")  AND  (vl_car <<= "Z"))  OR
+			   ((vl_car >>= "0")  AND  (vl_car <<= "9"))
+			{
+				tl_noms_eqts[i] = tl_noms_eqts[i] ++ " " ++ ll_mots[k]
+			}
+			BREAK k
+		}
+	NEXT k
+	IF (tl_noms_eqts[i] = "") { tl_noms_eqts[i] = "<Non nomm?>" }
+NEXT i
+
+
+/*A
+** Extraire et verifier le type et le numero des equipements (1ere colonne)
+**  et verifier qu'ils sont pilotables dans le secteur du Coup de Poing
+** ------------------------------------------------------------------------
+*/
+
+ta_eqts = { }
+ta_types_cmd = { }
+
+FOR i = 0  TO (ARRAY_SIZE@ (ta_actions) - 1)
+	vl_nums_eqt = ARRAY_FROM_STRING@ (ta_actions[i][0], "/")
+	vl_i_eqt = (-1)
+	IF COM_Is_Digit_String (vl_nums_eqt[0])  AND  COM_Is_Digit_String (vl_nums_eqt[1])
+	{
+		ta_eqts[i].type = vl_nums_eqt[0] + 0
+		ta_eqts[i].numero = vl_nums_eqt[1] + 0
+		ta_eqts[i].nom = tl_noms_eqts[i]
+
+		CASE OF ta_eqts[i].type
+		CASE XDC_EQT_TUB
+			IF (ta_eqts[i].numero = CM_NUM_TUN_TOULON1)  OR  (ta_eqts[i].numero = CM_NUM_TUN_TOULON2)
+			{
+				vl_i_eqt = COM45_IndexEnColonne (tm_TUB, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+				vl_i_eqt_site = COM45_IndexEnColonne (tm_TUB_Site, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+
+				/* extraire du libelle de l'equipement le domaine GTC des commandes de cette ligne */
+				ta_types_cmd[i] = ITMA_TCPT_Type_Domaine_GTC (ta_actions[i][1])
+
+				/* si le tunnel est pilotable sur le site alors lire ses sequences autorisees */
+				IF vl_i_eqt_site >= 0 {
+					ta_eqts[i].site_gestion = tm_TUB[vl_i_eqt].sitegestion
+					ITMA_TCPT_Lire_Seq_Tunnel (ta_eqts[i].numero, tm_seq_TUB)
+				}
+			}
+
+		CASE XDC_EQT_ECH
+			vl_i_eqt = COM45_IndexEnColonne (tm_ECH, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+			vl_i_eqt_site = COM45_IndexEnColonne (tm_ECH_Site, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+
+			/*B si l'equipement Echangeur est pilotable sur le site alors lire ses sequences autorisees */
+			IF vl_i_eqt_site >= 0 {
+				ta_eqts[i].site_gestion = tm_ECH[vl_i_eqt].sitegestion
+				ITMA_TCPT_Lire_Seq_Echangeur (ta_eqts[i].numero, tm_seq_ECH)
+				/*B et determiner l'echangeur ou il est situe, en SORTIE pour deviation */
+				vl_eqt = tm_ECH[vl_i_eqt]
+				ta_eqts[i].echangeur = TDO_Echangeur_Situe_En (vl_eqt.autoroute, vl_eqt.PR, vl_eqt.sens, XDC_ACCES_SORTIE)
+			}
+
+		CASE XDC_EQT_PMV
+			vl_i_eqt = COM45_IndexEnColonne (tm_PMV, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+			vl_i_eqt_site = COM45_IndexEnColonne (tm_PMV_Site, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+			IF vl_i_eqt_site >= 0 {
+				ta_eqts[i].site_gestion = tm_PMV[vl_i_eqt].sitegestion
+			}
+
+		CASE XDC_EQT_PMVA
+			vl_i_eqt = COM45_IndexEnColonne (tm_PMVA, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+			vl_i_eqt_site = COM45_IndexEnColonne (tm_PMVA_Site, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+			IF vl_i_eqt_site >= 0 {
+				ta_eqts[i].site_gestion = tm_PMVA[vl_i_eqt].sitegestion
+			}
+
+		CASE XDC_EQT_PAL
+			vl_i_eqt = ta_eqts[i].numero
+			IF IS_NULL@ (tm_cfg_PAL[vl_i_eqt]) {
+				vl_i_eqt = -1
+			} ELSE {
+				ta_eqts[i].site_gestion = tm_cfg_PAL[vl_i_eqt].SiteGestion
+			}
+			vl_i_eqt_site = COM45_IndexEnColonne (tm_PAL_Site, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+
+		CASE XDC_EQT_NAV
+			vl_i_eqt = ta_eqts[i].numero
+			IF IS_NULL@ (tm_cfg_BRA[vl_i_eqt]) {
+				vl_i_eqt = -1
+			} ELSE {
+				ta_eqts[i].site_gestion = tm_cfg_BRA[vl_i_eqt].SiteGestion
+			}
+			vl_i_eqt_site = COM45_IndexEnColonne (tm_BRA_Site, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+
+		CASE XDC_EQT_BAF
+			vl_i_eqt = COM45_IndexEnColonne (tm_BAF, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+			vl_i_eqt_site = COM45_IndexEnColonne (tm_BAF_Site, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+			/*B si la barriere est pilotable sur le site alors */
+			IF vl_i_eqt_site >= 0 {
+				ta_eqts[i].sens = tm_BAF[vl_i_eqt].sens
+				ta_eqts[i].site_gestion = tm_BAF[vl_i_eqt].sitegestion
+				/*B determiner l'echangeur ou elle est situee, en ENTREE pour fermeture echangeur */
+				vl_eqt = tm_BAF[vl_i_eqt]
+				ta_eqts[i].echangeur = TDO_Echangeur_Situe_En (vl_eqt.autoroute, vl_eqt.PR, vl_eqt.sens, XDC_ACCES_ENTREE)
+			}
+
+		CASE XDC_EQT_RAU
+			vl_i_eqt = COM45_IndexEnColonne (tm_RAU, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+			/*B le RAU est pilotable depuis tout site */
+			IF ta_eqts[i].numero = CM_NUM_RAU_A52 {
+				vl_i_eqt_site = vl_i_eqt
+			} ELSE {
+				vl_i_eqt_site = -1
+			}
+
+		CASE XDC_EQT_IMU
+			vl_i_eqt = COM45_IndexEnColonne (tm_IMU, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+			vl_i_eqt_site = COM45_IndexEnColonne (tm_IMU_Site, COM_NUMERO_EQUIPEMENT, ta_eqts[i].numero)
+			IF vl_i_eqt_site >= 0 {
+				ta_eqts[i].site_gestion = tm_IMU[vl_i_eqt].sitegestion
+			}
+		ENDCASE
+	}
+
+	/* Si l'equipement est inconnu ou hors site alors le marquer null tout en le CONSERVANT */
+	IF vl_i_eqt < 0 {
+		ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_EQT_INVAL, tl_noms_eqts[i], ta_actions[i][0]))
+		ta_eqts[i] = NULL
+		vl_cr = COM_NOK
+	} ELSE IF vl_i_eqt_site < 0 {
+		ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_EQT_SITE, tl_noms_eqts[i], ta_actions[i][0]))
+		ta_eqts[i] = NULL
+		vl_cr = COM_NOK
+	} ELSE {
+		/* Pour certains types d'equipements, verifier le type de commande */
+		CASE OF ta_eqts[i].type
+		CASE XDC_EQT_TUB
+			IF IS_NULL@ (ta_types_cmd[i]) {
+				ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_DOMAINE, tl_noms_eqts[i], ta_actions[i][0]))
+				ta_eqts[i] = NULL
+				vl_cr = COM_NOK
+			}
+		ENDCASE
+	}
+NEXT i
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Analyse une action decrite en fichier de configuration selon le type
+*   d'equipement auquel elle est destinee.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Config_Action (FORMAT TCPT_Niche va_niche, va_txt_action, FORMAT TCPT_Equipement va_eqt, va_type_cmd,
+                                  FORMAT TCPT_Action va_action)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_niche          : description de la niche de localisation de l'action
+*   va_txt_action     : texte de l'action en fichier de configuration
+*   va_eqt            : equipement destinataire des commandes
+*   va_type_cmd       : type declare des commandes configurees dans cette ligne
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_action         : donnees de l'action analysee
+*
+*
+* CODE RETOUR         : COM_OK / COM_NOK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPT_Lire_Fichier_Configuration
+*
+* FONCTION
+*   Analyse le texte de l'action selon le type d'equipement et construit
+*   les donnees de la commande de signalisation ou de neutralisation
+*   a utiliser pour le pilotage dans chacune des phases.
+*
+--------------------------------------------------------------------------- */
+
+VAR	vl_txt_action
+VAR	tl_cmds									' Liste des commandes configurees
+VAR	tl_scenarios								' Liste des scenarios reconnus
+VAR	vl_scenario
+VAR	vl_cmd, vl_mot_debut, vl_mot_fin
+VAR	vl_ligne_pmv
+VAR	vl_nb_lignes, vl_cars_par_ligne
+VAR	vl_cr
+VAR	i, j
+
+vl_cr = COM_OK
+
+vl_txt_action = TABS_TO_SPACES@ (va_txt_action)
+IF (TRIM@ (vl_txt_action) = "") {
+	RETURN (COM_OK)
+}
+IF (SUBSTRING@ (TRIM@ (vl_txt_action), 1, 1) = CM_CAR_CMT) {			' Ignorer une action commentee
+	RETURN (COM_OK)
+}
+
+
+CASE OF  va_eqt.type
+CASE XDC_EQT_PMV
+	vl_nb_lignes = 3
+	vl_cars_par_ligne = 15
+CASE XDC_EQT_PMVA
+	vl_nb_lignes = 5
+	vl_cars_par_ligne = 15
+DEFAULT
+	vl_txt_action = TRIM@ (vl_txt_action)					' Pas pour les panneaux (preserver le cadrage)
+ENDCASE
+
+
+CASE OF va_eqt.type
+
+CASE XDC_EQT_RAU
+	tl_cmds = ARRAY_FROM_STRING@ (vl_txt_action, CM_CAR_SEP_VRS)
+	tl_scenarios = { }
+	/* Analyser chacune des commandes de sonorisation Incendie */
+	FOR i = 0  TO (ARRAY_SIZE@ (tl_cmds) - 1)
+		tl_cmds[i] = TRIM@ (tl_cmds[i])
+		IF (tl_cmds[i] <> "")
+		{
+			/* Verifier les champs requis (localisation et numero de scenario) */
+			vl_scenario = ARRAY_FROM_STRING@ (REPLACE_SUBSTR@ (tl_cmds[i], " ", ""), CM_CAR_SEP_SCE_LOC)
+			IF (ARRAY_SIZE@ (vl_scenario) <> 4) {
+				ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_VAL_NBR, va_eqt.nom, va_niche.nom, tl_cmds[i]))
+			} ELSE IF NOT (vl_scenario[0] = XDC_SENS_1  OR  vl_scenario[0] = XDC_SENS_2) {
+				ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_INV_SNS, vl_scenario[0], va_eqt.nom, va_niche.nom))
+			} ELSE IF NOT (COM_Is_Digit_String (vl_scenario[1])  AND  COM_Is_Digit_String (vl_scenario[2])) {
+				ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_INV_PRS, va_eqt.nom, va_niche.nom, tl_cmds[i]))
+			} ELSE IF NOT (COM_Is_Digit_String (vl_scenario[3])) {
+				ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_INV_SCN, vl_scenario[3], va_eqt.nom, va_niche.nom))
+			} ELSE {
+				tl_scenarios[ARRAY_SIZE@ (tl_scenarios)] = vl_scenario
+			}
+		}
+	NEXT i
+	IF (ARRAY_SIZE@ (tl_scenarios) > 0) {					' Memoriser des qu'une commande est correcte
+		va_action.type_cmd = va_type_cmd
+		va_action.cmd_phase1 = tl_scenarios
+	}
+
+CASE XDC_EQT_IMU
+	tl_cmds = ARRAY_FROM_STRING@ (vl_txt_action, CM_CAR_SEP_PHASE)
+	tl_scenarios = { }
+	/* Analyser chacune des commandes d'insertion de message d'urgence' */
+	FOR i = 0  TO (ARRAY_SIZE@ (tl_cmds) - 1)
+		tl_cmds[i] = TRIM@ (tl_cmds[i])
+		IF (tl_cmds[i] <> "")
+		{
+			/* Verifier les champs requis (Chaine de commande IMU / Intervalle / Cycle / Duree) */
+			vl_scenario = ARRAY_FROM_STRING@ (REPLACE_SUBSTR@ (tl_cmds[i], " ", ""), CM_CAR_SEP_SCE_LOC)
+			IF (ARRAY_SIZE@ (vl_scenario) <> 4) {
+				ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_VAL_NBR, va_eqt.nom, va_niche.nom, tl_cmds[i]))
+			} ELSE IF NOT (IS_STRING@ (vl_scenario[0])) {
+				ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_INV_STR, vl_scenario[0], va_eqt.nom, va_niche.nom))
+			} ELSE IF NOT (COM_Is_Integer_String (vl_scenario[1])  AND  COM_Is_Integer_String (vl_scenario[2]) AND  COM_Is_Integer_String (vl_scenario[3])) {
+				ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_INV_INT, va_eqt.nom, va_niche.nom, vl_scenario[1], vl_scenario[2], vl_scenario[3]))
+			} ELSE {
+				tl_scenarios[ARRAY_SIZE@ (tl_scenarios)] = vl_scenario
+			}
+		}
+
+	NEXT i
+
+	IF (ARRAY_SIZE@ (tl_scenarios) > 0) {					' Memoriser des qu'une commande est correcte
+		va_action.type_cmd = va_type_cmd
+		va_action.cmd_phase1 = tl_scenarios
+	}
+
+CASE XDC_EQT_TUB
+	IF ((va_eqt.numero = CM_NUM_TUN_TOULON1)  OR  (va_eqt.numero = CM_NUM_TUN_TOULON2))
+	{
+		tl_cmds = ARRAY_FROM_STRING@ (vl_txt_action, CM_CAR_SEP_VRS)
+		tl_scenarios = { }
+		/* Analyser chacun des scenarios (Incendie, Contresens et Accident dans cet ordre) */
+		FOR i = 0  TO 2
+			tl_cmds[i] = TRIM@ (tl_cmds[i])
+			IF (tl_cmds[i] <> "")
+			{
+				IF NOT (COM_Is_Digit_String (tl_cmds[i])) {
+					ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_SEQ_TUB_TLN, tl_cmds[i], va_eqt.nom))
+				} ELSE {
+					tl_cmds[i] = tl_cmds[i] + 0
+					IF (tl_cmds[i] <> 0) {				' Conserver les scenarios non nuls
+						IF ITMA_TCPT_Seq_Tunnel_Est_Valide (va_eqt.numero, va_type_cmd, tl_cmds[i]) {
+							tl_scenarios[i] = tl_cmds[i]
+						} ELSE {
+							ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++
+							                                FORMAT@ (CM_ERR_SEQ_DOM, tl_cmds[i], va_eqt.nom))
+						}
+					}
+				}
+			}
+		NEXT i
+		IF (ARRAY_SIZE@ (tl_scenarios) > 0) {					' Memoriser des qu'un scenario est non nul
+			va_action.type_cmd = va_type_cmd
+			va_action.cmd_phase1 = tl_scenarios
+		}
+		IF (ARRAY_SIZE@ (tl_cmds) > 3) {					' Informer en cas de commandes superflues
+			ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_SCE_NBR, va_eqt.nom, TRIM@ (tl_cmds[3])))
+		}
+	} ELSE {
+		/* Chercher le nom d'une sequence de signalisation valide pour ce tunnel */
+		FOR i = 0  TO (ARRAY_SIZE@ (tm_seq_TUB) - 1)
+			IF (tm_seq_TUB[i].num_eqt = va_eqt.numero  AND
+			   (tm_seq_TUB[i].type_sequence = XDC_ACT_GTC_SIG  AND  tm_seq_TUB[i].nom_sequence = vl_txt_action))
+			{
+				va_action.type_cmd = va_type_cmd
+				va_action.cmd_phase1 = tm_seq_TUB[i].num_sequence
+			}
+		NEXT i
+		IF IS_NULL@ (va_action.cmd_phase1) {
+			ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_SEQ_TUB, vl_txt_action, va_eqt.nom, va_eqt.numero))
+			vl_cr = COM_NOK
+		}
+	}
+
+
+CASE XDC_EQT_ECH
+	/* Chercher le nom d'une sequence de signalisation valide pour cet echangeur */
+	FOR i = 0  TO (ARRAY_SIZE@ (tm_seq_ECH) - 1)
+		IF tm_seq_ECH[i].num_eqt = va_eqt.numero  AND  tm_seq_ECH[i].nom_sequence = vl_txt_action {
+			va_action.cmd_phase1 = tm_seq_ECH[i].num_sequence
+		}
+	NEXT i
+	IF IS_NULL@ (va_action.cmd_phase1) {
+		ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_SEQ_ECH, vl_txt_action, va_eqt.nom, va_eqt.numero))
+		vl_cr = COM_NOK
+	}
+
+
+CASE XDC_EQT_PMV, XDC_EQT_PMVA
+	/* Decomposer le texte en lignes a visualiser sur l'equipement */
+	/* conserver les espaces en tete de ligne pour cadrage du message */
+	i = 0
+	WHILE TRIM@ (vl_txt_action) <> ""
+		j = STRING_INDEX@ (vl_txt_action, "/")
+		IF j > 0 {
+			vl_ligne_pmv = SUBSTRING@ (vl_txt_action, 1, j-1)
+			vl_txt_action = SUBSTRING@ (vl_txt_action, j+1)
+		} ELSE {
+			vl_ligne_pmv = vl_txt_action
+			vl_txt_action = ""
+		}
+		tl_cmds[i] = SUBSTRING@ (vl_ligne_pmv, 1, vl_cars_par_ligne)
+		i = i + 1
+
+		IF TRIM@ (SUBSTRING@ (vl_ligne_pmv, vl_cars_par_ligne + 1)) <> "" {
+			ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ "ligne PMV[A] tronquee : " ++ vl_ligne_pmv)
+			vl_cr = COM_NOK
+		}
+	WEND
+
+	IF (ARRAY_SIZE@ (tl_cmds) > vl_nb_lignes) {
+		ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_NBL_PAN, va_eqt.nom, vl_nb_lignes))
+		'tl_cmds = SUBARRAY@ (tl_cmds, 0, vl_nb_lignes)			' Tronquer au nombre de lignes supportees
+	}
+	IF (ARRAY_SIZE@ (tl_cmds) > 5) {
+		tl_cmds = SUBARRAY@ (tl_cmds, 0, 5)				' Tronquer a 5 lignes dans tous les cas
+	}
+	/* Conserver la commande meme si elle est tronquee */
+	va_action.cmd_phase1 = tl_cmds
+
+CASE XDC_EQT_PAL
+	/* Chercher un scenario de signalisation valide */
+	i = ARRAY_INDEX@ (tm_scenarios_PAL[tm_cfg_PAL[va_eqt.numero].NumType].NomScenario, vl_txt_action)
+	IF i >= 0 {
+		va_action.cmd_phase1 = { vl_txt_action, tm_scenarios_PAL[tm_cfg_PAL[va_eqt.numero].NumType].LibScenario[i] }
+	} ELSE {
+		ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_CMD_PAL, vl_txt_action, va_eqt.nom, va_eqt.numero))
+		vl_cr = COM_NOK
+	}
+
+CASE XDC_EQT_NAV
+	/* Verifier que la commande est un scenario de signalisation ou de neutralisation valide */
+	vl_cmd = vl_txt_action
+	IF (ARRAY_INDEX@ (tm_scenarios_BRA[tm_cfg_BRA[va_eqt.numero].NumType].NomScenario, vl_cmd) >= 0) {
+		va_action.cmd_phase1 = vl_cmd
+	} ELSE {
+		ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_CMD_BRA, vl_cmd, va_eqt.nom, va_eqt.numero))
+		vl_cr = COM_NOK
+	}
+
+CASE XDC_EQT_BAF
+	/* Verifier que la commande est un scenario de signalisation ou de neutralisation valide */
+	vl_cmd = vl_txt_action
+	vl_mot_debut = SUBSTRING@ (vl_cmd, 1, 9)
+	vl_mot_fin = TRIM@ (SUBSTRING@ (vl_cmd, 10))
+	IF (vl_cmd = "FEUX")  OR  (vl_cmd = "FERMETURE") {
+		va_action.cmd_phase1 = vl_cmd
+	} ELSE IF ( (vl_mot_debut = "FERMETURE")  AND  (vl_mot_fin = "1"  OR  vl_mot_fin = "2") ) {
+		va_action.cmd_phase1 = vl_mot_debut ++ vl_mot_fin
+	} ELSE {
+		ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ FORMAT@ (CM_ERR_CMD_BAF, vl_cmd, va_eqt.nom, va_eqt.numero))
+		vl_cr = COM_NOK
+	}
+
+DEFAULT
+	ITMA_TCP_Trace (COM_WARNING, CM_MSG_CFG ++ "type d'equipement inconnu : " ++ va_eqt.type)
+	vl_cr = COM_NOK
+
+ENDCASE
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit en base la listes de tous les tunnels connus.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Lire_Tunnels (va_tunnels)
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_tunnels        : Liste complete des tunnels
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Init_Listes_Tunnels
+*
+* FONCTION
+*   Lit en base la liste des tunnels (liste complete et non du district).
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT	SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT	SQL_Procedure_Result@	vl_resultats
+
+VAR	FORMAT COM_Donnees_Equipements	vl_eqt		' Donnees formatees
+VAR	tl_data						' Donnees lues en base
+VAR	i
+
+/*A
+** Lire la liste complete des tunnels
+** ----------------------------------
+*/
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#CHAR_,		XDC_BASE_CFG },
+	{ FALSE,	SYB#CHAR_,		NULL },				' Troncon
+	{ FALSE,	SYB#INT2_,		NULL },				' Portion
+	{ FALSE,	SYB#INT1_,		XDC_EQT_TUB }
+} )
+
+IF COM05_SQL_Procedure (XZAO125_Liste_Equipements,
+                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+	RETURN (COM_NOK)
+}
+
+va_tunnels = NULL
+tl_data = vl_resultats.select_results[0]
+FOR i = 0  TO (ARRAY_SIZE@ (tl_data) - 1)
+	vl_eqt.numero	= tl_data[i][0] + 0
+	vl_eqt.nom	= tl_data[i][1]
+	vl_eqt.autoroute= tl_data[i][2]
+	vl_eqt.PR	= tl_data[i][3]
+	vl_eqt.sens	= tl_data[i][4] + 0
+
+	va_tunnels[ARRAY_SIZE@ (va_tunnels)] = vl_eqt
+NEXT i
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Lit en base l'ensemble des sequences autorisees pour le tunnel specifie.
+*   Ajoute les numero et nom de sequences valides a la liste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Lire_Seq_Tunnel (va_num_eqt, FORMAT TCPT_Sequence_Eqt ta_sequences)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_eqt        : Donnees de l'equipement
+*   ta_sequences      : Liste actuelle des equipements et leurs sequences 
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_sequences      : Liste des sequences comportant celles de l'equipement
+*
+*
+* CODE RETOUR         : COM_OK / COM_NOK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Config_Coup_De_Poing
+*
+* FONCTION
+*   Lire en base les sequences autorisees pour le tunnel specifie.
+*   Ajouter a la liste les numero d'equipement, numero et nom de sequence.
+*
+--------------------------------------------------------------------------- */
+
+VAR	FORMAT	SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT	SQL_Procedure_Result@	vl_resultats
+
+VAR	FORMAT	TCPT_Sequence_Eqt	vl_sequence
+VAR	tl_seq_eqt
+VAR	vl_cr
+VAR	i
+
+/*A
+** Si les sequences de l'equipement sont deja dans la table alors il n'y a rien a faire
+** ------------------------------------------------------------------------------------
+*/
+
+FOR i = 0  TO (ARRAY_SIZE@ (ta_sequences) - 1)
+	IF (ta_sequences[i].num_eqt = va_num_eqt)
+		RETURN (COM_OK)
+NEXT i
+
+
+/*! L'equipement est considere comme renove */
+
+/*A (1) lire les sequences de type Signalisation autorisees pour cet equipement */
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#CHAR_,			XDC_BASE_CFG	},
+	{ FALSE,	COM_Identifiant_Type_Equip,	XDC_EQT_TUB	},
+	{ FALSE,	COM_Identifiant_Equipement,	va_num_eqt	}
+} )
+
+vl_cr = COM05_SQL_Procedure (XZAO231_Seq_Auto_GTC_SIG, vl_parametres, vl_resultats, CM_MODULE)
+IF vl_cr = COM_OK {
+	vl_sequence.num_eqt = va_num_eqt
+	vl_sequence.type_sequence = XDC_ACT_GTC_SIG
+
+	/*A et pour chaque sequence lue en base de donnees */
+	tl_seq_eqt = vl_resultats.select_results[0]
+	FOR i = 0  TO (ARRAY_SIZE@ (tl_seq_eqt) - 1)
+		/*A si elle N'EST PAS SUPPRIMEE alors l'ajouter a la liste existante */
+		IF (tl_seq_eqt[i][2] <> XDC_VRAI) {
+			vl_sequence.num_sequence = tl_seq_eqt[i][0] + 0
+			vl_sequence.nom_sequence = UPPERCASE@ (tl_seq_eqt[i][1])
+			ta_sequences[ARRAY_SIZE@ (ta_sequences)] = vl_sequence
+		}
+	NEXT i
+}
+
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Predicat indiquant si une sequence donnee d'un domaine donne
+*   est valide (autorisee) pour l'equipement Tunnel specifie.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ITMA_TCPT_Seq_Tunnel_Est_Valide (va_num_eqt, va_domaine, va_num_sequence)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_eqt        : Numero de l'equipement Tunnel
+*   va_domaine        : Liste actuelle des equipements et leurs sequences 
+*   va_num_sequence   : Numero de la sequence
+*
+*
+* ARGUMENTS EN SORTIE :
+*   AUCUN
+*
+*
+* CODE RETOUR         : COM_OK / COM_NOK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Config_Coup_De_Poing
+*
+* FONCTION
+*   Verifier si la sequence figure en table des sequences autorisees
+*   pour le tunnel et dans le domaine indiques.
+*
+--------------------------------------------------------------------------- */
+
+VAR	i
+
+IF (va_domaine = XDC_ACT_GTC_SIG) {
+	/* Chercher le nom d'une sequence de signalisation valide pour ce tunnel */
+	FOR i = 0  TO (ARRAY_SIZE@ (tm_seq_TUB) - 1)
+		IF (tm_seq_TUB[i].num_eqt = va_num_eqt  AND
+		   (tm_seq_TUB[i].type_sequence = va_domaine  AND  tm_seq_TUB[i].num_sequence = va_num_sequence))
+		{
+			RETURN (TRUE)
+		}
+	NEXT i
+}
+
+IF (va_domaine = XDC_ACT_GTC_VEN) {
+	RETURN (TRUE)
+}
+
+IF (va_domaine = XDC_ACT_GTC_EXP) {
+	RETURN (TRUE)
+}
+
+RETURN (FALSE)
+
+ENDFUNCTION
+
+
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Lit en base l'ensemble des sequences autorisees pour l'echangeur specifie.
+*   Ajoute les numero et nom de sequences valides a la liste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Lire_Seq_Echangeur (va_num_eqt, FORMAT TCPT_Sequence_Eqt ta_sequences)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_eqt        : Donnees de l'equipement
+*   ta_sequences      : Liste actuelle des equipements et leurs sequences 
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_sequences      : Liste des sequences comportant celles de l'equipement
+*
+*
+* CODE RETOUR         : COM_OK / COM_NOK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Config_Coup_De_Poing
+*
+* FONCTION
+*   Lire en base les sequences autorisees pour l'echangeur specifie.
+*   Ajouter a la liste les numero d'equipement, numero et nom de sequence.
+*
+--------------------------------------------------------------------------- */
+
+VAR	FORMAT	SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT	SQL_Procedure_Result@	vl_resultats
+
+VAR	FORMAT	TCPT_Sequence_Eqt	vl_sequence
+VAR	tl_seq_eqt
+VAR	vl_cr
+VAR	i
+
+/*A
+** Si les sequences de l'equipement sont deja dans la table alors il n'y a rien a faire
+** ------------------------------------------------------------------------------------
+*/
+
+FOR i = 0  TO (ARRAY_SIZE@ (ta_sequences) - 1)
+	IF (ta_sequences[i].num_eqt = va_num_eqt)
+		RETURN (COM_OK)
+NEXT i
+
+
+/*! L'equipement est considere comme renove */
+
+/*A lire les sequences autorisees pour cet equipement */
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#CHAR_,			XDC_BASE_CFG	},
+	{ FALSE,	COM_Identifiant_Type_Equip,	XDC_EQT_ECH	},
+	{ FALSE,	COM_Identifiant_Equipement,	va_num_eqt	}
+} )
+
+vl_cr = COM05_SQL_Procedure (XZAO231_Seq_Auto_GTC_SIG, vl_parametres, vl_resultats, CM_MODULE)
+IF vl_cr = COM_OK {
+	vl_sequence.num_eqt = va_num_eqt
+	vl_sequence.type_sequence = NULL
+
+	/*A et pour chaque sequence lue en base de donnees */
+	tl_seq_eqt = vl_resultats.select_results[0]
+	FOR i = 0  TO (ARRAY_SIZE@ (tl_seq_eqt) - 1)
+		/*A si elle N'EST PAS SUPPRIMEE alors l'ajouter a la liste existante */
+		IF (tl_seq_eqt[i][2] <> XDC_VRAI) {
+			vl_sequence.num_sequence = tl_seq_eqt[i][0] + 0
+			vl_sequence.nom_sequence = UPPERCASE@ (tl_seq_eqt[i][1])
+			ta_sequences[ARRAY_SIZE@ (ta_sequences)] = vl_sequence
+		}
+	NEXT i
+}
+
+RETURN (vl_cr)
+
+ENDMACRO

@@ -1,0 +1,774 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMO_pmvMobile.am,v 1.19 2020/11/03 17:45:20 pc2dpdy Exp $      Release : $Revision: 1.19 $        Date : $Date: 2020/11/03 17:45:20 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TMO * FICHIER ITMA_TMO_pmvMobile.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*	Description d'un PMV mobile
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Noel        2 Nov 1994 : Creation                                        V1.1
+* Guilhou    26 dec 1994 : modif evt lie                                   V1.3
+* Lecrivain  16 Fev 1995 : Modification du texte en 4 lignes de 12 cars.   V1.6
+* Noel	   04 Avr 1995 : Suppression de dump_array + correction init horodate
+*					création des boutons d'init auto. horodates	V1.8
+* Lecrivain  05 Mai 1995 : Modification du texte en 4 lignes de 12 cars.   V1.9
+* Torregrossa  04 Oct 1995 : Controle coherence dates + / date courante    V1.11
+* Torregrossa   10 Nov 1995 : Modif horohelp pour Applix version 4.1       V1.12
+* Torregrossa   26 Jan 1996 : Modif libelle sens inconnu pour fmc          V1.13
+* Guilhou	17 sep 1996 : modif gestion lien cause pour applix 4.2 	   V1.14
+* Guilhou 03 oct 1997 : liste des FMC cause a le m look que celle des FMC a traiter (ana/65) 1.15
+* Niepceron	28 Oct 1998 : acces distant CI depuis PC simplifieV1.16
+* Niepceron 17 Mar 1999 : vg_toutes_les_autoroutes remplace vg_les_autoroutes 1.17 dem/1751
+* Guilhou	21 sep 1999 : ajout autoroute
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+INCLUDE   "../../XDMICG/inc/xzic_ax.h"
+INCLUDE   "../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzac14sp.h"
+INCLUDE	"../../XDMICG/inc/xzac34sp.h"
+
+INCLUDE	"../inc/ITMA_TAR.h"
+
+
+
+DEFINE	C_MODULE	"MTMO"			' Nom du module
+
+
+DEFINE	CM_RIEN	0				'rang d'affichage du sens dans BO_sens
+DEFINE	CM_NORD	1				'rang d'affichage du sens dans BO_sens
+DEFINE	CM_SUD	2				'rang d'affichage du sens dans BO_sens
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM			1
+
+DEFINE	C_LIB_LIER_FMC		"Lier d'abord un événement à l'intervention"
+DEFINE	C_LIB_SAISIR_DATE	"Indiquer au moins l'horodate de debut"
+DEFINE	C_LIB_SAISIR_DATE_DEB	"L'horodate de début ne doit pas être supérieure à la date courante"
+DEFINE	C_LIB_SAISIR_DATE_FIN	"L'horodate de fin doit être supérieure à l'horodate début"
+
+
+
+VAR FORMAT TDO_Autoroute vm_autoroutes		' Liste des autoroutes
+VAR						vm_sens
+
+
+VAR		vm_NumAction 		' Numéro de l'action traitée
+VAR		vm_CleAction		' Cle de l'action
+VAR		vm_NumFMC			' Numero de la fiche main courante liee
+VAR		vm_CleFMC			' Cle de la fiche main courante liee
+VAR		tm_liste_causes
+VAR		vm_simplifie
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Description d'un PMV mobile
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMO_pmvMobile (va_appelant, va_parametres)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_parametres        : Nom de la macro Applix ayant invoquee la presente ou
+*					 chaine d'arguments envoyee par MSOP ou MTMC à decoder.
+*
+*					Cette chaine est constituee de : 
+*								IdAppelant, caractere separateur,
+*								NumFMC, caractere separateur,
+*								CleFMC, caractere separateur,
+*								NumAction, caractere separateur,
+*								CleAction.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+*  	Appele depuis MSOP sur selection de l'objet PMV mobile
+*	Appele depuis la liste des actions réalisées dans MTMC 
+*	Appele depuis le menu principal MTMT  
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR    	vl_installer_traitement_erreur
+	VAR		vl_fenetre_pmvMobile		' identifiant de la fenetre
+	VAR		vl_la_fenetre_est_active	' Pour sortir de la boucle principale
+	VAR		vl_objet_selecte			' identifiant d'un objet selectionne
+
+	VAR		vl_appelant								' Nom du module appelant
+	VAR FORMAT COM_Intitule_FMC vl_intitule_FMC		' Infos. fiche main courante
+
+	VAR		tl_data,tl_titres,tl_retour
+     VAR 	 	vl_string
+	Var		vl_auto
+
+
+/*A	
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*si calcul au PC simplifie*/
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  vm_simplifie=TRUE
+else
+  vm_simplifie=FALSE
+
+
+/*A
+ * Charger la fenetre "PMV mobile"
+ * -------------------------------
+ */
+
+vl_fenetre_pmvMobile = DB_LOAD@ ("ITMA_TMO")
+DB_WINDOW_REMAIN@ (vl_fenetre_pmvMobile, TRUE)
+
+DB_XPOS@ (vl_fenetre_pmvMobile, 0)
+DB_YPOS@ (vl_fenetre_pmvMobile, 93)
+COM27_Agrandir_Fenetre (vl_fenetre_pmvMobile, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre_pmvMobile, "ITMA_TMO_pmvMobile")
+
+
+/*A determiner le module appelant */
+vl_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+
+
+vm_autoroutes = SYSTEM_VAR@(vg_toutes_les_autoroutes)
+DB_CTRL_STRINGS@ (vl_fenetre_pmvMobile, "BO_autoroute",
+				     ARRAY_COLUMN@ (vm_autoroutes, TDO_NOM_AUTOROUTE))
+
+vm_sens = XDC_LIB_SENS_NON_PREC, XDC_LIB_SENS_NORD, XDC_LIB_SENS_SUD
+DB_CTRL_STRINGS@ (vl_fenetre_pmvMobile, "BO_sens", vm_sens)
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre_pmvMobile, "BS_Pr", COM_CHIFFRES ++ ".,")
+
+
+vm_NumAction = NULL
+vm_NumFMC = NULL
+vm_CleFMC = NULL
+vm_CleAction = NULL
+
+/*A
+ * Si appel depuis MSOP ou MTMC initialiser le contenu de la fiche
+ * avec le libelle de la FMC liee, la localisation et le message
+ * ---------------------------------------------------------------
+ */
+
+IF (vl_appelant = "MSOP") OR (vl_appelant = "MTMC")
+{
+	vm_NumFMC = va_parametres[0]
+	vm_CleFMC = va_parametres[1]
+	vm_NumAction = va_parametres[2]
+	vm_CleAction = va_parametres[3]
+
+	ITMA_COM_Lire_Evenement (vm_NumFMC, vm_CleFMC, vl_intitule_FMC, C_MODULE)
+	DB_CTRL_TITLE@ (vl_fenetre_pmvMobile, "LI_FMC_liee",
+						COM11_Libelle_FMC (vl_intitule_FMC))
+
+	/*TMO_init_localisation (vl_fenetre_pmvMobile, vl_intitule_FMC)*/
+
+	TMO_init_action (vl_fenetre_pmvMobile, vm_NumAction, vm_CleAction)
+}
+ELSE
+{
+	/*A Sinon initialiser l'horodate de debut */
+	COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre_pmvMobile,
+							"BS_jour_debut", "BS_mois_debut", "BS_annee_debut",
+							"BS_heure_debut", "BS_minute_debut")
+
+	/*A et afficher la liste des autoroutes */
+	DB_CTRL_DISPLAY@ (vl_fenetre_pmvMobile, "BO_autoroute", TRUE)
+	DB_CTRL_VALUE@ (vl_fenetre_pmvMobile, "BO_autoroute", 0)
+
+	DB_CTRL_VALUE@ (vl_fenetre_pmvMobile, "BO_sens", 0)
+
+	DB_CTRL_TITLE@ (vl_fenetre_pmvMobile, "LI_autoroute", "")
+}
+
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+		ERROR_BOX@
+		IF ERROR_NUMBER@() <> COM_ERR_NON_SAISI  AND
+		   ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+		   ERROR_NUMBER@() <> C_ERR_IHM
+	    	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_pmvMobile)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_pmvMobile)
+    IF SYSTEM_VAR@ (vg_verrou) vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+
+    CASE "BP_quitter"
+		vl_la_fenetre_est_active = FALSE
+
+
+ 	/*B appui sur le bouton lier fmc*/
+	CASE "BP_lier_fmc"
+		MACRO_WINS_BUSY@()
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+							"ITMA_TMO_pmvMobile")
+
+		tm_liste_causes=tl_data[0]
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vl_fenetre_pmvMobile,"TA_Evenements",TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_pmvMobile,"TA_Evenements",TRUE)
+		DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre_pmvMobile, "TA_Evenements", 25)
+		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+		DB_TABLE_SET_DATA@(vl_fenetre_pmvMobile,"TA_Evenements",tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_pmvMobile, "TA_Evenements", 0, tl_data[2])
+		
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+		MACRO_WINS_BUSY@()
+		tl_retour=ITMA_COM_Validite_Cause("ITMA_TMO_pmvMobile",
+							vl_fenetre_pmvMobile,
+							tm_liste_causes)
+		vm_NumFMC = tl_retour[0][0]
+		vm_CleFMC = tl_retour[0][1]
+		DB_CTRL_TITLE@ (vl_fenetre_pmvMobile, "LI_FMC_liee",  tl_retour[1])
+
+
+   /*A bouton de choix du Pr actuel de la fiche main courante liee */
+    CASE "BP_PR"
+		MACRO_WINS_BUSY@()
+		IF NOT IS_NULL@ (vm_NumFMC) {
+			IF ITMA_COM_Lire_Evenement (vm_NumFMC, vm_CleFMC, vl_intitule_FMC,
+											C_MODULE) = COM_OK {
+				IF vl_intitule_FMC.localisation.NumAuto <> XDC_AUT_INCONNUE {
+					DB_CTRL_VALUE@ (vl_fenetre_pmvMobile, "BS_Pr",
+							COM31_Libelle_PR (vl_intitule_FMC.localisation.PR))
+					vl_auto = ARRAY_INDEX@(ARRAY_COLUMN@(vm_autoroutes,
+										TDO_NUMERO_AUTOROUTE),
+						  vl_intitule_FMC.localisation.numauto)
+					if vl_auto >= 0 
+						DB_CTRL_VALUE@(vl_fenetre_pmvMobile,"BO_autoroute",
+								vl_auto)
+					else
+						DB_CTRL_VALUE@(vl_fenetre_pmvMobile,"BO_autoroute",0)
+				}
+			}
+		}
+
+
+    /*A
+     * Sur choix "Valider", récupérer les valeurs des champs
+	* saisis et mettre en base
+     * --------------------------------------------
+     */
+
+    CASE "BP_valider"
+		IF vm_NumFMC = NULL
+			ERROR@ (C_ERR_IHM, C_LIB_LIER_FMC)
+
+		IF (TMO_Valider_action(vl_fenetre_pmvMobile)=COM_OK)
+			vl_la_fenetre_est_active = FALSE
+
+
+   /*A bouton aide a la composition de l'horodate debut*/
+    CASE "BP_horodebut"
+	/*A recupere l'heure courante et la formate*/
+   COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre_pmvMobile,
+                                "BS_jour_debut","BS_mois_debut","BS_annee_debut",
+                                "BS_heure_debut","BS_minute_debut")
+
+    /*A bouton aide a la composition de l'horodate fin*/
+    CASE "BP_horofin"
+	/*A recupere l'heure courante et la formate*/
+   COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre_pmvMobile,
+                                "BS_jour_fin","BS_mois_fin","BS_annee_fin",
+                                "BS_heure_fin","BS_minute_fin")
+
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la localisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TMO_init_localisation (va_fenetre,FORMAT COM_Intitule_FMC va_libelle_fmc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*	va_libelle_fmc		: libelle de la fiche main courante.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMO_pmvMobile
+*
+* FONCTION
+*   initialise Autoroute (lecture seule), pr et sens *
+---------------------------------------------------------------------------- */
+
+	VAR		vl_sens				' Sens de la localisation
+	VAR		vl_auto				' nom de l'autoroute 
+
+VAR FORMAT TDO_Autoroute        vl_les_autoroutes	' Liste des autoroutes
+
+
+/*A initialiser l'autoroute */
+
+vl_les_autoroutes = SYSTEM_VAR@ (vg_toutes_les_autoroutes)
+vl_auto = ARRAY_INDEX@ (ARRAY_COLUMN@ (vl_les_autoroutes, TDO_NUMERO_AUTOROUTE),
+			  va_libelle_fmc.localisation.NumAuto)
+IF vl_auto >= 0
+    vl_auto = vl_les_autoroutes[vl_auto].nom
+ELSE vl_auto = ""
+DB_CTRL_TITLE@(va_fenetre, "LI_autoroute", vl_auto)
+
+
+/*A Initialiser le Pr */
+
+DB_CTRL_VALUE@ (va_fenetre, "BS_Pr",
+					COM31_Libelle_PR (va_libelle_fmc.localisation.PR ))
+
+
+/*A initialiser le sens */
+
+CASE OF va_libelle_fmc.localisation.sens_circulation
+	CASE XDC_SENS_NORD
+	CASE XDC_SENS_SORTIE_NORD
+	CASE XDC_SENS_ENTREE_NORD
+		DB_CTRL_VALUE@(va_fenetre, "BO_sens", CM_NORD)
+	CASE XDC_SENS_SUD
+	CASE XDC_SENS_SORTIE_SUD
+	CASE XDC_SENS_ENTREE_SUD
+		DB_CTRL_VALUE@(va_fenetre, "BO_sens", CM_SUD)
+	CASE XDC_SENS_INCONNU
+		DB_CTRL_VALUE@(va_fenetre, "BO_sens", CM_RIEN)
+ENDCASE
+
+
+RETURN (COM_OK)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les objets de la boite de dialogue qui decrivent l'action
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TMO_init_action (va_fenetre,va_NumAction, va_CleAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        	: Id. de la fenetre 
+*	va_NumAction		: numero de l'action
+*	va_CleAction		: Cle de l'action
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMO_pmvMobile
+*
+* FONCTION
+*   
+---------------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+VAR		vl_pr
+VAR		vl_indice
+VAR		vl_message
+VAR		vl_auto
+VAR FORMAT TDO_Autoroute vl_les_autoroutes
+
+
+/*A positionner les parametres d'appel de la requete BDD */
+vl_indice = 0
+/*B Numero de l'action */
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = va_NumAction
+vl_parametres[vl_indice].output = FALSE
+
+/*B Cle de l'action */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#INT1_
+vl_parametres[vl_indice].data = va_CleAction
+vl_parametres[vl_indice].output = FALSE
+
+/*A positionner les parametres de retour de la requete BDD */
+
+/*B Pr */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = 0
+vl_parametres[vl_indice].output = TRUE
+
+/*B Sens */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#INT1_
+vl_parametres[vl_indice].data = 0
+vl_parametres[vl_indice].output = TRUE
+
+/*B Message */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#CHAR_
+vl_parametres[vl_indice].data = ""
+vl_parametres[vl_indice].output = TRUE
+
+/*! Horodate_début */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#DATETIME_
+vl_parametres[vl_indice].data = " "
+vl_parametres[vl_indice].output = TRUE
+
+/*! Horodate de fin */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#DATETIME_
+vl_parametres[vl_indice].data = " "
+vl_parametres[vl_indice].output = TRUE
+
+
+/*B operateur */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#INT2_
+vl_parametres[vl_indice].data = 0
+vl_parametres[vl_indice].output = TRUE
+
+/* autoroute */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#INT2_
+vl_parametres[vl_indice].data = 0
+vl_parametres[vl_indice].output = TRUE
+
+
+/*A Appeler la procedure stockee XZAC34_Lire_PMV_Mobile */
+
+if (vm_simplifie) {
+IF (COM39_SQL_Procedure_PCS(XZAC34_Lire_PMV_Mobile, vl_parametres, vl_resultats, C_MODULE))
+	<> COM_OK 
+{
+	info_message@("Pb XZAC34_Lire_PMV_Mobile")
+	RETURN (COM_NOK)
+}
+}
+else {
+IF (COM05_SQL_Procedure(XZAC34_Lire_PMV_Mobile, vl_parametres, vl_resultats, C_MODULE))
+	<> COM_OK 
+{
+	info_message@("Pb XZAC34_Lire_PMV_Mobile")
+	RETURN (COM_NOK)
+}
+}
+
+/*A Recuperer les parametres de retour de procedure et initialiser la BD*/
+
+/*B Horodate de debut */
+
+COM24_Afficher_Horodate (COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[3]),
+							va_fenetre, "BS_jour_debut", "BS_mois_debut",
+							"BS_annee_debut","BS_heure_debut","BS_minute_debut")
+
+
+/* Horodate de fin */
+
+COM24_Afficher_Horodate (COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[4]),
+							va_fenetre, "BS_jour_fin", "BS_mois_fin",
+							"BS_annee_fin", "BS_heure_fin", "BS_minute_fin")
+
+
+/*B PR */
+
+DB_CTRL_VALUE@ (va_fenetre, "BS_Pr",
+					COM31_Libelle_PR (vl_resultats.return_parameters[0]))
+
+
+/*B Sens */
+
+CASE OF vl_resultats.return_parameters[1]
+
+	CASE XDC_SENS_NORD
+	CASE XDC_SENS_SORTIE_NORD
+	CASE XDC_SENS_ENTREE_NORD
+		DB_CTRL_VALUE@(va_fenetre, "BO_sens", CM_NORD)
+	CASE XDC_SENS_SUD
+	CASE XDC_SENS_SORTIE_SUD
+	CASE XDC_SENS_ENTREE_SUD
+		DB_CTRL_VALUE@(va_fenetre, "BO_sens", CM_SUD)
+	CASE XDC_SENS_INCONNU
+		DB_CTRL_VALUE@(va_fenetre, "BO_sens", CM_RIEN)
+ENDCASE
+
+
+/*B Le message */
+vl_message = vl_resultats.return_parameters[2]
+
+DB_CTRL_VALUE@(va_fenetre, "BS_message1", SUBSTRING@ (vl_message, 1, 12))
+DB_CTRL_VALUE@(va_fenetre, "BS_message2", SUBSTRING@ (vl_message, 13, 12))
+DB_CTRL_VALUE@(va_fenetre, "BS_message3", SUBSTRING@ (vl_message, 25, 12))
+DB_CTRL_VALUE@(va_fenetre, "BS_message4", SUBSTRING@ (vl_message, 37, 12))
+
+/*A initialiser l'autoroute */
+
+vl_les_autoroutes = SYSTEM_VAR@ (vg_toutes_les_autoroutes)
+vl_auto = ARRAY_INDEX@ (ARRAY_COLUMN@ (vl_les_autoroutes, TDO_NUMERO_AUTOROUTE),
+			 	vl_resultats.return_parameters[6] )
+IF vl_auto >= 0
+	DB_CTRL_VALUE@ (va_fenetre, "BO_autoroute",vl_auto)
+ELSE 
+	DB_CTRL_VALUE@ (va_fenetre, "BO_autoroute", 0)
+
+
+RETURN (COM_OK)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Valider une fiche PMV sur remorque
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TMO_Valider_action (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        	: Id. de la fenetre 
+*	va_NumAction		: numero de l'action
+*	va_CleAction		: Cle de l'action
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMO_pmvMobile
+*
+* FONCTION
+*
+* Recuperer les donnees de la fiche
+*   
+---------------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+VAR   vl_indice, vl_debut, vl_fin, vl_auto
+
+
+/*A Initialisation des arguments entree de la procedure stockée */
+
+/*B Numero de la fiche main courante */
+ 	vl_indice = 0
+        vl_parametres[vl_indice].type = SYB#INT4_
+        vl_parametres[vl_indice].data = vm_NumFMC
+        vl_parametres[vl_indice].output = FALSE
+
+/*B Cle de la fiche main courante */
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#INT4_
+        vl_parametres[vl_indice].data = vm_CleFMC
+        vl_parametres[vl_indice].output = FALSE
+
+/*B Numero de l'action */
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#INT4_
+        vl_parametres[vl_indice].data = vm_NumAction
+        vl_parametres[vl_indice].output = FALSE
+
+/*B Numero du site d'appartenance */
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#INT4_
+        vl_parametres[vl_indice].data = SYSTEM_VAR@(vg_site)+0
+        vl_parametres[vl_indice].output = FALSE
+
+/*! Horodate de debut */
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#DATETIME_
+        vl_parametres[vl_indice].data =
+			COM23_Horodate (va_fenetre, "BS_jour_debut", "BS_mois_debut",
+							"BS_annee_debut","BS_heure_debut","BS_minute_debut")
+        vl_parametres[vl_indice].output = FALSE
+
+	vl_debut = vl_parametres[vl_indice].data
+
+/*! Horodate de fin */
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#DATETIME_
+        vl_parametres[vl_indice].data =
+			COM23_Horodate (va_fenetre, "BS_jour_fin", "BS_mois_fin",
+							"BS_annee_fin", "BS_heure_fin", "BS_minute_fin")
+        vl_parametres[vl_indice].output = FALSE
+
+	vl_fin = vl_parametres[vl_indice].data
+
+/*B tester la coherence des dates */
+	IF IS_NULL@(vl_debut)
+	    	ERROR@(C_ERR_IHM, C_LIB_SAISIR_DATE)
+	IF (COM17_Difference_Dates(vl_debut,COM09_Date_Courante ())>0)
+	    	ERROR@(C_ERR_IHM, C_LIB_SAISIR_DATE_DEB)
+	IF NOT IS_NULL@(vl_fin)
+		IF (COM17_Difference_Dates(vl_debut,vl_fin)>0)
+	    		ERROR@(C_ERR_IHM, C_LIB_SAISIR_DATE_FIN)
+
+/*B PR */
+	vl_indice = vl_indice +1
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = DB_CTRL_GET_VALUE@(va_fenetre, "BS_Pr")*1000
+	vl_parametres[vl_indice].output = FALSE
+
+/*B Sens */
+
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#INT1_
+
+       	CASE OF DB_CTRL_GET_VALUE@(va_fenetre, "BO_sens")
+                CASE CM_RIEN
+                        VL_parametres[vl_indice].data = XDC_SENS_INCONNU
+
+                CASE CM_NORD
+                        vl_parametres[vl_indice].data = XDC_SENS_NORD
+
+                CASE CM_SUD
+                        vl_parametres[vl_indice].data = XDC_SENS_SUD
+        ENDCASE
+        vl_parametres[vl_indice].output = FALSE
+
+/*B Le message du PMV */
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#CHAR_
+        vl_parametres[vl_indice].data =
+			FORMAT@ ("%-12s%-12s%-12s%-12s",
+						DB_CTRL_GET_VALUE@ (va_fenetre, "BS_message1"),
+						DB_CTRL_GET_VALUE@ (va_fenetre, "BS_message2"),
+						DB_CTRL_GET_VALUE@ (va_fenetre, "BS_message3"),
+						DB_CTRL_GET_VALUE@ (va_fenetre, "BS_message4"))
+        vl_parametres[vl_indice].output = FALSE
+
+
+/*B Numero de l'operateur */
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#INT4_
+        vl_parametres[vl_indice].data = SYSTEM_VAR@ (vg_numero_operateur)
+        vl_parametres[vl_indice].output = FALSE
+
+/*autoroute */
+	vl_indice = vl_indice +1
+	vl_parametres[vl_indice].type = SYB#INT2_
+	vl_auto = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_autoroute")
+	vl_parametres[vl_indice].data = vm_autoroutes[vl_auto].numero
+	vl_parametres[vl_indice].output = FALSE
+
+/*A Initialisation des arguments sortie de la procedure stockée */
+
+/*B Numero d'action */
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#INT4_
+        vl_parametres[vl_indice].data = 0
+        vl_parametres[vl_indice].output = TRUE
+
+/*B Site local */
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#CHAR_
+        vl_parametres[vl_indice].data = SYSTEM_VAR@(vg_nom_site)
+        vl_parametres[vl_indice].output = FALSE
+
+/*A Appeller la procedure stockée de mise en base XZAC14_Ecrire_PMV_Mobile */
+IF (COM05_SQL_Procedure (XZAC14_Ecrire_PMV_Mobile, vl_parametres, vl_resultats, C_MODULE)
+	<> COM_OK )
+{
+    RETURN (COM_NOK)
+}
+
+/*A Recuperer les arguments en sortie */
+/*B le numero d'action */
+	vm_NumAction = vl_resultats.return_parameters[0]
+
+    RETURN (COM_OK)
+ENDFUNCTION

@@ -1,0 +1,474 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_manif.am,v 1.17 2020/11/03 17:43:47 pc2dpdy Exp $        $Revision: 1.17 $        $Date: 2020/11/03 17:43:47 $
+-----------------------------------------------------------------------
+*  GTIE  *  PROJET MIGRAZUR
+-----------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-----------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMC_manif.am
+-----------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*
+*   Gere les donnees specifiques au type manifestation
+*   et les champs correspondants dans la fenetre de saisie FMC
+*
+-----------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  Guilhou	24 Oct 1994	1.1	: Création
+*  Torregrossa  23 Sep 1996 : Modif cr de sauvegarde V1.2 (CONF 4)
+*  Torregrossa  21 Oct 1996 : Suppression de la declaration de format TMC_meteo (IHM7) V1.11
+*  Niepceron	11 Jan 1999 : Modif intergestionnaire (1723) v1.12
+*  Lizot        14 Avr 2004 : Gestion du droit de propriete ESCOTA/DDE83 (SAGA) v1.13
+*  Lecrivain	26 Mar 2007 : Afficher/effacer champs pour retypage (dem/637) 1.14
+*  Lecrivain	23 Nov 2009 : Ajout macros d'affichage / saisie / controles (vides) 1.15
+*  JPL		19/03/19 : Ajout paramètres à l'écriture : horodate de validation et état FMC (DEM 1327)  1.16
+* LCL   	22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+-----------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"xdc_ax.h"
+INCLUDE	"xzic_ax.h"
+INCLUDE	"xzaec_ax.h"
+INCLUDE	"ITMA_COM.h"
+INCLUDE	"ITMA_TMC.h"
+INCLUDE	"ITMA_TDO.h"
+INCLUDE	"ITMA_TAR.h"
+INCLUDE	"xzae65sp.h"
+INCLUDE	"xzae47sp.h"
+
+
+/*A Définition des constantes */
+
+DEFINE	C_MODULE		"MTMC"		' Nom du module
+
+
+
+/*A Définition des variables globales */
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche / masque dans la fenetre FMC les champs specifiques au type manifestation
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_manif (va_fenetre, va_type_fmc, va_visible)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : id de la boite de dialogue ou afficher les champs
+*  va_type_fmc        : type de la fmc
+*  va_visible         : indicateur de visibilite demandee
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------------------- */
+VAR tl_controles
+VAR vl_indice
+VAR vl_fenetre
+VAR vl_droits
+
+
+/*A Traitements en cas d'erreur :
+ *   informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+ON ERROR 
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN
+}
+
+vl_fenetre = va_fenetre
+
+
+/*A rendre visibles ou masquer les champs associes au type fmc */
+
+/* Modif SAGA : la visibilite depend du droit de propriete */
+vl_droits = SYSTEM_VAR@ (vg_datex_propriete)
+
+/* Champs non visibles sans droit de propriete */
+tl_controles = {
+	"BS_nb_manif",
+	"BT_peage",
+	"BT_violence"
+}
+IF va_type_fmc = XZAEC_FMC_Escargot {
+	tl_controles = ARRAY_APPEND@ (tl_controles, { "BS_Longueur" })
+}
+FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+	DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice],
+	                     va_visible AND (vl_droits = XDC_VRAI))
+NEXT vl_indice
+
+	RETURN (vl_fenetre)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* sauve en base les informations specifiques du type manif
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_manif_sauve (FORMAT COM_Identifiant_FMC ta_num_evt, FORMAT TMC_manif va_tampon, va_mode, va_horodate, va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_num_evt		: numero et cle d'evenement
+* va_tampon		: valeurs des controles
+* va_mode		: prevision, traiter, clos
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+--------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@	vl_parametres	
+VAR FORMAT SQL_Procedure_Result@	vl_resultats
+VAR vl_indice
+
+/*A Traitements en cas d'erreur :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (COM_NOK)
+}
+
+	vl_indice=0
+	/*A preparation des parametres de la procedure stockee*/
+	vl_parametres[vl_indice].data=ta_num_evt.numero
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=ta_num_evt.cle
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_horodate
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.nombre
+	vl_parametres[vl_indice].type=SYB#INT2_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.perception
+	vl_parametres[vl_indice].type=SYB#BIT_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_tampon.violence
+	vl_parametres[vl_indice].type=SYB#BIT_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+		vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste_surcharge)
+	ELSE
+		vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste)
+	vl_parametres[vl_indice].type=SYB#INT2_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_mode
+	vl_parametres[vl_indice].type=SYB#INT1_
+	vl_parametres[vl_indice].output=FALSE
+        vl_indice = vl_indice +1
+
+/*B Site local */
+        vl_parametres[vl_indice].type = SYB#CHAR_
+        vl_parametres[vl_indice].data = SYSTEM_VAR@(vg_nom_site)
+        vl_parametres[vl_indice].output = FALSE
+
+	IF COM05_SQL_Procedure (XZAE65_Ecrire_Fiche_Manif,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@("Impossible de sauver le tampon manifestation en base")
+		RETURN (COM_NOK)
+	}
+	ELSE IF (vl_resultats.status <> XZAEC_FMC_PAS_ENR) AND 
+		(vl_resultats.status <> COM_OK)
+		INFO_MESSAGE@("Impossible de sauver le tampon manifestation en base")
+
+	RETURN (vl_resultats.status)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* charge de la base les informations specifiques du type manif
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_manif_charge (va_fenetre,FORMAT COM_Identifiant_FMC ta_num_evt,
+						va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_num_evt            : numero et cle d'evenement
+* va_fenetre            : id de la boite de dialogue fiche main courante
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR vl_indice
+VAR FORMAT TMC_manif         vl_tampon
+VAR tl_retour
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+       vl_indice=0
+
+       vl_parametres[vl_indice].type=SYB#DATETIME_
+ 	vl_parametres[vl_indice].data=va_horodate
+      vl_parametres[vl_indice].output=false
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].data=ta_num_evt.numero
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=false
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].data=ta_num_evt.cle
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=false
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+       vl_indice=vl_indice+1
+
+       vl_parametres[vl_indice].type=SYB#INT4_
+       vl_parametres[vl_indice].output=true
+
+       IF COM05_SQL_Procedure (XZAE47_Lire_Fiche_Manif,
+				  vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+	  INFO_MESSAGE@("Erreur dans la lecture du tampon manifestation en base ")
+	  tl_retour[0]=va_fenetre
+	       tl_retour[1]=null
+	  RETURN (tl_retour)
+	}
+
+	vl_tampon=vl_resultats.return_parameters
+
+	/*A Afficher les valeurs des donnees textuelles */
+	ITMA_TMC_manif_affiche (va_fenetre, vl_tampon)
+
+	tl_retour[0]=va_fenetre
+	tl_retour[1]=vl_tampon
+
+	RETURN (tl_retour)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche les donnees specifiques d'une fiche Manifestation
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_manif_affiche (va_fenetre, FORMAT TMC_manif va_manif)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*  va_manif           : Données de la fiche Manifestation
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur ouverture fiche Manifestation
+*
+* FONCTION
+*  Value les champs de saisie spécifiques aux FMC de classe Manifestation
+*
+--------------------------------------------------------------------------------- */
+
+	/*A Afficher le nombre de manifestants */
+	DB_CTRL_VALUE@ (va_fenetre, "BS_nb_manif", va_manif.nombre)
+
+	/*A Afficher l'indicateur d'absence de perception péage */
+	IF (va_manif.perception = XDC_VRAI) {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_peage", TRUE)
+	} ELSE {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_peage", FALSE)
+	}
+
+	/*A Afficher l'indicateur de violence */
+	IF (va_manif.violence = XDC_VRAI) {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_violence", TRUE)
+	} ELSE {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_violence", FALSE)
+	}
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit les donnees specifiques d'une fiche Manifestation saisies dans la fenetre
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_manif_saisie (va_fenetre, FORMAT TMC_manif va_manif)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_manif           : Donnees de la fiche Manifestation
+*
+*
+* CODE RETOUR         : XDC_NOK si une valeur saisie est incorrecte, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Manifestation
+*
+* FONCTION
+*  Remplit la fiche avec les donnees des champs de saisie specifiques.
+*
+--------------------------------------------------------------------------------- */
+
+	va_manif.nombre = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_nb_manif")
+
+	IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BT_peage") = TRUE) {
+		va_manif.perception = XDC_VRAI
+	} ELSE {
+		va_manif.perception = XDC_FAUX
+	}
+
+	IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BT_violence") = TRUE) {
+		va_manif.violence = XDC_VRAI
+	} ELSE {
+		va_manif.violence = XDC_FAUX
+	}
+
+	RETURN (XDC_OK)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Effectue les controles de validite des donnees specifiques d'une fiche Manifestation
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_manif_controle (FORMAT TMC_fmc va_fiche, FORMAT TMC_manif va_manif)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fiche           : Donnees generiques de la Fmc ;
+*  va_manif           : Donnees specifiques a la Fmc Manifestation
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_NOK si les donnees sont incorrectes, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Manifestation
+*
+* FONCTION
+*
+--------------------------------------------------------------------------------- */
+
+	IF (va_manif.nombre > 32000)
+	{
+		INFO_MESSAGE@ ("Le nombre de manifestants doit être inférieur à 32000")
+		RETURN (XDC_NOK)
+	}
+
+	RETURN (XDC_OK)
+ENDMACRO

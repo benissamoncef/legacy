@@ -1,0 +1,1907 @@
+/*E*/
+/* Fichier : $Id: dedi_make_pmv.am,v 1.13 2000/07/21 11:54:21 gesconf Exp $	      Release : $Revision: 1.13 $        Date : $Date: 2000/07/21 11:54:21 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_make_pmv.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* genere les fichiers ASCII de la politique PMV
+* (format RTie ou format Texte, en fonction de vg_mode)  
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Thomas	30 Jan 1995	: Creation						V1.1
+* Thomas	11 Sep 1995	: Generation de ctes.pmv_d_max_annonce_fin (1.2)			
+* Thomas	17 Nov 1995	: Modif pmv_lit_pert (1.3)			
+* Thomas	12 Dec 1995	: Modif pmv_lit_pert (1.4)			
+* Guilhou	30 sep 1996	: modif bandeau predefini si nul (1.6) DEM/1186
+* Guilhou	15 mai 1997	: generation des regles temps de parcours
+* Guilhou	26 mai 1997	: traitement fct les 2 PMV eligibles en amont
+* Guilhou	23 dec 1997	: ajout nature_bifurcation dans pmv_lit_nature (delestage) (dem/1534) 1.9
+*				  ajout nature_bifurc_pmv dans pmv_lit_evt (dem/1534)
+* Guilhou	16 avr 1998	: correction msg predefini PMV 1.10 - 1.11
+* Niepceron 20 Jan 1999	: Modif intergest 1.12 dem/1725
+* Guilhou	19 jan 2000	: traitement du cas ou le conseil est vide (SAE/39) 1.13
+---------------------------------------------------------------------------- */
+
+include "dedi_init.h"
+
+DEFINE	PMV_PR		"le PMV en amont au PR"
+
+/* compteur du nombre de regles pmv_picto_interdit */
+VAR vm_indice_picto
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* genere les regles PMV
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_make_pmv()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+* dedi
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_indice
+VAR tl_data
+VAR tl_commentaire
+VAR syntaxe_correcte
+VAR tl_arg
+
+	trace_chaine()
+	trace_chaine("POLITIQUE PMV")
+	trace_chaine()
+
+	syntaxe_correcte = TRUE
+	vm_indice_picto = 0
+
+	/*A
+	** on exploite vg_perturbations_pmv
+	*/
+	trace_chaine("Perturbations : definition, priorite, objectifs d'information associes, pictogramme associe, formulation de l'element nature, formulation de l'element probabilite ")
+
+	tl_data = SYSTEM_VAR@(vg_perturbations_pmv)
+
+		/*B on applique pmv_lit_perturbation a chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		IF ( STRING_INDEX@(ARRAY_TO_STRING@(tl_data[vl_indice]),"datex") <> 0)
+		{
+			IF pmv_lit_perturbation_datex(tl_data[vl_indice],vl_indice) = FALSE
+			syntaxe_correcte = FALSE	
+		}
+		ELSE
+		{
+			IF pmv_lit_perturbation(tl_data[vl_indice],vl_indice) = FALSE
+			syntaxe_correcte = FALSE	
+		}
+	NEXT vl_indice
+
+	if syntaxe_correcte
+	{
+		/*B on genere le fichier pmv_pert.rl */
+	tl_commentaire[0] = "*        POLITIQUE PMV DATEX:" 
+	tl_commentaire[1] = "*        choix des perturbations PMV en fonction"
+	tl_commentaire[2] = "*        des caracteristiques de l'evenement ou operation"
+	dedi_shell(IE_MODELE_PERT_PMV_DATEX, IE_SUFFIXE_RL, tl_commentaire)
+		/*B on genere le fichier pmv_pert.rl */
+	tl_commentaire[0] = "*        POLITIQUE PMV :" 
+	tl_commentaire[1] = "*        choix des perturbations PMV en fonction"
+	tl_commentaire[2] = "*        des caracteristiques de l'evenement ou operation"
+	dedi_shell(IE_MODELE_PERT_PMV, IE_SUFFIXE_RL, tl_commentaire)
+		/*B on genere le fichier pmv_obj_pert.ob */
+	if (SYSTEM_VAR@(vg_mode)=DEDI_MODE_GENERE)
+	{
+		tl_commentaire[0] = "*        POLITIQUE PMV DATEX:" 
+		tl_commentaire[1] = "*        definition des perturbations PMV"
+		tl_commentaire[2] = ""
+		dedi_shell(IE_MODELE_PERTU_PMV_DATEX, IE_SUFFIXE_OB, tl_commentaire)
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        definition des perturbations PMV"
+		tl_commentaire[2] = ""
+		dedi_shell(IE_MODELE_PERTU_PMV, IE_SUFFIXE_OB, tl_commentaire)
+	}
+	}
+	else
+	{
+		trace_chaine("GENERATION DES REGLES PMV IMPOSSIBLE.")
+		dedi_rm_tie()
+		RETURN
+	}
+
+
+	/*A
+	** on exploite le fichier IE_FILE_TDP_PMV
+	*/
+	trace_chaine("Messages PMV predefinis pour temps de parcours")
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_TDP_PMV)
+
+	syntaxe_correcte = pmv_lit_predefini_tdp(tl_data)
+
+	if syntaxe_correcte
+	{
+		/*B on genere le fichier pmv_pred_tdp.rl*/
+		tl_commentaire[0] = "*        POLITIQUE PMV :"
+		tl_commentaire[1] = "*        definition des messages PMV predefinis pour temps de parcours"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_PRED_TDP_PMV,IE_SUFFIXE_RL,tl_commentaire)
+	}
+	else
+	{
+		trace_chaine("GENERATION DES REGLES PMV IMPOSSIBLE.")
+		dedi_rm_tie()
+		RETURN
+	}
+
+	/*A
+	** on exploite le fichier IE_FILE_PRED_PMV_DATEX
+	*/
+	trace_chaine("Messages PMV predefinis datex")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_PRED_PMV_DATEX)
+
+	/*B on applique pmv_lit_predefini a chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		IF pmv_lit_predefini(tl_data[vl_indice],vl_indice,TRUE) = FALSE
+			syntaxe_correcte = FALSE	
+	NEXT vl_indice
+
+	/*A
+	** on recupere le texte du bandeau pour les messages predefinis*/
+/*	trace_chaine("Bandeau pour les messages PMV predefinis")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_PRED_BAND_PMV)*/
+	
+	/*B on applique pmv_lit_predefini*/
+/*	syntaxe_correcte=pmv_lit_predefini(tl_data[0],vl_indice)*/
+
+	if syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        definition des messages PMV predefinis datex"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_PRED_PMV_DATEX, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	else
+	{
+		trace_chaine("GENERATION DES REGLES PMV IMPOSSIBLE.")
+		dedi_rm_tie()
+		RETURN
+	} 
+
+	/*A
+	** on exploite le fichier IE_FILE_PRED_PMV
+	*/
+	trace_chaine("Messages PMV predefinis")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_PRED_PMV)
+
+	/*B on applique pmv_lit_predefini a chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		IF pmv_lit_predefini(tl_data[vl_indice],vl_indice,FALSE) = FALSE
+			syntaxe_correcte = FALSE	
+	NEXT vl_indice
+
+	/*A
+	** on recupere le texte du bandeau pour les messages predefinis*/
+/*	trace_chaine("Bandeau pour les messages PMV predefinis")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_PRED_BAND_PMV)*/
+	
+	/*B on applique pmv_lit_predefini*/
+/*	syntaxe_correcte=pmv_lit_predefini(tl_data[0],vl_indice)*/
+
+	if syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        definition des messages PMV predefinis"
+		tl_commentaire[2] = "*        "
+		dedi_shell(IE_MODELE_PRED_PMV, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	else
+	{
+		trace_chaine("GENERATION DES REGLES PMV IMPOSSIBLE.")
+		dedi_rm_tie()
+		RETURN
+	} 
+
+	/*A
+	** on exploite vg_objectifs_pmv
+	*/
+	trace_chaine("Objectifs d'information : definition, choix des PMV, pictos interdits, texte sur bandeau, formulation de l'element conseil ")
+
+		/*B on applique pmv_lit_objectif a chaque ligne */
+	tl_data = SYSTEM_VAR@(vg_objectifs_pmv)
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		IF pmv_lit_objectif(tl_data[vl_indice],vl_indice) = FALSE
+			syntaxe_correcte = FALSE	
+	NEXT vl_indice
+
+	if syntaxe_correcte
+	{
+		/*B on genere le fichier pmv_obj.cl */
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        liste des objectifs d'information definis"
+		tl_commentaire[2] = ""
+		dedi_shell(IE_MODELE_OBJ_PMV, IE_SUFFIXE_CL, tl_commentaire)
+
+		/*B on genere le fichier pmv_def.rl */
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        structure des messages PMV"
+		tl_commentaire[2] = "*        en fonction de l'objectif d'information"
+		dedi_shell(IE_MODELE_DEF_PMV, IE_SUFFIXE_RL, tl_commentaire)
+
+		/*B on genere le fichier pmv_eqpt.rl */
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        choix des PMV a utiliser"
+		tl_commentaire[2] = "*        en fonction de l'objectif d'information"
+		dedi_shell(IE_MODELE_EQT_PMV, IE_SUFFIXE_RL, tl_commentaire)
+
+		/*B on genere le fichier pmv_picto_interdit.rl */
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        pictogrammes interdits"
+		tl_commentaire[2] = "*        en fonction de l'objectif d'information"
+		dedi_shell(IE_MODELE_PICTO_PMV, IE_SUFFIXE_RL, tl_commentaire)
+
+		/*B on genere le fichier pmv_bandeau.rl */
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        choix du texte a afficher sur le bandeau"
+		tl_commentaire[2] = "*        en fonction de l'objectif d'information"
+		dedi_shell(IE_MODELE_BAN_PMV, IE_SUFFIXE_RL, tl_commentaire)
+
+		/*B on genere le fichier pmv_elt_conseil.rl */
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        formulation de l'element CONSEIL"
+		tl_commentaire[2] = "*        en fonction de l'objectif d'information"
+		dedi_shell(IE_MODELE_CONSEIL_PMV, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	else
+	{
+		trace_chaine("GENERATION DES REGLES PMV IMPOSSIBLE.")
+		dedi_rm_tie()
+		RETURN
+	}
+
+
+	/*A
+	** on exploite le fichier IE_FILE_EVT_PMV (type|picto|l1|l2|l3)
+	*/
+	trace_chaine("Evenements : pictogramme associe, formulation de l'element nature, formulation de l'element probabilite ")
+
+	/*B on applique pmv_lit_evt aux donnees */
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_EVT_PMV)
+	pmv_lit_evt(tl_data)
+	
+	/*B on genere le fichier fmc.cl */
+	dedi_make_fmc()
+
+	/*A
+	** on exploite le fichier IE_FILE_NATURE_PMV
+	*/
+	trace_chaine("Formulation de l'élément nature pour les événements délestage et déviation")
+
+	/*on applique pmv_lit_nature aux donnees*/
+	syntaxe_correcte=pmv_lit_nature(tl_data)
+
+	if syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        regles specifiques de calcul de l'element nature"
+		tl_commentaire[2] = ""
+		dedi_shell(IE_MODELE_NATURE_PMV, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	else
+	{
+		trace_chaine("GENERATION DES REGLES PMV IMPOSSIBLE.")
+		dedi_rm_tie()
+		RETURN
+	}
+
+	/*A
+	** on exploite les fichiers IE_FILE_STRATEGIE_PMV (strategie)
+	** et IE_FILE_SEUIL_EVT_PMV (distance max annonce fin)
+	*/
+	trace_chaine("Strategie de designation des sorties ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_STRATEGIE)
+	tl_arg[0] = tl_data[0]
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_SEUIL_EVT_PMV)
+	tl_arg[1] = tl_data[0]
+	dedi_genere(IE_MODELE_INIT_PMV,1,tl_arg)
+
+	tl_commentaire[0] = "*        POLITIQUE PMV :" 
+	tl_commentaire[1] = "*        strategie de designation des sorties"
+	tl_commentaire[2] = "*        et distance max pour annoncer la fin"
+	dedi_shell(IE_MODELE_INIT_PMV, IE_SUFFIXE_IN, tl_commentaire)
+
+	/*A
+	**  on exploite le fichier IE_FILE_LOCAL_PMV(l1|l2|l3)
+	*/
+	trace_chaine("Formulation de l'element de message LOCALISATION ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_LOCAL_PMV)
+	syntaxe_correcte = pmv_lit_localisation(tl_data,IE_FILE_LOCAL_PMV)
+	
+	if syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        formulation de l'element de message LOCALISATION"
+		tl_commentaire[2] = ""
+		dedi_shell(IE_MODELE_LOCAL_PMV, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	else
+	{
+		trace_chaine("GENERATION DES REGLES PMV IMPOSSIBLE.")
+		dedi_rm_tie()
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier IE_FILE_DIRECTION_PMV(l1|l2|l3, l1|l2|l3)
+	*/
+	trace_chaine("Formulation de l'element de message DIRECTION ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_DIRECTION_PMV)
+	syntaxe_correcte = pmv_lit_direction(tl_data,IE_FILE_DIRECTION_PMV)
+	
+	if syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        formulation de l'element de message DIRECTION"
+		tl_commentaire[2] = ""
+		dedi_shell(IE_MODELE_DIRECTION_PMV, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	else
+	{
+		trace_chaine("GENERATION DES REGLES PMV IMPOSSIBLE.")
+		dedi_rm_tie()
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier IE_FILE_LONGUEUR_PMV(l1|l2|l3, l1|l2|l3)
+	*/
+	trace_chaine("Formulation de l'element de message LONGUEUR DE BOUCHON ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_BOUCHON_PMV)
+	syntaxe_correcte = pmv_lit_longueur(tl_data,IE_FILE_BOUCHON_PMV)
+	
+	if syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        formulation de l'element de message LONGUEUR DE BOUCHON"
+		tl_commentaire[2] = ""
+		dedi_shell(IE_MODELE_LONGUEUR_PMV, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	else
+	{
+		trace_chaine("GENERATION DES REGLES PMV IMPOSSIBLE.")
+		dedi_rm_tie()
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier IE_FILE_DUREE_PMV(l1|l2|l3)
+	*/
+	trace_chaine("Formulation de l'element de message DUREE ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_DUREE_PMV)
+	syntaxe_correcte = pmv_lit_duree(tl_data,IE_FILE_DUREE_PMV)
+	
+	if syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        formulation de l'element de message DUREE"
+		tl_commentaire[2] = ""
+		dedi_shell(IE_MODELE_DUREE_PMV, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	else
+	{
+		trace_chaine("GENERATION DES REGLES PMV IMPOSSIBLE.")
+		dedi_rm_tie()
+		RETURN
+	}
+
+	/*A
+	**  on exploite le fichier IE_FILE_ALTERNAT_PMV
+	*/
+	trace_chaine("Definition du texte d'alternat ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_ALTERNAT_PMV)
+	syntaxe_correcte = pmv_lit_alternat(tl_data,IE_FILE_ALTERNAT_PMV)
+	
+	if syntaxe_correcte
+	{
+		tl_commentaire[0] = "*        POLITIQUE PMV :" 
+		tl_commentaire[1] = "*        definition du texte d'alternat"
+		tl_commentaire[2] = ""
+		dedi_shell(IE_MODELE_ALTERNAT_PMV, IE_SUFFIXE_RL, tl_commentaire)
+	}
+	else
+	{
+		trace_chaine("GENERATION DES REGLES PMV IMPOSSIBLE.")
+		dedi_rm_tie()
+		RETURN
+	}
+
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_lit_objectif (ta_objectif, va_indice)
+
+/*
+* ARGUMENTS EN ENTREE : ta_objectif
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere les fichiers .tie associes a un objectif d'information
+*
+---------------------------------------------------------------------------- */
+VAR tl_arg
+VAR vl_indice
+VAR syntaxe_correcte
+	
+	syntaxe_correcte = TRUE
+
+	/*A on applique le modele pmv_obj sur le nom */
+	dedi_genere(IE_MODELE_OBJ_PMV,va_indice+1,ta_objectif)
+	trace_point()
+
+	/*A on applique le modele pmv_def sur le nom et les elements */
+	dedi_genere(IE_MODELE_DEF_PMV,va_indice+1,ta_objectif)
+	trace_point()
+
+	/*A on applique le modele pmv_eqpt sur le nom, le pmv et la distance et la distance avec bifurcation*/
+	tl_arg[0] = ta_objectif[dedi_pos_nom]
+	tl_arg[1] = ta_objectif[dedi_pos_pmv]
+	tl_arg[2] = dedi_var_convert(ta_objectif[dedi_pos_pmv], IE_FILE_OBJ_PMV)
+	tl_arg[3] = ta_objectif[dedi_pos_distance]
+	tl_arg[5] = ta_objectif[dedi_pos_distance_bifurc]
+
+	/*si c'est les 2 PMV eligibles en amont*/
+	if (tl_arg[2]="les_2_PMV_eligibles_en_amont(") {
+	  if ((tl_arg[3] = NULL) OR (tl_arg[3] =0))
+	    tl_arg[3] =1000000
+	  tl_arg[4]="tdp"
+	}
+	else
+	  tl_arg[4]=null
+	
+	if tl_arg[2] = NULL
+	{
+		trace_chaine("Erreur de syntaxe dans le choix des PMV pour l'objectif d'information "++tl_arg[0])
+		syntaxe_correcte = FALSE
+	}
+	else
+		dedi_genere(IE_MODELE_EQT_PMV,va_indice+1,tl_arg)
+	trace_point()
+	
+	/*A on applique le modele pmv_bandeau sur le nom et le bandeau */
+	tl_arg[0] = ta_objectif[dedi_pos_nom]
+	tl_arg[1] = ta_objectif[dedi_pos_bandeau]
+	IF tl_arg[1] = NULL
+	{
+		tl_arg[1] = "\"\""
+		tl_arg[2] = "rien"
+	}
+	ELSE
+	{
+		tl_arg[1] = ARRAY_TO_STRING@(pmv_construit_ligne(
+							ta_objectif[dedi_pos_bandeau],IE_FILE_OBJ_PMV))
+		tl_arg[2] = ta_objectif[dedi_pos_bandeau]
+	}
+	/*! dans le cas  $DISTANCE$, la regle a une condition supplementaire */
+	IF tl_arg[2] = "$DISTANCE$"
+		tl_arg[3] = "+"
+	ELSE
+		tl_arg[3] = NULL
+
+	dedi_genere(IE_MODELE_BAN_PMV,va_indice+1,tl_arg)
+	trace_point()
+	
+	/*A on applique le modele pmv_elt_conseil sur le nom et le conseil */
+	if (ta_objectif[dedi_pos_conseil]<>NULL OR
+	    ta_objectif[dedi_pos_conseil+1]<>NULL OR
+	    ta_objectif[dedi_pos_conseil+2]<>NULL) {
+	  tl_arg[0] = ta_objectif[dedi_pos_nom]
+	  tl_arg[1] = ARRAY_TO_STRING@(pmv_construit_ligne(
+						ta_objectif[dedi_pos_conseil]++DEDI_CAR_SEPAR
+						++ ta_objectif[dedi_pos_conseil+1]++DEDI_CAR_SEPAR
+						++ ta_objectif[dedi_pos_conseil+2]++DEDI_CAR_SEPAR,
+						IE_FILE_OBJ_PMV))
+	  dedi_genere(IE_MODELE_CONSEIL_PMV,va_indice+1,tl_arg)
+	}
+	trace_point()	
+
+	/*A on applique le modele pmv_picto_interdit sur chaque picto */
+	FOR vl_indice=dedi_pos_pictos TO (ARRAY_SIZE@(ta_objectif)-1)
+		tl_arg[0] = ta_objectif[dedi_pos_nom]
+		tl_arg[1] = ta_objectif[vl_indice]
+		vm_indice_picto = vm_indice_picto + 1
+		dedi_genere(IE_MODELE_PICTO_PMV,vm_indice_picto,tl_arg)
+		trace_point()	
+	NEXT vl_indice
+
+	RETURN(syntaxe_correcte)
+
+ENDFUNCTION
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_lit_perturbation (ta_perturbation, va_indice)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_perturbation (nom, def, priorite, obj1, obj2, obj3, l1, l2, l3, picto)
+*	va_indice
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION :
+*
+* FONCTION		: genere les fichiers .tie associe a une perturbation PMV
+*	(la regle dans pmv_pert.tie et l'objet dans pmv_perturbation.tie)
+*
+---------------------------------------------------------------------------- */
+VAR tl_arg
+VAR tl_def
+VAR vl_indice
+VAR vl_classe
+VAR vl_predicat
+VAR tl_ligne
+VAR vl_predicat_tdp
+
+	/*A on recupere les arguments a utiliser tels quels */
+	tl_arg[0] = ta_perturbation[dedi_pos_nom]
+	tl_arg[2] = ta_perturbation[dedi_pos_priorite]
+	tl_arg[6] = ta_perturbation[dedi_pos_picto]
+	tl_arg[7] = ta_perturbation[dedi_pos_obj1]
+	tl_arg[8] = ta_perturbation[dedi_pos_obj2]
+	tl_arg[9] = ta_perturbation[dedi_pos_obj3]
+
+	/*A on construit la definition texte */
+	tl_arg[10] = ""
+	tl_def = ARRAY_FROM_STRING@(ta_perturbation[dedi_pos_def], DEDI_CAR_VAR)
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_def)-1)
+		tl_arg[10] = tl_arg[10] ++ tl_def[vl_indice] ++ " "
+	NEXT vl_indice
+
+	/*A on construit la definition RTie */
+		/*B on isole les arguments */
+	tl_def = ARRAY_FROM_STRING@(ta_perturbation[dedi_pos_def], DEDI_CAR_VAR)
+
+	vl_predicat_tdp=FALSE
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_def)-1)
+		/*B on cherche les variables dans la liste des types de FMC */
+		vl_classe = ie_classe(tl_def[vl_indice])
+		IF vl_classe <> NULL
+			tl_def[vl_indice] = "ObjExists(\""++vl_classe++"\", en_cours.evt)"
+		ELSE
+		{
+			/*B puis dans la table des variables*/
+			vl_predicat = dedi_var_convert(tl_def[vl_indice],IE_FILE_PERT_PMV)
+
+			/*si predicat de temps de parcours*/
+			if (vl_predicat="zdp_pmv.?x?.passage_perturbe")
+			  /*je le memorise*/
+			  vl_predicat_tdp=TRUE
+			IF vl_predicat <> NULL
+				tl_def[vl_indice] = vl_predicat
+			ELSE
+			/*B puis sous la forme predicat comparateur valeur*/
+			{
+				tl_ligne = ARRAY_FROM_STRING@(tl_def[vl_indice], " ")
+				vl_predicat = dedi_var_convert(tl_ligne[0],IE_FILE_PERT_PMV)
+
+				IF (vl_predicat = NULL OR ARRAY_SIZE@(tl_ligne) <> 3)
+				{
+					trace_chaine("Erreur de syntaxe dans la formulation de l'element nature, pour la perturbation \""++tl_arg[0]++"\", ligne "++(vl_indice+1))
+					RETURN(FALSE)
+				}
+				ELSE
+					tl_def[vl_indice] = vl_predicat++tl_ligne[1]++tl_ligne[2]
+			}
+		}
+	
+		/*B on ajoute la tabulation en debut de ligne */
+		tl_def[vl_indice] = "        " ++ tl_def[vl_indice]
+	NEXT vl_indice
+	tl_arg[1] = tl_def
+
+	/*A on construit la constante RTie pour l'element nature */
+	tl_arg[3] = ARRAY_TO_STRING@(pmv_construit_ligne(
+				ta_perturbation[dedi_pos_l1] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_l2] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_l3] ++ DEDI_CAR_SEPAR,
+				IE_FILE_PERT_PMV))
+
+	/*A on construit la constante RTie pour l'element proba, cas signale */
+	tl_arg[4] = ARRAY_TO_STRING@(pmv_construit_ligne(
+				ta_perturbation[dedi_pos_p1] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_p2] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_p3] ++ DEDI_CAR_SEPAR,
+				IE_FILE_PERT_PMV))
+
+	/*A on construit la constante RTie pour l'element proba, cas confirme */
+	tl_arg[5] = ARRAY_TO_STRING@(pmv_construit_ligne(
+				ta_perturbation[dedi_pos_p4] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_p5] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_p6] ++ DEDI_CAR_SEPAR,
+				IE_FILE_PERT_PMV))
+
+	/*A on construit la constante RTie pour l'element nature avec bifurcation*/
+	tl_arg[11] = ARRAY_TO_STRING@(pmv_construit_ligne(
+				ta_perturbation[dedi_pos_b1] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_b2] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_b3] ++ DEDI_CAR_SEPAR,
+				IE_FILE_PERT_PMV))
+
+	/*si predicat tdp*/
+	if (vl_predicat_tdp)
+	  /*traitements supplementaires ds la perturbation*/
+	  tl_arg[20]="tdp"
+        else
+	  tl_arg[20]=null
+	/*A on applique le modele pmv_pert */
+	dedi_genere(IE_MODELE_PERT_PMV,va_indice+1,tl_arg)
+	trace_point()
+
+	/*A on applique le modele pmv_perturbation */
+	if (SYSTEM_VAR@(vg_mode) = DEDI_MODE_GENERE)
+	{
+		dedi_genere(IE_MODELE_PERTU_PMV,va_indice+1,tl_arg)
+		trace_point()
+	}
+
+	RETURN(TRUE)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_lit_perturbation_datex (ta_perturbation, va_indice)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_perturbation (nom, def, priorite, obj1, obj2, obj3, l1, l2, l3, picto)
+*	va_indice
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION :
+*
+* FONCTION		: genere les fichiers .tie associe a une perturbation datex PMV
+*	(la regle dans pmv_pert.tie et l'objet dans pmv_perturbation.tie)
+*
+---------------------------------------------------------------------------- */
+VAR tl_arg
+VAR tl_def
+VAR vl_indice
+VAR vl_classe
+VAR vl_predicat
+VAR tl_ligne
+VAR vl_predicat_tdp
+
+	/*A on recupere les arguments a utiliser tels quels */
+	tl_arg[0] = ta_perturbation[dedi_pos_nom]
+	tl_arg[2] = ta_perturbation[dedi_pos_priorite]
+	tl_arg[6] = ta_perturbation[dedi_pos_picto]
+	tl_arg[7] = ta_perturbation[dedi_pos_obj1]
+	tl_arg[8] = ta_perturbation[dedi_pos_obj2]
+	tl_arg[9] = ta_perturbation[dedi_pos_obj3]
+
+	/*A on construit la definition texte */
+	tl_arg[10] = ""
+	tl_def = ARRAY_FROM_STRING@(ta_perturbation[dedi_pos_def], DEDI_CAR_VAR)
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_def)-1)
+		tl_arg[10] = tl_arg[10] ++ tl_def[vl_indice] ++ " "
+	NEXT vl_indice
+
+	/*A on construit la definition RTie */
+		/*B on isole les arguments */
+	tl_def = ARRAY_FROM_STRING@(ta_perturbation[dedi_pos_def], DEDI_CAR_VAR)
+
+	vl_predicat_tdp=FALSE
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_def)-1)
+		/*B on cherche les variables dans la liste des types de FMC */
+		vl_classe = ie_classe(tl_def[vl_indice])
+		IF vl_classe <> NULL
+			tl_def[vl_indice] = "ObjExists(\""++vl_classe++"\", en_cours.evt)"
+		ELSE
+		{
+			/*B puis dans la table des variables*/
+			vl_predicat = dedi_var_convert(tl_def[vl_indice],IE_FILE_PERT_PMV)
+			/*si predicat de temps de parcours*/
+			if (vl_predicat="zdp_pmv.?x?.passage_perturbe")
+			  /*je le memorise*/
+			  vl_predicat_tdp=TRUE
+			IF vl_predicat <> NULL
+				tl_def[vl_indice] = vl_predicat
+			ELSE
+			/*B puis sous la forme predicat comparateur valeur*/
+			{
+				tl_ligne = ARRAY_FROM_STRING@(tl_def[vl_indice], " ")
+				vl_predicat = dedi_var_convert(tl_ligne[0],IE_FILE_PERT_PMV)
+
+				IF (vl_predicat = NULL OR ARRAY_SIZE@(tl_ligne) <> 3)
+				{
+					trace_chaine("Erreur de syntaxe dans la formulation de l'element nature, pour la perturbation \""++tl_arg[0]++"\", ligne "++(vl_indice+1))
+					RETURN(FALSE)
+				}
+				ELSE
+					tl_def[vl_indice] = vl_predicat++tl_ligne[1]++tl_ligne[2]
+			}
+		}
+	
+		/*B on ajoute la tabulation en debut de ligne */
+		tl_def[vl_indice] = "        " ++ tl_def[vl_indice]
+	NEXT vl_indice
+	tl_arg[1] = tl_def
+
+	/*A on construit la constante RTie pour l'element nature */
+	tl_arg[3] = ARRAY_TO_STRING@(pmv_construit_ligne(
+				ta_perturbation[dedi_pos_l1] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_l2] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_l3] ++ DEDI_CAR_SEPAR,
+				IE_FILE_PERT_PMV))
+
+	/*A on construit la constante RTie pour l'element proba, cas signale */
+	tl_arg[4] = ARRAY_TO_STRING@(pmv_construit_ligne(
+				ta_perturbation[dedi_pos_p1] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_p2] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_p3] ++ DEDI_CAR_SEPAR,
+				IE_FILE_PERT_PMV))
+
+	/*A on construit la constante RTie pour l'element proba, cas confirme */
+	tl_arg[5] = ARRAY_TO_STRING@(pmv_construit_ligne(
+				ta_perturbation[dedi_pos_p4] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_p5] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_p6] ++ DEDI_CAR_SEPAR,
+				IE_FILE_PERT_PMV))
+
+	/*A on construit la constante RTie pour l'element nature avec bifurcation*/
+	tl_arg[11] = ARRAY_TO_STRING@(pmv_construit_ligne(
+				ta_perturbation[dedi_pos_b1] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_b2] ++ DEDI_CAR_SEPAR
+				++ ta_perturbation[dedi_pos_b3] ++ DEDI_CAR_SEPAR,
+				IE_FILE_PERT_PMV))
+
+	/*si predicat tdp*/
+	if (vl_predicat_tdp)
+	  /*traitements supplementaires ds la perturbation*/
+	  tl_arg[20]="tdp"
+        else
+	  tl_arg[20]=null
+
+	/*A on applique le modele pmv_pert */
+	dedi_genere(IE_MODELE_PERT_PMV_DATEX,va_indice+1,tl_arg)
+	trace_point()
+
+	/*A on applique le modele pmv_perturbation */
+	if (SYSTEM_VAR@(vg_mode) = DEDI_MODE_GENERE)
+	{
+		dedi_genere(IE_MODELE_PERTU_PMV_DATEX,va_indice+1,tl_arg)
+		trace_point()
+	}
+
+	RETURN(TRUE)
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_lit_evt (ta_data_pmv)
+
+/*
+* ARGUMENTS EN ENTREE : ta_data_pmv (fmc|picto|l1|l2|l3|l4|l5|l6)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: met a jour le tableau des evts
+*
+* ATTENTION : les cas delestage et deviation ne sont pas traites (ni au niveau IHM,
+* ni au niveau generation RTie. S'inspirer de l'element localisation.)
+*
+---------------------------------------------------------------------------- */
+VAR FORMAT dedi_evt	tl_evts_ie
+VAR vl_indice
+VAR tl_evt_pmv
+
+	/*A on recupere le tableau des donnees RTie sur les evts */
+	tl_evts_ie = SYSTEM_VAR@(vg_evts_ie)
+	/*A on le met a jour ligne par ligne */
+	FOR vl_indice = 0 TO ARRAY_SIZE@(ta_data_pmv)
+
+		/*A on isole les arguments */
+		tl_evt_pmv = ARRAY_FROM_STRING@(ta_data_pmv[vl_indice], DEDI_CAR_SEPAR)
+
+		/*B le picto est en rang 1*/
+		tl_evts_ie[vl_indice].picto_pmv = tl_evt_pmv[1]
+
+		/*B le texte de l'element nature est en rang 2, 3, 4*/
+		tl_evts_ie[vl_indice].nature_pmv = 
+			ARRAY_TO_STRING@(pmv_construit_ligne(tl_evt_pmv[2] ++DEDI_CAR_SEPAR 
+										++tl_evt_pmv[3] ++DEDI_CAR_SEPAR
+										++ tl_evt_pmv[4] ++DEDI_CAR_SEPAR,
+										IE_FILE_EVT_PMV))
+
+		/*B le texte de fin de l'element nature est en rang 5, 6, 7*/
+		tl_evts_ie[vl_indice].nature_fin_pmv = 
+			ARRAY_TO_STRING@(pmv_construit_ligne(tl_evt_pmv[5] ++DEDI_CAR_SEPAR 
+										++tl_evt_pmv[6] ++DEDI_CAR_SEPAR
+										++ tl_evt_pmv[7] ++DEDI_CAR_SEPAR,
+										IE_FILE_EVT_PMV))
+
+		/*B le texte nature avec bifurcation est en rang 14,15,16*/
+		tl_evts_ie[vl_indice].nature_bifurc_pmv =
+			ARRAY_TO_STRING@(pmv_construit_ligne(tl_evt_pmv[14] ++DEDI_CAR_SEPAR
+									++tl_evt_pmv[15] ++DEDI_CAR_SEPAR
+									++ tl_evt_pmv[16] ++DEDI_CAR_SEPAR,
+									IE_FILE_EVT_PMV))
+	NEXT vl_indice
+
+	/*A on met a jour la variable globale */
+	SET_SYSTEM_VAR@(vg_evts_ie, tl_evts_ie)
+
+ENDFUNCTION
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_lit_localisation (ta_data, va_fichier)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_data (tableau de 12 lignes, une ligne par cas)
+*	va_fichier (fichier de donnees - pour dedi_var_convert)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION :
+*
+* FONCTION		: genere le fichier pmv_elt_local.tie
+*
+---------------------------------------------------------------------------- */
+VAR vl_indice, vl_i, vl_nb_cas
+VAR tl_arg
+VAR tl_data
+VAR syntaxe_correcte
+
+	syntaxe_correcte = TRUE
+	vl_nb_cas = 12
+
+	FOR vl_indice=0 TO (vl_nb_cas-1)
+	{
+		trace_point()
+
+		/*A on construit l'expression sous forme texte */
+		tl_arg[vl_indice+vl_nb_cas+1] = ARRAY_FROM_STRING@(ta_data[vl_indice],
+										DEDI_CAR_SEPAR)
+		tl_arg[vl_indice+vl_nb_cas+1][0] = "                "
+									++ tl_arg[vl_indice+vl_nb_cas+1][0]
+		tl_arg[vl_indice+vl_nb_cas+1][1] = "                "
+									++ tl_arg[vl_indice+vl_nb_cas+1][1]
+		tl_arg[vl_indice+vl_nb_cas+1][2] = "                "
+									++ tl_arg[vl_indice+vl_nb_cas+1][2]
+
+		/*A on construit l'expression sous forme rtie */
+		tl_arg[vl_indice] = pmv_construit_ligne(ta_data[vl_indice],va_fichier)
+
+		IF tl_arg[vl_indice] = NULL
+		{
+			trace_chaine("Erreur de syntaxe dans la formulation de l'element localisation, cas "++(vl_indice+1))
+			syntaxe_correcte = FALSE
+		}
+
+		/*B on ajoute les separateurs et les espaces */
+		FOR vl_i=0 TO (ARRAY_SIZE@(tl_arg[vl_indice]) - 2)
+			tl_arg[vl_indice][vl_i] = tl_arg[vl_indice][vl_i] ++ ","
+		NEXT vl_i
+
+		FOR vl_i=1 TO (ARRAY_SIZE@(tl_arg[vl_indice]) - 1)
+			tl_arg[vl_indice][vl_i] = "        " ++ tl_arg[vl_indice][vl_i]
+		NEXT vl_i
+	}
+	NEXT vl_indice
+
+	/*A on ajoute le seuil */
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_SEUIL_EVT_PMV)
+	tl_arg[vl_nb_cas] = tl_data[0]
+	tl_arg[2*vl_nb_cas+1] = tl_data[0]
+
+	if syntaxe_correcte
+		dedi_genere(IE_MODELE_LOCAL_PMV,1,tl_arg)
+
+	trace_point()
+	RETURN(syntaxe_correcte)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_lit_direction (ta_data, va_fichier)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_data (tableau de 2 lignes, l1|l2|l3)
+*	va_fichier (fichier de donnees - pour dedi_var_convert)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION :
+*
+* FONCTION		: genere le fichier pmv_elt_direction.tie
+*
+---------------------------------------------------------------------------- */
+VAR syntaxe_correcte
+VAR vl_indice, vl_i, vl_l
+VAR tl_arg
+
+	syntaxe_correcte = TRUE
+	vl_l = ARRAY_SIZE@(ta_data)
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(ta_data)-1)
+	
+		trace_point()
+
+		/*A on construit l'expression sous forme RTie */
+		tl_arg[vl_indice] = pmv_construit_ligne(ta_data[vl_indice],va_fichier)
+		if tl_arg[vl_indice]=NULL
+		{
+			trace_chaine("Erreur de syntaxe dans la formulation de l'element direction, cas "++(vl_indice+1))
+			syntaxe_correcte = FALSE
+		}
+
+		/*A on ajoute les separateurs */
+		FOR vl_i=0 TO (ARRAY_SIZE@(tl_arg[vl_indice])-2)
+			tl_arg[vl_indice][vl_i] = tl_arg[vl_indice][vl_i] ++ ","
+		NEXT vl_i
+
+		/*A on ajoute les tabulations */
+		FOR vl_i=0 TO (ARRAY_SIZE@(tl_arg[vl_indice])-1)
+			tl_arg[vl_indice][vl_i] = "        " ++ tl_arg[vl_indice][vl_i]
+		NEXT vl_i
+
+		/*A on construit l'expression sous forme texte */
+		tl_arg[vl_l+vl_indice] = ARRAY_FROM_STRING@(
+									ta_data[vl_indice],DEDI_CAR_SEPAR)
+
+		/*A on ajoute les tabulations */
+		FOR vl_i=0 TO (ARRAY_SIZE@(tl_arg[vl_indice])-1)
+			tl_arg[vl_l+vl_indice][vl_i] = "        "++
+											tl_arg[vl_l+vl_indice][vl_i]
+		NEXT vl_i
+
+	NEXT vl_indice
+
+	/*A on applique le modele AW */
+	IF syntaxe_correcte
+		dedi_genere(IE_MODELE_DIRECTION_PMV,1,tl_arg)
+
+	RETURN(syntaxe_correcte)
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_lit_longueur (ta_data, va_fichier)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_data (tableau de 2 lignes, l1|l2|l3)
+*	va_fichier (fichier de donnees - pour dedi_var_convert)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION :
+*
+* FONCTION		: genere le fichier pmv_elt_longueur.tie
+*
+---------------------------------------------------------------------------- */
+VAR syntaxe_correcte
+VAR vl_indice, vl_i, vl_l
+VAR tl_arg
+
+	syntaxe_correcte = TRUE
+	vl_l = ARRAY_SIZE@(ta_data)
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(ta_data)-1)
+	
+		trace_point()
+
+		/*A on construit l'expression sous forme RTie */
+		tl_arg[vl_indice] = pmv_construit_ligne(ta_data[vl_indice],va_fichier)
+		if tl_arg[vl_indice]=NULL
+		{
+			trace_chaine("Erreur de syntaxe dans la formulation de l'element longueur de bouchon, cas "++(vl_indice+1))
+			syntaxe_correcte = FALSE
+		}
+
+		/*A on ajoute les separateurs */
+		FOR vl_i=0 TO (ARRAY_SIZE@(tl_arg[vl_indice])-2)
+			tl_arg[vl_indice][vl_i] = tl_arg[vl_indice][vl_i] ++ ","
+		NEXT vl_i
+
+		/*A on ajoute les tabulations */
+		FOR vl_i=0 TO (ARRAY_SIZE@(tl_arg[vl_indice])-1)
+			tl_arg[vl_indice][vl_i] = "        " ++ tl_arg[vl_indice][vl_i]
+		NEXT vl_i
+
+		/*A on construit l'expression sous forme texte */
+		tl_arg[vl_l+vl_indice] = ARRAY_FROM_STRING@(
+									ta_data[vl_indice],DEDI_CAR_SEPAR)
+
+		/*A on ajoute les tabulations */
+		FOR vl_i=0 TO (ARRAY_SIZE@(tl_arg[vl_indice])-1)
+			tl_arg[vl_l+vl_indice][vl_i] = "        "++
+											tl_arg[vl_l+vl_indice][vl_i]
+		NEXT vl_i
+
+	NEXT vl_indice
+
+	/*A on applique le modele AW */
+	IF syntaxe_correcte
+		dedi_genere(IE_MODELE_LONGUEUR_PMV,1,tl_arg)
+
+	RETURN(syntaxe_correcte)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_lit_duree (ta_data, va_fichier)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_data (tableau de une ligne, l1|l2|l3)
+*	va_fichier (fichier de donnees - pour dedi_var_convert)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION :
+*
+* FONCTION		: genere le fichier pmv_elt_duree.tie
+*
+---------------------------------------------------------------------------- */
+VAR vl_indice
+VAR tl_arg
+
+	/*A on construit l'expression sous forme RTie */
+	tl_arg[0] = pmv_construit_ligne(ta_data[0],va_fichier)
+	if tl_arg[0]=NULL
+	{
+		trace_chaine("Erreur de syntaxe dans la formulation de l'element duree")
+		RETURN(FALSE)
+	}
+
+	/*A on ajoute les separateurs */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_arg[0])-2)
+		tl_arg[0][vl_indice] = tl_arg[0][vl_indice] ++ ","
+	NEXT vl_indice
+
+	/*A on ajoute les tabulations */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_arg[0])-1)
+		tl_arg[0][vl_indice] = "        " ++ tl_arg[0][vl_indice]
+	NEXT vl_indice
+
+	/*A on construit l'expression sous forme texte */
+	tl_arg[1] = ARRAY_FROM_STRING@(ta_data[0],DEDI_CAR_SEPAR)
+
+	/*A on ajoute les tabulations */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_arg[1])-1)
+		tl_arg[1][vl_indice] = "        " ++ tl_arg[1][vl_indice]
+	NEXT vl_indice
+
+	/*A on applique le modele AW */
+	dedi_genere(IE_MODELE_DUREE_PMV,1,tl_arg)
+	trace_point()
+	RETURN(TRUE)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_lit_predefini (ta_perturbation, va_indice, va_datex)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_perturbation (nom,prio,l1,l2,l3,a1,a2,a3,b1,b2,b3,bandeau,pmv1,pmv2,def,picto,
+					a1,pr1,s1,a2,pr2,s2)
+*	va_indice
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION :
+*
+* FONCTION		: genere le fichier .tie associe a une perturbation PMV
+*
+---------------------------------------------------------------------------- */
+VAR tl_arg
+VAR tl_def
+VAR vl_indice
+VAR vl_classe
+VAR FORMAT dedi_predefini tl_pred
+VAR vl_index
+VAR vl_fichier,vl_result,vl_cmd
+VAR tl_pictos,vl_out
+
+	if (va_datex=TRUE)
+		vl_fichier=IE_MODELE_PRED_PMV_DATEX
+	else
+		vl_fichier=IE_MODELE_PRED_PMV
+
+	tl_pictos=SYSTEM_VAR@(vg_pictos)
+
+	/*A si ta_perturbation ne contient pas de separateur*/
+	IF (STRING_INDEX@(ta_perturbation,DEDI_CAR_SEPAR)=0)
+	{
+		/*si le texte du bandeau est nul*/
+		if (ta_perturbation=null) {
+	          tl_arg[12] = "\"\""
+	          tl_arg[35] = "rien"
+	 	}
+		else {
+		  /*A alors c'est le texte du bandeau*/
+		  tl_arg[12]=pmv_construit_ligne(ta_perturbation,IE_FILE_PRED_PMV)
+		  tl_arg[12]=pmv_construit_texte(tl_arg[12])
+
+		  /*A variable Texte*/
+		  tl_arg[35]=ta_perturbation
+		}
+		/*! je genere avec un autre modele*/
+		if (va_datex=TRUE)
+			vl_fichier=IE_MODELE_PRED_BAND_PMV_DATEX
+		else
+			vl_fichier=IE_MODELE_PRED_BAND_PMV
+goto POS_GENERE
+	}
+	
+
+	/*A on extrait les differents champs*/
+	tl_pred=null
+	tl_pred=ARRAY_FROM_STRING@(ta_perturbation,DEDI_CAR_SEPAR)
+
+	/*A on recupere les arguments a utiliser tels quels */
+	tl_arg[0] = tl_pred[dedi_pos_nom_pred]
+	tl_arg[2] = tl_pred[dedi_pos_prio_pred]
+
+	/*A picto*/
+	tl_arg[5] = tl_pred[dedi_pos_picto_pred]
+	vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tl_pictos,0),tl_arg[5])
+	
+	IF (vl_index<>-1)
+		tl_arg[26]=tl_pictos[vl_index][1]
+	ELSE	
+		tl_arg[26]=null
+
+	/*A PMV 1 utilise = le PMV en amont au PR*/
+	if (tl_pred.eqpt1=PMV_PR)
+	{
+		/*autoroute*/
+		tl_arg[13]="autoroute."++tl_pred.auto1++".identifiant"
+		tl_arg[29]=tl_pred.auto1
+
+		/*pr*/
+		tl_arg[14]=tl_pred.pr1
+		tl_arg[33]=tl_pred.pr1
+
+		/*sens*/
+		IF (tl_pred.sens1=1)
+			tl_arg[15]="ctes.sens1"
+		ELSE
+			tl_arg[15]="ctes.sens2"
+		tl_arg[30]="sens "++tl_pred.sens1
+	}
+	ELSE
+	{
+		/*autoroute*/
+		tl_arg[13]="autoroute.(localisation.(en_cours.localisation).autoroute).identifiant"
+		tl_arg[29]=null
+
+		/*pr*/
+		tl_arg[14]="localisation.(en_cours.localisation).PR"
+		tl_arg[33]=null
+
+		/*sens*/
+		tl_arg[15]="localisation.(en_cours.localisation).sens"
+		tl_arg[30]=null
+	}
+
+	/*A PMV 2 utilise = le PMV en amont au PR*/
+	if (tl_pred.eqpt2=PMV_PR)
+	{
+		/*autoroute*/
+		tl_arg[16]="autoroute."++tl_pred.auto2++".identifiant"
+		tl_arg[31]=tl_pred.auto2
+
+		/*pr*/
+		tl_arg[17]=tl_pred.pr2
+		tl_arg[34]=tl_pred.pr2
+
+		/*sens*/
+		IF (tl_pred.sens2=1)
+			tl_arg[18]="ctes.sens1"
+		ELSE
+			tl_arg[18]="ctes.sens2"
+		tl_arg[32]="sens "++tl_pred.sens2
+	}
+	ELSE
+	{
+		/*autoroute*/
+		tl_arg[16]="autoroute.(localisation.(en_cours.localisation).autoroute).identifiant"
+		tl_arg[31]=null
+
+		/*pr*/
+		tl_arg[17]="localisation.(en_cours.localisation).PR"
+		tl_arg[34]=null
+
+		/*sens*/
+		tl_arg[18]="localisation.(en_cours.localisation).sens"
+		tl_arg[32]=null
+	}
+
+	/*PMV utilises au format IE*/
+	tl_arg[6] = dedi_var_convert(tl_pred[dedi_pos_p1_pred],IE_FILE_PRED_PMV)
+	tl_arg[7] = dedi_var_convert(tl_pred[dedi_pos_p2_pred],IE_FILE_PRED_PMV)
+
+	/*PMV utilises au format texte*/
+	tl_arg[27]=tl_pred[dedi_pos_p1_pred]
+	tl_arg[28]=tl_pred[dedi_pos_p2_pred]
+
+	/*A on construit la definition texte */
+	tl_arg[23] = ""
+	tl_def=null
+	tl_def = ARRAY_FROM_STRING@(tl_pred[dedi_pos_def_pred], DEDI_CAR_VAR)
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_def)-1)
+		tl_arg[23] = tl_arg[23] ++ tl_def[vl_indice] ++ " "
+	NEXT vl_indice
+
+	/*A on construit la definition RTie */
+	/*B on isole les arguments */
+	tl_def=null
+	tl_def = ARRAY_FROM_STRING@(tl_pred[dedi_pos_def_pred], DEDI_CAR_VAR)
+
+	/*B on cherche les variables dans la liste des types de FMC */
+	/*B puis dans la table des variables*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_def)-1)
+		vl_classe = ie_classe(tl_def[vl_indice])
+		IF (vl_classe <> NULL)
+			tl_def[vl_indice] = "ObjExists(\""++vl_classe++"\", en_cours.evt)"
+		ELSE
+			tl_def[vl_indice] = dedi_var_convert(tl_def[vl_indice],
+										IE_FILE_PRED_PMV)
+	
+		/*B si on n'a rien trouve, c'est une erreur de syntaxe */
+		IF tl_def[vl_indice] = NULL
+		{
+			trace_chaine("Erreur de syntaxe dans la formulation de l'element, pour la perturbation \""++tl_arg[0]++"\", ligne "++(vl_indice+1))
+			RETURN(FALSE)
+		}
+
+		/*B on ajoute la tabulation en debut de ligne */
+		tl_def[vl_indice] = "        " ++ tl_def[vl_indice]
+	NEXT vl_indice
+	tl_arg[1] = tl_def
+
+	/*A on construit la constante RTie pour les 3 lignes de texte */
+	tl_arg[3] = pmv_construit_ligne(
+				tl_pred[dedi_pos_l1_pred] ++ DEDI_CAR_SEPAR
+				++ tl_pred[dedi_pos_l2_pred] ++ DEDI_CAR_SEPAR
+				++ tl_pred[dedi_pos_l3_pred] ++ DEDI_CAR_SEPAR,
+				IE_FILE_PRED_PMV)
+
+	/*A on construit la constante RTie pour le bandeau */
+	tl_arg[40]=pmv_construit_ligne(tl_pred[dedi_pos_bandeau_pred],IE_FILE_PRED_PMV)
+	tl_arg[40]=pmv_construit_texte(tl_arg[40])
+
+	/*A on construit la constante Texte pour le bandeau */
+	tl_arg[41]=tl_pred[dedi_pos_bandeau_pred]
+
+	/*A on construit la constante Texte pour les 3 lignes de texte*/
+	IF (tl_arg[3]<>null)
+	{
+		tl_arg[24][0]="        "++tl_pred[dedi_pos_l1_pred]
+		tl_arg[24][1]="        "++tl_pred[dedi_pos_l2_pred]
+		tl_arg[24][2]="        "++tl_pred[dedi_pos_l3_pred]
+	}
+	ELSE
+		tl_arg[24]=null
+
+	vl_index=0
+	/*on regarde si les variables DISTANCE et CARBURANT sont dans le texte PMV*/
+	IF (ARRAY_INDEX@(tl_arg[3],dedi_var_convert("DISTANCE",IE_FILE_PRED_PMV))
+			<>-1) OR
+		(ARRAY_INDEX@(tl_arg[3],dedi_var_convert("CARBURANT",IE_FILE_PRED_PMV))
+			<>-1) 
+		vl_index=-1
+
+	tl_arg[3]=pmv_construit_texte(tl_arg[3])
+
+	/*si oui, il faut une regle specifique pour le texte*/
+	IF (vl_index=-1)
+	{
+		tl_arg[8]=null
+		tl_arg[9]=1
+
+		/*var texte*/
+		tl_arg[19]=null
+		tl_arg[20]=tl_arg[3]		
+	}
+	ELSE
+	{
+		tl_arg[8]=1
+		tl_arg[9]=null
+
+		/*var texte*/
+		tl_arg[19]=tl_arg[3]
+		tl_arg[20]=null
+	}
+
+	/*A on construit la constante RTie pour les 3 lignes d'alternat */
+	tl_arg[4] = pmv_construit_ligne(
+				tl_pred[dedi_pos_a1_pred] ++ DEDI_CAR_SEPAR
+				++ tl_pred[dedi_pos_a2_pred] ++ DEDI_CAR_SEPAR
+				++ tl_pred[dedi_pos_a3_pred] ++ DEDI_CAR_SEPAR,
+				IE_FILE_PRED_PMV)
+
+	/*A on construit la constante Texte pour les 3 lignes d'alternat*/
+	IF (tl_arg[4]<>null)
+	{
+		tl_arg[25][0]="        "++tl_pred[dedi_pos_a1_pred]
+		tl_arg[25][1]="        "++tl_pred[dedi_pos_a2_pred]
+		tl_arg[25][2]="        "++tl_pred[dedi_pos_a3_pred]
+	}
+	ELSE
+		tl_arg[25]=null
+
+	/*A on construit la constante RTie pour les 3 lignes de nature avec bifurcation*/
+	tl_arg[38] = pmv_construit_ligne(
+				tl_pred[dedi_pos_b1_pred] ++ DEDI_CAR_SEPAR
+				++ tl_pred[dedi_pos_b2_pred] ++ DEDI_CAR_SEPAR
+				++ tl_pred[dedi_pos_b3_pred] ++ DEDI_CAR_SEPAR,
+				IE_FILE_PRED_PMV)
+
+	/*A on construit la constante Texte pour les 3 lignes de nature avec bifurcation*/
+	IF (tl_arg[38]<>null)
+	{
+		tl_arg[38] = pmv_construit_texte(tl_arg[38])
+		tl_arg[39][0]="        "++tl_pred[dedi_pos_b1_pred]
+		tl_arg[39][1]="        "++tl_pred[dedi_pos_b2_pred]
+		tl_arg[39][2]="        "++tl_pred[dedi_pos_b3_pred]
+	}
+	ELSE
+		tl_arg[39]=null
+
+	vl_index=0
+	/*on regarde si les variables DISTANCE et CARBURANT sont dans l'alternat  PMV*/
+	IF (ARRAY_INDEX@(tl_arg[4],dedi_var_convert("DISTANCE",IE_FILE_PRED_PMV))
+			<>-1) OR
+		(ARRAY_INDEX@(tl_arg[4],dedi_var_convert("CARBURANT",IE_FILE_PRED_PMV))
+			<>-1) 
+		vl_index=-1
+
+	tl_arg[4]=pmv_construit_texte(tl_arg[4])
+
+	/*si oui, il faut une regle specifique pour l'alternat*/
+	IF (vl_index=-1)
+	{
+		tl_arg[10]=null
+		tl_arg[11]=1
+
+		/*var alternat*/
+		tl_arg[21]=null
+		tl_arg[22]=tl_arg[4]		
+	}
+	ELSE IF (vl_index=0) 
+	{
+		tl_arg[10]=1
+		tl_arg[11]=null
+
+		/*var alternat*/
+		tl_arg[21]=tl_arg[4]		
+		tl_arg[22]=null
+	}
+
+	/*si pas d'alternat*/
+	IF (tl_arg[4]=null)
+	{
+		/*il ne doit pas apparaitre dans les regles*/
+		tl_arg[10]=null
+		tl_arg[11]=null
+	}
+		
+POS_GENERE:
+	/*A on applique le modele pmv_pred */
+	vl_result=dedi_genere(vl_fichier,va_indice+1,tl_arg)
+	trace_point()
+
+	/*! je renomme ce fichier si bandeau*/
+	IF (va_datex=TRUE)
+	{
+		IF (vl_fichier=IE_MODELE_PRED_BAND_PMV_DATEX)
+		{
+			IF (SYSTEM_VAR@(vg_mode)=DEDI_MODE_IMPRIM)
+				vl_out=IE_MODELE_PRED_PMV_DATEX++"_impr"++(va_indice+1+100)++".tie"
+			ELSE
+				vl_out=IE_MODELE_PRED_PMV_DATEX++(va_indice+1+100)++".tie"
+
+			vl_cmd="mv "++vl_result++" "
+				++IE_PATH_BDC++vl_out
+			SHELL_COMMAND@(vl_cmd)
+		}
+	}
+	ELSE
+	{
+		IF (vl_fichier=IE_MODELE_PRED_BAND_PMV)
+		{
+			IF (SYSTEM_VAR@(vg_mode)=DEDI_MODE_IMPRIM)
+				vl_out=IE_MODELE_PRED_PMV++"_impr"++(va_indice+1+100)++".tie"
+			ELSE
+				vl_out=IE_MODELE_PRED_PMV++(va_indice+1+100)++".tie"
+
+			vl_cmd="mv "++vl_result++" "
+				++IE_PATH_BDC++vl_out
+			SHELL_COMMAND@(vl_cmd)
+		}
+	}
+
+	RETURN(TRUE)
+
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_construit_texte (va_texte)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_texte : texte comprenant des constantes et des variables
+*
+* ARGUMENTS EN SORTIE : l'expression a utiliser dans les regles RTie
+*
+* CODE RETOUR         : texte / NULL si il y a une erreur de syntaxe
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: construit l'expression RTie correspondant au texte d'entree
+*
+---------------------------------------------------------------------------- */
+VAR	tl_texte
+VAR vl_indice
+VAR tl_ct
+
+	/*A le principe est le meme que pour le module PMV */
+	tl_texte = va_texte
+
+	/*A si il y a une seule ligne, on renvoie une cte */ 
+	IF ARRAY_SIZE@(tl_texte) = 1
+	'	RETURN(tl_texte[0])
+		RETURN(tl_texte)
+
+	/*A si il y a plusieurs lignes on construit le concat */ 
+	IF ARRAY_SIZE@(tl_texte) > 1
+	{
+		/*B on ajoute les tabulations */
+		FOR vl_indice=0 TO (ARRAY_SIZE@(tl_texte)-1)
+			tl_texte[vl_indice] = "        " ++ tl_texte[vl_indice]
+		NEXT vl_indice
+
+		/*B on ajoute les separateurs */
+		FOR vl_indice=0 TO (ARRAY_SIZE@(tl_texte)-2)
+			tl_texte[vl_indice] = tl_texte[vl_indice] ++ ","
+		NEXT vl_indice
+
+		/*B on ajoute Concat( */
+		tl_ct[0] = "Concat("
+		tl_texte = ARRAY_APPEND@(tl_ct, tl_texte)
+
+		/*B on ajoute ) */
+		tl_ct[0] = "        )"
+		tl_texte = ARRAY_APPEND@(tl_texte, tl_ct)
+
+		/*B on renvoie le resultat */
+		RETURN(tl_texte)
+
+	}
+
+	RETURN(NULL)
+
+ENDFUNCTION
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_lit_nature ()
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION :
+*
+* FONCTION		: genere le fichier pmv_elt_nature.tie
+*
+---------------------------------------------------------------------------- */
+VAR vl_indice, vl_i
+VAR tl_arg
+VAR syntaxe_correcte
+VAR ta_data
+
+	syntaxe_correcte = TRUE
+
+	ta_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_NATURE_PMV)
+
+	FOR vl_indice=0 TO ((ARRAY_SIZE@(ta_data)/3)-1)
+	{
+		trace_point()
+
+		/*A on construit l'expression sous forme texte */
+		tl_arg[vl_indice+20][0]="                "++ta_data[3*vl_indice]
+		tl_arg[vl_indice+20][1]="                "++ta_data[3*vl_indice+1]
+		tl_arg[vl_indice+20][2]="                "++ta_data[3*vl_indice+2]
+
+		/*A on construit l'expression sous forme rtie */
+		tl_arg[vl_indice] = pmv_construit_ligne(ta_data[3*vl_indice]++
+									DEDI_CAR_SEPAR++
+									ta_data[3*vl_indice+1]++
+									DEDI_CAR_SEPAR++
+									ta_data[3*vl_indice+2]
+									,IE_FILE_NATURE_PMV)
+
+		IF tl_arg[vl_indice] = NULL
+		{
+			trace_chaine("Erreur de syntaxe dans la formulation de l'element nature, cas "++(vl_indice+1))
+			syntaxe_correcte = FALSE
+		}
+		ELSE
+			tl_arg[vl_indice]=pmv_construit_texte(tl_arg[vl_indice])
+	}
+	NEXT vl_indice
+
+	if syntaxe_correcte
+		dedi_genere(IE_MODELE_NATURE_PMV,1,tl_arg)
+
+	trace_point()
+	RETURN(syntaxe_correcte)
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_lit_alternat (ta_data, va_fichier)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_data (tableau de n lignes, perturbation|l1|l2|l3)
+*	va_fichier (fichier de donnees - pour dedi_var_convert)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION :
+*
+* FONCTION		: genere les fichiers pmv_alternat.tie
+*
+---------------------------------------------------------------------------- */
+VAR vl_indice, vl_i
+VAR tl_data, tl_arg
+VAR syntaxe_correcte
+
+	syntaxe_correcte=TRUE
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(ta_data)-1)
+	{
+		/*A on isole les arguments */
+		tl_data = ARRAY_FROM_STRING@(ta_data[vl_indice],DEDI_CAR_SEPAR)
+
+		IF (tl_data[1]<>NULL OR tl_data[2]<>NULL OR tl_data[3]<>NULL)
+		{	
+		/*A on construit l'expression sous forme RTie */
+		tl_arg[0] = tl_data[0]
+		tl_arg[1] = pmv_construit_ligne(tl_data[1]++DEDI_CAR_SEPAR
+								++tl_data[2]++DEDI_CAR_SEPAR
+								++tl_data[3]++DEDI_CAR_SEPAR,va_fichier)
+
+		if tl_arg[1]=NULL
+		{
+			trace_chaine("Erreur de syntaxe dans la definition de l'alternat pour la perturbation " ++ tl_arg[0])
+			syntaxe_correcte = FALSE
+		}
+
+		/*A on construit l'expression sous forme texte */
+		FOR vl_i=0 TO (ARRAY_SIZE@(tl_data)-2)
+			tl_arg[2][vl_i] = "        " ++ tl_data[vl_i+1]
+		NEXT vl_i
+
+		/*A on applique le modele AW */
+		IF syntaxe_correcte
+			dedi_genere(IE_MODELE_ALTERNAT_PMV,vl_indice,tl_arg)
+		}
+
+		trace_point()
+
+	}
+	NEXT vl_indice
+
+	RETURN(syntaxe_correcte)
+
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION pmv_lit_predefini_tdp (ta_data )
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	ta_data (tableau de 2 lignes, pmv|picto|l1|priorite|bandeau)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE si la syntaxe est correcte, FALSE sinon
+*
+* CONDITION D'UTILISATION :
+*
+* FONCTION		: genere les fichiers pmv_alternat.tie
+*
+---------------------------------------------------------------------------- */
+VAR tl_data, tl_arg
+VAR tl_pictos
+VAR vl_index
+
+	trace_point()
+
+	/*traitement 1ere ligne = tdp eleve sur section courante sans evt*/
+	tl_data = ARRAY_FROM_STRING@(ta_data[0],DEDI_CAR_SEPAR)
+
+	/*PMV utilise au format IE*/
+	tl_arg[6] = dedi_var_convert(tl_data[0],IE_FILE_OBJ_PMV)
+
+	/*PMV utilise au format texte*/
+	tl_arg[19]=tl_data[0]
+
+	/*si le PMV choisi = les_2_PMV_eligibles_en_amont*/
+	if (tl_data[0]="les 2 PMV eligibles en amont")
+	  /*arguments supplementaires (zdp) dans le modele*/
+	  tl_arg[3]="tdp"
+        else
+	  tl_arg[3]=NULL
+
+	trace_point()
+
+	/*picto*/
+	tl_arg[5] = tl_data[1]
+	vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tl_pictos,0),tl_arg[5])
+	IF (vl_index<>-1)
+		tl_arg[16]=tl_pictos[vl_index][1]
+	ELSE   
+		tl_arg[16]=null
+
+	/*priorite*/
+	tl_arg[2]=tl_data[3]
+
+	trace_point()
+
+	/*ligne 1*/
+	tl_arg[10]=pmv_construit_ligne(tl_data[2],IE_FILE_TDP_PMV)
+	tl_arg[10]=pmv_construit_texte(tl_arg[10])
+
+	/*ligne 1 au format texte*/
+	tl_arg[18]=tl_data[2]
+
+	/*bandeau */
+	if (tl_data[4]=NULL) {
+		tl_arg[1] = "\"\""
+		tl_arg[13]="rien"
+	}
+	else {
+		tl_arg[1]=pmv_construit_ligne(tl_data[4],IE_FILE_TDP_PMV)
+		tl_arg[1]=pmv_construit_texte(tl_arg[1])
+		tl_arg[13]=tl_data[4]
+	}
+
+	trace_point()
+
+	/*traitement ligne 2 = tdp eleve hors section courante sans evt*/
+	tl_data=NULL
+	tl_data = ARRAY_FROM_STRING@(ta_data[1],DEDI_CAR_SEPAR)
+
+	/*PMV utilise au format IE*/
+	tl_arg[7]=dedi_var_convert(tl_data[0],IE_FILE_OBJ_PMV)
+
+	/*PMV utilise au format texte*/
+	tl_arg[20]=tl_data[0]
+
+	/*si le PMV choisi = les_2_PMV_eligibles_en_amont*/
+	if (tl_data[0]="les 2 PMV eligibles en amont")
+	  /*arguments supplementaires (zdp) dans le modele*/
+	  tl_arg[8]="tdp"
+	else
+	  tl_arg[8]=NULL
+
+	/*picto*/
+	tl_arg[12] = tl_data[1]
+	vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tl_pictos,0),tl_arg[12])
+	IF (vl_index<>-1)
+		tl_arg[17]=tl_pictos[vl_index][1]
+	ELSE   
+		tl_arg[17]=null
+
+	/*priorite*/
+	tl_arg[9]=tl_data[3]
+
+	trace_point()
+
+	/*ligne1*/
+	tl_arg[11]=pmv_construit_ligne(tl_data[2],IE_FILE_TDP_PMV)
+	tl_arg[11]=pmv_construit_texte(tl_arg[11])
+
+	/*ligne 1 au format texte*/
+	tl_arg[21]=tl_data[2]
+
+	/*bandeau */
+	if (tl_data[4]=NULL) {
+		tl_arg[4]= "\"\""
+		tl_arg[14]="rien"
+	}
+	else {
+		tl_arg[4]=pmv_construit_ligne(tl_data[4],IE_FILE_TDP_PMV)
+		tl_arg[4]=pmv_construit_texte(tl_arg[4])
+		tl_arg[14]=tl_data[4]
+	}
+
+	trace_point()
+
+	/*A on applique le modele AW */
+	dedi_genere(IE_MODELE_PRED_TDP_PMV,1,tl_arg)
+
+	trace_point()
+
+	RETURN(TRUE)
+
+ENDFUNCTION

@@ -1,0 +1,145 @@
+/*E*/
+/* Fichier : $Id: dedi_ec21.am,v 1.1 1995/05/24 10:14:01 gesconf Exp $	      Release : $Revision: 1.1 $        Date : $Date: 1995/05/24 10:14:01 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec1b.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* mise en evidence des textes relatifs aux travaux dans les messages FAX
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Thomas	02 dec 1994	: Creation						V1.1
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+
+VAR tm_option
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* permet la saisie de l'option de mise en evidence des textes relatifs aux travaux
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec21 ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_fenetre
+VAR vl_evt
+VAR vl_choix
+VAR tl_pokes
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec21")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,300)
+DB_YPOS@(vl_fenetre,300)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*A initialisation*/
+ec21_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A recupere la strategie choisie*/
+			vl_choix=DB_CTRL_GET_VALUE@(vl_fenetre,"BR_mev")
+			tm_option[0] = vl_choix
+
+			/*A sauvegarde dans le fichier*/
+			WRITE_ASCII_FILE@(AX_PATH++IE_FILE_MEV_FAX,tm_option)
+			RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec21_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	/*A chargement de l'option choisie depuis le fichier de config*/
+	tm_option=READ_ASCII_FILE@(AX_PATH++IE_FILE_MEV_FAX)
+
+	/*A affiche la strategie courante*/
+	DB_CTRL_VALUE@(va_fenetre,"BR_mev",tm_option[0])
+
+ENDFUNCTION
+
+

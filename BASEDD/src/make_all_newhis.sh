@@ -1,0 +1,9 @@
+xzaa_make.ksh $1 $2
+xzac_make.sh $1 $2
+xzad_make.sh $1 $2
+xzae_make.sh $1 $2
+xzaf_make.sh $1 $2
+xzao_make.ksh $1 $2
+xzap_make.ksh $1 $2
+xzas_make.sh $1 $2
+xzat_make.sh $1 $2

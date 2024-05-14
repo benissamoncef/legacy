@@ -1,0 +1,1 @@
+DEFINE XZAE47_Lire_Fiche_Manif	"XZAE;47"

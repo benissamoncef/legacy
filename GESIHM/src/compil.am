@@ -1,0 +1,91 @@
+MACRO compil
+    VAR     vl_repertoire
+    VAR     vl_fichiers
+    VAR     vl_macro
+    VAR     i    
+    VAR     arg
+	VAR va_fichiers
+
+
+    arg = COMMAND_LINE_OPTIONS@() 
+    vl_repertoire = CURRENT_DIR@ ()
+
+    ME_APPLICATION_DLG@ ()
+    SET_CURRENT_DIR@ (vl_repertoire)
+
+	i=0
+	WHILE ( (arg[i] <> "-pass") and ( i < ARRAY_SIZE@(arg)) )
+
+i=i+1
+	WEND
+
+IF arg[i] = "-pass"
+{
+va_fichiers=arg[i+1] 
+}
+ELSE
+      EXIT_ALL@
+    vl_fichiers = FILE_SYSTEM_FILES@ (".", va_fichiers)
+    FOR i = 0  TO ARRAY_SIZE@ (vl_fichiers) - 1
+	vl_macro = SUBSTRING@ (vl_fichiers[i], 1, LEN@(vl_fichiers[i]) - 3)
+	compiler_macro (vl_macro)
+    NEXT i
+
+    EXIT_ALL@
+
+ENDMACRO
+
+
+
+
+MACRO compiler_macro (va_macro)
+    VAR vl_curr_dir
+    VAR vl_comp_dir
+    VAR MODE
+    VAR GRP_ACCESS
+    VAR ALL_ACCESS
+
+ON ERROR{
+dump_array@(ERROR_STRING@()++" dans "++ERROR_OBJECT@())
+EXIT_ALL@()
+    }
+
+
+    MODE = 1
+    GRP_ACCESS = 1
+    ALL_ACCESS = 1
+
+    vl_curr_dir = CURRENT_DIR@ () ++ "/"
+    IF (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+    	vl_comp_dir = vl_curr_dir ++ "../bin/"
+    ELSE
+	vl_comp_dir = vl_curr_dir ++ "../binx/"
+
+    IF NOT FILE_EXISTS@ (va_macro ++ ".am") {
+	BEEP@
+	INFO_MESSAGE@ ("Fichier \"" ++ va_macro ++ ".am\" introuvable")
+	RETURN
+    }
+
+    IF NOT DIR_EXISTS@ (vl_comp_dir)
+	CREATE_DIR@ (vl_comp_dir)
+
+
+    ME_COMPILE_FILE@ (vl_curr_dir ++ va_macro ++ ".am")
+
+  WP_LOAD_FILE@(va_macro ++ ".am")
+
+    WP_SET_SESSION_VAR@("CurrentCompile$", 0)
+
+    WP_GET_ASCII_DOC@
+
+    WP_SET_DOC_VAR@("SaveCompiled@", -1)
+
+    WP_SET_ASCII_DOC@(-1)
+
+    WP_SAVE_RENAME@(vl_comp_dir ++ va_macro ++ ".am",MODE,GRP_ACCESS,ALL_ACCESS)
+
+    ME_COMP_SAVE_INSTALL@
+
+    DELETE_FILE@ (vl_comp_dir ++ va_macro ++ ".am")
+ENDMACRO

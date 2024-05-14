@@ -1,0 +1,889 @@
+/*E*/
+/* Fichier : $Id: dedi_make_interlocuteur.am,v 1.9 1999/02/26 11:58:54 gaborit Exp $	      Release : $Revision: 1.9 $        Date : $Date: 1999/02/26 11:58:54 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_make_interlocuteur.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* genere les fichiers ASCII de la politique de choix des interlocuteurs
+* (format RTie ou format Texte, en fonction de vg_mode)   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Thomas	15 Mars 1995	: Creation						V1.1
+* BG		08 Juin 1995	: modif test coupure chaussee	(1.2)
+* BG            08 Juin 1995    : suppression ( parasite (1.3)
+* IT		06 Sept	1995	: ajout sens 1 et sens 2 (1.4)
+* IT		25 Oct	1995	: modif condition "passagers bus" (1.5)
+* IT		26 Oct	1995	: modif condition "passagers bus" (1.6)
+* JMG	23 mai 1996 : astreintes gérées par numero DEM/1125 (1.7)
+* PN		19 Jan 1999	: modif intergest dem/1725 1.8
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+include "../../XDMICG/inc/xdc_ax.h"
+
+define DEDI_CAR_SEPAR_DEF	"&"
+
+/* la liste des interlocuteurs definis dans BASEDD */
+VAR tm_interlocuteurs_BASEDD
+
+/* la liste des interlocuteurs utilises dans BDC */
+VAR tm_interlocuteurs_BDC
+VAR vm_interlocuteurs_bdc
+
+VAR tm_niveau_trafic
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* genere les regles de choix des interlocuteurs
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_make_interlocuteur()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+* dedi
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR tl_commentaire
+VAR syntaxe_correcte
+
+	tm_niveau_trafic[0]=""
+	tm_niveau_trafic[XDC_RADT_FLUIDE]="fluide"
+	tm_niveau_trafic[XDC_RADT_PRESAT]="pré-saturé"
+	tm_niveau_trafic[XDC_RADT_SATURE]="saturé"
+	trace_chaine("")
+	trace_chaine("POLITIQUE DE CHOIX DES INTERLOCUTEURS")
+	trace_chaine("")
+
+	/*A
+	**  on initialise tm_interlocuteurs_BASEDD et tm_interlocuteurs_BDC
+	*/
+	tm_interlocuteurs_BASEDD = SYSTEM_VAR@(vg_astreintes)
+	tm_interlocuteurs_BDC = NULL
+	vm_interlocuteurs_bdc = 0
+
+	/*A
+	**  on exploite le fichier des interlocuteurs PC 
+	*/
+	trace_chaine("Moyens d'appel des interlocuteurs PC ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_MOYENS_PC)
+
+	/*B on applique int_moyens() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		trace_point()
+		int_moyens(tl_data[vl_indice], vl_indice, IE_MODELE_MOYEN_PC_INT)
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        POLITIQUE DE CHOIX DES INTERLOCUTEURS :" 
+	tl_commentaire[1] = "*        interlocuteurs PC et moyens d'appel"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_MOYEN_PC_INT, IE_SUFFIXE_OB, tl_commentaire)
+
+	/*A
+	**  on exploite le fichier des interlocuteurs CI
+	*/
+	trace_chaine("Moyens d'appel des interlocuteurs CI ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_MOYENS_CI)
+
+	/*B on applique int_moyens() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		trace_point()
+		int_moyens(tl_data[vl_indice], vl_indice, IE_MODELE_MOYEN_CI_INT)
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        POLITIQUE DE CHOIX DES INTERLOCUTEURS :" 
+	tl_commentaire[1] = "*        interlocuteurs CI et moyens d'appel"
+	tl_commentaire[2] = "*        "
+	dedi_shell(IE_MODELE_MOYEN_CI_INT, IE_SUFFIXE_OB, tl_commentaire)
+
+
+	/*A
+	**  on exploite le fichier des cas d'appel PC DATEX
+	*/
+	trace_chaine("Cas d'appel des interlocuteurs PC DATEX")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_APPELS_PC_DATEX)
+
+	/*B on applique int_cas() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		trace_point()
+		int_cas(tl_data[vl_indice], vl_indice, IE_MODELE_CAS_PC_INT_DATEX,
+													IE_MODELE_CONC_PC_DATEX)
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        POLITIQUE DE CHOIX DES INTERLOCUTEURS :" 
+	tl_commentaire[1] = "*        cas d'appel des interlocuteurs PC"
+	tl_commentaire[2] = "*        en fonction des caracteristiques de la FMC DATEX"	dedi_shell(IE_MODELE_CAS_PC_INT_DATEX, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	**  on exploite le fichier des cas d'appel CI DATEX
+	*/
+	trace_chaine("Cas d'appel des interlocuteurs CI DATEX")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_APPELS_CI_DATEX)
+
+		/*B on applique int_cas() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		trace_point()
+		int_cas(tl_data[vl_indice], vl_indice, IE_MODELE_CAS_CI_INT_DATEX,
+													IE_MODELE_CONC_CI_DATEX)
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        POLITIQUE DE CHOIX DES INTERLOCUTEURS :" 
+	tl_commentaire[1] = "*        cas d'appel des interlocuteurs CI"
+	tl_commentaire[2] = "*        en fonction des caracteristiques de la FMC DATEX"
+	dedi_shell(IE_MODELE_CAS_CI_INT_DATEX, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	**  on exploite le fichier des cas d'appel differe PC 
+	*/
+	trace_chaine("Cas d'appel differe des interlocuteurs PC DATEX")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_APPELS_DIFFERES_PC_DATEX)
+
+		/*B on applique int_dif() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		trace_point()
+		int_dif(tl_data[vl_indice], vl_indice, IE_MODELE_DIF_PC_INT_DATEX,
+													IE_MODELE_COND_PC_DATEX)
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        POLITIQUE DE CHOIX DES INTERLOCUTEURS :" 
+	tl_commentaire[1] = "*        cas d'appel differe des interlocuteurs PC"
+	tl_commentaire[2] = "*        en fonction des caracteristiques de la FMC DATEX"
+	dedi_shell(IE_MODELE_DIF_PC_INT_DATEX, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	**  on exploite le fichier des cas d'appel differe CI 
+	*/
+	trace_chaine("Cas d'appel differe des interlocuteurs CI DATEX")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_APPELS_DIFFERES_CI_DATEX)
+
+		/*B on applique int_dif() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		trace_point()
+		int_dif(tl_data[vl_indice], vl_indice, IE_MODELE_DIF_CI_INT_DATEX,
+													IE_MODELE_COND_CI_DATEX)
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        POLITIQUE DE CHOIX DES INTERLOCUTEURS :" 
+	tl_commentaire[1] = "*        cas d'appel differe des interlocuteurs CI"
+	tl_commentaire[2] = "*        en fonction des caracteristiques de la FMC DATEX"
+	dedi_shell(IE_MODELE_DIF_CI_INT_DATEX, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	**  on exploite le fichier des cas d'appel PC 
+	*/
+	trace_chaine("Cas d'appel des interlocuteurs PC ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_APPELS_PC)
+
+	/*B on applique int_cas() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		trace_point()
+		int_cas(tl_data[vl_indice], vl_indice, IE_MODELE_CAS_PC_INT,
+													IE_MODELE_CONC_PC)
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        POLITIQUE DE CHOIX DES INTERLOCUTEURS :" 
+	tl_commentaire[1] = "*        cas d'appel des interlocuteurs PC"
+	tl_commentaire[2] = "*        en fonction des caracteristiques de la FMC"	dedi_shell(IE_MODELE_CAS_PC_INT, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	**  on exploite le fichier des cas d'appel CI
+	*/
+	trace_chaine("Cas d'appel des interlocuteurs CI ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_APPELS_CI)
+
+		/*B on applique int_cas() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		trace_point()
+		int_cas(tl_data[vl_indice], vl_indice, IE_MODELE_CAS_CI_INT,
+													IE_MODELE_CONC_CI)
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        POLITIQUE DE CHOIX DES INTERLOCUTEURS :" 
+	tl_commentaire[1] = "*        cas d'appel des interlocuteurs CI"
+	tl_commentaire[2] = "*        en fonction des caracteristiques de la FMC"
+	dedi_shell(IE_MODELE_CAS_CI_INT, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	**  on exploite le fichier des cas d'appel differe PC 
+	*/
+	trace_chaine("Cas d'appel differe des interlocuteurs PC ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_APPELS_DIFFERES_PC)
+
+		/*B on applique int_dif() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		trace_point()
+		int_dif(tl_data[vl_indice], vl_indice, IE_MODELE_DIF_PC_INT,
+													IE_MODELE_COND_PC)
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        POLITIQUE DE CHOIX DES INTERLOCUTEURS :" 
+	tl_commentaire[1] = "*        cas d'appel differe des interlocuteurs PC"
+	tl_commentaire[2] = "*        en fonction des caracteristiques de la FMC"
+	dedi_shell(IE_MODELE_DIF_PC_INT, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	**  on exploite le fichier des cas d'appel differe CI 
+	*/
+	trace_chaine("Cas d'appel differe des interlocuteurs CI ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_APPELS_DIFFERES_CI)
+
+		/*B on applique int_dif() sur chaque ligne */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		trace_point()
+		int_dif(tl_data[vl_indice], vl_indice, IE_MODELE_DIF_CI_INT,
+													IE_MODELE_COND_CI)
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        POLITIQUE DE CHOIX DES INTERLOCUTEURS :" 
+	tl_commentaire[1] = "*        cas d'appel differe des interlocuteurs CI"
+	tl_commentaire[2] = "*        en fonction des caracteristiques de la FMC"
+	dedi_shell(IE_MODELE_DIF_CI_INT, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	**  on genere le fichier des types d'astreintes utilises dans TDPAC 
+	**  (pour les controles de coherence lors de la modification des interlocuteurs
+	**  en base de donnees - cf XZDC01)
+	*/
+	tl_data = NULL
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_interlocuteurs_BDC)-1)
+		tl_data[vl_indice] = tm_interlocuteurs_BDC[vl_indice][0] ++ " " 
+						++ tm_interlocuteurs_BDC[vl_indice][1]
+	NEXT vl_indice
+
+	WRITE_ASCII_FILE@(IE_PATH_BDC++IE_CONF_INTERLOCUTEURS,tl_data)
+
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* prepare la generation du fichier de definition des interlocuteurs PC (CI)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION int_moyens(va_data, va_indice, va_modele)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_data :		"competence|fax|tel|astreinte associee|id"
+*	va_indice
+*	va_modele
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION :
+* 
+* FONCTION :	genere un fichier app_int_pc.tie (app_int_ci.tie)
+*
+---------------------------------------------------------------------------- */
+VAR tl_arg
+VAR vl_i
+
+	/*A on isole les arguments */
+	tl_arg = ARRAY_FROM_STRING@(va_data, DEDI_CAR_SEPAR)
+
+	/*A pour les champs fax et tel, on remplace 0 par NULL */
+	IF tl_arg[1] <> 1
+		tl_arg[1] = NULL
+
+	IF tl_arg[2] <> 1
+		tl_arg[2] = NULL
+
+	/*A le premier element du tableau doit etre le nom*/
+	vl_i=ARRAY_INDEX@(ARRAY_COLUMN@(tm_interlocuteurs_BASEDD,1),tl_arg[0])
+	tl_arg[4]=tl_arg[0]
+	tl_arg[0]=tm_interlocuteurs_BASEDD[vl_i][0]
+
+	/*A on ajoute l'identifiant de l'astreinte associee, si elle est renseignee */
+	vl_i=ARRAY_INDEX@(ARRAY_COLUMN@(tm_interlocuteurs_BASEDD,0),tl_arg[3])
+	IF vl_i <> -1
+		tl_arg[ARRAY_SIZE@(tl_arg)] = tm_interlocuteurs_BASEDD[vl_i][1]
+	ELSE
+		tl_arg[ARRAY_SIZE@(tl_arg)] = NULL
+
+	/*A on applique le modele AW */
+	dedi_genere(va_modele, va_indice, tl_arg)
+
+	/*A on ajoute l'interlocuteur dans la liste des interlocuteurs de BDC */
+	tm_interlocuteurs_BDC[vm_interlocuteurs_bdc][0] = tl_arg[4]
+	tm_interlocuteurs_BDC[vm_interlocuteurs_bdc][1] = 
+					ARRAY_TO_STRING@(ARRAY_FROM_STRING@(tl_arg[0]," "),"_")
+	vm_interlocuteurs_bdc = vm_interlocuteurs_bdc +1
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* prepare la generation des regles de choix des interlocuteurs PC (CI)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION int_cas(va_data, va_indice, va_modele, va_modele_conc)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_data		: "cas|definition|int1|motif1|int2|motif2|..."
+*	va_indice		: le numero de la regle a generer
+*	va_modele		: le modele de la regle
+*	va_modele_conc	: le modele a utiliser pour generer la partie conclusion
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION :
+* 
+* FONCTION :		genere un fichier app_cas_pc.tie (app_cas_ci.tie)
+*
+---------------------------------------------------------------------------- */
+VAR tl_data, tl_cas
+VAR tl_arg
+VAR vl_indice
+VAR tl_def
+VAR vl_i,vl_type
+VAR vl_nomfichier
+
+	/*A on isole les arguments */
+	tl_data = ARRAY_FROM_STRING@(va_data, DEDI_CAR_SEPAR)
+
+	/*A le premier argument est le cas */
+	tl_arg[0] = tl_data[0]
+
+	/*A le deuxieme argument est la definition */
+	tl_arg[1] = int_construit_def(tl_data[1])
+
+	/*A le troisieme argument est la liste des competences, le quatrieme la conclusion */
+	tl_arg[2] = ""
+	tl_arg[3] = NULL
+
+	tl_cas[0] = tl_data[0]
+
+	FOR vl_indice=2 TO (ARRAY_SIZE@(tl_data)-1)
+
+		/*B pour chaque motif non nul, on genere un fichier app_conc.tie */
+		IF (INT@(vl_indice/2) * 2 = vl_indice) 
+		AND (tl_data[vl_indice+1] <> NULL)
+		{
+			/*B	on recherche la competence pour la version texte  */
+			vl_i = ARRAY_INDEX@(ARRAY_COLUMN@(tm_interlocuteurs_BASEDD,1),
+							tl_data[vl_indice])
+			tl_cas[3] = tm_interlocuteurs_BASEDD[vl_i][0]
+
+			/*B	on ajoute l'interlocuteur a la liste des competences */
+			tl_arg[2] = tl_arg[2] ++ tl_cas[3] ++ " - " 
+
+			/*B	on conserve l'identifiant en base de l'interlocuteur*/
+			tl_cas[1] = tl_data[vl_indice]
+
+			/*B	on remplace le motif par NULL s'il vaut x */
+			IF tl_data[vl_indice+1] = "x"
+				tl_cas[2] = NULL
+			ELSE
+				tl_cas[2] = tl_data[vl_indice+1]
+
+			/*B on applique le modele AW */
+			vl_nomfichier = dedi_genere(va_modele_conc,vl_indice,tl_cas)
+			
+			/*B on concatene le fichier resultat a tl_arg[3] */
+			tl_arg[3] = ARRAY_APPEND@(tl_arg[3],READ_ASCII_FILE@(vl_nomfichier))
+
+			/*B on supprime le fichier de travail */
+			DELETE_FILE@(vl_nomfichier)
+
+			trace_point()
+		
+		}
+	NEXT vl_indice
+
+	/*A le cinquieme argument est le texte de la definition */
+	tl_arg[4] = tl_data[1]
+
+	/*A on isole les conditions */
+	tl_def = ARRAY_FROM_STRING@(tl_data[1], DEDI_CAR_SEPAR_DEF)
+
+	/*A la premiere condition est de la forme "type = fmc" */
+	vl_type = ARRAY_FROM_STRING@(tl_def[0], "=")
+
+	/*on verifie que c'est bien le type*/
+	IF (vl_type[0]="type") 
+	{
+		/*s'il est nul*/
+		IF (vl_type[1]=null)
+		{
+			/*il ne doit pas apparaitre dans la definition*/
+			tl_def=ARRAY_DELETE@(tl_def,0)
+		}
+	}
+
+	IF (tl_def<>null)
+		tl_arg[4] = ARRAY_TO_STRING@(tl_def,DEDI_CAR_SEPAR_DEF)
+	ELSE
+		tl_arg[4] = null
+
+	/*A on applique le modele AW */
+	dedi_genere(va_modele, va_indice, tl_arg)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* prepare la generation du fichier de definition des interlocuteurs PC (CI)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION int_construit_def(va_data)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_data :		condition1 & condition2 & condition3
+*
+* ARGUMENTS EN SORTIE : tl_condition
+*
+* CODE RETOUR         : tl_condition
+*
+* CONDITION D'UTILISATION :
+* 
+* FONCTION :	construit l'expression RTie correspondamt a la condition)
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR tl_arg
+VAR vl_classe
+VAR vl_indice, vl_i
+VAR tl_condition,vl_depart
+VAR vl_index
+VAR tl_retour
+
+	vl_depart=0
+
+	/*A on isole les conditions */
+	tl_data = ARRAY_FROM_STRING@(va_data, DEDI_CAR_SEPAR_DEF)
+
+	/*A la premiere condition est de la forme "type = fmc" */
+	tl_arg = ARRAY_FROM_STRING@(tl_data[0], "=")
+
+	/*on verifie que c'est bien le type et qu'il est non nul*/
+	IF (tl_arg[0]="type") 
+	{
+		IF (tl_arg[1]<>null)
+		{
+			vl_classe = ie_classe(tl_arg[1])
+			tl_condition[0] = "ObjExists(\"" ++ vl_classe ++ "\", en_cours.evt)"
+		}
+		vl_depart=1
+	}
+
+	/*A les suivantes sont de la forme "predicat" ou "slot comparateur valeur" */
+	FOR vl_indice=vl_depart TO (ARRAY_SIZE@(tl_data) - 1)
+
+		/*B on isole les arguments */
+		tl_arg = ARRAY_FROM_STRING@(tl_data[vl_indice], " ")
+
+		tl_condition[vl_indice] = ""
+
+		/*B on traduit le premier */
+		tl_condition[vl_indice] = tl_condition[vl_indice] 
+							++ int_construit_var(tl_arg[0], vl_classe)
+
+		/*B on conserve les suivants */
+		IF (tl_arg[0] = "niveau_trafic" )
+		{
+			vl_index=ARRAY_INDEX@(tm_niveau_trafic,tl_arg[2])
+			tl_condition[vl_indice] = tl_condition[vl_indice]++" "++"="++ vl_index
+		}
+		ELSE
+		{
+			FOR vl_i=1 TO (ARRAY_SIZE@(tl_arg) - 1)
+			 tl_condition[vl_indice] = tl_condition[vl_indice]++" "++tl_arg[vl_i]
+			NEXT vl_i
+		}
+		
+	NEXT vl_indice
+
+	/*A on supprime les conditions nulles et on ajoute "and" au debut des autres */
+	vl_index=0
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_condition) - 1)
+		IF tl_condition[vl_indice] <> NULL
+		{	
+			tl_retour[vl_index] = "     and " ++ tl_condition[vl_indice]
+			vl_index=vl_index+1
+		}	
+	NEXT vl_indice
+	
+
+	/*A on renvoie le resultat */
+	RETURN(tl_retour)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* prepare la generation du fichier de definition des interlocuteurs PC (CI)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION int_construit_var(va_data, va_classe)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_data	: la variable telle qu'elle apparait a l'IHM
+*	va_classe	: la classe RTie concernee
+*
+* ARGUMENTS EN SORTIE : vl_texte
+*
+* CODE RETOUR         : vl_texte
+*
+* CONDITION D'UTILISATION :
+* 
+* FONCTION :	renvoie le texte Rtie correspondant a la variable IHM
+*
+---------------------------------------------------------------------------- */
+VAR vl_texte
+
+	/*A un switch sur va_data */
+	CASE OF va_data
+
+		/*B variables specifiques d'un type de fmc */
+		CASE "nb_vehicules"
+			vl_texte = "(" ++ va_classe ++ ".(en_cours.evt).nb_vl" ++ 
+					" + " ++ va_classe ++ ".(en_cours.evt).nb_pl" ++
+					" + " ++ va_classe ++ ".(en_cours.evt).nb_moto" ++
+					" + " ++ va_classe ++ ".(en_cours.evt).nb_car" ++
+					" + " ++ va_classe ++ ".(en_cours.evt).nb_remorque" ++ ")"
+
+		CASE "nb_vl"
+			vl_texte = va_classe ++ ".(en_cours.evt).nb_vl"
+
+		CASE "nb_pl"
+			vl_texte = va_classe ++ ".(en_cours.evt).nb_pl"
+
+		CASE "nb_cars"
+			vl_texte = va_classe ++ ".(en_cours.evt).nb_car"
+
+		CASE "nb_motos"
+			vl_texte = va_classe ++ ".(en_cours.evt).nb_moto"
+
+		CASE "nb_remorques"
+			vl_texte = va_classe ++ ".(en_cours.evt).nb_remorque"
+
+		CASE "nb_victimes"
+			vl_texte = "(" ++ va_classe ++ ".(en_cours.evt).nb_bl" ++ 
+					" + " ++ va_classe ++ ".(en_cours.evt).nb_bg" ++
+					" + " ++ va_classe ++ ".(en_cours.evt).nb_morts" ++ ")"
+
+		CASE "nb_blesses_legers"
+			vl_texte = va_classe ++ ".(en_cours.evt).nb_bl"
+
+		CASE "nb_blesses_graves"
+			vl_texte = va_classe ++ ".(en_cours.evt).nb_bg"
+
+		CASE "nb_morts"
+			vl_texte = va_classe ++ ".(en_cours.evt).nb_morts"
+
+		CASE "nb_passagers_bus"
+			vl_texte = va_classe ++ ".(en_cours.evt).nb_passagers_bus"
+
+		CASE "passagers_bus"
+			vl_texte = "(" ++ va_classe ++ ".(en_cours.evt).nb_passagers_bus > 0 )"
+
+		CASE "bebes"
+			vl_texte = va_classe ++ ".(en_cours.evt).bebes"
+
+		CASE "personnes_agees"
+			vl_texte = va_classe ++ ".(en_cours.evt).pers_agees"
+
+		CASE "personnalites"
+			vl_texte = va_classe ++ ".(en_cours.evt).personnalite"
+
+		CASE "agent_escota"
+			vl_texte = va_classe ++ ".(en_cours.evt).agent_escota"
+
+		CASE "vehicule_escota"
+			vl_texte = va_classe ++ ".(en_cours.evt).veh_escota"
+
+		CASE "degats_domaine"
+			vl_texte = va_classe ++ ".(en_cours.evt).degat_domaine"
+
+		CASE "animaux"
+			vl_texte = va_classe ++ ".(en_cours.evt).animaux"
+
+		CASE "matieres_dangereuses"
+			IF va_classe = "accident"
+				vl_texte = va_classe ++ ".(en_cours.evt).mat_dangereuses"
+			ELSE
+				vl_texte = "Known("++va_classe++".(en_cours.evt).code_matiere)"
+
+		CASE "nb_passagers"
+			vl_texte = va_classe ++ ".(en_cours.evt).nb_passagers"
+
+		CASE "trafic"
+			vl_texte = va_classe ++ ".(en_cours.evt).trafic"
+
+		CASE "visibilite"
+			vl_texte = va_classe ++ ".(en_cours.evt).visibilite"
+
+		CASE "type_vehicule"
+			vl_texte = va_classe ++ ".(en_cours.evt).type_veh"
+
+		CASE "nombre"
+			vl_texte = va_classe ++ ".(en_cours.evt).nombre"
+
+		CASE "violence"
+			vl_texte = va_classe ++ ".(en_cours.evt).violence"
+
+		CASE "peage"
+			vl_texte = va_classe ++ ".(en_cours.evt).perception"
+
+		CASE "balisage_pose"
+			vl_texte = va_classe ++ ".(en_cours.evt).balisage_pose"
+
+		CASE "sur_rau"
+			vl_texte = va_classe ++ ".(en_cours.evt).sur_rau"
+
+		CASE "voies_retrecies"
+			vl_texte = va_classe ++ ".(en_cours.evt).voies_retrecies"
+
+		CASE "continu"
+			vl_texte = va_classe ++ ".(en_cours.evt).continu"
+
+		CASE "mobile"
+			vl_texte = va_classe ++ ".(en_cours.evt).mobile"
+
+		/*B variables generiques */
+		CASE "longueur"
+			vl_texte = "info_std.(en_cours.info).longueur"
+
+		CASE "duree"
+			vl_texte = 
+				"en_cours.horodate-info_std.(en_cours.info).debut"
+
+		CASE "sens_1"
+			vl_texte = 
+	"(localisation.(en_cours.localisation).sens = ctes.sens1 or localisation.(en_cours.localisation).sens = ctes.sens_entree1 or localisation.(en_cours.localisation).sens = ctes.sens_sortie1)"
+
+		CASE "sens_2"
+			vl_texte = 
+	"(localisation.(en_cours.localisation).sens = ctes.sens2 or localisation.(en_cours.localisation).sens = ctes.sens_entree2 or localisation.(en_cours.localisation).sens = ctes.sens_sortie2)"
+
+		CASE "non_prevu"
+			vl_texte = "Not Known(info_std.(en_cours.info).debut_prevu)" 
+
+		CASE "coupure_chaussee" /*! BG modif 08.06.95 */
+			vl_texte = 
+	"(localisation.(en_cours.localisation).etat_VL <> ctes.voie_normale and localisation.(en_cours.localisation).etat_VL <> ctes.voie_inconnue and localisation.(en_cours.localisation).etat_VL <> ctes.voie_inexistante and localisation.(en_cours.localisation).etat_VM1 <> ctes.voie_normale and localisation.(en_cours.localisation).etat_VM2 <> ctes.voie_normale and localisation.(en_cours.localisation).etat_VR <> ctes.voie_normale and localisation.(en_cours.localisation).etat_BAU <>ctes.voie_normale and localisation.(en_cours.localisation).etat_VR_I <> ctes.voie_inversee and localisation.(en_cours.localisation).etat_VM2_I <> ctes.voie_inversee and localisation.(en_cours.localisation).etat_VM1_I <> ctes.voie_inversee and localisation.(en_cours.localisation).etat_VL_I <> ctes.voie_inversee)"
+
+
+		CASE "au_moins_1_voie_bloquee"
+			vl_texte = 
+	"(localisation.(en_cours.localisation).etat_VL = ctes.voie_bloquee or localisation.(en_cours.localisation).etat_VM1 = ctes.voie_bloquee or localisation.(en_cours.localisation).etat_VM2 = ctes.voie_bloquee or localisation.(en_cours.localisation).etat_VR = ctes.voie_bloquee)"
+
+		CASE "sans_voie_bloquee"
+			vl_texte = 
+	"(localisation.(en_cours.localisation).etat_VL <> ctes.voie_bloquee and localisation.(en_cours.localisation).etat_VM1 <> ctes.voie_bloquee and localisation.(en_cours.localisation).etat_VM2 <> ctes.voie_bloquee and localisation.(en_cours.localisation).etat_VR <> ctes.voie_bloquee)"
+
+		CASE "sur_lit_arret"
+			vl_texte =
+				"localisation.(en_cours.localisation).type_point_car = lit" 
+
+		CASE "sur_echangeur"
+			vl_texte =
+				"localisation.(en_cours.localisation).type_point_car = ech" 
+
+		CASE "sur_echangeur_de_sortie"
+			vl_texte="(localisation.(en_cours.localisation).sens = ctes.sens_sortie1 or localisation.(en_cours.localisation).sens = ctes.sens_sortie2)"
+
+		CASE "au_peage"
+			vl_texte =
+				"localisation.(en_cours.localisation).type_point_car = peage" 
+
+		CASE "sur_aire"
+			vl_texte =
+				"localisation.(en_cours.localisation).type_point_car = aire" 
+
+		CASE "confirme"
+			vl_texte = "info_std.(en_cours.info).confirme" 
+
+		CASE "signale"
+			vl_texte = "Not info_std.(en_cours.info).confirme" 
+
+		CASE "termine"
+			vl_texte = "Known(info_std.(en_cours.info).fin)" 
+
+		CASE "niveau_trafic"
+			vl_texte = "info_std.(en_cours.info).trafic"
+
+		CASE "pr_min"
+			vl_texte = "localisation.(en_cours.localisation).pr"
+
+		CASE "pr_max"
+			vl_texte = "localisation.(en_cours.localisation).pr"
+
+		CASE "autoroute"
+			vl_texte = "autoroute.(localisation.(en_cours.localisation).autoroute).identifiant"
+
+	ENDCASE
+
+	/*A on renvoie le resultat */
+	RETURN(vl_texte)
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* prepare la generation des regles d'appel differe des interlocuteurs PC (CI)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION int_dif(va_data, va_indice, va_modele, va_modele_cond)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_data		: "cas|definition|int1|motif1|int2|motif2|..."
+*	va_indice		: le numero de la regle a generer
+*	va_modele		: le modele de la regle
+*	va_modele_cond		: le modele de la partie condition de la regle
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Aucun
+*
+* CONDITION D'UTILISATION :
+* 
+* FONCTION :		genere un fichier app_dif_pc.tie (app_dif_ci.tie)
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR tl_arg
+VAR vl_indice, vl_i
+VAR tl_cas
+VAR vl_or
+VAR vl_nomfichier
+VAR vl_type,tl_def
+
+	/*A on isole les arguments */
+	tl_data = ARRAY_FROM_STRING@(va_data, DEDI_CAR_SEPAR)
+
+	/*A le premier argument est le cas */
+	tl_arg[0] = tl_data[0]
+
+	/*A le deuxieme argument est la definition */
+	tl_arg[1] = int_construit_def(tl_data[1])
+
+	/*A le troisieme argument est la liste des competences, 
+		le quatrieme la condition sur les interlocuteurs */
+	tl_arg[2] = NULL
+	tl_arg[3] = NULL
+	vl_or = 0
+
+	FOR vl_indice=2 TO (ARRAY_SIZE@(tl_data)-1)
+
+		/*B pour chaque motif non nul, on construit une condition */
+		IF (INT@(vl_indice/2) * 2 = vl_indice) 
+		AND (tl_data[vl_indice+1] <> NULL)
+		{					
+			/*B	on ajoute l'interlocuteur dans la liste des competences */
+			tl_arg[2][ARRAY_SIZE@(tl_arg[2])] = tl_data[vl_indice]
+
+			/*B	on remplace l'interlocuteur par son identifiant en base */
+			vl_i = ARRAY_INDEX@(ARRAY_COLUMN@(tm_interlocuteurs_BASEDD,1),
+							tl_data[vl_indice])
+			tl_cas[1] = tm_interlocuteurs_BASEDD[vl_i][0]
+
+			/*B	on conserve la competence pour la version texte  */
+			tl_cas[0] = tl_data[vl_indice]
+
+			/*B on applique le modele AW */
+			vl_nomfichier = dedi_genere(va_modele_cond, vl_or, tl_cas)
+			vl_or = 1
+			
+			/*B on concatene le fichier resultat a tl_arg[3] */
+			tl_arg[3] = ARRAY_APPEND@(tl_arg[3],READ_ASCII_FILE@(vl_nomfichier))
+
+			/*B on supprime le fichier de travail */
+			DELETE_FILE@(vl_nomfichier)
+
+			trace_point()
+		}
+	NEXT vl_indice
+
+	/*A le cinquieme argument est le texte de la definition */
+	tl_arg[4] = tl_data[1]
+
+	/*A on isole les conditions */
+	tl_def = ARRAY_FROM_STRING@(tl_data[1], DEDI_CAR_SEPAR_DEF)
+
+	/*A la premiere condition est de la forme "type = fmc" */
+	vl_type = ARRAY_FROM_STRING@(tl_def[0], "=")
+
+	/*on verifie que c'est bien le type*/
+	IF (vl_type[0]="type") 
+	{
+		/*s'il est nul*/
+		IF (vl_type[1]=null)
+		{
+			/*il ne doit pas apparaitre dans la definition*/
+			tl_def=ARRAY_DELETE@(tl_def,0)
+		}
+	}
+
+	IF (tl_def<>null)
+		tl_arg[4] = ARRAY_TO_STRING@(tl_def,DEDI_CAR_SEPAR_DEF)
+	ELSE
+		tl_arg[4] = null
+
+	/*A si il y a des interlocuteurs, on genere la regle */
+	IF tl_arg[2] <> NULL
+		dedi_genere(va_modele, va_indice, tl_arg)
+
+ENDFUNCTION
+
+
+
+
+
+

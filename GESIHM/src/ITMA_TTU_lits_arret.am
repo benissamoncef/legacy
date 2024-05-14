@@ -1,0 +1,597 @@
+/*Fichier :  $Id: ITMA_TTU_lits_arret.am,v 1.7 2010/12/16 16:49:25 pc2dpdy Exp $      Release : $Revision: 1.7 $        Date : $Date: 2010/12/16 16:49:25 $
+*/
+/*A Description des constantes générales
+ * ------------------------------------- */
+DEFINE	C_MODULE			"MTTU"	' Nom du module
+DEFINE	REP_CONFIG		"../fichiers/"
+DEFINE	REP_RENOVE		"../fichiers/renov/"
+
+DEFINE	POSX_BP_INDIVIDUEL	330
+DEFINE	POSY_BP_INDIVIDUEL	665
+
+
+/*A Description des modules à inclures 
+* ---------------------------------------*/
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+/*A Description des variables globales
+ * ----------------------------------- */
+var		vm_NomSite				' Nom du site
+var		vm_District				' N° du district
+var		vm_Eqp_LitArret	'fichier de config des eqp eclairage
+var		vm_F_bouton		'fichier de config des boutons
+var		vm_NumTube		'Numero du tube selectionné
+var		vm_text			'text en edition
+var		vm_F_tunnel		'fichier de config des tunnels
+
+var   vm_fenetre_TTU		'item de la fenetre du module
+var		vm_Titre_Fenetre
+var		vm_Nom_Fenetre
+var		vm_messages_acceptes
+
+/*E*/
+/*
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER ITMA_TTU_lits_arret.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de Commande des lits d'arret.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* A.Bertola 10/05/2007    : IHM supervision NICE en mode dégradé
+---------------------------------------------------------------------------- */
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commande des lits d'arret
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_lits_arret()
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_tunnel	: infos : Nom de la vue à afficher + tube concerné
+*  
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant résultat
+*
+* CONDITION D'UTILISATION
+*   
+*
+* FONCTION
+*    Pilote l'éclairage des tunnels
+*
+---------------------------------------------------------------------------- */
+/*A Déclaration des variables statiques */
+var vl_fenetre_active
+var vl_tunnel
+var	vl_color
+var	vl_titre_fen
+var i, j, vl_index, vl_index2
+var	vl_controle_sortie	' flag de sortie
+var vl_sens
+var vl_F_tunnel
+var vl_litarret
+var tl_color
+var tl_param
+var vl_Xpos, vl_Ypos
+var vl_retour
+var vl_meme_sens
+VAR vl_trigramme
+var vl_trigramme_amont
+var vl_trigramme_aval
+var vl_trigramme_sens
+var vl_ligne
+var vl_taille, vl_taille2
+var vl_F_tpm
+var vl_tab
+var vl_panneau
+var vl_etat
+var vl_message,vl_mess, vl_messageDecoupe	' message affiché
+var vl_cmd
+var vl_renove
+var vl_rang
+var vl_icon
+var vl_text
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN(COM_NOK)
+}
+SET_SYSTEM_VAR@("vg_domaine_courant", "litarret")
+
+INSTALL_FILE@("ITMA_TTU_eclairage.elo")
+
+'' Chargement du fichier de config tunnels
+vm_F_tunnel = SYSTEM_VAR@ (vg_les_donnees_config_bd_tube)
+vm_NomSite = SYSTEM_VAR@("vg_nom_site")
+vm_District = SYSTEM_VAR@("vg_site")
+
+vl_litarret = TRUE
+while (vl_litarret)
+
+
+/*A Chargement du fichier de config equipement des litsd'arret */
+vm_Eqp_LitArret = null
+vl_F_tpm = READ_ASCII_FILE@(REP_RENOVE ++ "ConfigEqtLitsArret.cfg")
+vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+vl_index = 1
+for i = 0 to vl_taille
+  vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+  vl_tab = ARRAY_SIZE@(vl_ligne)
+  if substring@(vl_F_tpm[i],1,1) <> "#" and vl_tab > 1
+  {
+
+	vl_taille2 = ARRAY_SIZE@(vl_ligne) -1
+	for j = 0 to vl_taille2
+		vm_Eqp_LitArret[vl_index,j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+	next j
+	vl_index = vl_index + 1
+  }
+next i
+
+
+/*B envoi du msg ouverture tunnel a la tache IHM principale */
+vl_cmd = "litarret"
+DB_SEND_POKE@(MTTU_MSG_OUV_FENETRE,vl_cmd)
+
+/*A Chargement de la fenetre & assignation des sockets 
+*   -------------------------------------------------- */
+vm_Nom_Fenetre = "ITMA_TTU_lits_arret"
+vm_fenetre_TTU = DB_LOAD@(vm_Nom_Fenetre)
+
+vm_messages_acceptes[0] = COM_CANAL_FIN
+vm_messages_acceptes[1] = COM_CANAL_MTTU_ALM
+vm_messages_acceptes[2] = COM_CANAL_MTTU_EQP_LIT
+DB_ACCEPT_POKES@ (vm_fenetre_TTU, vm_messages_acceptes)
+
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(vm_fenetre_TTU, 0)
+DB_YPOS@(vm_fenetre_TTU, 115)
+DB_WIDTH@(vm_fenetre_TTU, 993)
+'--DB_HEIGHT@(vm_fenetre_TTU, 715)
+
+DEFINE_HELPFILE@("gerer_pilotage_tunnel", "./aid/ITMA_TTU_tunnel.aide")
+DB_HELP_TOPIC@(vm_fenetre_TTU,"gerer_litarret")
+ 
+/*A affichage du titre de la boite 
+*   -------------------------------- */
+DB_TITLE@(vm_fenetre_TTU,"Lits d'arret de l'ensemble des tunnels")
+vm_Titre_Fenetre = "Lits d'arrêt de l'ensemble des tunnels"
+
+'' creation des equipements lit d'arret
+ITMA_TTU_creation_eqp_litarret
+
+/*A Abonnement au differents services */ 
+ITMA_TTU_Abt_Etat_Eqp_litarret(XDC_DEBUT_ABONNEMENT_EQUEXT)
+
+DB_DISPLAY_ONLY@(vm_fenetre_TTU,True)
+DB_DISPLAY@(vm_fenetre_TTU)
+DB_DISPLAY_ONLY@(vm_fenetre_TTU,False)
+
+vl_fenetre_active = TRUE
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	
+	/* affichage de la liste */
+	DB_DISPLAY@(vm_fenetre_TTU)
+	vl_titre_fen = DB_GET_TITLE@(vm_fenetre_TTU)
+	''PROMOTE_DIALOG@(vl_titre_fen)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vm_fenetre_TTU)
+
+	/*A si l'evenement n'est pas un poke & verrou=vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		{ vl_controle_sortie = NULL }
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action aide */
+	CASE "BP_aide"
+		COM33_Aide_Renov("ITMA_TTU_lits_arret")
+
+	/*A sur reception de poke */
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vm_fenetre_TTU)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+			return
+
+		/*A si poke de reception d'abonnement état eqp lit arret */
+		CASE COM_CANAL_MTTU_EQP_LIT	
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre_TTU)
+			vl_messageDecoupe = ARRAY_FROM_STRING@(vl_message[0],"|")
+			vl_taille2 = ARRAY_SIZE@(vl_messageDecoupe)
+
+			/*A trace de la reception du message */
+			vm_text = COM09_Date_Courante() ++ "   MsgPoke MTTU_EQP_LIT : "
+			for i = 0 to vl_taille2 - 1
+				vm_text = vm_text ++ vl_messageDecoupe[i] ++ " / "
+			next i
+			COM01_Trace(0,vm_text)
+
+			'-- parcours du tableau des messages
+			for i = 0 to vl_taille2 - 1
+            
+                /*A décomposition des messages en tableau */
+                vl_mess = ARRAY_FROM_STRING@(vl_messageDecoupe[i],",")
+                
+                if vl_mess[2] = XDC_EQT_LIT
+                {				
+                    if ( vl_mess[2] <> 0 )
+                    {
+                        vl_taille = ARRAY_SIZE@(vm_F_bouton)
+                        for j = 0 to vl_taille-1
+                            if ( vm_F_bouton[j,12] = vl_mess[2] and vm_F_bouton[j,4] = vl_mess[3] )
+                            {						
+                                ITMA_TTU_MAJ_ID_eqp_litarret(j, vl_mess)
+                                break j
+                            }
+                        next j
+                    }
+                }
+                
+            next i
+
+			
+		ENDCASE
+
+	/*A sur action quitter */
+	CASE "BP_quitter"
+		/*A la fenetre n'est plus active */
+		vl_fenetre_active = FALSE
+		vl_litarret = FALSE
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+DB_CLOSE@()
+
+/*B Fermer des abonnements */
+ITMA_TTU_Abt_Etat_Eqp_litarret(XDC_FERMER_ABONNEMENT_EQUEXT)
+
+/*A fin tant que */
+WEND
+
+RETURN
+
+
+ENDMACRO
+
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU : creation generique des equipements	
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_creation_eqp_litarret()
+var vl_taille
+var i, j
+var vl_num_eqp
+var vl_type_eqp
+var vl_numero
+var vl_icon
+var vl_xpos, vl_ypos, vl_xpos2, vl_ypos2
+var vl_color
+var vl_titre,vl_titre2,vl_titre3,vl_titre4
+var vl_nom_tunnel
+
+/*A Créer et positionner les panneaux */
+vl_color[0] = 255
+vl_color[1] = 0,0,0
+vl_color[0] = 1
+vl_color[1] = 255,255,255
+
+
+vm_F_bouton = null
+vl_taille = ARRAY_SIZE@(vm_Eqp_LitArret)-1
+for i = 1 to vl_taille
+	vl_numero = i
+	vl_num_eqp = vm_Eqp_LitArret[vl_numero,4]
+	vl_type_eqp = vm_Eqp_LitArret[vl_numero,3]
+	vm_F_bouton[vl_numero,0]	= 0					' le n° du picto associé
+	vm_F_bouton[vl_numero,1]	= vm_Eqp_LitArret[vl_numero,0] 'num eqt
+	vm_F_bouton[vl_numero,2]	= vm_Eqp_LitArret[vl_numero,14] 'picto par defaut
+	vm_F_bouton[vl_numero,3]	= vm_Eqp_LitArret[vl_numero,1]  'type (T ou E)
+	vm_F_bouton[vl_numero,4]	= vm_Eqp_LitArret[vl_numero,4]  'n° eqt en base
+	vm_F_bouton[vl_numero,5]	= vm_Eqp_LitArret[vl_numero,7] 'defaut critique
+	vm_F_bouton[vl_numero,6]	= vm_Eqp_LitArret[vl_numero,8] 'defaut majeur
+	vm_F_bouton[vl_numero,7]	= vm_Eqp_LitArret[vl_numero,9] 'defaut mineur
+	vm_F_bouton[vl_numero,8]	= vm_Eqp_LitArret[vl_numero,10] 'hors service
+	vm_F_bouton[vl_numero,9]	= vm_Eqp_LitArret[vl_numero,11] 'pas de defaut
+	vm_F_bouton[vl_numero,10] = vm_Eqp_LitArret[vl_numero,12] 'mode local
+	vm_F_bouton[vl_numero,11] = vm_Eqp_LitArret[vl_numero,13] 'mode distant
+    vm_F_bouton[vl_numero,12] = vm_Eqp_LitArret[vl_numero,3]	'type equipement (SAE)
+
+	vl_icon 	= vm_Eqp_LitArret[vl_numero,14]  'le picto à afficher par defaut
+	vl_xpos 	= vm_Eqp_LitArret[vl_numero,5]	' la position X
+	vl_ypos 	= vm_Eqp_LitArret[vl_numero,6]	' la position Y
+
+	/* creation des objets cadre et mode local */
+	vl_titre3 = "BP_cadre" ++ vl_numero
+	DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_titre3,
+			vm_Eqp_LitArret[vl_numero,11],vl_xpos-3,vl_ypos - 3,0)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_titre3,FALSE)
+
+	vl_xpos2 = vl_xpos+50
+	vl_ypos2 = vl_ypos+30
+	
+	vl_titre4 = "BP_local" ++ vl_numero
+	DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_titre4,
+			vm_Eqp_LitArret[vl_numero,12],vl_xpos2,vl_ypos2,0)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_titre4,FALSE)
+
+	/* creation des objets BP etat */
+	vl_titre2 = "BP_panneau" ++ vl_numero
+	DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_titre2,vl_icon,vl_xpos,vl_ypos,0)
+	DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_panneau"++vl_numero,4)
+	DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_panneau"++vl_numero,True)
+
+	/*!! Ajout des numeros de panneaux au dessus des cadres */
+  	vl_titre2 = "BP_Lib_Cmd" ++ vl_numero	' libelle cmd panneau
+	vl_numero = vl_num_eqp
+
+ 	DB_CREATE_CTRL@(vm_fenetre_TTU,3,vl_titre2,vl_type_eqp ++ "-" ++ vl_numero,vl_xpos+5,vl_ypos-16,0) 
+ 	DB_CTRL_WIDGET_COLOR@(vm_fenetre_TTU,vl_titre2,vl_color)
+	DB_CTRL_FONT@(vm_fenetre_TTU, vl_titre2,"-adobe-courier-bold-r-normal--10-100-75-75-m-65-iso8859-1")
+	DB_CTRL_GRAYED@(vm_fenetre_TTU,vl_titre2,True)
+
+	/*!! Ajout des noms des tunnels */
+	vl_taille = ARRAY_SIZE@(vm_F_tunnel) -1
+	for j = 0 to vl_taille
+		if (vm_Eqp_LitArret[i,2]=vm_F_tunnel[j,0])
+		{						
+		break j
+		}
+	
+	next j
+
+  	vl_titre = "BP_nom_tunnel" ++ vl_numero	' libelle nom tunnel
+	vl_nom_tunnel = vm_F_tunnel[j,2]
+ 	DB_CREATE_CTRL@(vm_fenetre_TTU,5,vl_titre,vl_nom_tunnel,vl_xpos-10,vl_ypos+50,0) 
+
+next i
+
+
+RETURN
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	MAJ du panneau dans la vue actuelle
+* 
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_MAJ_ID_eqp_litarret(va_num,va_msg)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_num	: le N° du panneau à modifier
+*	va_msg	: msg recu
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   appel de cette procedure
+*
+* FONCTION
+*    MAJ du panneau dans la vue actuelle
+*
+---------------------------------------------------------------------------- */
+
+var	vl_picto, vl_picto_etat, vl_picto_mode
+var	vl_objet, vl_objet_etat, vl_objet_mode
+var	i
+var	vl_size
+var	vl_taille
+var	vl_icon
+var	vl_xpos
+var	vl_ypos
+var	vl_pos
+var	vl_etat
+var	vl_mode
+var	vl_numeqp
+var	vl_text
+
+/* utilisation des cst pour les defaut equipement
+XDC_NORMAL		0
+XDC_EQP_DEF_CRIT	3
+XDC_EQP_DEF_MAJEUR	2
+XDC_EQP_DEF_MINEUR	1
+XDC_EQP_HS		4
+vl_mess[2]	type panneau (SAE)
+vl_mess[3]	id panneau (SAE)
+vl_mess[4]	position panneau
+vl_mess[5]	etat defaut du panneau
+vl_mess[6]	mode local /distant du panneau
+*/
+
+/*A si le bouton existe */
+if vm_F_bouton[va_num,1] = ""
+	Return(COM_NOK)
+
+vl_numeqp = va_num
+vl_pos = va_msg[4]
+vl_etat =  va_msg[5]
+vl_mode =  va_msg[6]
+
+vl_xpos = vm_Eqp_LitArret[vl_numeqp,5]
+vl_ypos = vm_Eqp_LitArret[vl_numeqp,6]
+
+/* mode de l'equipement */
+vl_objet_mode = "BP_local" ++ vl_numeqp 
+if vl_mode = 0
+{
+	'mode distant
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_objet_mode,FALSE)
+}
+else
+{
+	'mode local
+	vl_picto_mode = vm_Eqp_LitArret[va_num,12]
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_objet_mode,TRUE)
+}
+/* selon l'état de l'equipement */
+CASE OF vl_etat
+
+/*A etat normal */
+CASE XDC_EQP_DEF_CRIT
+	vl_text = "Equipement "++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]++" avec défaut critique !"
+	vl_picto_etat = vm_Eqp_LitArret[va_num,7]
+CASE XDC_EQP_DEF_MAJEUR
+	vl_text = "Equipement "++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]++" avec défaut majeur !"
+	vl_picto_etat = vm_Eqp_LitArret[va_num,8]
+
+CASE XDC_EQP_DEF_MINEUR
+	vl_text = "Equipement "++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]++" avec défaut mineur !"
+	vl_picto_etat = vm_Eqp_LitArret[va_num,9]
+
+CASE XDC_EQP_HS
+	vl_text = "Equipement "++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]++" hors service !"
+	vl_picto_etat = vm_Eqp_LitArret[va_num,10]
+
+CASE XDC_NORMAL
+	vl_text = "Réception état équipement " ++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]
+	vl_picto_etat = vm_Eqp_LitArret[va_num,11]
+
+ENDCASE
+DB_CTRL_TITLE@( vm_fenetre_TTU,"Li_status",vl_text)
+
+
+vl_objet_etat = "BP_cadre" ++ vl_numeqp 
+DB_DESTROY_CTRL@(vm_fenetre_TTU,vl_objet_etat)
+DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_objet_etat,
+					vl_picto_etat,vl_xpos-3,vl_ypos - 3,0)
+
+/*A construction du nom de l'objet vl_objet */
+vl_objet = "BP_panneau" ++ vl_numeqp
+
+/*A lecture du picto disponible à cette position dans vl_picto */
+vl_picto = vm_Eqp_LitArret[vl_numeqp,vl_pos+14]
+
+/*A si le picto existe pour cette position : MAJ du bouton */
+if TRIM@(vl_picto) <>  ""
+{  
+	DB_DESTROY_CTRL@(vm_fenetre_TTU,vl_objet)
+	DB_CREATE_CTRL@(vm_fenetre_TTU,3,vl_objet,vl_picto,vl_xpos,vl_ypos,0)
+	DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,vl_objet,4)
+	DB_CTRL_GRAYED@(vm_fenetre_TTU,vl_objet,True)
+}
+
+Return(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner à l'état des panneaux.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Abt_Etat_Eqp_litarret(va_Abonnement)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_Abonnement	:	Type d'abonnement (debut ou fin)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   
+*
+* FONCTION :
+*	Permet de s'abonner à l'état des panneaux.
+* ------------------------------------------------------------------------------- */
+
+VAR vl_cmd
+VAR vl_text
+VAR vl_TypeEqt
+VAR vl_taille
+VAR j
+VAR vl_numouvrage
+
+	vl_TypeEqt = XDC_EQT_LI
+
+	/*A trace de l'appel de procedure */
+	vm_text = COM09_Date_Courante()  
+	vm_text =  vm_text ++ " --> XZEA18_Abt_Eqp_litarret "
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B Identifiant de la fonction lit d'arret */
+	vl_cmd[1]=MTTU_FCT_LIT			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA18  
+
+	vl_numouvrage = 200
+
+	/*B arguments */
+	vl_cmd[3]= va_Abonnement ++ MTAR_CAR_SEPAR ++ vm_NomSite   ++ MTAR_CAR_SEPAR ++
+			vl_TypeEqt ++ MTAR_CAR_SEPAR ++ vl_numouvrage
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émission */
+	vl_text = COM09_Date_Courante() ++ " - DB_SEND_POKE@(COM_CANAL_TAR01," ++
+			vl_cmd[0]++ ","++vl_cmd[1]++","++vl_cmd[2]++","++vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+		
+ENDMACRO
+
+

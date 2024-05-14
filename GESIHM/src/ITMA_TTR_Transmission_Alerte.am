@@ -1,0 +1,281 @@
+/*E*/
+/* Fichier : @(#)ITMA_TTR_Transmission_Alerte.am	1.2     Release : 1.2      Date : 12/10/97
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TTR * FICHIER ITMA_TTR_Transmission_Alerte.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Transmettre une alerte
+*
+*   Cf. DCG 2.4.66
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	26 Sep 1994	: Creation						V1.1
+* JMG           29/09/09        : FACTIS DEM 887
+*  JMG           03/03/17 : regio DEM1220
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE    "../inc/xzaa03sp.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+
+DEFINE	C_MODULE	"MTTR"			' Nom du module
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* permet de transmettre une alerte
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTR_Transmission_Alerte (va_appelant,va_horodate,va_type_eqt,va_num_eqt,va_type_alerte,va_texte,va_reference)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_numero	: numero de la fiche main courante
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR tl_retour,tl_poke_data
+	VAR vl_numero_fiche,vl_libelle_fiche
+	VAR vl_heading,vl_table_data
+	VAR vl_indice,vl_sel,vl_index,vl_numero_poste,vl_numero_site
+	VAR FORMAT TDO_Poste_Operateur tl_postes
+	VAR FORMAT TDO_District	tl_districts
+	VAR vl_pos_district
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Lier ..."
+ * ----------------------------------
+ */
+vl_fenetre = DB_LOAD@ ("ITMA_TTR")
+DB_XPOS@(vl_fenetre,517)
+DB_YPOS@(vl_fenetre,677)
+
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TTR_Transmission_Alerte")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+	/*A titre du bouton transmettre*/
+	DB_CTRL_TITLE@(vl_fenetre,"BP_transmettre",
+					"Transmettre l'alerte")
+
+	/*A liste des districts a qui transmettre*/
+	tl_districts[0]=XDC_DN,XDC_NOM_DISTRICT_DN
+	tl_districts[1]=XDC_VC,XDC_NOM_DISTRICT_DM
+/*A
+ * afficher les districts 
+ */
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+vl_heading=NULL
+vl_table_data=NULL
+vl_heading[0,0]="Num"
+vl_heading[0,1]=50
+vl_heading[1,0]="Nom"
+vl_heading[1,1]=400
+DB_TABLE_SET_DATA@(vl_fenetre,"BL_site",tl_districts,vl_heading,NULL)
+
+vl_sel[0]=0
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"BL_site",vl_sel)
+vl_numero_site=tl_districts[0].numero
+
+/*A
+ * active les tables des sites et des postes operateurs*/
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BL_site",TRUE)
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+
+/*A
+ * le bouton Quitte est choisi par defaut
+ */
+DB_CTRL_DEFAULT_BUTTON@(vl_fenetre,"BP_quitter",TRUE)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A init*/
+vl_numero_fiche=NULL
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		CASE "BP_quitter"
+			/*A Bye*/
+			RETURN (COM_QUITTE)
+
+		/*A choix d'un site dans la table*/
+		CASE "BL_site"
+			/*A
+			* on determine la liste des postes operateurs du site*/
+			vl_sel=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"BL_site")
+			vl_sel=vl_sel[0]
+			vl_numero_site=tl_districts[vl_sel].numero
+
+		/*A je transmets le droit d'enrichir*/
+		CASE "BP_transmettre"
+			MACRO_WINS_BUSY@()
+			
+
+					/*A je transmets la fiche (ou la queue)*/
+					IF (ITMA_TTR_Transmet_Alerte(va_horodate,va_type_eqt,va_num_eqt,va_type_alerte,va_texte,vl_numero_site,va_reference)
+													<>COM_OK)
+						RETURN (COM_NOK)	
+					ELSE
+						RETURN (COM_VALIDE)
+
+	ENDCASE
+WEND
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* transmet le droit d'enrichir
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ITMA_TTR_Transmet_Alerte (va_horodate,va_type_eqt,va_num_eqt,va_type_alerte,va_texte,va_site,va_reference)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_numero	: numero de la fiche evenement
+* va_numero_poste: numero du poste operateur a qui transmettre le droit
+* va_numero_site: numero du site ou se trouve le poste
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   appelee par la macro ci-dessus
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+
+     VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_msg
+
+     vl_parametres[0].type = SYB#DATETIME_
+   vl_parametres[0].data = va_horodate
+     vl_parametres[0].output = FALSE
+
+     vl_parametres[1].type = SYB#INT4_
+   vl_parametres[1].data = va_type_eqt
+     vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type= SYB#INT4_
+	vl_parametres[2].data= va_num_eqt
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type= SYB#INT4_
+	vl_parametres[3].data=va_type_alerte
+	vl_parametres[3].output=FALSE
+
+	vl_parametres[4].type= SYB#INT4_
+	vl_parametres[4].data=va_site
+	vl_parametres[4].output=FALSE
+
+	vl_parametres[5].type= SYB#CHAR_
+	vl_parametres[5].data=va_texte
+	vl_parametres[5].output=FALSE
+
+        vl_parametres[6].type= SYB#CHAR_
+        vl_parametres[6].data=va_reference
+        vl_parametres[6].output=FALSE
+'dump_array@(vl_parametres)
+	/*A execution de la requete SQL*/
+	IF COM05_SQL_Procedure(XZAA03_Creer_Alerte_Site,
+					vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		RETURN (COM_NOK)	
+	}
+	RETURN (COM_OK)
+ENDFUNCTION
+
+
+

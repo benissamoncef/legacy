@@ -1,0 +1,242 @@
+/* Fichier : @(#)ITMA_TMA_Synthese_TFM.am	1.1      Release : 1.1        Date : 09/12/03
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TMA * FICHIER ITMA_TMA_Synthese_TFM.am.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* synthese des messages TFM
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* CLUCHAGUE     07/07/2003  creation 
+* CLUCHAGUE     23/09/04 on l'avait perdu, on l'a retrouve 1.2
+* PNI		16/11/10 : ajout des paramètres appelant et data pour appel à partir de ITMA_TMA_Synthese_TFM_action DEM960 1.2
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+
+DEFINE	C_MODULE	"MTMA"			' Nom du module
+DEFINE  C_MODELE_MSG            "ITMA_TMA_Synthese_TFM"  ' Modele d'impression
+DEFINE  C_SOUS_REP_MODELES      COM_SOUS_REP_IHM        ' Repertoire des modeles
+
+
+VAR vm_appel
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMA_Synthese_TFM (va_appelant,va_data)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre		' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_select				' Selection(s) dans la table
+    VAR     vl_i,vl_fichier
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+'ON ERROR {
+ '   ERROR_BOX@
+  '  COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+   ' RETURN
+'}
+
+
+/*A
+ * Charger la fenetre "Synthese TFM"
+ * -------------------------------------------
+ */
+
+vm_appel=va_appelant
+
+vl_fenetre= DB_LOAD@ ("ITMA_TMA_Synthese_TFM")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+'DB_WIDTH@ (vl_fenetre, 1264)
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+
+/*A
+ * Initialiser la visualisation (liste des messages)
+ * -------------------------------------------------
+ */
+IF TFM_Init_Visualisation (vl_fenetre, va_data) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+ '   ON ERROR {
+'	ERROR_BOX@
+'	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL
+'	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+'	vl_installer_traitement_erreur = TRUE
+ '   }
+WEND
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre)
+	CASE COM_CANAL_FIN
+	    vl_la_fenetre_est_active = FALSE
+	ENDCASE
+
+    CASE "BP_Quit"
+		vl_la_fenetre_est_active = FALSE
+
+    CASE "BP_Imp"
+	    /*B Ouvrir une fenetre ApplixWord non visible et charger le modele */
+	    WP_APPLICATION_DLG@ (NULL, TRUE)
+	    WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+	    C_SOUS_REP_MODELES ++ C_MODELE_MSG ++ ".aw")
+	WP_SET_DOC_VAR@("message",
+	    DB_EDITBOX_GET_DATA@ (vl_fenetre, "BE_synthese"))
+
+	    /*B Formater le texte actuellement ouvert en PCL */
+	    vl_fichier = C_MODELE_MSG ++ "_" ++ SYSTEM_VAR@ (vg_numero_poste)
+	    COM36_Imprimer_Texte(vl_fichier)
+
+    ENDCASE
+WEND
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des messages a diffuser ;
+*  met en evidence les messages dont le nombre de diffusions est 0.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO  TFM_Init_Visualisation (va_fenetre, va_data)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_data,i
+        VAr tl_msg
+
+    VAR FORMAT SQL_Procedure_Result@    vl_resultats
+
+IF (vm_appel="ITMA_TMA_Synthese_TFM_action")
+{
+   vl_data = va_data ++ "\n" ++ "\n *"
+   DB_DISPLAY_ONLY@(va_fenetre, TRUE)
+   DB_DISPLAY@(va_fenetre)
+}
+else
+{
+IF COM05_SQL_Procedure ("XZAE201",
+                           NULL, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+DB_DISPLAY_ONLY@(va_fenetre, TRUE)
+DB_DISPLAY@(va_fenetre)
+
+FOR i = 0 to ARRAY_SIZE@ (vl_resultats.select_results[0])
+ vl_data = vl_data ++ "\n" ++ "\n" ++ vl_resultats.select_results[0][i][0]
+NEXT i
+
+}
+
+/*message*/
+tl_msg = ARRAY_FROM_STRING@(vl_data, "#")
+DB_EDITBOX_SET_DATA@ (va_fenetre, "BE_synthese",vl_data)
+
+DB_DISPLAY_ONLY@(va_fenetre, FALSE)
+
+RETURN (COM_OK)
+
+ENDMACRO

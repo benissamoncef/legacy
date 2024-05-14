@@ -1,0 +1,1 @@
+DEFINE	XZAT09_File_Attente		"XZAT;09"

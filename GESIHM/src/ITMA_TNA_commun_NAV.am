@@ -1,0 +1,2802 @@
+/*E*/
+/* Fichier : $Id: ITMA_TNA_commun_NAV.am,v 1.16 2020/11/23 09:41:22 pc2dpdy Exp $      Release : $Revision: 1.16 $        Date : $Date: 2020/11/23 09:41:22 $
+------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE MTPM * FICHIER  ITMA_TNA_commun_NAV.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de commande des NAV.
+*
+*
+------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Orengo	08 Oct 1996	: Creation						1.1
+* Orengo	25 Nov 1996	: Suppression define pour test (DEM/1228)  1.2
+* Orengo	06 Dec 1996	: Correction affichage boite de dialogue
+					consultation nav appel ITMA_TMC (DEM/1228)  1.3
+* Mismer	12 Dec 1996	: Ajout formation par synoptique (DEM/1326) 1.4
+* Guilhou	02 mar 1998	: ajout sit_origine dans XZAC03 (dem/1605) 1.7
+* Cluchague     13 mai 20022    : traitement du libelle BRA ou PAL selon 1.9   (REPERE1)
+* Cluchague03 Dec 2004     : 4 positions par module 1.10
+* JMG   31/10/07        : ajout site de gestion  1.11
+* JMG   29/09/2009      : SECTO DEM 887
+* PNI	9/11/10		: Prise en compte des noms des LT plus longs  DEM 959 v1.13
+* JPL	23/03/17	: Changement du terme Secteur en Region (DEM 1173)  1.14
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+* LCL	23/11/20	: MOVIS ajout cle action pour pilotage de fin 1.16
+--------------------------------------------------------------------- */
+
+
+/*A Description des modules a inclures 
+* ------------------------------------ */
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_TNA.h"
+
+
+ /*A Description des procedures sotckees a appeler
+* ------------------------------------------------ */
+INCLUDE	"../inc/xzao162sp.h"
+INCLUDE	"../inc/xzao163sp.h"
+INCLUDE	"../inc/xzao164sp.h"
+INCLUDE	"../inc/xzae72sp.h"
+INCLUDE	"../inc/xzac41sp.h"
+INCLUDE	"../inc/xzac62sp.h"
+INCLUDE	"../inc/xzac03sp.h"
+INCLUDE	"../inc/xzac02sp.h"
+INCLUDE	"../inc/xzat06sp.h"
+INCLUDE	"../inc/xzat01sp.h"
+INCLUDE	"../inc/xzat06sp.h"
+INCLUDE	"../inc/xzao05sp.h"
+INCLUDE	"../inc/xzap13sp.h"
+
+
+var	vm_indice_objet_consultation
+var	vm_indice_objet_pilotage
+var	vm_chrono_dessin
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Initialisation de la NAV
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_commun_NAV()
+
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Initialisation de la NAV
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_INIT_NAV(
+	FORMAT ST_affichage_et_message va_ST_aff_msg,
+			va_BL_scenario,FORMAT ST_scenario va_ST_scenario,
+			FORMAT	ST_objet	va_liste_objet_consultation,
+					FORMAT	ST_objet	va_liste_objet_pilotage,
+		va_TypeNAV,FORMAT Config_Scenario va_liste_scenario_autorises)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_ST_aff_msg	:	Structure contenant les donnees d'affichage
+*					et de messages vers les equipements
+*	va_BL_scenario	:	Liste des libelles des scenarios (Chaine)
+*	va_ST_scenario	:	Structure contenant les donnees scenario
+*	va_liste_objet_consultation	:	Liste des objets consultation
+*	va_liste_objet_pilotage		:	Liste des objets pilotage
+*	va_TypeNAV	:	Type de la NAV en cours
+*	va_liste_scenario_autorises	:	Liste des scenarios autorises
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+--------------------------------------------------------------------- */
+
+ITMA_TNA_fichier_scenario_NAV(va_ST_aff_msg,va_BL_scenario,
+			va_ST_scenario,va_TypeNAV,va_liste_scenario_autorises)
+
+ITMA_TNA_fichier_configuration_NAV(va_ST_aff_msg,va_TypeNAV,
+			va_liste_objet_consultation,va_liste_objet_pilotage)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Traitement fichier Scenario de la NAV
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_fichier_scenario_NAV(
+		FORMAT ST_affichage_et_message va_ST_aff_msg,
+				va_BL_scenario,FORMAT ST_scenario va_ST_scenario,
+		va_TypeNAV,FORMAT Config_Scenario va_liste_scenario_autorises)
+
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_ST_aff_msg	:	Structure contenant les donnees d'affichage
+*					et de messages vers les equipements
+*	va_BL_scenario	:	Liste des libelles des scenarios (Chaine)
+*	va_ST_scenario	:	Structure contenant les donnees scenario
+*	va_TypeNAV	:	Type de la NAV en cours
+*	va_liste_scenario_autorises	:	Liste des scenarios autorises
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+--------------------------------------------------------------------- */
+
+var	i,j,k			' index de loop
+var	vl_nb_lignes		' Nombre de lignes dans le fichier lu
+var	vl_nb_element_ligne	' Nombre d'elements par lignes
+var	vl_F_tpm			' tableau tampon contenant le fichier lu
+var	vl_F_scenario		' Tableau tampon contenant le fichier lu
+var	vl_ligne			' tableau d'une ligne
+var	vl_ret			' Int retour de la procedure de traitement des mots cle
+var	vl_chaine			' Chaine de travail pour recuperer la fin d'action
+var vl_scenario_autorise	' Indique si le scenario est autorise TRUE/FALSE
+
+/*A Lecture du fichier de scenario */
+
+vl_F_tpm = READ_ASCII_FILE@(REP_CONFIG ++ FICHIER_SCENARIOS)
+
+/*A Aquisition du nombre de lignes du fichier */
+
+vl_nb_lignes = ARRAY_SIZE@(vl_F_tpm)-1
+
+/* Boucle sur la totalite des lignes */
+
+k=0
+for i = 0 to vl_nb_lignes
+
+	vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+
+	/*A Si la ligne n'est pas un commentaire et
+									n'est pas une ligne vide */
+
+	if(SUBSTRING@(vl_ligne[0],1,1)<>"#" and vl_ligne[0]<>"")
+	{
+		/*A Alors */
+		/*A Copier la ligne element par element dans le tableau */
+
+		vl_nb_element_ligne = ARRAY_SIZE@(vl_ligne)-1
+		for j = 0 to vl_nb_element_ligne
+			vl_F_scenario[k,j] = TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+		next j
+
+		vl_scenario_autorise=FALSE
+
+		for j = 0 to ARRAY_SIZE@(
+				va_liste_scenario_autorises[va_TypeNAV].NomScenario)
+
+			if(va_liste_scenario_autorises[va_TypeNAV]
+			.NomScenario[j]=vl_F_scenario[k,CHAMP_FS_QUADRIGRAMME])
+			{
+
+				vl_scenario_autorise=TRUE
+			}
+		next j
+
+		if vl_scenario_autorise=TRUE
+		{
+			for j = CHAMP_FS_EQUIPEMENT_1 to vl_nb_element_ligne
+
+				vl_ret=ITMA_TNA_traitement_mots_cle(
+										vl_F_scenario[k,j])
+
+				if(vl_ret=-1)
+				{
+					info_message@("Erreur de traitement fichier Scenario NAV\nMot cle '"++vl_F_scenario[k,j]++"' inconnu\nLigne "++i++" Colonne "++j)
+				}
+				else
+				{
+					va_ST_aff_msg[j-CHAMP_FS_EQUIPEMENT_1]
+						.etat_equipement_scenario[k]=vl_ret
+				}
+			next j
+
+			/*A Creation de la liste des scenarios pour
+									la boite de dialogue */
+
+			va_BL_scenario[k]=
+						vl_F_scenario[k,CHAMP_FS_LIBELLE_SCENARIO]
+			va_ST_scenario[k].quadrigramme=
+						vl_F_scenario[k,CHAMP_FS_QUADRIGRAMME]
+
+
+			vl_chaine=TRIM@(vl_F_scenario[k,CHAMP_FS_FIN_ACTION])
+			if(uppercase@(vl_chaine)=CLE_OUI)
+			{
+				va_ST_scenario[k].fin_action=TRUE
+			}
+			else
+			{
+				va_ST_scenario[k].fin_action=FALSE
+			}
+			k=k+1
+		}
+	}
+	/*A Finsi */
+next i
+
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Traitement du fichier configuration de la NAV
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_traitement_mots_cle(va_champ_lu)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*	va_champ_lu : Champ lu dans dans le fichier des scenarios	 
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR        : -1 si erreur sinon l'etat corespondant au mot cle
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+--------------------------------------------------------------------- */
+
+var vl_chaine_trt			' Chaine tampon pour le traitement
+
+/*A Copie de la chaine en lettres capitales */
+
+vl_chaine_trt=uppercase@(va_champ_lu)
+
+/*A Si la chaine lue dans le champ corespond au mot cle */
+
+case of vl_chaine_trt
+
+	case CLE_NEUTRE
+		return(CHAMP_NEUTRE)
+
+	case CLE_ETEINT
+		return(CHAMP_ETEINT)
+
+	case CLE_RENTREE
+		return(CHAMP_ETEINT)
+
+	case CLE_POSITION_1
+		return(CHAMP_ALLUME_1)
+
+	case CLE_POSITION_2
+		return(CHAMP_ALLUME_2)
+
+	case CLE_POSITION_3
+		return(CHAMP_ALLUME_3)
+
+	case CLE_POSITION_4
+		return(CHAMP_ALLUME_4)
+
+endcase
+
+return(-1)
+
+ENDMACRO
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Traitement du fichier configuration de la NAV
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_fichier_configuration_NAV(
+	FORMAT ST_affichage_et_message va_ST_aff_msg,va_TypeNAV,
+			FORMAT	ST_objet	va_liste_objet_consultation,
+					FORMAT	ST_objet	va_liste_objet_pilotage)
+
+
+/*
+* ARGUMENTS EN ENTREE :
+* 
+*	va_ST_aff_msg	:	Structure contenant les donnees d'affichage
+*					et de messages vers les equipements
+*	va_TypeNAV	:	Type de la NAV en cours
+*	va_liste_objet_consultation	:	Liste des objets consultation
+*	va_liste_objet_pilotage		:	Liste des objets pilotage
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+--------------------------------------------------------------------- */
+
+var	i,j,k			' index de loop
+var	vl_nb_lignes		' Nombre de lignes dans le fichier lu
+var	vl_nb_element_ligne	' Nombre d'elements par lignes
+var	vl_F_tpm			' tableau tampon contenant le fichier lu
+var	vl_F_config		' tableau tampon contenant le fichier lu
+var	vl_ligne			' tableau d'une ligne
+var	vl_num_equip_NAV	' Numero de l'equipement au sein da la NAV
+var	vl_tampon			' Chaine tampon pour traitement sur TRIM@
+var	vl_type_objet		' Type d'objet dessin ou barriere / panneau
+var	vl_equipement_barriere	' L'objet en cours est une barriere
+
+/*A Reset des indices sur les objets */
+
+vm_indice_objet_consultation=0
+vm_indice_objet_pilotage=0
+vm_chrono_dessin=0
+
+/*A Reset de la table ST_affichage_et_message */ 
+
+for i=0 to DIM_MAX_ST_affichage_et_message
+
+	va_ST_aff_msg[i].equipement_present=FALSE
+	va_ST_aff_msg[i].equipement_barriere=FALSE
+	va_ST_aff_msg[i].nom_objet_etat_actuel=INDETERMINE
+	va_ST_aff_msg[i].nom_objet_nouvel_etat=INDETERMINE
+	va_ST_aff_msg[i].etat_actuel_equipement=INDETERMINE
+	va_ST_aff_msg[i].nouvel_etat_equipement=INDETERMINE
+
+	for j=0 to DIM_MAX_ETAT
+
+		va_ST_aff_msg[i].nom_fichier_pix[j]=INDETERMINE
+		va_ST_aff_msg[i].message_equipement[j]=INDETERMINE
+
+	next j
+
+next i
+
+
+/*A Lecture du fichier de config NAV */
+
+vl_F_tpm = READ_ASCII_FILE@(REP_CONFIG ++
+				FICHIER_CONFIGURATIONS++va_TypeNAV
+							++EXTENTION_FICHIER_CONFIGURATIONS)
+
+/*A Aquisition du nombre de lignes du fichier */
+
+vl_nb_lignes = ARRAY_SIZE@(vl_F_tpm)-1
+
+/* Boucle sur la totalite des lignes */
+
+k=0
+for i = 0 to vl_nb_lignes
+
+	vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+
+	/*A Si la ligne n'est pas un commentaire */
+
+	if (SUBSTRING@(vl_ligne[0],1,1)<>"#" and vl_ligne[0]<>"")
+	{
+		/* Alors */
+		/* Copier la ligne element par element dans le tableau */
+
+		vl_nb_element_ligne = ARRAY_SIZE@(vl_ligne)-1
+		for j = 0 to vl_nb_element_ligne
+			vl_F_config[k,j] = TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+		next j
+		k=k+1
+	}
+	/*A Finsi */
+next i
+
+for i  = 0 to (k-1)
+
+	/* Recuperation du numero de l'equipement au sein de la NAV */
+
+	vl_num_equip_NAV=vl_F_config[i,CHAMP_FC_NUMERO_EQUIPEMENT]
+
+	/* Recuperation pour savoir si l'objet est une barriere */
+
+	if UPPERCASE@(TRIM@(vl_F_config[i,CHAMP_FC_OBJET_NAV]))=CLE_OUI
+	{
+			vl_equipement_barriere=TRUE
+	}
+	else
+	{
+			vl_equipement_barriere=FALSE
+	}
+	/*A creation de la tableau des objets Consultation et Pilotage */
+
+	vl_type_objet=ITMA_TNA_traitement_objet_NAV(
+		vl_F_config[i,CHAMP_FC_X_OBJET],
+			vl_F_config[i,CHAMP_FC_Y_OBJET],
+			vl_F_config[i,CHAMP_FC_NOM_FICHIER_PIX_NEUTRE],
+			vl_num_equip_NAV,
+				vl_F_config[i,CHAMP_FC_NOMBRE_REPETITION_X],
+					vl_F_config[i,CHAMP_FC_TAILLE_OBJET],
+						va_liste_objet_consultation,
+								va_liste_objet_pilotage,
+									vl_equipement_barriere)
+
+	if vl_type_objet=TRUE
+	{
+		va_ST_aff_msg[vl_num_equip_NAV].equipement_present=TRUE
+
+		va_ST_aff_msg[vl_num_equip_NAV].equipement_barriere=
+										vl_equipement_barriere
+
+		/* Remplissage de la structure de donnees affichage
+										et messages NAV */
+
+		va_ST_aff_msg[vl_num_equip_NAV].nom_objet_etat_actuel=
+							OBJET_ETAT_ACTUEL++vl_num_equip_NAV
+
+		va_ST_aff_msg[vl_num_equip_NAV].nom_objet_nouvel_etat=
+							OBJET_NOUVEL_ETAT++vl_num_equip_NAV
+
+		va_ST_aff_msg[vl_num_equip_NAV].etat_actuel_equipement=
+												INDETERMINE
+
+		va_ST_aff_msg[vl_num_equip_NAV].nouvel_etat_equipement=
+												INDETERMINE
+
+
+		va_ST_aff_msg[vl_num_equip_NAV].nom_fichier_pix[CHAMP_NEUTRE]=
+					vl_F_config[i,CHAMP_FC_NOM_FICHIER_PIX_NEUTRE]
+
+		va_ST_aff_msg[vl_num_equip_NAV].nom_fichier_pix[CHAMP_ETEINT]=
+					vl_F_config[i,CHAMP_FC_NOM_FICHIER_PIX_ETEINT]
+
+		va_ST_aff_msg[vl_num_equip_NAV]
+			.nom_fichier_pix[CHAMP_ALLUME_1]=
+				vl_F_config[i,CHAMP_FC_NOM_FICHIER_PIX_ALLUME_1]
+
+		va_ST_aff_msg[vl_num_equip_NAV]
+			.nom_fichier_pix[CHAMP_ALLUME_2]=
+				vl_F_config[i,CHAMP_FC_NOM_FICHIER_PIX_ALLUME_2]
+
+		va_ST_aff_msg[vl_num_equip_NAV]
+			.nom_fichier_pix[CHAMP_ALLUME_3]=
+				vl_F_config[i,CHAMP_FC_NOM_FICHIER_PIX_ALLUME_3]
+
+		va_ST_aff_msg[vl_num_equip_NAV]
+			.nom_fichier_pix[CHAMP_ALLUME_4]=
+				vl_F_config[i,CHAMP_FC_NOM_FICHIER_PIX_ALLUME_4]
+
+		va_ST_aff_msg[vl_num_equip_NAV]
+			.nom_fichier_pix[CHAMP_EN_COURS]=
+				vl_F_config[i,CHAMP_FC_NOM_FICHIER_PIX_EN_COURS]
+
+
+
+		va_ST_aff_msg[vl_num_equip_NAV]
+				.message_equipement[CHAMP_NEUTRE]=MESSAGE_NEUTRE
+
+		va_ST_aff_msg[vl_num_equip_NAV]
+			.message_equipement[CHAMP_ETEINT]=
+				vl_F_config[i,CHAMP_FC_MESSAGE_EQUIPEMENT_ETEINT]
+
+		va_ST_aff_msg[vl_num_equip_NAV]
+			.message_equipement[CHAMP_ALLUME_1]=
+				vl_F_config[i,CHAMP_FC_MESSAGE_EQUIPEMENT_ALLUME_1]
+
+		va_ST_aff_msg[vl_num_equip_NAV]
+			.message_equipement[CHAMP_ALLUME_2]=
+				vl_F_config[i,CHAMP_FC_MESSAGE_EQUIPEMENT_ALLUME_2]
+
+		va_ST_aff_msg[vl_num_equip_NAV]
+			.message_equipement[CHAMP_ALLUME_3]=
+				vl_F_config[i,CHAMP_FC_MESSAGE_EQUIPEMENT_ALLUME_3]
+
+		va_ST_aff_msg[vl_num_equip_NAV]
+			.message_equipement[CHAMP_ALLUME_4]=
+				vl_F_config[i,CHAMP_FC_MESSAGE_EQUIPEMENT_ALLUME_4]
+
+		va_ST_aff_msg[vl_num_equip_NAV]
+			.message_equipement[CHAMP_EN_COURS]=
+				vl_F_config[i,CHAMP_FC_MESSAGE_EQUIPEMENT_EN_COURS]
+
+		/* Pour se debarrasser des espaces et des nuls indesirables */
+
+		for j=0 to DIM_MAX_ETAT
+
+			vl_tampon=TRIM@(va_ST_aff_msg[vl_num_equip_NAV]
+										.nom_fichier_pix[j])
+
+			va_ST_aff_msg[vl_num_equip_NAV].nom_fichier_pix[j]=
+										TRIM@(vl_tampon)
+
+			vl_tampon=TRIM@(va_ST_aff_msg[vl_num_equip_NAV]
+									.message_equipement[j])
+
+			va_ST_aff_msg[vl_num_equip_NAV].message_equipement[j]=
+											TRIM@(vl_tampon)
+
+			if SUBSTRING@(va_ST_aff_msg[vl_num_equip_NAV]
+								.nom_fichier_pix[j],1,1)=" "
+			{
+				va_ST_aff_msg[vl_num_equip_NAV]
+										.nom_fichier_pix[j]=""
+			}
+
+			if va_ST_aff_msg[vl_num_equip_NAV]
+								.message_equipement[j]=""
+				or va_ST_aff_msg[vl_num_equip_NAV].
+									message_equipement[j]=" "
+			{
+			
+				va_ST_aff_msg[vl_num_equip_NAV]
+							.message_equipement[j]=INDETERMINE
+			}
+		next j
+	}
+
+next i
+
+ENDMACRO
+
+
+
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Traitement des objets de la boite de dialogue
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_traitement_objet_NAV(va_x,va_y,
+		va_nom_fichier_pix,va_num_equip_NAV,
+			va_nombre_repetition,va_taille_objet_dessin,
+				FORMAT	ST_objet	va_liste_objet_consultation,
+					FORMAT	ST_objet	va_liste_objet_pilotage,
+									va_equipement_barriere)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+*	va_x				:	Position d'origine en X de l'objet
+*	va_y				:	Position d'origine en Y de l'objet
+*	va_nom_fichier_pix	:	Nom du fichier pix associe a l'objet
+*	va_num_equip_NAV	:	Numero de l'equipement au sein de la NAV
+*	va_nombre_repetition		:	Nombre de fois que l'objet doit 
+*										etre repete en X
+*	va_taille_objet_dessin		:	Taille de l'objet en X
+*	va_liste_objet_consultation	:	Liste des objets consultation
+*	va_liste_objet_pilotage		:	Liste des objets pilotage
+*	va_equipement_barriere		:	Si l'objet est une barriere
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : 		TRUE si un objet panneau ou barriere
+*						FALSE si un objet dessin
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+--------------------------------------------------------------------- */
+
+var	vl_retour		'	Indicateur du type d'objet
+var	i
+
+if UPPERCASE@(TRIM@(va_num_equip_NAV))=CLE_NON
+{
+	/*A Alors */
+	/* A Mise a jour table objets consultation */
+
+	for i=0 to va_nombre_repetition-1
+
+		ITMA_TNA_creation_objet_NAV(va_x+i*va_taille_objet_dessin,
+			va_y,va_nom_fichier_pix,va_num_equip_NAV,TRUE,
+				va_liste_objet_consultation,va_liste_objet_pilotage,
+									va_equipement_barriere)
+	next i
+
+	vl_retour=FALSE
+}
+else
+{
+	/*A Sinon */
+	/* A Mise a jour table objets consultation */
+
+	ITMA_TNA_creation_objet_NAV(va_x,va_y,
+		va_nom_fichier_pix,va_num_equip_NAV,FALSE,
+			va_liste_objet_consultation,va_liste_objet_pilotage,
+									va_equipement_barriere)
+
+	vl_retour=TRUE
+}
+/*A Retour du type d'objet */
+
+return(vl_retour)
+
+
+ENDMACRO
+
+
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Traitement des objets de la boite de dialogue
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_creation_objet_NAV(va_x,va_y,
+		va_nom_fichier_pix,va_num_equip_NAV,va_objet_dessin,
+			FORMAT	ST_objet	va_liste_objet_consultation,
+					FORMAT	ST_objet	va_liste_objet_pilotage,
+									va_equipement_barriere)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+*	va_x				:	Position d'origine en X de l'objet
+*	va_y				:	Position d'origine en Y de l'objet
+*	va_nom_fichier_pix	:	Nom du fichier pix associe a l'objet
+*	va_num_equip_NAV	:	Numero de l'equipement au sein de la NAV
+*	va_objet_dessin			:	Si l'objet est un dessin
+*	va_liste_objet_consultation	:	Liste des objets consultation
+*	va_liste_objet_pilotage		:	Liste des objets pilotage
+*	va_equipement_barriere		:	Si l'objet est une barriere
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*
+--------------------------------------------------------------------- */
+
+var	vl_x_calcule	'	Position calculee en X de l'objet
+var	vl_y_calcule	'	Position calculee en y de l'objet
+
+/*A Si un objet dessin */
+
+if va_objet_dessin=TRUE
+{
+	/*A Alors */
+	/* A Mise a jour table objets consultation */
+
+	va_liste_objet_consultation[vm_indice_objet_consultation]
+						.nom_objet=OBJET_DESSIN++vm_chrono_dessin
+
+	va_liste_objet_consultation[vm_indice_objet_consultation]
+								.indicateur_objet_dessin=TRUE
+
+	/* A Mise a jour table objets pilotage */
+
+	va_liste_objet_pilotage[vm_indice_objet_pilotage]
+						.nom_objet=OBJET_DESSIN++vm_chrono_dessin
+
+	va_liste_objet_pilotage[vm_indice_objet_pilotage+1]
+					.nom_objet=OBJET_DESSIN++(vm_chrono_dessin+1)
+
+	va_liste_objet_pilotage[vm_indice_objet_pilotage]
+								.indicateur_objet_dessin=TRUE
+
+	va_liste_objet_pilotage[vm_indice_objet_pilotage+1]
+								.indicateur_objet_dessin=TRUE
+}
+else
+{
+	/*A Sinon */
+	/*A Mise a jour table objets consultation */
+
+	va_liste_objet_consultation[vm_indice_objet_consultation]
+					.nom_objet=OBJET_NOUVEL_ETAT++va_num_equip_NAV
+
+	va_liste_objet_consultation[vm_indice_objet_consultation]
+								.indicateur_objet_dessin=FALSE
+
+	/* A Mise a jour table objets pilotage */
+
+	va_liste_objet_pilotage[vm_indice_objet_pilotage]
+					.nom_objet=OBJET_NOUVEL_ETAT++va_num_equip_NAV
+
+	va_liste_objet_pilotage[vm_indice_objet_pilotage+1]
+					.nom_objet=OBJET_ETAT_ACTUEL++va_num_equip_NAV
+
+	/*A Si l'objet est une barriere */
+
+	if(va_equipement_barriere=TRUE)
+	{
+		/*A Alors */
+		/*A Positionner l'indicateur pour creer une objet dessin */
+
+		va_liste_objet_consultation[vm_indice_objet_consultation]
+								.indicateur_objet_dessin=TRUE
+
+		va_liste_objet_pilotage[vm_indice_objet_pilotage]
+								.indicateur_objet_dessin=TRUE
+
+		va_liste_objet_pilotage[vm_indice_objet_pilotage+1]
+								.indicateur_objet_dessin=FALSE
+	}
+	else
+	{
+		/*A Sinon */
+		/*A Positionner l'indicateur pour creer une objet bouton */
+
+		va_liste_objet_consultation[vm_indice_objet_consultation]
+								.indicateur_objet_dessin=FALSE
+
+		va_liste_objet_pilotage[vm_indice_objet_pilotage]
+								.indicateur_objet_dessin=FALSE
+
+		va_liste_objet_pilotage[vm_indice_objet_pilotage+1]
+								.indicateur_objet_dessin=FALSE
+	}
+	/*A Finsi */
+}
+/*A Finsi */
+
+/* A Mise a jour table objets consultation */
+
+ITMA_TNA_creation_coordonnnes_objet_consultation_NAV(va_x,va_y,
+								vl_x_calcule,vl_y_calcule)
+
+va_liste_objet_consultation[vm_indice_objet_consultation]
+										.x_objet=vl_x_calcule
+
+va_liste_objet_consultation[vm_indice_objet_consultation]
+										.y_objet=vl_y_calcule
+
+va_liste_objet_consultation[vm_indice_objet_consultation]
+							.nom_fichier_pix=va_nom_fichier_pix
+
+/* A Mise a jour table objets pilotage */
+
+ITMA_TNA_creation_coordonnnes_objet_pilotage_NAV(va_x,va_y,
+								vl_x_calcule,vl_y_calcule)
+
+
+va_liste_objet_pilotage[vm_indice_objet_pilotage].x_objet=va_x
+va_liste_objet_pilotage[vm_indice_objet_pilotage].y_objet=va_y
+va_liste_objet_pilotage[vm_indice_objet_pilotage].nom_fichier_pix=
+										va_nom_fichier_pix
+	
+va_liste_objet_pilotage[vm_indice_objet_pilotage+1].x_objet=vl_x_calcule
+va_liste_objet_pilotage[vm_indice_objet_pilotage+1].y_objet=vl_y_calcule
+va_liste_objet_pilotage[vm_indice_objet_pilotage+1].nom_fichier_pix=
+										va_nom_fichier_pix
+
+	
+vm_indice_objet_consultation=vm_indice_objet_consultation+1
+vm_indice_objet_pilotage=vm_indice_objet_pilotage+2
+vm_chrono_dessin=vm_chrono_dessin+2
+
+ENDMACRO
+
+
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Creation des coordonnees pour la boire de dialogue
+*						pilotage
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_creation_coordonnnes_objet_pilotage_NAV(va_x,va_y,
+								va_x_calcule,va_y_calcule)
+/*
+* ARGUMENTS EN ENTREE : 
+*
+*	va_x			:	Position d'origine en X de l'objet
+*	va_y			:	Position d'origine en Y de l'objet
+*	va_x_calcule	:	Position calculee en X de l'objet
+*	va_y_calcule	:	Position calculee en y de l'objet
+*	
+* ARGUMENTS EN SORTIE : Aucun
+*
+*	va_x_calcule	:	Position calculee en X de l'objet
+*	va_y_calcule	:	Position calculee en y de l'objet
+*
+* CODE RETOUR 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+--------------------------------------------------------------------- */
+
+va_x_calcule=va_x
+va_y_calcule=va_y+OFFSET_Y_PILOTAGE
+
+ENDMACRO
+
+
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Creation des coordonnees pour la boire de dialogue
+*						consultation
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_creation_coordonnnes_objet_consultation_NAV(va_x,va_y,
+								va_x_calcule,va_y_calcule)
+/*
+* ARGUMENTS EN ENTREE : 
+*
+*	va_x			:	Position d'origine en X de l'objet
+*	va_y			:	Position d'origine en Y de l'objet
+*	va_x_calcule	:	Position calculee en X de l'objet
+*	va_y_calcule	:	Position calculee en y de l'objet
+*	
+* ARGUMENTS EN SORTIE : Aucun
+*
+*	va_x_calcule	:	Position calculee en X de l'objet
+*	va_y_calcule	:	Position calculee en y de l'objet
+*
+* CODE RETOUR 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+--------------------------------------------------------------------- */
+
+va_x_calcule=va_x*COFFICIENT_X_CONSULTATION
+va_y_calcule=va_y
+
+ENDMACRO
+
+
+
+
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Creation des objets dans la boite de dialogue
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_creation_dans_boite_objet_NAV(va_fenetre_TNA,
+						FORMAT	ST_objet	va_liste_objet)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+*	va_fenetre_TNA	:	Item de la fenetre module
+*	va_liste_objet	:	Liste des objets 
+*	
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+--------------------------------------------------------------------- */
+
+var i
+
+/*A Dessiner les objets fond de plan d'abord */
+
+for i=0 to ARRAY_SIZE@(va_liste_objet)-1
+
+	if va_liste_objet[i].indicateur_objet_dessin=TRUE
+	{
+		/*A Dessiner les objets fond de plan */
+
+		DB_CREATE_CTRL@(va_fenetre_TNA,6,
+			va_liste_objet[i].nom_objet,
+				va_liste_objet[i].nom_fichier_pix,
+						va_liste_objet[i].x_objet,
+							va_liste_objet[i].y_objet,0)
+
+	}
+	else
+	{
+		/*A Dessiner les objets panneaux et barrieres */
+
+		DB_CREATE_CTRL@(va_fenetre_TNA,3,
+			va_liste_objet[i].nom_objet,
+				va_liste_objet[i].nom_fichier_pix,
+						va_liste_objet[i].x_objet,
+							va_liste_objet[i].y_objet,0)
+
+		DB_CTRL_BUTTON_TYPE@(va_fenetre_TNA,
+							va_liste_objet[i].nom_objet,4)
+
+		DB_CTRL_GRAYED@(va_fenetre_TNA,
+							va_liste_objet[i].nom_objet,True)
+	}
+next i
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	MAJ du panneau dans la vue actuelle
+* 
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_MAJ_NAV(va_equipement,va_etat,va_fenetre_TNA,
+				FORMAT ST_affichage_et_message va_ST_aff_msg)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+*	va_equipement	:	l'equipement dans la NAV
+*	va_etat		:	l'etat a positionner
+*	va_fenetre_TNA	:	Item de la fenetre module
+*	va_ST_aff_msg	:	Structure contenant les donnees d'affichage
+*					et de messages vers les equipements
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   appel de la reception de socket
+*
+* FONCTION
+*    MAJ du panneau dans la vue actuelle
+*
+--------------------------------------------------------------------- */
+
+var		vl_nom_fichier_pix
+var		vl_etat_objet
+var		vl_objet
+var 		i
+
+vl_etat_objet = -1
+
+/*A si Equipement pas present */
+
+if va_ST_aff_msg[va_equipement].equipement_present = FALSE
+{
+	/* Alors */
+	/* Retourner COM_NOK */
+ 
+	return(COM_NOK)
+}
+/* Finsi */
+
+/*A construction du nom de l'objet vl_objet */
+
+vl_objet = va_ST_aff_msg[va_equipement].nom_objet_nouvel_etat
+
+/*A si l'objet existe */
+
+if vl_objet<>INDETERMINE
+{
+	/*A Alors */
+	/*A recherche de l'index du picto avec le message */
+
+	for i = 0 to DIM_MAX_ETAT
+		if va_ST_aff_msg[va_equipement].message_equipement[i]=va_etat
+		{
+			vl_etat_objet = i
+		}
+	next i
+
+	/*A si pas trouve : retour NOK */
+
+	if vl_etat_objet = -1
+	{
+		return(COM_NOK)
+	}
+	/* Si l'etat renvoye est celui actuel */
+
+	if va_ST_aff_msg[va_equipement].nouvel_etat_equipement=
+											vl_etat_objet
+	{
+		/* Alors */
+		/* Retourner OK */
+
+		return(COM_OK)
+	}
+	/* Finsi */
+	
+	
+	/*A Recuperation du nom du fichier */
+
+	vl_nom_fichier_pix=
+		va_ST_aff_msg[va_equipement].nom_fichier_pix[vl_etat_objet]
+
+	/*A Affectation du nouvel etat */
+
+	va_ST_aff_msg[va_equipement].nouvel_etat_equipement=vl_etat_objet
+
+	/*A Si le fichier picto existe pour cette position
+									mise a jour de l'objet */
+	if vl_nom_fichier_pix <> INDETERMINE
+	{
+		DB_CTRL_DISPLAY@(va_fenetre_TNA,vl_objet,FALSE)
+		DB_CTRL_TITLE@(va_fenetre_TNA,vl_objet,vl_nom_fichier_pix)
+		DB_REFRESH@(va_fenetre_TNA)
+		DB_CTRL_DISPLAY@(va_fenetre_TNA,vl_objet,TRUE)
+	}
+
+	/*A retour OK */
+
+	Return(COM_OK)
+}
+
+else
+{
+	/*A Sinon */
+	/*A retour NOK */
+
+	Return(COM_NOK)
+}
+/*A Finsi */
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Affiche les differents pictos d'un panneau
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_modif_picto(va_objet_active,va_fenetre_TNA,
+					FORMAT ST_affichage_et_message va_ST_aff_msg)
+	
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_objet_active: 	Nom du panneau a modifier.
+*	va_fenetre_TNA	:	Item de la fenetre module
+*	va_ST_aff_msg	:	Structure contenant les donnees d'affichage
+*					et de messages vers les equipements
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant resultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> NAV dans MTMT
+*
+* FONCTION
+*    affiche les differents pictos d'un panneau
+*
+--------------------------------------------------------------------- */
+
+var	i
+var	vl_status
+var	vl_num_equipement_NAV 
+
+
+/*A Activer le bouton Executer */
+
+DB_CTRL_GRAYED@(va_fenetre_TNA,"BP_executer",False)
+
+
+/*A recherche du n° de l'equipement dans la NAV */
+
+vl_num_equipement_NAV=-1
+
+for i = 0 to DIM_MAX_ST_affichage_et_message
+	if va_ST_aff_msg[i].nom_objet_etat_actuel=va_objet_active
+	{
+
+		vl_num_equipement_NAV=i
+	}
+next i
+
+/*A si pas de config pour ce tableau : retour NOK */
+
+if vl_num_equipement_NAV=-1
+{
+	RETURN(COM_NOK)
+}
+
+if va_ST_aff_msg[vl_num_equipement_NAV].equipement_present=FALSE
+{
+	RETURN(COM_NOK)
+}
+
+/*A Boucle sur l'ensemble des etats sauf le dernier etat
+					qui ne depend que des NAV (NAV en mouvement) */
+
+for i = va_ST_aff_msg[vl_num_equipement_NAV].etat_actuel_equipement
+										to (DIM_MAX_ETAT-1)
+
+	/*A Si panneau en cours existe */
+	if va_ST_aff_msg[vl_num_equipement_NAV].nom_fichier_pix[i]<>""
+
+	{
+		/*A Si panneau suivant existant */
+
+		if va_ST_aff_msg[vl_num_equipement_NAV]
+									.nom_fichier_pix[i+1]<>""
+		{
+			DB_CTRL_TITLE@(
+				va_fenetre_TNA,va_objet_active,
+					va_ST_aff_msg[vl_num_equipement_NAV]
+										.nom_fichier_pix[i+1])
+			
+			va_ST_aff_msg[vl_num_equipement_NAV]
+									.etat_actuel_equipement=i+1
+
+		}
+		else
+		{
+			/*A Sinon prendre celui en debut de liste */
+
+			DB_CTRL_TITLE@(
+				va_fenetre_TNA,va_objet_active,
+					va_ST_aff_msg[vl_num_equipement_NAV]
+										.nom_fichier_pix[0])
+			
+			va_ST_aff_msg[vl_num_equipement_NAV]
+									.etat_actuel_equipement=0
+		}
+
+		vl_status="'"++ SUBSTRING@(va_objet_active,4,7) ++ "'"
+
+		/*A MAJ du status */
+		DB_CTRL_TITLE@(va_fenetre_TNA,"LI_status",
+					"Status : Modification de l'etat du module")
+
+
+		/*A Retourner OK */
+		RETURN(COM_OK)
+	}
+	/*A Finsi */
+next i
+
+/*A Retourner OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Commander le sequence d'une voie vers SYBASE
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Commande_NAV(va_PosteOperateur,
+		va_Manuelle,va_NomScenario,va_mode_formation,va_NumEvt,
+			va_CleEvt,va_NumNAV,FORMAT PA_NAV va_NAV,va_NumAction,va_NomSite)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+* 
+*		va_PosteOperateur		:	le nom du poste operateur
+*		va_Manuelle			:	le type manuel ou auto
+*		va_NomScenario			:	Nom du scenario
+*		va_mode_formation		:	Indicateur du mode formation
+*		va_NumEvt				:	Numero de l'evenement
+*		va_CleEvt				:	Cle de l'evenement
+*		va_NumNAV				:	Numero de la NAV en cours
+*		va_NAV				: 	La structure action NAV
+*		va_NumAction			:	Numero d'action
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TNA_pilotage_NAV
+*
+* FONCTION
+*   		Commander le sequence d'une voie vers SYBASE.
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_Heure			' heure courante base
+	var	vl_text
+
+	vl_Heure = COM09_Date_Courante()
+
+	if NOT va_mode_formation
+	{
+		/*A trace de l'appel de la procedure */
+		vl_text = " ---> Appel de la procedure 'XZAC03_Commande_NAV("
+						++va_PosteOperateur++","++va_Manuelle++
+									","++va_NomScenario++")'"
+		COM01_Trace(0,vl_text)
+
+		/*A parametrage de vl_parametres */
+		vl_parametres[0].type = SYB#INT4_
+		vl_parametres[0].data = va_NumEvt			' NumEvt
+		vl_parametres[0].output = FALSE
+	
+		vl_parametres[1].type = SYB#INT1_
+		vl_parametres[1].data = va_CleEvt			' CleEvt
+		vl_parametres[1].output = FALSE
+	
+		vl_parametres[2].type = SYB#INT4_
+		vl_parametres[2].data = va_PosteOperateur	' Poste Operateur
+		vl_parametres[2].output = FALSE
+
+		vl_parametres[3].type = SYB#INT4_
+		vl_parametres[3].data = va_NumNAV			' NumEqt
+		vl_parametres[3].output = FALSE
+
+		vl_parametres[4].type = SYB#DATETIME_
+		vl_parametres[4].data = vl_heure		' Heure de lancement
+		vl_parametres[4].output = FALSE
+
+		vl_parametres[5].type = SYB#BIT_
+		vl_parametres[5].data = va_Manuelle		' Manu ou Auto
+		vl_parametres[5].output = FALSE
+	
+		vl_parametres[6].type = SYB#INT1_
+		vl_parametres[6].data = va_NAV.Priorite		' Priorite
+		vl_parametres[6].output = FALSE
+
+		vl_parametres[7].type = SYB#INT4_
+		vl_parametres[7].data = va_NAV.DistanceEvt	' DistanceEvt
+		vl_parametres[7].output = FALSE
+
+		vl_parametres[8].type = SYB#CHAR_
+		vl_parametres[8].data = va_NomScenario		' Nom du scenario
+		vl_parametres[8].output = FALSE
+
+		vl_parametres[9].type = SYB#INT1_
+		vl_parametres[9].data = va_NomSite			' Nom du site
+		vl_parametres[9].output = FALSE
+
+		vl_parametres[10].type = SYB#INT4_
+		vl_parametres[10].data = SYSTEM_VAR@(vg_site)  		'site local
+		vl_parametres[10].output = FALSE
+
+		vl_parametres[11].type = SYB#INT4_
+		vl_parametres[11].data = NULL				' NumAction
+		vl_parametres[11].output = True
+		IF COM05_SQL_Procedure (XZAC03_Commande_NAV,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+		{
+			RETURN (COM_NOK)
+		}
+		va_NumAction = vl_resultats.return_parameters[0]
+		COM01_Trace(0," ")
+	}
+
+	/*A retour du N° d'action */
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Retour a l'etat normal de la NAV
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Commande_fin_NAV(va_NumEqt,va_NomSite,va_Manuelle,
+		va_NomOperateur,va_mode_formation,va_NomScenario,va_NumAction)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+* 
+*		va_NumEqt				:	le numero d'equipement
+*		va_NomSite			:	Nom du site
+*		va_Manuelle			:	le type manuel ou auto
+*		va_NomOperateur		:	Le nom de l'operateur
+*		va_mode_formation		:	Indicateur du mode formation
+*		va_NomScenario			:	Nom du scenario
+*		va_NumAction			:	Numero d'action
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TNA_pilotage_NAV
+*
+* FONCTION
+*   		Retour a l'etat normal de la NAV.
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_Heure			' heure courante
+	var	vl_text
+
+	
+	if NOT(COM04_Operateur_A_Le_Droit_De( XDC_FAM_EXPLOITATION_DISTRICT)) and 
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI))
+	{
+		ITMA_TNA_Acces_interdit("ITMA_TNA_Commande_fin_NAV",
+											va_NomOperateur)
+		RETURN(COM_NOK)
+	}
+
+	if NOT va_mode_formation
+	{
+		vl_Heure = COM09_Date_Courante()
+
+		/*A trace de l'appel de la procedure */
+		vl_text =
+		" ---> Appel de la procedure'XZAC62_Commande_Fin_NAV("
+						++va_NumEqt++","++va_NomSite++","
+							++vl_Heure++","++va_Manuelle++")'"
+		COM01_Trace(0,vl_text)
+
+		/*A parametrage de vl_parametres */
+		vl_parametres[0].type = SYB#INT4_
+		vl_parametres[0].data = va_NumEqt		' NumEqt
+		vl_parametres[0].output = FALSE
+	
+		vl_parametres[1].type = SYB#INT1_
+		vl_parametres[1].data = va_NomSite		' NomSite
+		vl_parametres[1].output = FALSE
+	
+		vl_parametres[2].type = SYB#DATETIME_
+		vl_parametres[2].data = vl_Heure		' Heure de Fin
+		vl_parametres[2].output = FALSE
+
+		vl_parametres[3].type = SYB#BIT_
+		vl_parametres[3].data = va_Manuelle	' Manuelle
+		vl_parametres[3].output = FALSE
+
+		vl_parametres[4].type = SYB#CHAR_
+		vl_parametres[4].data = va_NomScenario	' Nom du scenario
+		vl_parametres[4].output = FALSE
+
+		vl_parametres[5].type = SYB#INT4_
+		vl_parametres[5].data = NULL			' NumAction
+		vl_parametres[5].output = True
+
+		vl_parametres[6].type = SYB#CHAR_
+		vl_parametres[6].data = SYSTEM_VAR@(vg_nom_site)
+		vl_parametres[6].output = FALSE
+
+		IF COM05_SQL_Procedure(XZAC62_Commande_Fin_NAV,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+		{
+			RETURN (COM_NOK)
+		}
+		va_NumAction = vl_resultats.return_parameters[0]
+	}
+
+	/*A retour OK */
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Affichage d'un panneau dans la position desiree
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_pos_picto(va_equipement,va_etat_equipement,
+		va_fenetre_TNA,FORMAT ST_affichage_et_message va_ST_aff_msg)
+
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*	va_equipement		:	N° du module.
+*	va_etat_equipement	:	N° de la position desire
+*	va_fenetre_TNA		:	Item de la fenetre module
+*	va_ST_aff_msg		:	Structure contenant les donnees
+*						d'affichage et de messages
+*						vers les equipements
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant resultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> NAV dans MTMT
+*
+* FONCTION
+*    affichage d'un panneau dans la position desiree
+*
+--------------------------------------------------------------------- */
+
+var	vl_nom_fichier_pix
+var	vl_objet
+
+/*A Si mauvaises conditions */
+
+if va_etat_equipement < 0 or va_etat_equipement > DIM_MAX_ETAT or
+		va_ST_aff_msg[va_equipement].equipement_present=FALSE or
+				va_equipement > DIM_MAX_ST_affichage_et_message
+{
+	/*A Alors */
+	/*A Retourner NOK */
+
+	RETURN(COM_NOK)
+}
+/*A Finsi */
+
+vl_nom_fichier_pix=
+	va_ST_aff_msg[va_equipement].nom_fichier_pix[va_etat_equipement]
+
+vl_objet = va_ST_aff_msg[va_equipement].nom_objet_etat_actuel
+
+va_ST_aff_msg[va_equipement].etat_actuel_equipement=va_etat_equipement
+
+/*A positionnement du panneau */
+
+DB_CTRL_TITLE@(va_fenetre_TNA,vl_objet,vl_nom_fichier_pix)
+
+/*A Retour : OK */
+
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner a l'etat des panneaux de la base.
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Abt_Etat_Panneaux_Nav(va_Abonnement,va_NomSite)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*
+*		va_Abonnement	:	Type d'abonnement (debut ou fin)
+*		va_NomSite		:	Nom du site
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet de s'abonner a l'etat des panneaux de la NAV.
+* ------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+
+	/*A trace de l'appel de procedure */
+	vl_text = " --> XZEA23_Abt_Etat_Panneaux_Nav "
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA10  
+
+	/*B arguments */
+	vl_cmd[3]= va_Abonnement ++ MTAR_CAR_SEPAR ++ va_NomSite
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'emmission */
+	vl_text = " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+ 
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Permet de commander un module de la NAV.
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Commande_module_NAV(va_NumEqt,va_Module,
+				va_Symb,va_Flash,va_NumAction,va_NomMachine,
+							va_NomOperateur,va_mode_formation)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*
+*		va_NumEqt			:	Numero d'equipement
+*		va_Module			:	type de module
+*		va_Symb			:	Symbole de position
+*		va_Flash			:	Avec ou sans flash
+*		va_NumAction		:	Numero d'action
+*		va_NomMachine		:	Nom de la machine
+*		va_NomOperateur	:	Le nom de l'operateur
+*		va_mode_formation	:	Indicateur du mode formation
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet de commander un module de la NAV.
+* ------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_sep
+	VAR i
+	VAR vl_Symbole
+
+	if va_Symb = ""
+	{
+		RETURN(COM_NOK)
+	}
+	if va_Symb = "-1"
+	{
+		RETURN(COM_NOK)
+	}
+	vl_Symbole = va_Symb ++ "  "
+	if TRIM@(vl_Symbole) = ""
+	{
+		RETURN(COM_NOK)
+	}
+	if TRIM@(vl_Symbole) = "-1"
+	{
+		RETURN(COM_NOK)
+	}
+
+	/*A test les droits d'acces a cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) and 
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE))and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI))
+	{
+		ITMA_TNA_Acces_interdit("ITMA_TNA_Commande_module_Nav",
+											va_NomOperateur)
+		RETURN(COM_NOK)
+	}
+
+	
+	if NOT va_mode_formation
+	{
+		/*A trace de l'appel de procedure */
+		vl_text = " --> XZEN01_Commande_NAV "
+		COM01_Trace(0,vl_text)
+	
+		/*B preparation de la requete pour le coupleur */
+		vl_cmd[0]=MTAR_MSG_EXEC
+	
+		/*B num de commande pour retour. Non utilise ici */
+		vl_cmd[1]=1			
+
+		/*B fonction a executer */
+		vl_cmd[2]=MTAR_FCT_XZEN01  
+
+		/*B arguments */
+		vl_sep = MTAR_CAR_SEPAR
+		vl_cmd[3]= va_NumEqt ++vl_sep++ va_Module ++vl_sep++ TRIM@(vl_Symbole) ++vl_sep++ va_Flash ++vl_sep++ va_NumAction ++vl_sep++ va_NomMachine
+
+		/*B envoi de la commande a la tache ITMA_TAR01 */
+		DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+		/*B trace de l'emmission */
+		vl_text =" - DB_SEND_POKE@(COM_CANAL_TAR01,"++vl_cmd[3] ++ ")"
+		COM01_Trace(0,vl_text)
+		COM01_Trace(0," ")
+	}
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Permet de commander un module de la NAV.
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Arret_NAV(va_NumEqt,va_NumAction,va_NomMachine,
+						va_NomOperateur,va_mode_formation)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NumEqt			:	Numero d'equipement
+*		va_NumAction		:	Numero d'action
+*		va_NomMachine		:	Nom de la machine
+*		va_NomOperateur	:	Le nom de l'operateur
+*		va_mode_formation	:	Indicateur du mode formation
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet de commander un module de la NAV.
+*-------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_sep
+
+	/*A test les droits d'acces a cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) and 
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI))
+	{
+		ITMA_TNA_Acces_interdit("ITMA_TNA_Arret_NAV",va_NomOperateur)
+		RETURN(COM_NOK)
+	}
+
+	if NOT va_mode_formation
+	{
+		/*A trace de l'appel de procedure */
+		vl_text = " --> XZEN04_Arret_NAV "
+		COM01_Trace(0,vl_text)
+
+		/*B preparation de la requete pour le coupleur */
+		vl_cmd[0]=MTAR_MSG_EXEC
+
+		/*B num de commande pour retour. Non utilise ici */
+		vl_cmd[1]=1			
+
+		/*B fonction a executer */
+		vl_cmd[2]=MTAR_FCT_XZEN04  
+
+	
+		/*B arguments */
+		vl_sep = MTAR_CAR_SEPAR
+		vl_cmd[3]= va_NumEqt ++vl_sep++ 
+							va_NumAction ++vl_sep++ va_NomMachine
+
+		/*B envoi de la commande a la tache ITMA_TAR01 */
+		DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+		/*B trace de l'emmission */
+		vl_text =" - DB_SEND_POKE@(COM_CANAL_TAR01,"++vl_cmd[3] ++ ")"
+		COM01_Trace(0,vl_text)
+		COM01_Trace(0," ")
+	}
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Demande le renvoi des appels telephoniques sur repondeur.
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Renvoi_Appel(va_NomSite,va_NumRepondeur,va_NumMachine)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomSite		:	Nom du site
+*		va_NumRepondeur	:	N° de repondeur
+*		va_NumMachine	:	N° de la machine (Poste Operateur)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TNA_Renvoi_Appel
+*
+* FONCTION :
+*	Demande le renvoi des appels telephoniques sur repondeur au PC d'un site.
+* ------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_sep
+
+	/*A trace de l'appel de procedure */
+	vl_text = " --> XZEL02_Renvoi_Appel "
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEL02_03
+
+	/*B arguments */
+	vl_sep = MTAR_CAR_SEPAR
+	vl_cmd[3]= va_NumMachine ++vl_sep++ XDC_OUI ++vl_sep++ va_NomSite
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'emmission */
+	vl_text = " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Permet l'annulation du renvoi des appels 
+*				telephoniques sur repondeur.
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Annul_Renvoi(va_NomSite,va_NumMachine)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomSite		:	Nom du site
+*		va_NumMachine	:	N° de la machine (Poste Operateur)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TNA_Renvoi_Appel
+*
+* FONCTION :
+*	Annulation du renvoi des appels telephoniques sur repondeur au PC d'un site.
+* ------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_sep
+
+	/*A trace de l'appel de procedure */
+	vl_text = " --> XZEL03_Annul_Renvoi "
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEL02_03 
+
+	/*B arguments */
+	vl_sep = MTAR_CAR_SEPAR
+	vl_cmd[3]= va_NumMachine ++vl_sep++ XDC_NON ++vl_sep++ va_NomSite
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'emmission */
+	vl_text = " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture d'une action NAV a partir du n° de PA
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TNA_Lecture_PA_NAV(va_NumPA,va_site)
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*   va_NumPA       	: N° du Plan d'action 
+*   va_site    	: le numero du site 
+*
+*
+* ARGUMENTS EN SORTIE	: 
+*	NAV[va_type]	: etat du NAV
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_NAV
+*
+*
+--------------------------------------------------------------------- */
+
+
+	VAR 	i,j				' index de boucle
+	VAR	va_text
+	VAR	vl_retour
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	
+
+	/*A trace de l'appel de procedure */
+	va_text = "--> XZAC41_Lire_Commande_NAV"
+	COM01_Trace(0,va_text)
+
+
+	/*A Definition de vl_parametres */
+	vl_parametres[0].type	= SYB#INT4_
+	vl_parametres[0].data	= va_NumPA
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type	= SYB#INT2_
+	vl_parametres[1].data	= va_site
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT4_
+	vl_parametres[2].data	= 0			' NumEqt
+	vl_parametres[2].output	= TRUE
+
+	vl_parametres[3].type	= SYB#DATETIME_
+	vl_parametres[3].data	= 0			' heure lancement
+	vl_parametres[3].output	= TRUE
+
+	vl_parametres[4].type	= SYB#DATETIME_
+	vl_parametres[4].data	= 0			' heure lancement fin
+	vl_parametres[4].output	= TRUE
+
+	vl_parametres[5].type	= SYB#DATETIME_
+	vl_parametres[5].data	= 0			' heure succes
+	vl_parametres[5].output	= TRUE
+
+	vl_parametres[6].type	= SYB#DATETIME_
+	vl_parametres[6].data	= 0			' heure echec
+	vl_parametres[6].output	= TRUE
+
+	vl_parametres[7].type	= SYB#DATETIME_
+	vl_parametres[7].data	= 0			' heure fin
+	vl_parametres[7].output	= TRUE
+
+	vl_parametres[8].type	= SYB#BIT_
+	vl_parametres[8].data	= 0			' flag manuel
+	vl_parametres[8].output	= TRUE
+
+	vl_parametres[9].type	= SYB#CHAR_
+	vl_parametres[9].data	= 0			' scenario
+	vl_parametres[9].output	= TRUE
+
+	vl_retour[0] = COM_NOK
+	
+	/*A Execution de la procedure XZAC41_Lire_Commande_NAV */
+	IF COM05_SQL_Procedure (XZAC41_Lire_Commande_NAV,
+				vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+	{
+		RETURN (vl_retour)
+
+	}
+
+	/*A MAJ des retours de parametres */
+	vl_retour[0]	=	vl_resultats.return_parameters[0]	' n° eqt
+	vl_retour[1]	=	vl_resultats.return_parameters[6]	' manuel
+	vl_retour[2]	=	vl_resultats.return_parameters[7]	' scenario
+
+	if LEN@(vl_resultats.return_parameters[3])<=
+					 	LEN@(vl_resultats.return_parameters[4])
+	{
+		vl_retour[3] = "Horodate Echec : "
+		++COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[4])
+	}
+
+	if LEN@(vl_resultats.return_parameters[4])<=
+						LEN@(vl_resultats.return_parameters[3])
+	{
+		vl_retour[3] = "Horodate Succes : "
+		++ COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[3])
+	}
+
+	
+	if LEN@(TRIM@(vl_retour[3]))<20
+	{
+		vl_retour[3] = " "
+	}
+	RETURN (vl_retour)
+
+ENDMACRO
+
+
+
+/*X*/
+/* --------------------------------------------------------------------
+* SERVICE RENDU :	Indique la fin de la commande individuelle par l'operateur
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Fin_Cmd_Manu_NAV(va_NumAction,va_Validation,
+								va_NomScenario,va_NomOperateur,va_CleAction)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NumAction	:	le numero de l'action
+*		va_Validation	:	Validation de l'operateur
+*		va_NomScenario	:	Nom du Scenario
+*		va_NomOperateur :	Nom de l'operateur
+*		va_CleAction	:	Site de l'equipement
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TNA_pilotage_NAV
+*
+* FONCTION
+*   		Indique la fin de la commande individuelle par l'operateur.
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_heure1			' heure courante
+	var	vl_heure2			' heure courante
+	var	va_text			' Chaine de la trace
+
+	if NOT(COM04_Operateur_A_Le_Droit_De( XDC_FAM_EXPLOITATION_DISTRICT)) and 
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI))
+	{
+		ITMA_TNA_Acces_interdit("ITMA_TNA_Fin_Cmd_Manu_NAV",
+											va_NomOperateur)
+		RETURN(COM_NOK)
+	}
+
+	/*A si retour OK de l'operateur */
+	if va_Validation  = XDC_VRAI
+	{
+		vl_heure1 = COM09_Date_Courante()
+		vl_heure2 = 0
+	}
+	/*A sinon */
+	else
+	{
+		vl_heure1 = 0
+		vl_heure2 = COM09_Date_Courante()
+	}
+
+	/*A trace de l'appel de la procedure */
+	va_text =" ---> Appel de la procedure'XZAC02_Fin_Cmd_Manuelle_NAV'"
+	COM01_Trace(0,va_text)
+
+	/*A parametrage de vl_parametres */
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = va_NumAction
+	vl_parametres[0].output = FALSE
+	
+	vl_parametres[1].type = SYB#DATETIME_
+	vl_parametres[1].data = vl_heure1
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type = SYB#DATETIME_
+	vl_parametres[2].data = vl_heure2
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type = SYB#CHAR_
+	vl_parametres[3].data = va_NomScenario
+	vl_parametres[3].output = FALSE
+
+	vl_parametres[4].type = SYB#INT1_
+	vl_parametres[4].data = va_CleAction
+	vl_parametres[4].output = FALSE
+
+	IF COM05_SQL_Procedure (XZAC02_Fin_Cmd_Manu_NAV,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+ 	{
+   		RETURN (COM_NOK)
+	}
+
+	COM01_Trace(0," ")
+
+	/*A retour OK */
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture de la proposition d'affichage d'une NAV
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TNA_Lire_Prop_NAV(va_NumPA,va_Ordre,FORMAT PA_NAV va_NAV)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		va_NumPA			:	le numero du Plan d'action
+*		va_Ordre			:	le numero d'ordre
+*		va_NAV			: 	La structure action NAV
+*
+* ARGUMENTS EN SORTIE : 
+*		va_NAV.Priorite	:	la priorite de l'evenement
+*		va_NAV.DistanceEvt	:	la distance de l'evenement
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PNA
+*
+*
+* FONCTION
+*   	Lecture de la proposition d'affichage d'une NAV.
+*
+--------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR	vl_select
+	VAR	vl_indice	'Indice de parcours des parametres d'entree d'une procedure stockee
+	var	vl_tptext	' zone de text tampon
+
+
+	/*A trace de l'appel de procedure */
+	vl_tptext = "--> XZAP13_Lire_Prop_NAV"
+	COM01_Trace(0,vl_tptext)
+
+	IF (va_Ordre=0)
+ 	{
+		RETURN (COM_NOK)
+	}
+
+	vl_indice = 0
+	vl_parametres[vl_indice].type	= SYB#INT4_
+	vl_parametres[vl_indice].data	= va_NumPA+0
+	vl_parametres[vl_indice].output	= FALSE
+	
+	vl_indice = vl_indice +1
+	vl_parametres[vl_indice].type	= SYB#INT2_
+	vl_parametres[vl_indice].data	= va_Ordre+0
+	vl_parametres[vl_indice].output	= FALSE
+
+
+
+	IF COM05_SQL_Procedure(XZAP13_Lire_Prop_NAV,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+  	{
+   		RETURN (COM_NOK)
+	}
+
+	vl_select = vl_resultats.select_results[0,0]
+	va_NAV.Remarque	= vl_select[0]
+	va_NAV.NumEqt 		= vl_select[1]+0
+	va_NAV.Explication	= vl_select[2]
+	va_NAV.Scenario 	= SUBSTRING@(vl_select[3],1,4)
+	va_NAV.Priorite	= vl_select[4]
+	va_NAV.DistanceEvt	= vl_select[5]
+	vl_tptext = "Scenario proposee :"++
+							va_NAV.Scenario++"sel:"++vl_select[3]
+
+	COM01_Trace(0,vl_tptext)
+
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Retourne un message a l'operateur et
+*	 					trace l'accès interdit a une macro.
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Acces_interdit(va_NomMacro,va_NomOperateur)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+* 
+*	va_NomMacro : le nom de la macro interdite
+*	va_NomOperateur : Nom de l'operateur
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: 
+
+* CONDITION D'UTILISATION :
+*   appel d'une macro avec les droits d'accès insuffisant.
+*
+* FONCTION :
+*	Retourne un message a l'operateur et trace l'accès interdit
+*	a une macro
+*
+-------------------------------------------------------------------- */
+
+	/*A message d'info a l'operateur */
+
+	var	vl_tptext			' zone de text tampon
+	
+	if NOT (SYSTEM_VAR@ (vg_formation) <> NULL)
+	{
+		vl_tptext = "L'utilisateur " ++va_NomOperateur ++ 
+		" n'a pas les droits suffisants" ++ NUM_TO_STRING@(10) ++
+						"pour la fonction : " ++ va_NomMacro
+		info_message@(vl_tptext)
+
+		/*A trace de l'appel de procedure */
+		vl_tptext = " Accès Macro "
+				++ va_NomMacro ++ " refuse pour " ++ va_NomOperateur
+		COM01_Trace(0,vl_tptext)
+	}
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture de l'etat d'une NAV a une horodate donnee
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TNA_Lecture_NAV(va_NumNAV,FORMAT PA_NAV va_NAV)
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*
+*	va_NumNAV : N° d'eqt de la NAV ;
+*	va_NAV : La structure action NAV
+*
+* ARGUMENTS EN SORTIE	: 
+*
+*	va_NAV : La structure action NAV
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TNA
+*
+*
+* FONCTION
+*	Lecture de l'etat d'une NAV a une horodate donnee
+*
+--------------------------------------------------------------------- */
+
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR	vl_lib_fmc						' libelle fmc
+	var	vl_tptext							' zone de text tampon
+	VAR	i,j								' index de boucle
+
+	
+	/*A trace de l'appel de procedure */
+	vl_tptext = "--> XZAT06_Utilisation_NAV"
+	COM01_Trace(0,vl_tptext)
+
+
+	/*A si n° Eqt du NAV nul : sortir */
+	if va_NumNAV=NULL or va_NumNAV=0
+	{
+		vl_tptext = "ITMA_TPM_Lecture_NAV("++va_NumNAV++") refusee"
+		COM01_Trace(0,vl_tptext)
+		RETURN(COM_NOK)
+	}
+
+	va_NAV.NumEqt = va_NumNAV
+
+	/*A Definition de vl_parametres */
+	vl_parametres[0].type	= SYB#DATETIME_
+	vl_parametres[0].data	= XDC_DATE_NULLE
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type	= SYB#INT1_
+	vl_parametres[1].data	= va_NAV.NumEqt+0
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT2_
+	vl_parametres[2].data	= 0			' Dispo NAV
+	vl_parametres[2].output	= TRUE
+
+	vl_parametres[3].type	= SYB#CHAR_
+	vl_parametres[3].data	= 0			' scenario
+	vl_parametres[3].output	= TRUE
+
+	vl_parametres[4].type	= SYB#INT4_
+	vl_parametres[4].data	= 0			' N° Evt
+	vl_parametres[4].output	= TRUE
+
+	vl_parametres[5].type	= SYB#INT2_
+	vl_parametres[5].data	= 0			' Cle Evt
+	vl_parametres[5].output	= TRUE
+
+	vl_parametres[6].type	= SYB#INT2_
+	vl_parametres[6].data	= 0			' Priorite
+	vl_parametres[6].output	= TRUE
+
+	vl_parametres[7].type	= SYB#INT4_
+	vl_parametres[7].data	= 0			' Distance Evt
+	vl_parametres[7].output	= TRUE
+
+	vl_parametres[8].type	= SYB#INT4_
+	vl_parametres[8].data	= 0			' N° Action
+	vl_parametres[8].output	= TRUE
+
+	vl_parametres[9].type	= SYB#INT1_
+	vl_parametres[9].data	= 0			' N° Site Action
+	vl_parametres[9].output	= TRUE
+
+	
+	/*A Execution de la procedure XZAT06_Utilisation_NAV */
+	IF COM05_SQL_Procedure(XZAT06_Utilisation_NAV,vl_parametres,
+							vl_resultats,C_MODULE) <> COM_OK
+	{
+    			RETURN (COM_NOK)
+	}
+
+	/*A MAJ de la table NAV avec les arguments de sorties */
+	va_NAV.Dispo	 		=	vl_resultats.return_parameters[0]
+	va_NAV.Scenario		=	vl_resultats.return_parameters[1]
+	va_NAV.NumEvt			=	vl_resultats.return_parameters[2]+0
+	va_NAV.CleEvt			=	vl_resultats.return_parameters[3]+0
+	va_NAV.Priorite		=	vl_resultats.return_parameters[4]
+	va_NAV.DistanceEvt		=	vl_resultats.return_parameters[5]
+	va_NAV.NumeroAction		=	vl_resultats.return_parameters[6]
+	va_NAV.NomSite			=	vl_resultats.return_parameters[7]
+
+	if va_NAV.NumEvt<>0 and  va_NAV.CleEvt<>0
+	{
+		/*A MAJ du libelle fmc */
+		ITMA_COM_Lire_Evenement(va_NAV.NumEvt,
+						va_NAV.CleEvt,vl_lib_fmc,C_MODULE)
+		va_NAV.fmc_liee = COM11_Libelle_FMC(vl_lib_fmc)
+	}
+	else
+	{
+		va_NAV.fmc_liee = "Pas de libelle FMC."
+	}
+
+	
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture de la configuration des BRA
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TNA_Init_Config_BRA ( FORMAT Config_BRA va_liste_BRA, 
+					 	 FORMAT Config_Scenario va_liste_scenario)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		aucun
+*
+* ARGUMENTS EN SORTIE :
+* 
+*		va_liste_BRA 		: liste des BRA
+*		va_liste_scenario 	: liste des scenario par type
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TNA
+*
+*
+* FONCTION
+*   	Lecture de la configuration des BRA.
+*
+--------------------------------------------------------------------- */
+
+VAR	vl_liste_indice
+VAR	vl_machine_LT
+VAR 	vl_liste
+VAR	i,j, vl_nb_eqt
+VAR	vl_Index_Site
+VAR	FORMAT	COM_Localisation 		vl_localisation
+VAR	FORMAT 	COM_Donnees_Equipements 	vl_info_equip
+VAR	FORMAT 	COM_Donnees_Equipements 	vl_info_equip_suite
+VAR 	FORMAT 	TDO_District			vl_les_districts
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+va_liste_BRA 		= SYSTEM_VAR@ (vg_Config_BRA)
+va_liste_scenario 	= SYSTEM_VAR@ (vg_Config_Scenario_BRA)
+
+/*A Si les liste scenario et BRA sont deja a jour alors retourne */
+if ( va_liste_BRA <> NULL ) and ( va_liste_scenario <> NULL )
+{
+   	RETURN (COM_OK)
+}
+
+/*A
+ * Listes des scenario pour chaque type de BRA
+ * -----------------------------------
+ */
+
+/*A MAJ de vl_parametres */
+vl_parametres[0].type	= SYB#CHAR_
+vl_parametres[0].data	= XDC_BASE_CFG
+vl_parametres[0].output	= FALSE
+
+/*A Exécution de la procedure XZAO164_Liste_Types_NAV	*/			
+IF COM05_SQL_Procedure
+	( XZAO164_Liste_Types_NAV, vl_parametres, vl_resultats ,C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+vl_liste = vl_resultats.select_results[0]
+/*A si le resultat du select n'est pas nul */
+if ( ARRAY_SIZE@(vl_liste)>0 )
+{
+	/*A pour chaque enregistrement */
+
+	for  i=0 to ARRAY_SIZE@(vl_liste)-1
+
+		va_liste_scenario[vl_liste[i,0]].NomScenario[0]=""
+		vl_liste_indice[vl_liste[i,0]]=0
+	next i
+
+	for  i=0 to ARRAY_SIZE@(va_liste_scenario)-1
+
+		for  j=0 to ARRAY_SIZE@(vl_liste)-1
+
+			if(i=vl_liste[j,0])
+			{
+				va_liste_scenario[i].NomScenario[vl_liste_indice[i]]
+											= vl_liste[j,5]
+				vl_liste_indice[i]=vl_liste_indice[i]+1
+			}
+		next j
+	next i
+}
+/*
+		va_liste_scenario [vl_liste[i,0]].NomScenario[vl_liste[i,3]]
+								= vl_liste[i,5]
+
+*/
+
+/*A
+ * Listes des types de BRA
+ * -----------------------------------
+ */
+
+/*A MAJ de vl_parametres */
+vl_parametres[0].type	= SYB#CHAR_
+vl_parametres[0].data	= XDC_BASE_CFG
+vl_parametres[0].output	= FALSE
+
+/*A MAJ de vl_parametres */
+vl_parametres[1].type	= SYB#CHAR_
+vl_parametres[1].data	= XDC_CHAINE_VIDE
+vl_parametres[1].output	= FALSE
+
+/*A Exécution de la procedure XZAO163_Liste_NAV_Machine	*/			
+IF COM05_SQL_Procedure
+	( XZAO163_Liste_NAV_Machine, vl_parametres, vl_resultats ,C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+
+vl_liste = vl_resultats.select_results[0]
+/*A si le resultat du select n'est pas nul */
+if ( ARRAY_SIZE@(vl_liste)>0 )
+{
+	/*A pour chaque enregistrement */
+	for  i=0 to ARRAY_SIZE@(vl_liste)-1
+		/* Mettre a jour le numero du type de BRA */
+		va_liste_BRA [vl_liste[i,0]].NumType = vl_liste[i,1]
+	next i
+}
+
+
+/*A
+ * Listes des BRA
+ * -----------------------------------
+ */
+ITMA_COM_Lire_Equipements (	XDC_EQT_NAV, 
+					 	NULL,
+				 	 	XDC_EQT_HS,		' Conditions niees
+				 	 	XDC_EQT_NON_HS, 	' Conditions 
+				 	 	0,				' Exclusions
+					 	0,
+					 	vl_info_equip,
+					 	C_MODULE )
+
+
+ITMA_COM_Lire_Equipements (	XDC_EQT_FAC, 
+					 	NULL,
+				 	 	XDC_EQT_HS,		' Conditions niees
+				 	 	XDC_EQT_NON_HS, 	' Conditions 
+				 	 	0,				' Exclusions
+					 	0,
+					 	vl_info_equip_suite,
+					 	C_MODULE )
+
+/*A si le resultat du select n'est pas nul */
+if ARRAY_SIZE@(vl_info_equip_suite)>0 
+{
+	/*A pour chaque enregistrement */
+	vl_nb_eqt = ARRAY_SIZE@(vl_info_equip)
+  	for  i=0 to ARRAY_SIZE@(vl_info_equip_suite)-1
+		vl_info_equip[vl_nb_eqt] = vl_info_equip_suite[i]
+		vl_nb_eqt = vl_nb_eqt + 1
+	next i
+}
+
+ITMA_COM_Lire_Equipements (	XDC_EQT_FAU, 
+					 	NULL,
+				 	 	XDC_EQT_HS,		' Conditions niees
+				 	 	XDC_EQT_NON_HS, 	' Conditions 
+				 	 	0,				' Exclusions
+					 	0,
+					 	vl_info_equip_suite,
+					 	C_MODULE )
+
+/*A si le resultat du select n'est pas nul */
+if ARRAY_SIZE@(vl_info_equip_suite)>0 
+{
+	/*A pour chaque enregistrement */
+	vl_nb_eqt = ARRAY_SIZE@(vl_info_equip)
+  	for  i=0 to ARRAY_SIZE@(vl_info_equip_suite)-1
+		vl_info_equip[vl_nb_eqt] = vl_info_equip_suite[i]
+		vl_nb_eqt = vl_nb_eqt + 1
+	next i
+}
+
+vl_les_districts = SYSTEM_VAR@ (vg_les_districts)
+/*A si le resultat du select n'est pas nul */
+if ARRAY_SIZE@(vl_info_equip)>0 
+{
+	/*A pour chaque enregistrement */
+	for  i=0 to ARRAY_SIZE@(vl_info_equip)-1
+
+		vl_localisation.NumAuto 	= vl_info_equip[i].autoroute
+
+		vl_localisation.PR 		= vl_info_equip[i].PR
+
+		vl_localisation.sens_circulation = vl_info_equip[i].sens
+		if vl_info_equip[i].type = XDC_EQT_NAV
+		{
+		  /* REPERE1 */
+			if SUBSTRING@(vl_info_equip[i].nom,1,3) = "BRA"
+			{
+			  va_liste_BRA [vl_info_equip[i].numero].Identifiant =
+					"BRA" ++ COM10_Localisation(vl_localisation)
+                        }
+			else if SUBSTRING@(vl_info_equip[i].nom,1,3) = "PAL"
+			{
+			  va_liste_BRA [vl_info_equip[i].numero].Identifiant =
+					"PAL" ++ COM10_Localisation(vl_localisation)
+			}
+		}
+		if vl_info_equip[i].type = XDC_EQT_FAU
+		{
+			va_liste_BRA [vl_info_equip[i].numero].Identifiant =
+					XDC_LIB_FAU ++ COM10_Localisation(vl_localisation)
+		}
+		if vl_info_equip[i].type = XDC_EQT_FAC
+		{
+			va_liste_BRA [vl_info_equip[i].numero].Identifiant =
+					XDC_LIB_FAC ++ COM10_Localisation(vl_localisation)
+		}
+
+		va_liste_BRA [vl_info_equip[i].numero].Autoroute =  
+								vl_info_equip[i].autoroute
+
+		va_liste_BRA [vl_info_equip[i].numero].SiteGestion =  
+								vl_info_equip[i].SiteGestion
+
+		va_liste_BRA [vl_info_equip[i].numero].PR =  
+									vl_info_equip[i].PR
+
+		va_liste_BRA [vl_info_equip[i].numero].Sens =  
+									vl_info_equip[i].Sens
+
+		vl_Index_Site = ARRAY_INDEX@ (ARRAY_COLUMN@ 
+				(vl_les_districts,TDO_NUMERO_DISTRICT),
+					ITMA_COM_Site_PR(vl_localisation.NumAuto,
+								vl_localisation.PR,C_MODULE))
+		if vl_Index_Site >= 0
+		{
+			va_liste_BRA [vl_info_equip[i].numero].NumSite = 
+						vl_les_districts[vl_Index_Site].numero
+
+			va_liste_BRA [vl_info_equip[i].numero].NomSite = 
+							vl_les_districts[vl_Index_Site].code
+		}
+		ITMA_TNA_Nom_Machine_LT(vl_info_equip[i].numero,
+				vl_info_equip[i].type,	vl_machine_LT)
+
+		va_liste_BRA[vl_info_equip[i].numero].nom_machine_LT=
+  											vl_machine_LT
+
+	next i
+
+}
+
+SET_SYSTEM_VAR@ (vg_Config_BRA, va_liste_BRA)
+SET_SYSTEM_VAR@ (vg_Config_Scenario_BRA,va_liste_scenario )
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture du nom de machine LT d'un equipement 
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TNA_Nom_Machine_LT(va_NumEqt,va_TypeEqt,va_machine_LT)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+*		va_NumEqt		:	le numero d'equipement
+*		va_machine_LT	:	le nom de la machine du LT
+*
+* ARGUMENTS EN SORTIE : 
+*		NomMachineLT	: Nom de la machine LT
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_
+*
+*
+* FONCTION
+*   	Lecture Du Nom du LT de l'equipement
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	i,j				' index de loop
+	var vl_text
+
+	vl_parametres[0].type	= SYB#INT4_
+	vl_parametres[0].data	= va_NumEqt			' numero equipement
+	vl_parametres[0].output	= FALSE
+	
+	vl_parametres[1].type	= SYB#INT4_
+	vl_parametres[1].data	= va_TypeEqt			' type equipement	
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#CHAR_			' NomMachineLT
+	vl_parametres[2].data	= 0
+	vl_parametres[2].output	= TRUE
+
+
+	IF COM05_SQL_Procedure (XZAO05_Nom_Machine_LT,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+	{
+		RETURN (COM_NOK)
+	}
+	/*A recuperation du nom de la machine LT */
+	va_machine_LT = SUBSTRING@(vl_resultats.return_parameters[0],1,9)
+	
+	/*B trace du nom de machine LT */
+	vl_text = " Pilotage BRA " ++ va_NumEqt ++ " - Nom machine LT "
+										 ++ va_machine_LT 
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des equipements disponibles
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TNA_Liste_Eqt_Disponibles( va_District, 
+						FORMAT Config_BRA va_Config_BRA )
+
+/*
+* ARGUMENTS EN ENTREE :
+* 
+*		va_District : le numero du district
+*
+* ARGUMENTS EN SORTIE :
+* 
+*		ListeEqts		: la liste des equipements correspondants
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TNA
+*
+*
+* FONCTION
+*   	Lecture des equipements en disponibilites.
+*
+--------------------------------------------------------------------- */
+
+	var	FORMAT COM_Donnees_Equipements vl_info_equip
+	var	FORMAT COM_Donnees_Equipements vl_info_equip_suite
+	var	vl_Liste		' liste formattée
+	var	i, k			' index de loop
+	var vl_district
+	var vl_nb_eqt
+
+	if va_District = XDC_CI
+
+	{	vl_District=NULL }
+	else
+	{	vl_District=va_District }
+
+	ITMA_COM_Lire_Equipements(XDC_EQT_NAV, 
+		vl_District,XDC_EQT_MINEUR, 		' Conditions niees
+				XDC_EQT_MINEUR,		' Conditions
+				 XDC_EQT_HS + XDC_EQT_MAJEUR + XDC_EQT_CRITIQUE + XDC_EQT_DESACTIVE + XDC_EQT_INHIBE,	' Exclusions	
+						0,
+						vl_info_equip,
+					     C_MODULE )
+	ITMA_COM_Lire_Equipements(XDC_EQT_FAC, 
+		vl_District,XDC_EQT_MINEUR, 		' Conditions niees
+				XDC_EQT_MINEUR,		' Conditions
+				 XDC_EQT_HS + XDC_EQT_MAJEUR + XDC_EQT_CRITIQUE + XDC_EQT_DESACTIVE + XDC_EQT_INHIBE, 	' Exclusions	
+						0,
+						vl_info_equip_suite,
+					     C_MODULE )
+	/*A si le resultat du select n'est pas nul */
+	if ARRAY_SIZE@(vl_info_equip_suite)>0 
+	{
+		/*A pour chaque enregistrement */
+		vl_nb_eqt = ARRAY_SIZE@(vl_info_equip)
+  		for  i=0 to ARRAY_SIZE@(vl_info_equip_suite)-1
+			vl_info_equip[vl_nb_eqt] = vl_info_equip_suite[i]
+			vl_nb_eqt = vl_nb_eqt + 1
+		next i
+	}
+	ITMA_COM_Lire_Equipements(XDC_EQT_FAU, 
+		vl_District,XDC_EQT_MINEUR, 		' Conditions niees
+				XDC_EQT_MINEUR,		' Conditions
+				 XDC_EQT_HS + XDC_EQT_MAJEUR + XDC_EQT_CRITIQUE + XDC_EQT_DESACTIVE + XDC_EQT_INHIBE, ' Exclusions	
+						0,
+						vl_info_equip_suite,
+					     C_MODULE )
+	/*A si le resultat du select n'est pas nul */
+	if ARRAY_SIZE@(vl_info_equip_suite)>0 
+	{
+		/*A pour chaque enregistrement */
+		vl_nb_eqt = ARRAY_SIZE@(vl_info_equip)
+  		for  i=0 to ARRAY_SIZE@(vl_info_equip_suite)-1
+			vl_info_equip[vl_nb_eqt] = vl_info_equip_suite[i]
+			vl_nb_eqt = vl_nb_eqt + 1
+		next i
+	}
+
+
+	/*A RAZ indicateurs de disponibilite de l'equipement */
+	for i=0 to ARRAY_SIZE@(va_Config_BRA)
+
+		va_Config_BRA[i].Disponible=FALSE
+	next i
+
+	/*A Construction de la liste des équipements */
+	if  IS_ARRAY@(vl_info_equip)
+	{
+	    
+		for i = 0 to ARRAY_SIZE@(vl_info_equip) - 1	
+	   		if (vl_info_equip[i].sitegestion = va_District) OR
+				((va_District = XDC_CI) and  
+	 	  			 (ITMA_COM_District_pilotable(
+					vl_info_equip[i].Sitegestion, 
+							XDC_LIB_NAV,FALSE,NULL)) )
+			{
+				vl_Liste[k] = 
+					va_Config_BRA[vl_info_equip[i].numero].Identifiant
+
+				va_Config_BRA[vl_info_equip[i].numero].Disponible=TRUE
+				k= k + 1
+			}
+
+		next i
+	}
+	else
+	{
+		vl_Liste[0]		= 	""
+		info_message@("Pas de BRA diponible dans cette région ...")
+	}
+
+	RETURN(vl_Liste)
+
+ENDMACRO
+
+
+

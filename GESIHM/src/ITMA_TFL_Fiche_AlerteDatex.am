@@ -1,0 +1,452 @@
+
+/*E*/
+/* Fichier : $Id: ITMA_TFL_Fiche_AlerteDatex.am,v 1.1 1999/02/26 10:20:25 gaborit Exp $      Release : $Revision: 1.1 $        Date : $Date: 1999/02/26 10:20:25 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TFL * FICHIER ITMA_TFL_Fiche_AlerteDatex.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fiche Alerte.
+*
+*   Cf. DCG 2.4.29
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Niepceron 28 Nov 1998 : Creation                                        V1.1
+--------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"../inc/ITMA_TFL.h"
+INCLUDE	"../../XDMICG/inc/xzaac_ax.h"
+INCLUDE	"../inc/isyn_svu_applix_ax.h"
+INCLUDE	"../inc/xzao212sp.h"
+INCLUDE	"../inc/xzaa02sp.h"
+INCLUDE	"../../XDMICG/inc/xzaa05sp.h"
+INCLUDE	"../../XDMICG/inc/xzae152sp.h"
+
+
+
+DEFINE	C_MODULE	"MTFL"			' Nom du module
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+DEFINE	C_LIB_FMC_OUVERTE	"Terminer d'abord la fiche main courante en cours"
+
+
+
+/*A
+ * Definition des libelles des qualificatifs d'alertes
+ * ---------------------------------------------------
+ */
+
+DEFINE	C_LIB_ALT_FAUSSE	"Fausse"
+DEFINE	C_LIB_ALT_VRAIE		"Vraie"
+DEFINE	C_LIB_ALT_VRAIE_TRAIT	"Vraie avec creation FMC"
+DEFINE	C_LIB_ALT_EXPLOITATION	"Exploitation"
+
+
+
+VAR     vm_l_qualificatifs			' Liste qualificatifs d'alertes
+VAR	tm_liste_causes
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation des informations d'une alerte.
+*  Sur reception d'un message, ajout d'une alerte a la liste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFL_Fiche_AlerteDatex (va_appelant, FORMAT TFL_Donnees_Alerte va_alerte,
+				va_libelle_alerte)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_appelant       : Nom de la macro Applix ayant invoque la presente ;
+*   va_alerte         : Informations sur l'alerte ;
+*   va_libelle_alerte : Libelle de l'alerte a afficher.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTLL
+*
+* FONCTION
+*   Visualise les informations sur une alerte et permet de la qualifier.
+*   Permet d'associer une camera a la localisation de l'alerte.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_alerte			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_l_lib_qualif			' Liste libelles qualificatifs
+    VAR     vl_qualif				' Valeur de qualificatif choisie
+    VAR     vl_macro_visu_camera		' Nom du module a appeler
+    VAR FORMAT COM_Identifiant_FMC vl_evt	' Identifiant evenement associe
+    VAR     vl_message				' Message envoye a MTRA ou MTLL
+
+    VAR     vl_statut				' Compte-rendu retourne
+	VAR vl_numero
+    VAR tl_retour,tl_data,tl_titres
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Fiche alerte"
+ * ---------------------------------
+ */
+
+vl_fenetre_alerte = DB_LOAD@ ("ITMA_TFL_Datex")
+DB_WINDOW_REMAIN@ (vl_fenetre_alerte, TRUE)
+
+DB_XPOS@ (vl_fenetre_alerte, 0)
+DB_YPOS@ (vl_fenetre_alerte, 93)
+COM27_Agrandir_Fenetre (vl_fenetre_alerte, COM_LARGEUR_FMC, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre_alerte, "ITMA_TFL_Fiche_AlerteDatex")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_alerte, vl_les_messages_acceptes)
+
+
+/*A
+ * Initialiser la visualisation (libelle alerte, valeurs de qualification)
+ * -----------------------------------------------------------------------
+ */
+
+
+DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Texte_Alerte", va_alerte.texte)
+
+
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+
+DB_CTRL_DISPLAY@ (vl_fenetre_alerte, "TA_Evenements", FALSE)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_alerte)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_alerte)
+
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre_alerte)
+	CASE COM_CANAL_FIN
+	    vl_message = va_alerte.numero, "REVEIL_OFF"
+	    DB_SEND_POKE@ (COM_CANAL_MTLL_MODIF, vl_message)
+	    vl_la_fenetre_est_active = FALSE
+	ENDCASE
+
+
+    /*A
+     * Sur choix "Quitter" informer la liste alertes
+     * que le traitement de cette alerte est differe
+     * ---------------------------------------------
+     */
+    CASE "BP_Quitter"
+	vl_message = va_alerte.numero, "REVEIL_OFF"
+	DB_SEND_POKE@ (COM_CANAL_MTLL_MODIF, vl_message)
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur choix "Synthèse" informer la liste alertes
+     * que le traitement de cette alerte est differe
+     * ---------------------------------------------
+     */
+    CASE "BP_Supprimer"
+	vl_qualif=XDC_ALT_FAUSSE
+	vl_statut=TFL_Archiver_AlerteDatex (va_alerte.numero, vl_qualif, va_alerte.sit, null)
+
+	    /*B si ca s'est mal passe laisser l'alerte, sans reveil */
+	    IF vl_statut = TFL_RET_DIFFERE {
+			vl_message = va_alerte.numero, "REVEIL_OFF"
+			DB_SEND_POKE@ (COM_CANAL_MTLL_MODIF, vl_message)
+		} ELSE {
+			/*B sinon supprimer l'alerte de la liste */
+			vl_message = va_alerte.numero, "SUPPRIMER"
+			DB_SEND_POKE@ (COM_CANAL_MTLL_MODIF, vl_message)
+		}
+	vl_la_fenetre_est_active = FALSE
+
+
+	CASE "BP_Synthese"
+
+		NEW_TASK@("ITMA_TSS_Synthese_Strada",va_alerte.numero)
+	
+
+
+
+		
+
+    /*A
+     * Sur choix "Valider", si l'alerte est qualifiee "Vraie avec traitement",
+     * verifier qu'aucune fiche main courante n'est ouverte et si c'est le cas
+     * archiver l'alerte et terminer en retournant le compte-rendu adequat
+     * -----------------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+
+		/*B creation fmc */
+		vl_numero=TFL_cree_fmcDatex(va_alerte.numero,va_alerte.sit)
+		IF vl_numero <> 0 {
+	    		/*B suppression de l'alerte*/
+			vl_message = va_alerte.numero, "SUPPRIMER"
+			DB_SEND_POKE@ (COM_CANAL_MTLL_MODIF, vl_message)
+
+	    		/*B raf de la liste des fmc */
+			DB_SEND_POKE@(	COM_CANAL_MTLT,"0"++COM_SEPAR_CHAMPS++"0")
+ 		}
+		ELSE {
+			vl_message = va_alerte.numero, "REVEIL_OFF"
+			DB_SEND_POKE@ (COM_CANAL_MTLL_MODIF, vl_message)
+			INFO_MESSAGE@ ("Impossible de créer la FMC")
+		}
+	vl_la_fenetre_est_active = FALSE
+   ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Archive une alerte.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFL_Archiver_AlerteDatex (va_num_alerte, va_qualif_alerte, va_site_alerte,
+				FORMAT COM_Identifiant_FMC va_evt)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_alerte     : Numero de l'alerte ;
+*   va_qualif_alerte  : Identifiant du qualificatif de l'alerte ;
+*   va_site_alerte    : site de l'alerte ;
+*   va_evt            : Identifiant de l'evenement associe.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFL_Fiche_AlerteDatex
+*
+* FONCTION
+*   Archive l'alerte d'identifiant indique et son evenement associe.
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_site, vl_les_districts, vl_nom_site_alerte
+    VAR vl_canal
+    VAR vl_indice
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+vl_site = SYSTEM_VAR@(vg_site)
+vl_les_districts = SYSTEM_VAR@(vg_les_districts)
+
+/* si on est au CI alors se connecter sur le site de l'alerte */
+IF vl_site = XDC_CI
+{
+    /* rechercher le nom du site de l'alerte */
+    vl_indice = ARRAY_INDEX@(ARRAY_COLUMN@(vl_les_districts, TDO_NUMERO_DISTRICT), va_site_alerte) 
+    vl_nom_site_alerte = vl_les_districts[vl_indice][TDO_CODE_DISTRICT]
+
+    /*on se connecte a la base du PC et on acheve la fiche*/
+    vl_canal = COM43_SQL_CONNECT (vl_nom_site_alerte)
+	if IS_NULL@(vl_canal)
+		RETURN (TFL_RET_DIFFERE)
+
+    SQL_CHANNEL_MASTER@ (vl_canal, 0)
+    SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,vl_canal)
+}
+
+vl_parametres[0].type = TFL_Identifiant_Alerte
+vl_parametres[0].data = va_num_alerte
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFL_Identifiant_Qualif_Alerte
+vl_parametres[1].data = va_qualif_alerte
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Numero_Evenement
+vl_parametres[2].data = va_evt.numero
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Cle_Evenement
+vl_parametres[3].data = va_evt.cle
+vl_parametres[3].output = FALSE
+
+IF vl_site = XDC_CI
+{
+	IF COM39_SQL_Procedure_PCS (XZAA02_Archiver_Alerte,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+		SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+    		RETURN (TFL_RET_DIFFERE)
+	}
+}
+ELSE 
+{
+	IF COM05_SQL_Procedure (XZAA02_Archiver_Alerte,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+    		RETURN (TFL_RET_DIFFERE)
+	}
+}
+
+/*A si l'alerte est deja traitee*/
+IF (vl_resultats.status=XZAAC_DEJA_TRT)
+{
+	INFO_MESSAGE@("Alerte déjà traitée")	
+	RETURN (TFL_RET_DEJA_TRAITER)
+}
+
+/* se deconnecter du serveur distant */
+IF vl_site = XDC_CI
+{
+	SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+	SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+}
+
+RETURN (TFL_RET_VALIDE)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  procedure de creation de fiche main courante
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFL_cree_fmcDatex (va_numeroAlerte, va_site_alerte)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLL_Liste_Alertes
+*
+* FONCTION
+*   Crée une FMC datex
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = va_numeroAlerte
+	vl_parametres[0].output = FALSE
+	vl_parametres[1].type = SYB#INT4_
+	vl_parametres[1].output = TRUE
+
+	IF ( COM05_SQL_Procedure(XZAE152_Creation_FMCDATEX,
+					vl_parametres, vl_resultats, C_MODULE) <> COM_OK )
+		return (0)
+	
+	ELSE
+
+		return (vl_resultats.return_parameters[0]+0)
+
+ENDMACRO
+

@@ -1,0 +1,1 @@
+DEFINE	XZAC95_Lire_Commande_BAD		"XZAC95"

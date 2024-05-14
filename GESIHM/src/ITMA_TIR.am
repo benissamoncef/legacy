@@ -1,0 +1,570 @@
+/* Fichier:  $RCSfile: ITMA_TIR.am,v $	Release:  $Revision: 1.9 $	Date: $Date: 2009/11/23 23:13:18 $
+********************************************************************************
+* STERIA	* PROJET MIGRAZUR
+********************************************************************************
+* MODULE: MTIR			* FICHIER ITMA_TIR.am
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 28/09/94
+********************************************************************************
+* DESCRIPTION DU MODULE: 
+* Contient les macros qui font les requetes aux coupleurs
+*
+* REFERENCES AU DCG: 
+*
+********************************************************************************
+* HISTORIQUE DES MODIFICATIONS:
+*
+* JM. GUILHOU  29/09/94 : Creation                                            V1.1
+* Lecrivain    12/12/94 : Modification LANCEMCE (1er arg pour homogeneite)    V1.6
+* Guilhou		19/12/94: Modification TIR_LOGIN    (passage de l'appelant)   V1.7
+* Guilhou		19/12/94: Modification TIR_LANCEMCE (passage de l'appelant)   V1.7
+* JPL		21/10/09 : Ajout macro generale ITMA_TIR_SEND similaire a ITMA_TIR_EXEC 1.8
+* JPL		23/11/09 : Ajout macros ITMA_TIR_TACHE_DISTANTE, ITMA_TIR_POKE_DISTANT 1.9
+*******************************************************************************/
+INCLUDE	"dbase_.am"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+
+INCLUDE "XDMICG/inc/xdc_ax.h"
+INCLUDE "XDMICG/inc/xzic_ax.h"
+
+
+/*!
+ *! Definition des boites a lettres (datagroups) ou envoyer les messages
+ *! Ces definitions specifiques a MTIR figurent ici en l'absence de xdg_ax.h
+ *! ------------------------------------------------------------------------
+ */
+
+DEFINE	XDG_IAX_TEXTE		"/IAX_TEXTE"
+DEFINE	XDG_IAX_SYNOP		"/IAX_SYNOP"
+
+
+
+/*!
+ *! Caractere de separation des elements d'une commande (Send Poke, New Task ...)
+ *! envoyee a une machine (site) distante par INSTRUCTION SEND a la tache relais.
+ *!
+ *! Ce caractere est SPECIFIQUE A L'INTERFACE APPLIX -> TACHE RELAIS DANS CE SENS
+ *! en particulier il doit ETRE DIFFERENT DE CELUI UTILISE PAR L'INTERFACE
+ *! Application -> MTAR -> ... -> MTAR -> Application DANS LES DEUX SENS,
+ *! et est different historiquement de celui utilise pour les INSTRUCTIONS 'EXEC'.
+ */
+
+DEFINE	MTIR_CAR_SEP_CMD_DIST		"!"
+
+
+
+/*macro vide de chargement du module*/
+MACRO ITMA_TIR
+ENDMACRO
+
+
+/*******************************************************************************
+* MODULE: MTIR			* FONCTION: ITMA_TIR_print
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 29/09/94
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: 
+* demande l'impression d'un fichier
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TIR_print(va_periph, va_nom, va_path)
+* 
+* PARAMETRES EN ENTREE: 
+*
+* PARAMETRES EN SORTIE: 
+* va_periph: type de peripherique
+* va_nom: nom du fichier
+* va_path: chemin d'acces
+*
+* VALEUR RENDUE: 	
+*				
+* CONDITION D'ERREUR: neant
+*
+* CONDITION LIMITES: neant
+*
+********************************************************************************
+* ALGORITHME: 
+*******************************************************************************/
+FUNCTION ITMA_TIR_print(va_periph, va_nom, va_path)
+
+	VAR vl_cmd
+	VAR vl_indice
+
+	/*preparation de la requete pour le coupleur*/
+	vl_cmd[0]=MTAR_MSG_EXEC
+	vl_cmd[1]=1			/*num de commande pour retour. Non utilise ici*/
+	vl_cmd[2]=MTAR_FCT_PRINT  /*fonction a executer*/
+
+	vl_cmd[3]=va_periph++" "++va_nom++" "++va_path  /*arguments*/
+
+	/*envoi de la commande a la tache ITMA_TAR01*/
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+
+ENDFUNCTION
+
+
+
+/*******************************************************************************
+* MODULE: MTIR			* FONCTION: ITMA_TIR_LEAVEDG
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 29/09/94
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: 
+* demande de quitter un datagroup 
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TIR_LEAVEDG(va_dg)
+* 
+* PARAMETRES EN ENTREE: 
+*
+* PARAMETRES EN SORTIE: 
+* va_dg: datagroup
+*
+* VALEUR RENDUE: 	
+*				
+* CONDITION D'ERREUR: neant
+*
+* CONDITION LIMITES: neant
+*
+********************************************************************************
+* ALGORITHME: 
+*******************************************************************************/
+FUNCTION ITMA_TIR_LEAVEDG(va_dg)
+
+	VAR vl_cmd
+	VAR vl_indice
+
+	/*preparation de la requete pour le coupleur*/
+	vl_cmd[0]=MTAR_MSG_EXEC
+	vl_cmd[1]=1
+	vl_cmd[2]=MTAR_FCT_LEAVEDG
+	vl_cmd[3]=va_dg
+
+	/*envoi de la commande a la tache TAR01*/
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+
+ENDFUNCTION
+
+
+
+/*******************************************************************************
+* MODULE: MTIR			* FONCTION: ITMA_TIR_TIME
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 29/07/94
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: 
+* demande l'heure au coupleur
+* se met en attente du resultat sur le poke PK_SOC_RESULT
+* EXEMPLE FROM SANEF
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TIR_TIME()
+* 
+* PARAMETRES EN ENTREE: 
+*
+* PARAMETRES EN SORTIE: 
+* heure
+*
+* VALEUR RENDUE: 	
+*				
+* CONDITION D'ERREUR: neant
+*
+* CONDITION LIMITES: neant
+*
+********************************************************************************
+* ALGORITHME: 
+*******************************************************************************/
+MACRO ITMA_TIR_TIME()
+
+	VAR vl_time,vl_cmd
+	VAR vl_liste_codes
+	VAR vl_dbox,vl_exit_value
+	VAR vl_num_cmd,vl_par_sel
+	
+	/*charge une BD vide qui sert pour recevoir les pokes*/
+	vl_dbox=DB_LOAD@("ITMA_TAR")
+
+	/*liste des pokes acceptes*/
+	vl_liste_codes[0]=PK_SOC_RESULT
+	vl_liste_codes[1]=COM_CANAL_FIN
+	DB_ACCEPT_POKES@(vl_dbox,vl_liste_codes)
+
+	/*numero de commande unique fourni pour sanef par oracle*/
+	/* ici code en dur*/
+	vl_num_cmd=25
+
+	/*preparation de la requete pour le coupleur*/
+	vl_cmd[0]=MTAR_MSG_EXEC
+	vl_cmd[1]=vl_num_cmd
+	vl_cmd[2]=MTAR_FCT_TIME
+	vl_cmd[3]= " "
+
+	/*envoi de la commande a la tache TAR01*/
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+
+	/*boucle infinie d'attente du resultat*/
+	WHILE 1
+		DB_DISPLAY@(vl_dbox)
+
+		vl_exit_value=DB_EXIT_CTRL@(vl_dbox)
+
+		vl_cmd=DB_GET_POKE@(vl_dbox)
+
+		CASE OF vl_cmd
+			CASE COM_CANAL_FIN
+				RETURN
+
+			/*resultat d'une commande*/
+			CASE PK_SOC_RESULT
+				/*si c'est le bon numero*/
+				vl_cmd=DB_GET_POKE_DATA@(vl_dbox)
+				IF (vl_cmd[1]=vl_num_cmd)
+					/*renvoie le resultat de la commande*/
+					RETURN (vl_cmd[0])
+		ENDCASE
+
+	WEND
+ENDMACRO
+
+			
+	
+
+/*******************************************************************************
+* MODULE: MTIR			* FONCTION: ITMA_TIR_MAJLISTE
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 29/09/94
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: 
+* demande un rafraichissement de la liste concernee
+* EXEMPLE FROM SANEF !!!!!!!!!!!!!!!!!!!!!!
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TIR_MAJLISTE(code_liste)
+* 
+* PARAMETRES EN ENTREE: 
+* code_liste: fiches evts, journal d'exploitation ,reveils
+*
+* PARAMETRES EN SORTIE: 
+* 
+*
+* VALEUR RENDUE: 	
+*				
+* CONDITION D'ERREUR: neant
+*
+* CONDITION LIMITES: neant
+*
+********************************************************************************
+* ALGORITHME: 
+*******************************************************************************/
+FUNCTION ITMA_TIR_MAJLISTE(va_code)
+
+	ITMA_TIR_SEND (MTAR_NUM_SENDPOKE, "mce",
+	                 { MTAR_MSG_SEND_POKE, va_code, 0 })
+
+ENDFUNCTION
+
+
+
+/*******************************************************************************
+* MODULE: MTIR			* FONCTION: ITMA_TIR_LANCEMCE
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 10/10/94
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: 
+* lance le menu de l'ecran textuel
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TIR_LANCEMCE(va_appelant,va_num_poste, va_num_operateur, va_operateur,
+			      va_num_profil, va_l_familles)
+* 
+* PARAMETRES EN ENTREE: 
+* va_num_profil: numero du profil pour lancer le menu de l'ecran textuel
+*
+* PARAMETRES EN SORTIE: 
+* 
+*
+* VALEUR RENDUE: 	
+*				
+* CONDITION D'ERREUR: neant
+*
+* CONDITION LIMITES: neant
+*
+********************************************************************************
+* ALGORITHME: 
+*******************************************************************************/
+FUNCTION ITMA_TIR_LANCEMCE(va_appelant,va_num_poste, va_num_operateur, va_operateur,
+			      va_num_profil, va_l_familles)
+	
+	VAR vl_params
+	VAR vl_cmd
+	
+	/*preparation de la requete pour le coupleur*/
+	vl_params[0] = va_appelant
+	vl_params[1] = va_num_poste
+	vl_params[2] = va_num_operateur
+	vl_params[3] = va_num_profil
+	vl_params[4] = va_operateur
+	vl_params[5] = ARRAY_TO_STRING@ (va_l_familles, ",")
+
+	vl_cmd[0]= MTAR_MSG_EXEC
+	vl_cmd[1]= 1
+	vl_cmd[2]= MTAR_FCT_LANCEMCE
+	vl_cmd[3]= ARRAY_TO_STRING@(vl_params, MTAR_CAR_SEPAR)
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*bye*/
+	RETURN
+
+ENDFUNCTION
+
+
+
+
+/*******************************************************************************
+* MODULE: MTIR			* FONCTION: ITMA_TIR_LOGIN
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 11/10/94
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: 
+* demande l'affichage de la boite de login cote synoptique
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TIR_LOGIN(va_appelant)
+* 
+* PARAMETRES EN ENTREE: 
+*
+* PARAMETRES EN SORTIE: 
+* 
+*
+* VALEUR RENDUE: 	
+*				
+* CONDITION D'ERREUR: neant
+*
+* CONDITION LIMITES: neant
+*
+********************************************************************************
+* ALGORITHME: 
+*******************************************************************************/
+MACRO ITMA_TIR_LOGIN(va_appelant)
+
+VAR vl_cmd
+
+	/*preparation de la requete pour le coupleur*/
+	vl_cmd[0]=MTAR_MSG_EXEC
+	vl_cmd[1]=1
+	vl_cmd[2]=MTAR_FCT_LOGIN
+	vl_cmd[3]=va_appelant
+
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+
+ENDMACRO
+
+
+
+
+/*******************************************************************************
+* MODULE: MTIR			* FONCTION: ITMA_TIR_EXEC
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 11/10/94
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: 
+*  Demande l'execution d'une fonction a la tache relais.
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TIR_EXEC (va_num_fct, va_num_cmd, ta_args)
+* 
+* PARAMETRES EN ENTREE: 
+* va_num_fct	: numero de fonction a executer (definie dans ITMA_TAR.h)
+* va_num_cmd	: numero de commande de la fonction (le cas echeant)
+* ta_args	: arguments.
+*
+* PARAMETRES EN SORTIE	: neant
+* 
+*
+* VALEUR RENDUE		: neant
+*
+* CONDITION D'ERREUR	: neant
+*
+* CONDITION LIMITES	: neant
+*
+********************************************************************************
+* ALGORITHME: 
+*******************************************************************************/
+MACRO ITMA_TIR_EXEC (va_num_fct, va_num_cmd, ta_args)
+
+	VAR vl_cmd
+	VAR vl_dbox
+
+	/*charge une BD vide qui sert pour recevoir les pokes*
+/*
+	vl_dbox=DB_LOAD@("ITMA_TAR")
+	DB_ACCEPT_POKES@(vl_dbox, {PK_SOC_RESULT, COM_CANAL_FIN})
+*/
+
+	/*preparation de la requete pour le coupleur*/
+	vl_cmd[0] = MTAR_MSG_EXEC
+	vl_cmd[1] = va_num_cmd
+	vl_cmd[2] = va_num_fct
+	IF (IS_ARRAY@ (ta_args)) {
+		vl_cmd[3] = ARRAY_TO_STRING@ (ta_args, MTAR_CAR_SEPAR)
+	} ELSE {
+		vl_cmd[3] = "" ++ ta_args
+	}
+
+	/*envoi de la commande a la tache TAR01*/
+	DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+ENDMACRO
+
+
+
+
+/*******************************************************************************
+* MODULE: MTIR			* FONCTION: ITMA_TIR_SEND
+********************************************************************************
+* AUTEUR: J.P. LECRIVAIN	* DATE DE CREATION 21/10/09
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: 
+*  Demande l'envoi d'un message a la tache relais.
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TIR_SEND (va_type_msg, va_destinataire, ta_args)
+* 
+* PARAMETRES EN ENTREE: 
+* va_type_msg		: numero de type de message a envoyer (defini dans ITMA_TAR.h)
+* va_destinataire	: identifiant destinataire(s) (= Boite a lettres = DG)
+* ta_args		: arguments du message.
+*
+* PARAMETRES EN SORTIE	: neant
+* 
+*
+* VALEUR RENDUE		: neant
+*
+* CONDITION D'ERREUR	: neant
+*
+* CONDITION LIMITES	: neant
+*
+********************************************************************************
+* ALGORITHME: 
+*******************************************************************************/
+MACRO ITMA_TIR_SEND (va_type_msg, va_destinataire, ta_args)
+
+	VAR vl_cmd
+
+	/* Preparation de la requete pour la tache relais */
+	vl_cmd[0] = MTAR_MSG_SEND
+	vl_cmd[1] = va_type_msg
+	vl_cmd[2] = va_destinataire
+
+	/*!!! IL EST NETTEMENT PREFERABLE QUE L'INTERFACE MTIR -> titxx.x SOIT PRIVEE !!! */
+	/* IF (NOT IS_ARRAY@ (ta_args)) { vl_cmd[3] = "" ++ ta_args } ELSE { */
+	vl_cmd[3] = ARRAY_TO_STRING@ (ta_args, MTIR_CAR_SEP_CMD_DIST)
+
+	/* Envoi de la commande au module d'emission vers la tache relais */
+	DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+ENDMACRO
+
+
+
+
+/*******************************************************************************
+* MODULE: MTIR			* FONCTION: ITMA_TIR_TACHE_DISTANTE
+********************************************************************************
+* AUTEUR: J.P. LECRIVAIN	* DATE DE CREATION 23/11/09
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: 
+*  Demande l'envoi d'un message a la tache relais.
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TIR_TACHE_DISTANTE (va_poste, va_ecran, va_mode,
+*                                            va_nom_tache, va_appelant, ta_args)
+* 
+* PARAMETRES EN ENTREE: 
+* va_poste              : nom du poste destinataire ;
+* va_ecran              : sur quel l'ecran (XDC_ECRAN_TXT, XDC_ECRAN_SYN) ;
+* va_mode               : mode (XDC_MODE_ASYNCHRONE ou XDC_MODE_SYNCHRONE) ;
+* va_nom_tache          : nom de la macro a lancer ;
+* va_appelant           : nom de l'appelant a fournir ;
+* ta_args		: arguments de la macro.
+*
+* PARAMETRES EN SORTIE	: neant
+* 
+*
+* VALEUR RENDUE		: neant
+*
+* CONDITION D'ERREUR	: neant
+*
+* CONDITION LIMITES	: neant
+*
+********************************************************************************
+* ALGORITHME: 
+*******************************************************************************/
+MACRO ITMA_TIR_TACHE_DISTANTE (va_poste, va_ecran, va_mode, va_nom_tache, va_appelant, ta_args)
+
+	VAR	vl_destinataire
+	VAR	vl_cmd
+
+	/* Determiner l'identifiant du destinataire (i.e. le datagroup) */
+	CASE OF  va_ecran
+	CASE XDC_ECRAN_SYN
+		vl_destinataire = XDG_IAX_SYNOP ++ "_" ++ va_poste
+	DEFAULT
+		vl_destinataire = XDG_IAX_TEXTE ++ "_" ++ va_poste
+	ENDCASE
+
+	/* Preparation de la commande a lancer sur le poste destinataire */
+	vl_cmd[0] = MTAR_MSG_NEW_TASK
+	vl_cmd[1] = va_mode
+	vl_cmd[2] = va_nom_tache
+	vl_cmd[3] = ARRAY_TO_STRING@ (ARRAY_APPEND@ ({ va_appelant }, ta_args), MTAR_CAR_SEPAR)
+
+	/* Envoi de la commande au module d'emission vers la tache relais */
+	ITMA_TIR_SEND (MTAR_NUM_NEWTASK, vl_destinataire, vl_cmd)
+ENDMACRO
+
+
+
+
+/*******************************************************************************
+* MODULE: MTIR			* FONCTION: ITMA_TIR_POKE_DISTANT
+********************************************************************************
+* AUTEUR: J.P. LECRIVAIN	* DATE DE CREATION 23/11/09
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: 
+*  Demande l'envoi d'un message a la tache relais.
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TIR_POKE_DISTANT (va_poste, va_ecran, va_poke, ta_args)
+* 
+* PARAMETRES EN ENTREE: 
+* va_poste              : nom du poste destinataire ;
+* va_ecran              : sur quel l'ecran (XDC_ECRAN_TXT, XDC_ECRAN_SYN) ;
+* va_num_poke           : numero de poke a envoyer ;
+* ta_args		: arguments de ce signal.
+*
+* PARAMETRES EN SORTIE	: neant
+* 
+*
+* VALEUR RENDUE		: neant
+*
+* CONDITION D'ERREUR	: neant
+*
+* CONDITION LIMITES	: neant
+*
+********************************************************************************
+* ALGORITHME: 
+*******************************************************************************/
+MACRO ITMA_TIR_POKE_DISTANT (va_poste, va_ecran, va_poke, ta_args)
+
+	/*! Astuce : au lieu d'envoyer une demande de SENPOKE          */
+	/*! (la tache relais ne lui autorise qu'un seul argument),     */
+	/*! on envoie une demande de NEWTASK de la macro "DB_SENPOKE@" */
+	/*! le numero de poke en place d'appelant devenant le 1er arg. */
+	/*! et les autres arguments etant restitues dans un tableau.   */
+
+	/* Envoi de la commande au module d'emission vers la tache relais */
+	ITMA_TIR_TACHE_DISTANTE (va_poste, va_ecran, XDC_MODE_ASYNCHRONE,
+	                            "DB_SEND_POKE@", va_poke, ta_args)
+ENDMACRO

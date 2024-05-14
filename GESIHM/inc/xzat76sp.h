@@ -1,0 +1,1 @@
+DEFINE	XZAT76_Programmer_Neutre_PMVA_SAGA	"XZAT76"

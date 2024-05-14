@@ -1,0 +1,1104 @@
+/*E*/
+/* Fichier : $Id: ITMA_TTS_Efficacite.am,v 1.14 1998/09/22 13:19:27 gaborit Exp $      Release : $Revision: 1.14 $        Date : $Date: 1998/09/22 13:19:27 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTTS * FICHIER ITMA_TTS_Efficacite.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   efficacite intrinseque et absolue
+*   Pour un evenement FINI....
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou 03 jan 1994	: Creation                              V1.1
+* Fournel	04 jan  1994	: Complement de calcul et commentaires	V1.2
+* Guilhou+Gaborit	12 Sep 1995 : refonte generale			V1.3
+* Guilhou	27 Sep 1995	: formattage homogene du delai d'info	V1.4
+* Gaborit	02 oct 1995	: message d'erreur applicatif si l'événement n'est pas fini (1.9)
+* C.T.	23 oct 1995	: message d'erreur applicatif si l'événement n'a pas d'efficaicite associé (1.10)
+* C.T.	24 Jan 1996	: Ajout libelle sur fmc traitee (1.11)
+* Niepceron  	 03 Jul 1998 : Connexion a SQL_HIS (dem/1699) v1.14
+ ---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE "spsheet_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzas30sp.h"
+INCLUDE	"../../XDMICG/inc/xzas31sp.h"
+INCLUDE	"../../XDMICG/inc/xzas32sp.h"
+
+DEFINE	C_MODULE	"MTTS"			' Nom du module
+
+
+/*A
+ * Noms du repertoire et du fichier des coeficients
+ * ------------------------------------------------
+ */
+
+DEFINE	C_REP_COEFF		"/fichiers/syn/"
+DEFINE	C_FICH_COEFF	"ITMA_TTS_SS.as"
+
+DEFINE      C_SOUS_REP_MODELES      COM_SOUS_REP_IHM        ' Repertoire des modeles
+
+
+
+/* Informations concernant les messages radios */
+FORMAT TTS_radio
+	numero_action,		'Numero d'action (message radio)
+	nb_diffusion,		'Nombre de fiffusion du message
+	deb_evt,			'Indicateur debut d'evenement (0 si premier message)
+	fin_evt,			'Indicateur fin d'evenement (0 si dernier message)
+	heure_succes		'Heure compte-rendu (1er diff du message)
+
+/* Informations concernant les echangeurs */
+FORMAT TTS_echangeur
+	numero,		'Numero de l'echangeur
+	pr,			'PR de l'echangeur (en metre)
+	amont,		'Position / evenement (0: aval,1: 1er amont, 2:2eme Amont...)
+	debit,		'Debit a l'heure de l'evenement
+	vitesse		'Vitesse a l'heure de l'evenement
+
+/* Calcul preleminaires */
+FORMAT TTS_variables
+	nb_vehicules,		'Nombre de vehicule rencontrant l'evenement Q(j,E)
+	temps_final,		'Temps de parcours (tp)
+	temps_parcours,	'Temps de parcours (TP) (calcul intermediaire)
+	vitesse_moyenne,	'Vitesse moyenne
+	informes,
+	couverts,
+	concernes
+
+/* Calcul intermedaire difference de temps (k:message,j:echangeur) */
+FORMAT TTS_temps
+	difference		'Difference de temps : DT(j,k)
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU : Evaluation de l'efficacite intrinseque et absolue.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTS_Efficacite (va_appelant,ta_num_fiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+	VAR	vl_fenetre				' Nom de la fenetre du module
+	VAR	vl_objet_selecte			' L'objet courant de la fenetre
+	VAR	vl_les_messages_acceptes	' Pour reception de signaux
+	VAR	vl_la_fenetre_est_active
+	VAR	vl_installer_traitement_erreur
+	VAR 	tl_titres,tl_data
+	VAR 	vl_string, vl_str, i, j
+	VAR	FORMAT TDO_Horo_Eclatee	vl_horodate
+
+/*A
+ * Charger la fenetre "efficacite"
+ * ---------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TTS")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TTS_Efficacite")
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+/*A libelle FMC*/
+DB_CTRL_TITLE@ (vl_fenetre, "BL_Libelle_FMC", ta_num_fiche[2])
+
+/*A tables des indicateurs*/
+DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre,"TA_absolue",25,null)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_absolue", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_absolue", FALSE)
+
+DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre,"TA_intrin",25,null)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_intrin", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_intrin", FALSE)
+
+/*A titres des colonnes*/
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+tl_titres[0]="",200
+tl_titres[1]="PMV",150
+tl_titres[2]="BRA",150
+tl_titres[3]="RADIO",150
+
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_absolue",null,tl_titres,null)
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_intrin",null,tl_titres,null)
+
+tl_data=TTS_calcul(ta_num_fiche[0],ta_num_fiche[1])
+IF NOT IS_ARRAY@(tl_data)
+	RETURN
+
+DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_absolue",tl_data[0],0)
+DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_intrin",tl_data[1],0)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+/*vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	    	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+    }
+WEND
+*/
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+  CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre)
+		CASE COM_CANAL_FIN
+		    RETURN
+	ENDCASE
+
+
+     CASE "BP_quitter"
+		RETURN
+
+	CASE "BP_imprimer"
+		WP_APPLICATION_DLG@(null,TRUE)
+		WP_LOAD_FILE@(SYSTEM_VAR@ (vg_repertoire_migrazur) 
+							++C_SOUS_REP_MODELES++"ITMA_TTS_Efficacite.aw")
+		WP_SET_DOC_VAR@ ("FMC", ta_num_fiche[2])
+		FOR i=0 to 2
+			vl_str = ""
+			FOR j=1 to 3
+				vl_str = vl_str++tl_data[0][i][j]++"\t"
+			NEXT j
+			WP_SET_DOC_VAR@ ("Eff_abs"++(i+1), vl_str)
+		NEXT i
+		FOR i=0 to 5
+			vl_str = NULL
+			FOR j=1 to 3
+				vl_str = vl_str++tl_data[1][i][j]++"\t"
+			NEXT j
+			WP_SET_DOC_VAR@ ("Eff_intr"++(i+1), vl_str)
+		NEXT i
+		WP_SAVE_RENAME@("ITMA_TTS.aw")
+		COM36_Imprimer_Texte("ITMA_TTS.aw") 
+		DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+				
+      ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  retourne les resultats des calculs efficacite intrinseque et absolue.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TTS_calcul (va_num,va_cle)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*   .
+---------------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR vl_indice
+VAR tl_libelles
+VAR tl_retour
+VAR tl_data
+VAR vl_taille
+VAR tl_intrin,tl_absolu
+
+
+	MACRO_WINS_BUSY@()
+	vl_indice=0
+
+	/* Preparation des parametres */
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_num
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_cle
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].output = TRUE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].output = TRUE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].output = TRUE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].output = TRUE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].output = TRUE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT1_
+	vl_parametres[vl_indice].output = TRUE
+
+	/*A
+	** Execution requete base :
+	** Resultat des calculs pour l'efficacite intrinseque et absolue pour les
+	** PMV et NAV.
+	*/
+	IF COM41_SQL_Procedure_HIS (XZAS30_Eff_PMV_NAV,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+   			RETURN (COM_NOK)
+	}
+	ELSE IF  vl_resultats.return_parameters[5] = XDC_PAS_SYN
+	{
+			INFO_MESSAGE@("Pas de calcul d'éfficacité pour cet événement")
+   			RETURN (COM_NOK)
+	}
+
+	/* Intitule des lignes de resultat */
+	tl_libelles="Délai d'info","Nombre concernés","Nombre informés",
+			"Nombre bien couverts","Taux de couverture",
+			"Facteur de crédibilité","Nombre concernés",
+			"Nombre bien couverts","Taux de couverture"
+
+	tl_data=vl_resultats.select_results[0]
+
+	tl_data=ARRAY_INSERT@(tl_data,tl_libelles)
+	tl_data=ARRAY_TRANSPOSE@(tl_data)
+
+	/*A on separe les indicateurs efficacite intrinseque et absolue */
+	vl_taille=ARRAY_SIZE@(tl_data)-1
+
+	tl_absolu[0]=tl_data[vl_taille-2]
+	tl_absolu[1]=tl_data[vl_taille-1]
+	tl_absolu[2]=tl_data[vl_taille]
+	tl_intrin=ARRAY_DELETE@(tl_data,vl_taille)
+	tl_intrin=ARRAY_DELETE@(tl_intrin,vl_taille-1)
+	tl_intrin=ARRAY_DELETE@(tl_intrin,vl_taille-2)
+
+	tl_retour[0]=tl_absolu
+	tl_retour[1]=tl_intrin
+	tl_retour[1][0][2]=INT@(tl_retour[1][0][2]/60)++" mn "
+									++(tl_retour[1][0][2] MOD 60)++" s"
+	tl_retour[1][0][1]=INT@(tl_retour[1][0][1]/60)++" mn "
+									++(tl_retour[1][0][1] MOD 60)++" s"
+	/*A Calcule de l'efficacite RADIO */
+	tl_data=TTS_radio(va_num,va_cle,vl_resultats.return_parameters[0],
+							vl_resultats.return_parameters[1],
+							vl_resultats.return_parameters[3])
+
+	/* Presentation des resultats obtenus et calculs finaux : */
+	/* ------Efficacite ABSOLUE------- */
+	tl_retour[0][0][3]=tl_retour[0][0][2]	'Nbre concernes
+									 '( Meme resultat que PMV et NAV )
+	tl_retour[0][1][3]=tl_data[3]			'Nombre d'usagers couverts absolue
+	IF (tl_retour[0][0][2]+0<>0)			'Nbre d'usagers couverts/Nbre concernes
+		tl_retour[0][2][3]=INT@((tl_data[3]/tl_retour[0][0][2]*100)+1/2)
+
+	/* -------Efficacite INTRINSEQUE------- */
+	IF (tl_data[4]=NULL)
+	  tl_data[4]=0
+	tl_retour[1][0][3]=tl_data[4]++" mn 00 s"		'Delai d'info
+	tl_retour[1][1][3]=tl_data[0]		'Nombre d'usagers concernes
+	tl_retour[1][2][3]=tl_data[1]		'Nombre d'usagers informes
+	tl_retour[1][3][3]=tl_data[2]		'Nombre d'usagers couverts intriseque
+	IF (tl_retour[1][1][3]+0<>0)		'Tx de couverture
+		tl_retour[1][4][3]=INT@((tl_data[2]/tl_retour[1][1][3]*100)+1/2)
+	IF (tl_retour[1][2][3]+0<>0)
+		tl_retour[1][5][3]=INT@((tl_data[2]/tl_retour[1][2][3]*100)+1/2)
+
+	RETURN (tl_retour)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU : Calcul de l'efficacite intriseque et absolue RADIO
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TTS_radio (va_num,va_cle,va_date,va_date1,va_pr_evnt)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_num		: numero	(numero + cle = evenement)
+* va_cle		: cle
+* va_date		: Horodate de debut d'evenement (TE0)
+* va_date1	: Horodate de fin d'evenement (TE1)
+* va_pr_evnt	: PR de l'evenement
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*   .
+---------------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+VAR FORMAT TTS_radio tl_radio			'Informations RADIO
+VAR FORMAT TTS_temps tl_temps			'Calcul des difference de temps
+VAR FORMAT TTS_echangeur tl_echangeurs	'Informations echangeurs
+VAR FORMAT TTS_variables tl_calcul		'Calculs intermediaires
+VAR tl_num_echangeurs					'Identifiants des echangeurs
+
+VAR  tl_retour
+
+VAR vl_indice,vl_index,vl_boucle	'Indices de boucles
+
+VAR vl_nbInformes		'Nombre d'usagers informes par echangeur Ni(j)
+VAR vl_informes		'Nombres d'usagers informes (Ni)
+VAR vl_nbConcernes		'Nombres d'usagers concernes par echangeur Nc(j)
+VAR vl_concernes		'Nombres d'usagers concernes (Nc)
+VAR  vl_nbCouverts
+VAR vl_couvertsIntrin	'Nombre d'usagers biens couverts (eff intrinseque)
+VAR vl_couvertsAbsolu	'Nombre d'usagers biens couverts (eff absolue)
+VAR vl_PJ				'Premier message pris en compte
+VAR vl_DJ				'Dernier message pris en compte
+VAR vl_TD				'Horodate du premier message emis suite a l'event
+VAR vl_difference		'Resultat intermediaire
+
+VAR vl_coeffRadio		'Proportion d'usagers ecoutant TraficFM
+VAR tl_coeff			'Coeff nombre d'usagers entrant en "j" dans le sens "s"
+VAR tl_cod				'Proportion d'usagers entres en "j" et sortant en "r"
+VAR vl_coeff_j_s		'Valeur du coefficient Coeff(j,s)
+VAR 	vl_numero
+VAR  vl_rang
+VAR vl_diff,vl_indiceAval,vl_indiceCourant
+VAR vl_1,vl_2,vl_3
+
+
+	/*A
+	** Les calculs sont le resultat de la synthese de differents types
+	** d'informations. Ils se decomposent en plusieurs etapes :
+	** 1ere etape : Recherche des informations message RADIO
+	** 2eme etape : Recherche des informations sur les echangeurs
+	*/
+
+	/* Preparation des arguments */
+	MACRO_WINS_BUSY@()
+	vl_indice=0
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_num
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_cle
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].output = TRUE
+	vl_indice=vl_indice+1
+
+	/*A
+	** Execution requete base :
+	** Recherche des informations message RADIO.
+	*/
+	IF COM41_SQL_Procedure_HIS (XZAS31_Info_Radio,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+   			RETURN (COM_NOK)
+	}
+	/* Affectation du resultat (liste infos RADIO) */
+	tl_radio=vl_resultats.select_results[0]
+
+	vl_parametres=null
+	vl_resultats=null
+
+	vl_indice=0
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_num
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_cle
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].data = COM18_Date_SGBD_Formatee(va_date)
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_pr_evnt
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].output = TRUE
+	vl_indice=vl_indice+1
+
+	/*A
+	** Execution requete base :
+	** Recherche des informations echangeurs.
+	*/
+	IF COM41_SQL_Procedure_HIS (XZAS32_Info_Echangeurs,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+   			RETURN (COM_NOK)
+	}
+
+	/* Affectation du resultat (liste infos echangeurs).
+	   Pour info : la liste des echangeurs retournee est triee de
+	               l'echangeur le plus en AMONT vers l'echangeur AVAL.
+	 	L'echangeur R est l'echangeur AVAL
+		L'echangeur R-1 est le premier echangeur AMONT
+		L'echangeur R-2 est le deuxieme echangeur AMONT etc...
+		L'echangeur j est le dernier echangeur AMONT
+	*/
+
+	tl_echangeurs=vl_resultats.select_results[0]
+
+	/*A
+	** Il n'est pas necessaire de continuer le calcul des Efficacites RADIO
+	** s'il n'y a pas d'informations echangeurs ou d'informations RADIO
+	** Les deux types d'informations sont necessaires au bon calcul.
+	*/
+
+	IF ARRAY_SIZE@(tl_echangeurs) < 2
+	{
+		BEEP@ ()
+		INFO_MESSAGE@("Pas d'échangeur en amont de l'événement")
+		/* Retour des resultats a l'appelant */
+		tl_retour[0]=null
+		tl_retour[1]=null
+		tl_retour[2]=null
+		tl_retour[3]=null
+		tl_retour[4]=null
+
+		RETURN (tl_retour)
+	}
+
+
+	/*A
+	** Lecture des coefficients parametrables:
+	** C_Radio :	Proportion d'usagers ecoutant Trafic FM
+	** Coeff(j,s)
+	** Cod(j,r,s)
+	*/
+
+	IF TTS_Lire_Coefficients (SYSTEM_VAR@(vg_repertoire_migrazur)
+							++C_REP_COEFF ++C_FICH_COEFF,
+								tl_num_echangeurs,
+								vl_coeffRadio, tl_coeff, tl_cod) <> COM_OK
+			begin
+				info_message@("Erreur dans la lecture des coeff radio")
+				/* Retour des resultats a l'appelant */
+				tl_retour[0]=null
+				tl_retour[1]=null
+				tl_retour[2]=null
+				tl_retour[3]=null
+				tl_retour[4]=null
+
+				RETURN (tl_retour)
+			end
+
+	/*recherche du premier echangeur aval*/
+	/*i.e. celui de rang 0*/
+	vl_indiceAval=ARRAY_INDEX@(ARRAY_COLUMN@(tl_echangeurs,2),0)
+
+	IF (vl_indiceAval=-1) {
+		INFO_MESSAGE@("Pas d'echangeur aval")
+				tl_retour[0]=null
+				tl_retour[1]=null
+				tl_retour[2]=null
+				tl_retour[3]=null
+				tl_retour[4]=null
+
+				RETURN (tl_retour)
+	}
+
+	/*recherche de la position du premier echangeur aval*/
+	vl_indiceAval=ARRAY_INDEX@(tl_num_echangeurs,
+								tl_echangeurs[vl_indiceAval].numero)
+
+	/* Parcours de la liste des echangeurs trouves */
+	FOR vl_indice=0 TO ARRAY_SIZE@(tl_echangeurs) - 2
+		/*A
+		** Calcul du nombre de vehicules entrant sur le reseau a l'echangeur "j"
+		** et rencontrant l'evenement E : Q(j,E).
+		*/
+		vl_numero=tl_echangeurs[vl_indice].numero
+		vl_rang=tl_echangeurs[vl_indice].amont
+
+		/*recherche de la position de l'echangeur*/
+		vl_index=ARRAY_INDEX@(tl_num_echangeurs,vl_numero)
+		IF (vl_index=-1)
+		begin
+				tl_retour[0]=null
+				tl_retour[1]=null
+				tl_retour[2]=null
+				tl_retour[3]=null
+				tl_retour[4]=null
+
+				RETURN (tl_retour)
+		end
+
+		/*comparaison des pr et des rangs des 2 premiers echangeurs*/
+		vl_diff=(tl_echangeurs[0].pr-tl_echangeurs[1].pr) *
+				(tl_echangeurs[0].amont - tl_echangeurs[1].amont)
+
+		/*si positif, sens 2*/
+		IF (vl_diff>0)
+			vl_coeff_j_s = tl_coeff[vl_index,0]
+		ELSE
+			vl_coeff_j_s = tl_coeff[vl_index,1]
+
+		IF (vl_index=-1)
+		begin
+				tl_retour[0]=null
+				tl_retour[1]=null
+				tl_retour[2]=null
+				tl_retour[3]=null
+				tl_retour[4]=null
+
+				RETURN (tl_retour)
+		end
+		
+		/*recherche de la position du premier echangeur aval*/
+		vl_indiceCourant=ARRAY_INDEX@(tl_num_echangeurs,
+								tl_echangeurs[vl_indice].numero)
+		tl_calcul[vl_indice].nb_vehicules=0
+		vl_1=NUMBERSTYLEVAL@(tl_echangeurs[vl_indice].debit) +0
+		vl_2=NUMBERSTYLEVAL@(vl_coeff_j_s) +0
+		vl_3=NUMBERSTYLEVAL@(tl_cod[vl_indiceCourant][vl_indiceAval])+0
+
+		tl_calcul[vl_indice].nb_vehicules=vl_1*vl_2*vl_3
+
+		/*A
+		** Calcul de la vitesse moyenne et du temps de parcours.
+		*/
+		/* temps de parcours = TP	(calcul intermediaire)
+		   temps de parcours final = tp
+		*/
+		/* Les echangeurs sont pris deux a deux (echangeurs consecutifs) */
+		IF (vl_indice<(ARRAY_SIZE@(tl_echangeurs)-2))
+		{
+			/* Calcul vitesse moyenne : Vmoy(i,i+1) en Km/h */
+			tl_calcul[vl_indice].vitesse_moyenne=
+								(tl_echangeurs[vl_indice].vitesse +
+								tl_echangeurs[vl_indice+1].vitesse) /2
+			IF (tl_calcul[vl_indice].vitesse_moyenne<>NULL)
+			/* Calcul du temps de parcours : TP(i,i+1) en minutes */
+				tl_calcul[vl_indice].temps_parcours=60*
+							ABS@(tl_echangeurs[vl_indice].pr/1000 -
+								tl_echangeurs[vl_indice+1].pr/1000) /
+							tl_calcul[vl_indice].vitesse_moyenne
+			ELSE
+			begin
+				info_message@("Erreur index dans calcul de Vmoy(i,i+1)")
+				/* Retour des resultats a l'appelant */
+				tl_retour[0]=null
+				tl_retour[1]=null
+				tl_retour[2]=null
+				tl_retour[3]=null
+				tl_retour[4]=null
+
+				RETURN (tl_retour)
+			end
+		}
+
+
+	NEXT vl_indice	/* Echangeur suivant */
+
+	/*A
+	** Calcul du temps de parcours final entre le premier echangeur AMONT
+	** et l'evenement : tp(R-1,E) en minutes.
+	*/
+	/* L'indice du premier echangeur AMONT (R-1) est nb element ds la liste -2 */
+	vl_indice = ARRAY_SIZE@(tl_echangeurs)-2
+
+	/* Calcul vitesse moyenne : Vmoy(i,i+1) en Km/h */
+	tl_calcul[vl_indice].vitesse_moyenne=
+								(tl_echangeurs[vl_indice].vitesse +
+								tl_echangeurs[vl_indice+1].vitesse) /2
+
+	/*temps parcours en minutes*/
+	tl_calcul[vl_indice].temps_parcours=60/1000*
+				ABS@(tl_echangeurs[vl_indice].pr-va_pr_evnt) /
+				tl_calcul[vl_indice].vitesse_moyenne
+
+	/*A
+	** Pour chaque echangeur compris entre j et R-1 (R-1 n'est pas inclus):
+     ** calcul du temps de parcours final entre l'echangeur et l'evenement: tp(j,E).
+	*/
+	/* Test index */
+	if (ARRAY_SIZE@(tl_echangeurs)-3) < 0
+	begin
+		info_message@("Erreur index dans calcul du temps de parcours")
+		/* Retour des resultats a l'appelant */
+		tl_retour[0]=null
+		tl_retour[1]=null
+		tl_retour[2]=null
+		tl_retour[3]=null
+		tl_retour[4]=null
+
+		RETURN (tl_retour)
+
+	end
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_echangeurs)-2)
+
+		/* Calcul intermediaire : SOMME(TP(i,i+i) */
+		/* Test index */
+		if (ARRAY_SIZE@(tl_echangeurs)-2) < vl_indice
+		begin
+			info_message@("Erreur index dans calcul du temps de parcours")
+				tl_retour[0]=null
+				tl_retour[1]=null
+				tl_retour[2]=null
+				tl_retour[3]=null
+				tl_retour[4]=null
+
+				RETURN (tl_retour)
+		end
+
+		/* Temps de parcours = tp(j,E) + SOMME(TP(i,i+i) */
+		tl_calcul[vl_indice].temps_final = 0
+		FOR vl_index = vl_indice TO (ARRAY_SIZE@(tl_echangeurs)-2)
+			tl_calcul[vl_indice].temps_final = tl_calcul[vl_indice].temps_final
+					+ tl_calcul[vl_index].temps_parcours
+		NEXT vl_index
+
+	NEXT vl_indice
+
+	/*A
+	** Calcul du nombre d'usagers informes Ni.
+	*/
+	vl_informes=0
+
+	/* Pour chaque echangeur :
+	** calcul du nombre d'usagers informes en provenance de l'echangeur j: Ni(j)
+	*/
+	/* Test index */
+	if (ARRAY_SIZE@(tl_echangeurs)-1) < 0
+	begin
+		info_message@("Erreur index dans calcul du nb Ni(j)")
+		/* Retour des resultats a l'appelant */
+		tl_retour[0]=null
+		tl_retour[1]=null
+		tl_retour[2]=null
+		tl_retour[3]=null
+		tl_retour[4]=null
+
+		RETURN (tl_retour)
+
+	end
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_echangeurs)-1)
+		vl_nbInformes[vl_indice]=0
+			/* Calcul de : SOMME(MIN(....) */
+
+			/* Pour chacun des messages RADIO (dernier exclus) */
+			/* Test index */
+			if (ARRAY_SIZE@(tl_radio)-1) < 1
+			begin
+				/* Retour des resultats a l'appelant */
+				tl_retour[0]=null
+				tl_retour[1]=null
+				tl_retour[2]=null
+				tl_retour[3]=null
+				tl_retour[4]=null
+
+				RETURN (tl_retour)
+
+			end
+
+			FOR vl_index = 0 TO (ARRAY_SIZE@(tl_radio)-2)
+
+			  /* Calcul en minute */
+			   vl_nbInformes[vl_indice]=
+				vl_nbInformes[vl_indice]+
+				MIN@(COM17_Difference_Dates(
+				COM18_Date_SGBD_Formatee(tl_radio[vl_index+1].heure_succes),
+				COM18_Date_SGBD_Formatee(tl_radio[vl_index].heure_succes)),
+									tl_calcul[vl_indice].temps_final)
+
+			NEXT vl_index	/* Message RADIO suivant */
+
+			/* Calcul de Ni(j) : */
+			vl_nbInformes[vl_indice]=  (vl_nbInformes[vl_indice] +
+							tl_calcul[vl_indice].temps_final *
+							tl_radio[ARRAY_SIZE@(tl_radio)-1].fin_evt) *
+							tl_calcul[vl_indice].nb_vehicules/60
+
+		/* Nombre d'usagers informes (Ni) */
+		vl_informes = vl_informes + vl_nbInformes[vl_indice]
+
+	NEXT vl_indice	/* Echangeur suivant */
+
+
+	/*A
+	** Calcul du nombre d'usagers concernes Nc.
+	*/
+	vl_concernes=0
+
+	/* Pour chacun des echangeurs j : calcul Nc(j) */
+	/* Test index */
+	if (ARRAY_SIZE@(tl_echangeurs)-1) < 0
+	begin
+		info_message@("Erreur index dans calcul  Nc(j)")
+		/* Retour des resultats a l'appelant */
+		tl_retour[0]=null
+		tl_retour[1]=null
+		tl_retour[2]=null
+		tl_retour[3]=null
+		tl_retour[4]=null
+
+		RETURN (tl_retour)
+
+	end
+
+	FOR vl_indice = 0 TO (ARRAY_SIZE@(tl_echangeurs)-1)
+		/* Calcul en minute */
+		vl_nbConcernes[vl_indice]= tl_calcul[vl_indice].nb_vehicules / 60 *
+					(COM17_Difference_Dates(
+						COM18_Date_SGBD_Formatee(va_date1),
+						COM18_Date_SGBD_Formatee(va_date)))
+
+		/* Nombre d'usagers concernes Nc */
+		vl_concernes = vl_concernes + vl_nbConcernes[vl_indice]
+
+	NEXT vl_indice	/* Echangeur suivant */
+
+	vl_concernes=INT@(vl_concernes+1/2)
+
+	/*A
+	** Calcul du nombre d'usagers bien couverts.
+	*/
+
+	/*---------------------------------------------------------------------------*/
+	/* Pour chacun des echangeurs */
+	/* Test index */
+	if (ARRAY_SIZE@(tl_echangeurs)-1) < 0
+	begin
+		info_message@("Erreur index dans calcul du nb Ni(j)")
+		/* Retour des resultats a l'appelant */
+		tl_retour[0]=null
+		tl_retour[1]=null
+		tl_retour[2]=null
+		tl_retour[3]=null
+		tl_retour[4]=null
+
+		RETURN (tl_retour)
+
+	end
+
+	FOR vl_index = 0 TO (ARRAY_SIZE@(tl_echangeurs)-2)
+
+	  vl_TD = null
+	  vl_PJ = null
+	  vl_DJ = null
+
+	  /*A
+	  ** Rechercher le premier et le dernier message pris en compte.
+	  */
+	  vl_indice=0
+	  /* Pour tous les messages RADIO */
+	  WHILE (vl_indice<ARRAY_SIZE@(tl_radio))
+		/* Recherche de l'horodate du premier message emis suite a l'event(TD)*/
+		IF (tl_radio[vl_indice].deb_evt=0)
+			vl_TD=tl_radio[vl_indice].heure_succes
+
+		/* Recherche du premier message pris en compte (Pj)*/
+		/* Premier a verifier la relation ... */
+		IF (IS_NULL@(vl_PJ) AND
+		 (TTS_convert_date(tl_radio[vl_indice].heure_succes) >
+			(TTS_convert_date(va_date) -
+				tl_calcul[vl_index].temps_final)))
+			vl_PJ=vl_indice
+
+		/* Recherche du dernier message pris en compte (Dj) */
+		/* Dernier a verifier la relation ... */
+		IF ((TTS_convert_date(va_date1) >
+					TTS_convert_date(tl_radio[vl_indice].heure_succes)))
+			vl_DJ=vl_indice
+
+		/* Passage au message suivant */
+		vl_indice = vl_indice+1
+
+	  WEND	/* Fin du tant que ... */
+
+	  /*A
+	  ** Calcul de la difference de temps DT(j,k) et de l'indicateur booleen B(j,k)
+	  ** Pour tous les messages RADIO.
+	  */
+	  FOR vl_indice=1 TO (ARRAY_SIZE@(tl_radio)-1)
+		/* Calcul de la diff de temps DT(j,k) */
+		tl_temps[vl_index][vl_indice].difference =
+				TTS_convert_date(tl_radio[vl_indice].heure_succes) -
+				TTS_convert_date(tl_radio[vl_indice-1].heure_succes) -
+				tl_calcul[vl_index].temps_final
+
+		/* Calcul de l'indicateur booleen B(k,j) */
+		IF (tl_temps[vl_index][vl_indice].difference < 0)
+			tl_temps[vl_index][vl_indice].difference=0
+	   NEXT vl_indice
+
+
+	  /*
+	  ** Calcul intermediaire : SOMME(DT(j,k) * B(j,k)) entre
+	  **	Pj+1 et Dj  (k varie)
+	  */
+	  vl_difference=0
+
+	  FOR vl_boucle=vl_PJ+1 TO vl_DJ
+		vl_difference = vl_difference+tl_temps[vl_index][vl_boucle].difference 
+	 NEXT vl_boucle	/* Passage au message suivant */
+
+	  /* Test I(Dj) = 0 */
+	 IF (tl_radio[vl_DJ].fin_evt=0)	/* I(Dj) = 0 message Dj = fin d'evenement */
+	  {
+		vl_nbCouverts[vl_index]=MIN@(TTS_convert_date(va_date1),
+				(TTS_convert_date(tl_radio[vl_DJ-1].heure_succes) +
+				tl_calcul[vl_index].temps_final))
+
+		vl_nbCouverts[vl_index]=MIN@(vl_nbCouverts[vl_index],
+						TTS_convert_date(tl_radio[vl_DJ].heure_succes))
+
+		vl_nbCouverts[vl_index]=(vl_nbCouverts[vl_index]-
+				MAX@(TTS_convert_date(va_date),
+					TTS_convert_date(tl_radio[vl_PJ].heure_succes))-
+				vl_difference)*tl_calcul[vl_index].nb_vehicules
+	  }
+	  ELSE				/* I(Dj) = 1 */
+	  {
+		vl_nbCouverts[vl_index]=MIN@(TTS_convert_date(va_date1),
+				(TTS_convert_date(tl_radio[vl_DJ].heure_succes) +
+				 tl_calcul[vl_index].temps_final))
+
+		vl_nbCouverts[vl_index]=(vl_nbCouverts[vl_index] -
+				MAX@(TTS_convert_date(va_date),
+					TTS_convert_date(tl_radio[vl_PJ].heure_succes))-
+				vl_difference) *
+				tl_calcul[vl_index].nb_vehicules
+	  }
+
+	  /* Nombre d'usagers couverts intrinseque (Nbc_intr) */
+	  vl_couvertsIntrin = vl_couvertsIntrin + vl_nbCouverts[vl_index]
+
+	NEXT vl_index	/* Passage a l'echangeur suivant */
+	/*---------------------------------------------------------------------------*/
+
+
+	/* Nombre d'usagers couverts absolue (Nbc_abs) */
+	vl_couvertsAbsolu = vl_couvertsIntrin * vl_coeffRadio/100
+
+	/* Retour des resultats a l'appelant */
+	tl_retour[0]=INT@(vl_concernes+1/2)		'Nombre d'usagers concernes
+	tl_retour[1]=INT@(vl_informes+1/2)		'Nombre d'usagers informes
+	tl_retour[2]=INT@((vl_couvertsIntrin/60)+1/2)	'Nombre d'usagers couverts intriseque
+	tl_retour[3]=INT@((vl_couvertsAbsolu/60)+1/2)	'Nombre d'usagers couverts absolue
+	tl_retour[4]=TTS_convert_date(vl_TD)-TTS_convert_date(va_date)'Delai d'info
+	IF (tl_retour[4]<0)
+		tl_retour[4]=0
+
+	RETURN (tl_retour)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU : Lit le fichier des coefficients de calcul.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TTS_Lire_Coefficients (va_nom_fichier, ta_num_echangeurs,
+								va_coeff_radio, ta_coeff_j_s, ta_cod_j_r_s)
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*   va_nom_fichier    : Nom complet du fichier ou lire les coefficients.
+*
+* ARGUMENTS EN SORTIE :
+*   ta_num_echangeurs : Identifiants des echangeurs ;
+*   va_coeff_radio    : Proportion d'usagers ecoutant TraficFM ;
+*   ta_coeff_j_s      : Coeff nombre d'usagers entrant en "j" dans le sens "s" ;
+*   ta_cod_j_r_s      : Proportion d'usagers entres en "j" et sortant en "r".
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*   Invoque Applix spreadsheet pour lire le fichier des coefficients de calcul
+*   d'efficacite et en extrait le coefficient radio, les deux vecteurs Coeff(j)
+*   et les deux matrices triangulaires Cod(j,r).
+*
+---------------------------------------------------------------------------- */
+
+    	VAR tl_data_coeff
+	VAR FORMAT ss_cell_info_ vl_cell
+	VAR vl_nb_ech
+	VAR vl_indice,vl_index
+
+/*A
+ * Demarrer le spreadsheet, charger la table de coefficients, la
+ * copier dans le tampon, fermer le spreadsheet et lire le tampon
+ * --------------------------------------------------------------
+ */
+
+SS_APPLICATION_DLG@ (NULL, TRUE)
+
+SS_LOAD_FILE@ (va_nom_fichier)
+
+/*lecture du coefficient radio*/
+vl_cell=SS_GET_CELL_INFO@(0,1)
+va_coeff_radio=vl_cell.display_str
+
+/*lecture du nombre des echangeurs*/
+vl_cell=SS_GET_CELL_INFO@(1,1)
+vl_nb_ech=vl_cell.display_str
+
+ELf_SET_CLIPBOARD@(null)
+/*lecture des coeff Coeff(j,s) */
+SS_COPY@("C6.."++SS_COORDINATE@(1+vl_nb_ech,6))
+ta_coeff_j_s=ARRAY_TRANSPOSE@(ELF_GET_CLIPBOARD@())
+
+/*lecture des numeros d'echangeurs*/
+ELf_SET_CLIPBOARD@(null)
+SS_COPY@("C4.."++SS_COORDINATE@(1+vl_nb_ech,3))
+ta_num_echangeurs=ELF_GET_CLIPBOARD@()
+ta_num_echangeurs=ta_num_echangeurs[0]
+
+FOR vl_indice=0 TO (ARRAY_SIZE@(ta_num_echangeurs)-1)
+	ta_num_echangeurs[vl_indice]=ta_num_echangeurs[vl_indice]+0
+NEXT vl_indice
+
+/*lecture des coeff Cod(j,r,s)*/
+SS_COPY@("C8.."++SS_COORDINATE@(1+vl_nb_ech,6+vl_nb_ech))
+
+ta_cod_j_r_s=ELF_GET_CLIPBOARD@()
+SS_EXIT@
+
+FOR vl_indice=0 TO (ARRAY_SIZE@(ta_cod_j_r_s)-1)
+	FOr vl_index=0 TO (ARRAY_SIZE@(ta_cod_j_r_s[vl_indice])-1)
+		ta_cod_j_r_s[vl_indice][vl_index]=
+				TRIM@(ta_cod_j_r_s[vl_indice][vl_index])+0
+	NEXT vl_index
+NEXT vl_indice
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU : Conversion d'une date en minute
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TTS_convert_date (va_date)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_date	: Date a convertir
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Resultat en minutes.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*   .
+---------------------------------------------------------------------------- */
+VAR vl_date
+
+	/* Decomposition de la date en Jour/mois/an/heure/minute */
+	vl_date = COM35_DateAffichee_En_Secondes(COM18_Date_SGBD_Formatee(va_date))
+
+	RETURN (vl_date/60)
+
+ENDFUNCTION

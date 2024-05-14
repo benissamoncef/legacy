@@ -1,0 +1,909 @@
+/*E*/
+/* Fichier : @(#)ITMA_TRA_Commander_RAU.am	1.10      Release : 1.10        Date : 02/27/98
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TRA * FICHIER ITMA_TRA_Commander_RAU.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Commande du RAU.
+*
+*   Cf. DCG 2.4.60
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 16 Dec 1994	: Creation                                         V1.1
+* Lecrivain 26 Jan 1995	: Ajout traitements relatifs a la comm. GN.        V1.2
+* Lecrivain 28 Jan 1995	: Gestion plus precise des autorisations (boutons) V1.3
+* Lecrivain 29 Mar 1995	: Designation des equipements                      V1.5
+* Lecrivain 31 Mai 1995	: Affichage des consignes d'exploitation           V1.7
+* Lecrivain 31 Jul 1995	: Gestion ecoute GN                                V1.8
+* Mismer    27 Mai 1997	: Verrouillage appel syno non autorise    	   V1.9
+* Mismer    27 Fev 1998	: Ajout autorisation pour PC2			    	   V1.10
+* JMG		21/11/07 : ajout RAU au CI 				V.11 DEM/716
+* JPL		31/01/11 : Envoi message a la fenetre de pilotage rapide pour associer camera (DEM 949)  1.12
+* PNI		22/03/11 : Modif faisant suite à la nouvelle infra-rau (plus de RAU au CI) 1.14 DEM978
+* JPL		27/04/17 : Plus de redimensionnement de la largeur de la fenetre  1.15
+* JMG		07/05/19 : GAPLA DEM1334 1.16
+* PNI		25/09/20 : appel PAU multi platine SAE_178 1.17
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../inc/xzao145sp.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TRA.h"
+
+
+
+DEFINE	C_MODULE	"MTRA"				' Nom du module
+
+
+
+/*A
+ * Localisation et nom du fichier de consignes
+ * -------------------------------------------
+ */
+
+DEFINE	C_SOUS_REP_CONSIGNES	COM_SOUS_REP_INFO
+DEFINE	C_FICHIER_CONSIGNES	"ITMA_TRA_checklist.inf"
+
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+format st_config_district
+					nom,
+					code,
+					nom_code
+
+DEFINE	TRA_NUMERO_PAU	1				' Rang colonne du numero
+
+FORMAT	TRA_PAU
+	designation,					' Nom ou localisation
+	numero,						' Identifiant equipement
+	index						' Idx PAU en table infos
+
+
+
+VAR FORMAT TRA_PAU vm_PAU				' PAU selectionne
+VAR     vm_abonne					' Indic. d'abonnement
+VAR	vm_etat_comm					' Etat communication
+
+VAR FORMAT TRA_PAU vm_t_garde				' Liste PAU en garde
+VAR FORMAT TRA_PAU vm_t_PAU				' Reste des PAU du site
+VAR FORMAT COM_Donnees_Equipements vm_info_PAU		' Donnees PAU en base
+VAR FORMAT TDO_PAU_En_Ecoute vm_pau_ecoute		' Le PAU en ecoute GN
+var format st_config_district	vm_config_district		' Liste des secteurs
+
+VAR	vm_num_poste_oper				' Numero poste operateur
+VAR	vm_l_etats					' Liste des etats comm.
+VAR	vm_lib_etats					' Libelles etats comm.
+
+VAR 	vm_site
+VAR 	vm_nom_site
+VAR 	vm_offset_poste
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Gestion du pilotage RAU.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRA_Commander_RAU (va_appelant, va_arg1, va_type_alerte, va_sit)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*  . Cas d'appel depuis MSOP :
+*   va_arg1[]         : Liste d'arguments :
+*     va_num_PAU      : Identifiant du PAU.
+*
+*  . Cas d'appel depuis MTFL :
+*   va_arg1           : Identifiant du PAU en appel ;
+*   va_type_alerte    : Nature de l'evenement.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option "Piloter -> RAU" dans le menu principal MTMT ;
+*   Selection d'un symbole PAU sur le synoptique ;
+*   Fiche alerte MTFL.
+*
+* FONCTION
+*   Dialogue de gestion du pilotage du RAU.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_RAU			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_appelant				' Nom du module appelant
+    VAR     vl_select				' Ligne selectee dans la liste
+
+    VAR     vl_message				' Message recu ou envoye
+    VAR FORMAT TRA_Etat_RAU vl_etat		' Message d'etat equipement
+
+    VAR     vl_macro_visu_camera		' Nom du module a appeler
+    VAR     i,j
+    var	vl_liste_district		' liste des districts dans la base
+    var vl_rang
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A test les droits d'acces à cette fonction */
+if 	NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) AND
+        NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI)) AND	
+	NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) 
+{		
+	vl_message = " Appel pilotage camera depuis syno par un utilisateur non autorisé"
+	COM01_Trace(0,vl_message)
+	RETURN(COM_OK)
+}
+
+/*A
+ * Charger la fenetre "Pilotage RAU"
+ * ---------------------------------
+ */
+
+vl_fenetre_RAU = DB_LOAD@ ("ITMA_TRA")
+DB_WINDOW_REMAIN@ (vl_fenetre_RAU, TRUE)
+DB_DISPLAY_ONLY@ (vl_fenetre_RAU, TRUE)
+
+DB_XPOS@ (vl_fenetre_RAU, 0)
+DB_YPOS@ (vl_fenetre_RAU, 93)
+
+COM02_Attacher_Aide (vl_fenetre_RAU, "ITMA_TRA_Commander_RAU")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_MTRA
+vl_les_messages_acceptes[1] = COM_CANAL_MTRA_ETAT
+vl_les_messages_acceptes[2] = COM_CANAL_MTRA_RAFRAICHIR
+DB_ACCEPT_POKES@ (vl_fenetre_RAU, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_RAU, "TA_PAU", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_RAU, "TA_PAU", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_RAU, "TA_PAU", TRUE)
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_RAU, "TA_PAU_Garde", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_RAU, "TA_PAU_Garde", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_RAU, "TA_PAU_Garde", TRUE)
+
+DB_CTRL_TITLE@ (vl_fenetre_RAU, "LI_PAU_En_Appel", NULL)
+DB_CTRL_TITLE@ (vl_fenetre_RAU, "LI_Etat_Comm", NULL)
+
+DB_CTRL_DISPLAY@(vl_fenetre_RAU,"BO_secteur",FALSE)
+
+
+/*A
+ * Determiner l'origine de l'invocation et les informations associees
+ * ------------------------------------------------------------------
+ */
+vm_site = SYSTEM_VAR@(vg_site)
+vm_nom_site = SYSTEM_VAR@(vg_nom_site)
+vm_offset_poste = 0
+
+if ( vm_site = XDC_CI)
+{
+	/* Initilisation de la config distric */
+	vl_liste_district = SYSTEM_VAR@ ( vg_les_districts )
+
+
+	for i = 0 to ARRAY_SIZE@(vl_liste_district) - 1
+		vm_config_district[i].nom = vl_liste_district[i][1]
+		vm_config_district[i].code = vl_liste_district[i][0]
+		vm_config_district[i].nom_code = vl_liste_district[i][2]
+	next i
+
+
+	DB_CTRL_STRINGS@(vl_fenetre_RAU,"BO_secteur",
+					ARRAY_COLUMN@(vm_config_district,0))
+	DB_CTRL_DISPLAY@(vl_fenetre_RAU,"BO_secteur",TRUE)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_RAU,"BO_secteur", TRUE)
+	vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_RAU,"BO_secteur")
+	vm_site = vm_config_district[vl_rang].code
+	vm_nom_site = vm_config_district[vl_rang].nom_code
+	vm_offset_poste=10
+	
+}
+
+vl_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+IF vl_appelant = "MSOP"  OR  vl_appelant = "MTFL" {
+    IF vl_appelant = "MSOP"  {
+	vm_PAU.numero = va_arg1[0]
+	vm_site=0
+    }
+    ELSE {
+	vm_PAU.numero = va_arg1
+        vm_site= va_sit
+    }
+}
+IF vl_appelant = "MTMT"
+	vm_site= va_arg1
+
+
+/*A
+ * Initialiser les donnees a visualiser (liste des PAU)
+ * ----------------------------------------------------
+ */
+
+
+
+
+IF TRA_Init_Liste_PAU (vl_fenetre_RAU, vm_PAU.numero) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    IF vm_etat_comm = NULL
+	DB_CTRL_TITLE@ (vl_fenetre_RAU, "LI_Etat_Comm", NULL)
+
+
+    DB_DISPLAY_ONLY@ (vl_fenetre_RAU, FALSE)
+    DB_DISPLAY@ (vl_fenetre_RAU)
+    DB_DISPLAY_ONLY@ (vl_fenetre_RAU, TRUE)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_RAU)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    /*A
+     * Sur choix "Quitter", memoriser dans l'environnement la
+     * liste des PAU en garde puis terminer la visualisation
+     * ------------------------------------------------------
+     */
+
+    CASE "BP_Quitter"
+	IF vm_abonne
+	    TRA_Abonnement_PAU (XDC_FIN_ABONNEMENT_EQUEXT, vm_PAU.numero)
+
+	SET_SYSTEM_VAR@ (vg_les_pau_en_garde, vm_t_garde)
+	vl_la_fenetre_est_active = FALSE
+
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_RAU)
+
+	/*A
+	 * Sur reception d'un message de l'equipement destine a ce poste
+	 * et concernant le PAU en cours, rafraichir l'etat de la communication
+	 * --------------------------------------------------------------------
+	 */
+
+        CASE COM_CANAL_MTRA_ETAT
+            vl_message = DB_GET_POKE_DATA@ (vl_fenetre_RAU)
+	    vl_etat = ARRAY_FROM_STRING@ (vl_message[0], COM_SEPAR_CHAMPS)
+
+	    IF (vl_etat.num_poste_oper = vm_num_poste_oper  OR
+		vl_etat.num_poste_oper = 0)  AND
+		vl_etat.num_PAU = vm_PAU.numero {
+		i = ARRAY_INDEX@ (vm_l_etats, vl_etat.etat_comm_RAU)
+		IF i < 0 {
+		    DB_CTRL_TITLE@ (vl_fenetre_RAU, "LI_Etat_Comm", "???")
+		} ELSE {
+		    vm_etat_comm = vl_etat.etat_comm_RAU
+		   DB_CTRL_TITLE@(vl_fenetre_RAU,"LI_Etat_Comm",vm_lib_etats[i])
+
+		    DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Prendre",
+					vm_etat_comm <> XDC_ETAT_RAU_APPEL)
+		    DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Appeler",
+					vm_etat_comm <> XDC_ETAT_RAU_REPOS)
+		    DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Tester",
+					vm_etat_comm <> XDC_ETAT_RAU_REPOS  AND
+					vm_etat_comm <> XDC_ETAT_RAU_DEFAUT)
+		    DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Mettre_En_Garde",
+					vm_etat_comm <> XDC_ETAT_RAU_COMM)
+		    DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Liberer_Ligne",
+					vm_etat_comm <> XDC_ETAT_RAU_COMM)
+
+		}
+	    }
+
+
+	/*A
+	 * Sur reception d'un message de MTFL, si aucune communication
+	 * n'est en cours proposer de prendre en communication le PAU transmis
+	 * -------------------------------------------------------------------
+	 */
+
+        CASE COM_CANAL_MTRA
+	    vl_message = DB_GET_POKE_DATA@ (vl_fenetre_RAU)
+	    vl_message = ARRAY_FROM_STRING@ (vl_message, COM_SEPAR_CHAMPS)
+	    IF TRA_Ligne_Est_Libre () {
+		i = ARRAY_INDEX@ (ARRAY_COLUMN@ (vm_t_PAU, TRA_NUMERO_PAU),
+				    vl_message[0])
+		IF i >= 0 {
+		    TRA_Selectionner_PAU (vl_fenetre_RAU, vm_t_PAU[i])
+		}
+	    }
+
+
+	/*A
+	 * Sur reception du message de MTMT
+	 * rafraichir les indications d'ecoute GN
+	 * --------------------------------------
+	 */
+
+	ENDCASE
+
+
+    /*A sur action : 'BO_district' */
+	
+    CASE  "BO_secteur"
+	vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_RAU,"BO_secteur")
+	vm_site = vm_config_district[vl_rang].code
+	vm_nom_site = vm_config_district[vl_rang].nom_code
+	IF TRA_Init_Liste_PAU (vl_fenetre_RAU, vm_PAU.numero) <> COM_OK
+    		RETURN (COM_NOK)
+
+
+    /*A
+     * Sur choix d'un PAU, si aucune communication n'est en cours
+     * et s'il n'est pas en garde alors le selecter pour appel
+     * ----------------------------------------------------------
+     */
+
+    CASE "TA_PAU"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_RAU, "TA_PAU")
+	IF ARRAY_SIZE@ (vl_select) > 0  AND  TRA_Ligne_Est_Libre () {
+	    IF ARRAY_INDEX@ (ARRAY_COLUMN@ (vm_t_garde, TRA_NUMERO_PAU),
+				vm_t_PAU[vl_select[0]].numero) < 0 {
+		TRA_Selectionner_PAU (vl_fenetre_RAU, vm_t_PAU[vl_select[0]])
+	    }
+DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Appeler",FALSE)
+	}
+
+
+    /*A
+     * Sur choix d'un PAU en garde, si aucune communication
+     * n'est en cours alors autoriser la reprise de garde
+     * ----------------------------------------------------
+     */
+
+    CASE "TA_PAU_Garde"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_RAU, "TA_PAU_Garde")
+	IF ARRAY_SIZE@ (vl_select) > 0  AND  TRA_Ligne_Est_Libre ()
+	    DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Reprendre_Garde", FALSE)
+
+
+    /*A
+     * Sur choix "Tester" demander le lancement du test unitaire
+     * ---------------------------------------------------------
+     */
+
+    CASE "BP_Tester"
+	DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Tester", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Appeler", TRUE)
+	DB_DISPLAY@ (vl_fenetre_RAU)
+
+	TRA_Requete_RAU (MTAR_FCT_XZEU08, vm_PAU.numero)
+
+
+    /*A
+     * Sur choix "Appeler" demander l'appel borne
+     * ------------------------------------------
+     */
+
+    CASE "BP_Appeler"
+	DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Tester", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Appeler", TRUE)
+	DB_DISPLAY@ (vl_fenetre_RAU)
+
+	TRA_Requete_RAU (MTAR_FCT_XZEU02, vm_PAU.numero)
+
+
+    /*A
+     * Sur choix "Prendre" ou "Reprendre GN" demander la mise en communication
+     * -----------------------------------------------------------------------
+     */
+
+    CASE "BP_Prendre"
+	DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Prendre", TRUE)
+	DB_DISPLAY@ (vl_fenetre_RAU)
+
+	TRA_Requete_RAU (MTAR_FCT_XZEU01, vm_PAU.numero)
+
+
+    /*A
+     * Sur choix "Mettre en Garde", ajouter le PAU a la liste de PAU en garde
+     * ----------------------------------------------------------------------
+     */
+
+    CASE "BP_Mettre_En_Garde"
+	DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Mettre_En_Garde", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Liberer_Ligne", TRUE)
+	DB_DISPLAY@ (vl_fenetre_RAU)
+
+	vm_t_garde[ARRAY_SIZE@ (vm_t_garde)] = vm_PAU
+	DB_TABLE_SET_NEW_DATA@ (vl_fenetre_RAU, "TA_PAU_Garde", vm_t_garde, 0)
+	TRA_Requete_RAU (MTAR_FCT_XZEU04, vm_PAU.numero)
+
+
+    /*A
+     * Sur choix "Reprendre Garde", supprimer le PAU de la liste
+     * et demander la reprise de la communication avec ce PAU
+     * ---------------------------------------------------------
+     */
+
+    CASE "BP_Reprendre_Garde"
+	DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Reprendre_Garde", TRUE)
+	DB_DISPLAY@ (vl_fenetre_RAU)
+
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_RAU, "TA_PAU_Garde")
+	TRA_Selectionner_PAU (vl_fenetre_RAU, vm_t_garde[vl_select[0]])
+	TRA_Requete_RAU (MTAR_FCT_XZEU05, vm_PAU.numero)
+
+	vm_t_garde = ARRAY_DELETE@ (vm_t_garde, vl_select[0])
+	DB_TABLE_CLEAR_DATA@ (vl_fenetre_RAU, "TA_PAU_Garde", 0, -1)
+	DB_TABLE_SET_NEW_DATA@ (vl_fenetre_RAU, "TA_PAU_Garde", vm_t_garde, 0)
+
+
+    /*A
+     * Sur choix "Liberer Ligne" terminer la communication
+     * ---------------------------------------------------
+     */
+
+    CASE "BP_Liberer_Ligne"
+	DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Mettre_En_Garde", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Liberer_Ligne", TRUE)
+	DB_DISPLAY@ (vl_fenetre_RAU)
+
+	TRA_Requete_RAU (MTAR_FCT_XZEU03, vm_PAU.numero)
+
+
+    CASE "BP_Associer_Camera"
+	DB_CTRL_GRAYED@ (vl_fenetre_RAU, "BP_Associer_Camera", TRUE)
+	DB_DISPLAY@ (vl_fenetre_RAU)
+
+	DB_SEND_POKE@ (COM_CANAL_MTCA_RAPIDE, { "ITMA_TRA_Commander_RAU",
+	                                        vm_info_PAU[vm_PAU.index].autoroute,
+	                                        vm_info_PAU[vm_PAU.index].PR,
+	                                        vm_info_PAU[vm_PAU.index].PR,
+	                                        vm_info_PAU[vm_PAU.index].sens })
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des PAU et selectionne celui indique (eventuellement).
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRA_Init_Liste_PAU (va_fenetre, va_num_PAU)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_num_PAU        : Identifiant du PAU a selectionner.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRA_Commander_RAU
+*
+* FONCTION
+*   Lit en base de donnees et affiche la liste des PAU du site ;
+*   Lit dans l'environnement et affiche la liste des PAU en garde ;
+*   Si un PAU est fourni en entree, le selectionne.
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_l_num_PAU					' Identifiants PAU
+    VAR	vl_t_titres					' Titres colonnes table
+    VAR FORMAT COM_Localisation vl_localisation
+    VAR vl_consignes
+    VAR i
+    VAR j
+    VAR FORMAT SQL_Procedure_Params@	vl_parametres
+    VAR FORMAT SQL_Procedure_Result@	vl_resultats
+    VAR FORMAT COM_Donnees_Equipements vl_info_PAU		' Donnees PAU en base
+    VAR tl_retour,vl_index
+	VAR vl_index2
+
+/*A
+ * Lire la liste des PAU du site
+ * -----------------------------
+ */
+IF ITMA_COM_Lire_Equipements (XDC_EQT_PAU, vm_site,
+				XDC_EQT_HS, XDC_EQT_NON_HS, 0, 0,
+				vm_info_PAU, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+vl_index=0
+/* supprimer de vm_info_PAU les PAU de type lit arret */
+	vl_parametres[0].data = 0
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].output = FALSE
+	vl_parametres[1].type = SYB#CHAR_
+	vl_parametres[1].output = TRUE
+	vl_parametres[2].type = SYB#CHAR_
+	vl_parametres[2].output = TRUE
+	vl_parametres[3].type = SYB#INT2_
+	vl_parametres[3].output = TRUE
+	vl_parametres[4].type = SYB#INT4_
+	vl_parametres[4].output = TRUE
+
+	IF COM05_SQL_Procedure (XZAO145_Lire_PAU,
+			vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+
+	tl_retour = vl_resultats.select_results[0]
+vl_index2=0
+FOR i = 0  TO ARRAY_SIZE@ ( vm_info_PAU) -1
+	vl_index = ARRAY_INDEX@(ARRAY_COLUMN@(tl_retour,0),vm_info_PAU[i].numero)
+	if (vl_index > 0) {
+		vl_info_PAU[vl_index2]=vm_info_PAU[i]
+		vl_index2 = vl_indeX2 +1
+	}
+NEXT i
+
+vm_info_PAU = vl_info_PAU
+FOR i = 0  TO ARRAY_SIZE@ (vm_info_PAU) - 1
+    IF vm_info_PAU[i].autoroute = NULL
+	vm_t_PAU[i].designation = vm_info_PAU[i].nom
+    ELSE {
+	vl_localisation.NumAuto = vm_info_PAU[i].autoroute
+	vl_localisation.PR = vm_info_PAU[i].PR
+	vl_localisation.sens_circulation = vm_info_PAU[i].sens
+	vm_t_PAU[i].designation = COM10_Localisation (vl_localisation)
+    }
+    vm_t_PAU[i].numero = vm_info_PAU[i].numero
+    vm_t_PAU[i].index = i
+NEXT i
+
+vl_l_num_PAU = ARRAY_COLUMN@ (vm_info_PAU, COM_NUMERO_EQUIPEMENT)
+
+
+
+/*A
+ * Lire la liste des PAU en garde
+ * ------------------------------
+ */
+
+vm_t_garde = SYSTEM_VAR@ (vg_les_pau_en_garde)
+
+FOR i = 0  TO ARRAY_SIZE@ (vm_t_garde) - 1
+    j = ARRAY_INDEX@ (vl_l_num_PAU, vm_t_garde[i].numero)
+    iF j >= 0
+    vm_t_garde[i].index =j
+NEXT i
+
+
+/*A
+ * Determiner le numero du poste operateur
+ * ---------------------------------------
+ */
+
+vm_num_poste_oper = SYSTEM_VAR@ (vg_poste)
+vm_num_poste_oper = SUBSTRING@ (vm_num_poste_oper, LEN@ (vm_num_poste_oper), 1)
+if (vm_num_poste_oper="D")
+	vm_num_poste_oper=2
+
+
+/*A
+ * Construire la liste des etats et leurs libelles
+ * -----------------------------------------------
+ */
+
+vm_l_etats = XDC_ETAT_RAU_REPOS,
+		XDC_ETAT_RAU_APPEL,
+		XDC_ETAT_RAU_COMM,
+		XDC_ETAT_RAU_GARDE,
+		XDC_ETAT_RAU_DEFAUT,
+		XDC_ETAT_RAU_EN_TEST
+
+vm_lib_etats = TRA_LIB_ETAT_REPOS,
+		TRA_LIB_ETAT_APPEL,
+		TRA_LIB_ETAT_COMM,
+		TRA_LIB_ETAT_GARDE,
+		TRA_LIB_ETAT_DEFAUT,
+		TRA_LIB_ETAT_EN_TEST
+
+
+/*A
+ * Mettre a jour l'etat de l'ecoute GN
+ * -----------------------------------
+ */
+
+
+
+/*A
+ * Definir les titres des colonnes des tables de PAU
+ * -------------------------------------------------
+ */
+
+vl_t_titres[0] = "PAU", 255		' Titre colonne et taille en pixels
+vl_t_titres[1] = "", 0
+
+/*A
+ * Afficher la table complete des PAU et celle des PAU en garde
+ * ------------------------------------------------------------
+ */
+
+DB_DISPLAY@ (va_fenetre)                    ' Pour avoir acces aux objets tables
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_PAU", vm_t_PAU, vl_t_titres)
+
+vl_t_titres[0] = "PAU en Garde", 255	' Titre colonne et taille en pixels
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_PAU_Garde", vm_t_garde, vl_t_titres)
+
+
+/*A
+ * Lire et afficher la liste des consignes
+ * ---------------------------------------
+ */
+
+vl_consignes = READ_ASCII_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+				    C_SOUS_REP_CONSIGNES ++ C_FICHIER_CONSIGNES)
+DB_EDITBOX_SET_DATA@ (va_fenetre, "BE_texte", vl_consignes)
+
+
+/*A
+ * Si un PAU est fourni en entree, le selectionner
+ * -----------------------------------------------
+ */
+
+IF NOT IS_NULL@ (va_num_PAU) {
+    j =  ARRAY_INDEX@ (vl_l_num_PAU, va_num_PAU)
+    if j >= 0 
+    {
+    vm_PAU.index = j
+    TRA_Selectionner_PAU (va_fenetre, vm_t_PAU[vm_PAU.index])
+    }
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Selectionne un PAU dans la liste (le visualise et s'abonne a ses etats).
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRA_Selectionner_PAU (va_fenetre, FORMAT TRA_PAU va_PAU)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre RAU ;
+*   va_PAU            : Informations de l'equipement PAU a selectionner.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRA_Commander_RAU
+*
+* FONCTION
+*   Annule l'abonnement eventuel au PAU en cours ;
+*   selectionne et visualise les informations du PAU indique en argument et
+*   s'abonne a ses etats.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_cmd, vl_arguments		' Commande a envoyer, arguments
+
+
+/*A
+ * Si un abonnement est en cours, l'annuler
+ * ----------------------------------------
+ */
+
+IF vm_abonne
+    TRA_Abonnement_PAU (XDC_FIN_ABONNEMENT_EQUEXT, vm_PAU.numero)
+
+
+/*A
+ * Selectionner le nouveau PAU et s'abonner a ses etats
+ * ----------------------------------------------------
+ */
+
+vm_PAU = va_PAU
+DB_CTRL_TITLE@ (va_fenetre, "LI_PAU_En_Appel", vm_PAU.designation)
+
+TRA_Abonnement_PAU (XDC_DEBUT_ABONNEMENT_EQUEXT, vm_PAU.numero)
+
+
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Associer_Camera", FALSE)
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Tester", FALSE)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Envoie une demande d'abonnement ou desabonnement a un PAU.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRA_Abonnement_PAU (va_abonnement, va_numero_PAU)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_abonnement     : Commande a adresser (abonnement / desabonnement) ;
+*   va_numero_PAU     : Identifiant de l'equipement destinataire.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRA_Commander_RAU
+*
+* FONCTION
+*   Envoie la demande indiquee en argument au destinataire indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_cmd, vl_arguments, vl_message		' Commande a envoyer, arguments
+
+
+
+vl_arguments = va_abonnement, va_numero_PAU, vm_nom_site
+vl_cmd = MTAR_MSG_EXEC, 1,
+	    54, ARRAY_TO_STRING@ (vl_arguments, MTAR_CAR_SEPAR)
+	COM01_Trace(0,vl_message)
+
+DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+
+vm_abonne = (va_abonnement = XDC_DEBUT_ABONNEMENT_EQUEXT)
+
+IF NOT vm_abonne
+    vm_etat_comm = NULL
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Envoie une requete a l'equipement RAU.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRA_Requete_RAU (va_requete, va_numero_PAU)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_requete        : Commande a adresser au RAU ;
+*   va_numero_PAU     : Identifiant de l'equipement destinataire.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRA_Commander_RAU
+*
+* FONCTION
+*   Envoie la demande indiquee en argument au destinataire indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_cmd, vl_arguments		' Commande a envoyer, arguments
+    VAR	vl_po
+
+    if vm_num_poste_oper > 5
+	vl_po=1
+    else
+	vl_po=vm_num_poste_oper
+vl_arguments = va_requete,
+		  vl_po+vm_offset_poste, va_numero_PAU, vm_nom_site
+vl_cmd = MTAR_MSG_EXEC, 1,
+	    MTAR_FCT_XZEU00, ARRAY_TO_STRING@ (vl_arguments, MTAR_CAR_SEPAR)
+
+DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+FUNCTION TRA_Ligne_Est_Libre ()
+    RETURN (vm_etat_comm <> XDC_ETAT_RAU_APPEL  AND
+		vm_etat_comm <> XDC_ETAT_RAU_COMM)
+ENDFUNCTION

@@ -1,0 +1,234 @@
+/*X  Fichier : $Id: fmc_veh.tab,v 1.15 2019/09/03 15:28:00 gesconf Exp $      Release : $Revision: 1.15 $        Date : $Date: 2019/09/03 15:28:00 $
+------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR 
+------------------------------------------------------
+* SOUS-SYSTEME  BASEDD
+------------------------------------------------------
+* FICHIER fmc_veh.tab
+------------------------------------------------------
+* DESCRIPTION DE LA PROCEDURE :
+*
+* creation de la table FMC_VEH
+*
+------------------------------------------------------
+* HISTORIQUE :
+*
+* C.T.	09/08/94	: Creation
+* C.T.	30/09/94	: Modif les not null en null
+*                         pour les colonnes non cle
+* C.T.	04/10/94	: Ajout de la colonne site_depannage
+* C.T.	11/04/95	: Ajout de la description de la table
+* P.V.  12/07/96	: Ajout colonnes (DEM76)
+* P.N.  20/11/96	: La colonne fax_envoye peut etre null ... et les autres
+* P.N.	25/11/08	: Ajout de la colonne feu_maitrise DEM845 v1.12
+* JMH	2/511/10	: ajout horodate feu maitrise V1.13
+* LCL	18/07/11	: Ajout rappel client (type, complement et horodate) v1.14 DEM1000
+* ABE   19/01/22    : Ajout champ id_ava et dangerosite pour AVA DEM-SAE367
+* JPC	24/07/23	: Deplacement sur certaines colonnes et changement de type comme en PROD
+-----------------------------------------------------*/
+
+
+/* ============================================================ */
+/*   Nom de la base   :  MIGRAZUR                               */
+/*   Nom de SGBD      :  SYBASE10                               */
+/*   Date de creation :  29/07/94                               */
+/* ============================================================ */
+
+/* ============================================================ */
+/*   Table : FMC_VEH                                            */
+/* ============================================================ */
+
+/* Suppression de la table si elle existe */
+/* ===========================*/
+if exists (select * from sysobjects where name = 'FMC_VEH' and type = 'U')
+	begin
+	drop table FMC_VEH
+	end
+go
+
+declare @nom_base varchar(10)
+
+/* nom de la base courante */
+select @nom_base = db_name()
+
+/*
+*  Fonctionalité de la table
+*  -------------------------
+*  Contient les compléments de fiche main courante de type véhicule
+*
+*  Description des colonnes de la table
+*  ------------------------------------
+*        numero                  : numéro de la fiche main courante à réveiller
+*        cle                     : numéro de clé de la fiche main courante 
+*        numero_vehicule         : numéro de véhicule impliqué dans un accident 
+*        depannage               : numéro de l'action de dépannage liée
+*        site_depannage          : numéro du site de dépannage
+*        type_de_vehicule        : numéro du type de véhicule
+*        nombre_passagers        : nombre de passagers
+*        bebe                    : présence ou non de bébé
+*        personne_agee           : présence ou non de personnes agées
+*        animaux_vivants         : présence ou non d'animaux vivants
+*        vehicule_ESCOTA         : le véhicule est ou non de véhicule ESCOTA
+*        volume_de_chargement    : volume de chargement
+*        matieres_dangereuses    : nom de la matière dangereuse
+*        commentaire             : commentaire         
+*        sit                     : numéro du site 
+*        zz                      : numéro de la version de la fmc
+* 	 marque			 : marque du vehicule
+*	 type			 : type du vehicule dans la marque
+*	 couleur		 : couleur du vehicule
+*	 immatriculation	 : immatriculation du vehicule
+*	 code_pays		 : code du pays d'origine du vehicule
+*	 pays			 : pays d'origine du vehicule
+* 	 nom			 : nom du proprietaire
+*	 ville			 : ville du proprietaire
+*	 adresse		 : adresse du proprietaire
+*	 code_danger		 : code du niveau de danger
+*	 code_nature_panne	 : code du libelle de la nature de la panne
+*	 nature_panne		 : description de la nature de la panne
+*	 positionnement		 : positionnement du vehicule
+*	 vehicule_roulant	 : le vehicule se deplace-t-il
+*	 enlevement_demande_par	 : personne ayant demande l'enlevement
+*	 numero_fiche_appel	 : numero de la fiche d'appel a depanneur
+*	 presence_matiere_dangereuse : des matieres dangereuses sont elles presentes
+*	 fax_envoye		 : un fax a t il ete envoye pour une intervention pour ce vehicule
+*  	 code_marque		 : code de la marque du vehicule
+*	 code_couleur		 : code de la couleur du vehicule
+*	 code_enlev_demande_par  : code de la pers ayant demande l'enlevement
+*	 site_creation		 : site ou le vehicule est cree
+*	 nb_bebes		 : nombre de bebes
+* 	 nb_agees		 : nombre de personnes agees
+* 	 feu_maitrise		 : indicateur de feu maitrise
+* 	 horodate_maitrise 	: horodate de feu maitrise
+*	 type_rappel		: type de rappel client
+*	 complement_rappel	: information complementaire de rappel client
+*	 horodate_rappel	: date de derniere modification du champ type-rappel
+*    id_ava            : id donnée par le webservice AVA à la création de FMC par AVA
+*    dangerositÃ©        : attribut dangerosité qui déclenche les actions du PA si il est VRAI
+*
+*  Remarque
+*  --------
+*  Voici la liste exhaustive des différents types de véhicule :
+*      type :  libéllé                             
+*      ----------------------
+*        1  : poids lourd
+*        2  : véhicule léger
+*        3  : car
+*        4  : moto
+*        5  : remorque
+*
+*	Suite a un ajout de colonnes, il faut verifier dans les programmes faisant appel
+*	a cette table que les champs vehicule_roulant, presence_matiere_dangereuse et 
+*	fax_envoye ne prennent que les valeurs 0 ou 1.
+*/
+
+
+create table FMC_VEH
+(
+    numero                          int                   not null,
+    numero_vehicule                 smallint                  null,
+    cle                             tinyint               null    ,
+    depannage                       int                   null    ,
+    site_depannage                  T_SITE                null    ,
+    type_de_vehicule                tinyint               null    ,
+    nombre_passagers                tinyint               null    ,
+    bebe                            bit                           ,
+    personne_agee                   bit                           ,
+    animaux_vivants                 bit                           ,
+    vehicule_ESCOTA                 bit                           ,
+    volume_de_chargement            tinyint               null    ,
+    matieres_dangereuses            char(6)               null    ,
+    commentaire                     char(100)             null    ,
+    sit                             T_SITE                null    ,
+    zz                              int                   null	  ,
+    marque			    char(25)		  null	  ,
+    type			    char(25)		  null	  ,
+    couleur			    char(25)		  null	  ,
+    immatriculation		    char(25)		  null	  ,
+    code_pays			    smallint		  null	  ,
+    pays			    char(25)		  null 	  ,
+    nom				    char(25)		  null	  ,
+    ville			    char(25)		  null	  ,
+    adresse			    char(75)		  null	  ,
+    code_danger			    char(4)		  null	  ,
+    code_nature_panne		    smallint		  null,
+    nature_panne		    char(25)		  null,
+    nb_bebes			    smallint		  null    ,
+    nb_agees			    smallint		  null	,
+    positionnement		    char(25)		  null	  ,
+    vehicule_roulant		    tinyint		  null,
+    enlevement_demande_par	    char(25)		  null	  ,
+    numero_fiche_appel		    int			  null,
+    presence_matiere_dangereuse	    tinyint		  null,
+    fax_envoye			    tinyint		  null,
+    code_marque			    smallint		  null,
+    code_couleur	  	    smallint		  null,
+    code_enlev_demande_par	    smallint		  null,
+    site_creation		    T_SITE		  null    ,
+    feu_maitrise		tinyint null,
+    horodate_maitrise		datetime null,
+    type_rappel			tinyint	null,
+    complement_rappel		char(20)	null,
+    horodate_rappel		datetime	null,
+    id_ava              char(50)       null,
+    dangerosite         int            null
+)
+/* ajout des droits a public*/
+grant all on FMC_VEH to public
+
+/* =============================================================== */
+/*   creation des cles primaires et des index en fonction de la base courante */
+/* =============================================================== */
+if @nom_base = 'HIS' 
+	begin
+	/* ========================================================== */
+	/*   Cle primaire : numero                                    */
+	/* ========================================================== */
+	execute sp_primarykey FMC_VEH, numero, numero_vehicule, cle
+
+	/* ========================================================== */
+	/*   Index : FMC_VEH_FK1                                        */
+	/*   Index : FMC_VEH_FK2                                        */
+	/* ========================================================== */
+	/*create unique index FMC_VEH_PK on FMC_VEH (numero, numero_vehicule, cle)*/
+	create index FMC_VEH_FK1 on FMC_VEH (depannage, site_depannage)
+	create index FMC_VEH_FK2 on FMC_VEH (numero, cle, numero_vehicule)
+	end
+
+if @nom_base = 'SVG'
+	begin
+	/* ========================================================== */
+	/*   Cle primaire : numero                                      */
+	/* ========================================================== */
+	execute sp_primarykey FMC_VEH, numero, numero_vehicule, cle
+
+	/* ========================================================== */
+	/*   Index : FMC_VEH_PK                                         */
+	/*   Index : FMC_VEH_FK1                                        */
+	/*   Index : FMC_VEH_FK2                                        */
+	/* ========================================================== */
+	/*create unique index FMC_VEH_PK on FMC_VEH (numero, numero_vehicule, cle)*/
+	create index FMC_VEH_FK1 on FMC_VEH (depannage, site_depannage)
+	create index FMC_VEH_FK2 on FMC_VEH (numero, cle, numero_vehicule)
+	end
+
+if @nom_base = 'EXP'
+	begin
+	/* ========================================================== */
+	/*   Cle primaire : numero                                      */
+	/* ========================================================== */
+	execute sp_primarykey FMC_VEH, numero, numero_vehicule, cle
+
+	/* ========================================================== */
+	/*   Index : FMC_VEH_PK                                         */
+	/*   Index : FMC_VEH_FK1                                        */
+	/*   Index : FMC_VEH_FK2                                        */
+    /*   Index : FMC_VEH_FK3                                        */
+	/* ========================================================== */
+	create unique index FMC_VEH_PK on FMC_VEH (numero, numero_vehicule, cle)
+	create index FMC_VEH_FK1 on FMC_VEH (depannage, site_depannage)
+	create index FMC_VEH_FK2 on FMC_VEH (numero, cle, numero_vehicule)
+    create index FMC_VEH_FK3 on FMC_VEH (numero, cle)
+	end
+
+go

@@ -1,0 +1,572 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCPX_Pilotage_Eqt.am,v 1.2 2018/03/29 11:04:21 devgfi Exp $        $Revision: 1.2 $        $Date: 2018/03/29 11:04:21 $
+----------------------------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR
+----------------------------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+----------------------------------------------------------------------------------------------------
+* MODULE MTCP - MTCPX * FICHIER ITMA_TCPX_Pilotage_Eqt.am
+----------------------------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fonctions communes aux fonctions "Coup de poing" relatives au pilotage des equipements.
+*   Contient des macros permettant l'envoi automatique de commandes avec les parametres adequats.
+*
+----------------------------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JPL		16/03/18 : Creation  1.1
+* JPL		28/03/18 : Ajout ITMA_TCPX_Commande_PAL, ITMA_TCPX_Commande_NAV  1.2
+------------------------------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"GESIHM/inc/xzac01sp.h"
+INCLUDE	"GESIHM/inc/xzac03sp.h"
+INCLUDE	"GESIHM/inc/xzac66sp.h"
+INCLUDE	"GESIHM/inc/xzac82sp.h"
+INCLUDE	"GESIHM/inc/xzac92sp.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+
+
+DEFINE	CM_MODULE		"MTPX"				' Nom du module
+
+
+
+/* Macro utilitaire pour chargement du module */
+MACRO ITMA_TCPX_Pilotage_Eqt ()
+ENDMACRO
+
+
+
+/*X*/
+/* -------------------------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Envoi d'une commande a un PMV.
+*
+* --------------------------------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCPX_Commande_PMV (va_NumPMV, va_SitePMV, va_NumEvt, va_CleEvt, va_Message, va_NumAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_NumPMV		: numero de l'equipement
+*   va_SitePMV		: site de l'equipement
+*   va_NumEvt		: numero de l'evenement
+*   va_CleEvt		: cle de l'evenement
+*   va_Message 		: message de trois lignes
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_NumAction	: le numero d'action retourné par la base
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPX.Commande_Equipements()
+*
+*
+* FONCTION
+*   Ecrire en base de donnees la commande au PMV et l'executer.
+*
+* ----------------------------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	vl_site_local
+VAR	vl_poste_oper
+VAR	vl_maintenant
+
+vl_site_local = SYSTEM_VAR@ (vg_site)
+vl_poste_oper = SYSTEM_VAR@ (vg_numero_poste)
+vl_maintenant = COM09_Date_Courante (TRUE)
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#DATETIME_,		vl_maintenant },
+	{ FALSE,	SYB#INT4_,		va_NumEvt },
+	{ FALSE,	SYB#INT1_,		va_CleEvt },
+	{ FALSE,	SYB#INT2_,		vl_poste_oper },
+	{ FALSE,	SYB#INT2_,		va_NumPMV },
+	{ FALSE,	SYB#INT1_,		va_SitePMV },
+
+	{ FALSE,	SYB#CHAR_,		va_Message[0] },
+	{ FALSE,	SYB#CHAR_,		va_Message[1] },
+	{ FALSE,	SYB#CHAR_,		va_Message[2] },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+
+	{ FALSE,	SYB#INT1_,		XDC_PMV_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMV_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMV_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMV_PASFLASH },
+
+	{ FALSE,	SYB#CHAR_,		"XXXX" },			' Type picto
+	{ FALSE,	SYB#CHAR_,		"" },				' Texte picto
+	{ FALSE,	SYB#INT1_,		XDC_PICTO_PASCLIGNO },		' Clignotement picto
+
+	{ FALSE,	SYB#INT1_,		0 },				' Priorite
+	{ FALSE,	SYB#INT4_,		0 },				' Distance evenement
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },		' Ligne direction
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },		' Direction alternat
+	{ FALSE,	SYB#INT2_,		0 },				' Destination
+	{ FALSE,	SYB#INT2_,		0 },				' Destination alternat
+	{ FALSE,	SYB#INT1_,		0 },				' Depassement seuil = CM_NO_SEUIL
+	{ FALSE,	SYB#INT1_,		vl_site_local },		' Site origine
+
+	{ TRUE,		SYB#INT4_,		NULL },				' Numero d'action creee
+	{ FALSE,	SYB#INT2_,		0 }				' Destination noeud
+} )
+
+
+IF COM05_SQL_Procedure (XZAC01_Commande_PMV, vl_parametres, vl_resultats, CM_MODULE) <> COM_OK {
+	va_NumAction = NULL
+	RETURN (COM_NOK)
+}
+
+va_NumAction = vl_resultats.return_parameters[0]
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* -------------------------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Envoi d'une commande a un PMVA.
+*
+* --------------------------------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCPX_Commande_PMVA (va_NumPMVA, va_SitePMVA, va_NumEvt, va_CleEvt, va_Message, va_NumAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_NumPMVA		: numero de l'equipement
+*   va_SitePMVA		: site de l'equipement
+*   va_NumEvt		: numero de l'evenement
+*   va_CleEvt		: cle de l'evenement
+*   va_Message 		: message de cinq lignes
+*
+* ARGUMENTS EN SORTIE :
+*   va_NumAction	: le numero d'action retourné par la base
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPX.Commande_Equipements()
+*
+*
+* FONCTION
+*   	Ecrire en base de donnees la commande au PMV.
+*
+* ----------------------------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	vl_site_local
+VAR	vl_poste_oper
+VAR	vl_maintenant
+
+vl_site_local = SYSTEM_VAR@ (vg_site)
+vl_poste_oper = SYSTEM_VAR@ (vg_numero_poste)
+vl_maintenant = COM09_Date_Courante (TRUE)
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#DATETIME_,		vl_maintenant },
+	{ FALSE,	SYB#INT4_,		va_NumEvt },
+	{ FALSE,	SYB#INT1_,		va_CleEvt },
+	{ FALSE,	SYB#INT2_,		vl_poste_oper },
+	{ FALSE,	SYB#INT2_,		va_NumPMVA },
+	{ FALSE,	SYB#INT1_,		va_SitePMVA },
+
+	{ FALSE,	SYB#CHAR_,		va_Message[0] },
+	{ FALSE,	SYB#CHAR_,		va_Message[1] },
+	{ FALSE,	SYB#CHAR_,		va_Message[2] },
+	{ FALSE,	SYB#CHAR_,		va_Message[3] },
+	{ FALSE,	SYB#CHAR_,		va_Message[4] },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+
+	{ FALSE,	SYB#INT1_,		XDC_PMVA_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMVA_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMVA_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMVA_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMVA_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMVA_PASFLASH },
+
+	{ FALSE,	SYB#INT1_,		0 },				' Priorite
+	{ FALSE,	SYB#INT4_,		0 },				' Distance evenement
+	{ FALSE,	SYB#INT1_,		0 },				' Depassement seuil = CM_NO_SEUIL
+	{ FALSE,	SYB#INT1_,		vl_site_local },		' Site origine
+
+	{ FALSE,	SYB#INT2_,		0 },				' Destination 1 proche
+	{ FALSE,	SYB#INT2_,		0 },				' Destination 1 lointaine
+	{ FALSE,	SYB#INT2_,		0 },				' Destination 2 proche
+	{ FALSE,	SYB#INT2_,		0 },				' Destination 2 lointaine
+
+	{ TRUE,		SYB#INT4_,		NULL }				' Numero d'action creee
+} )
+
+
+IF COM05_SQL_Procedure (XZAC82_Commande_PMVA, vl_parametres, vl_resultats, CM_MODULE) <> COM_OK {
+	va_NumAction = NULL
+	RETURN (COM_NOK)
+}
+
+va_NumAction = vl_resultats.return_parameters[0]
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* -------------------------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Envoi d'une commande a un Panneau d'ALerte (PAL).
+*
+* --------------------------------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCPX_Commande_PAL (va_NumPAL, va_SitePAL, va_NumEvt, va_CleEvt, va_Scenario_PAL, va_NomScenario, va_NumAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_NumPAL           : numero de l'equipement
+*   va_SitePAL          : site de l'equipement
+*   va_NumEvt           : numero de l'evenement
+*   va_CleEvt           : cle de l'evenement
+*   va_Scenario_PAL     : scénario commandé à l'equipement
+*   va_NomScenario      : Libelleé du scénario
+*
+* ARGUMENTS EN SORTIE :
+*   va_NumAction	: le numero d'action retourné par la base
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPX.Commande_Equipements()
+*
+*
+* FONCTION
+*   Envoi effectif d'une commande a un panneau d'alerte.
+*
+* ----------------------------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	vl_site_local
+VAR	vl_poste_oper
+VAR	vl_maintenant
+
+vl_site_local = SYSTEM_VAR@ (vg_site)
+vl_poste_oper = SYSTEM_VAR@ (vg_numero_poste)
+vl_maintenant = COM09_Date_Courante (TRUE)
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#INT4_,		va_NumEvt },
+	{ FALSE,	SYB#INT1_,		va_CleEvt },
+
+	{ FALSE,	SYB#INT2_,		vl_poste_oper },
+	{ FALSE,	SYB#INT2_,		va_NumPAL },
+	{ FALSE,	SYB#DATETIME_,		vl_maintenant },
+	{ FALSE,	SYB#BIT_,		XDC_FAUX },			' Non manuelle
+	{ FALSE,	SYB#INT1_,		0 },				' Priorite
+	{ FALSE,	SYB#INT4_,		0 },				' DistanceEvt
+
+	{ FALSE,	SYB#CHAR_,		va_Scenario_PAL },
+	{ FALSE,	SYB#CHAR_,		va_NomScenario },
+	{ FALSE,	SYB#INT1_,		va_SitePAL },
+	{ FALSE,	SYB#INT1_,		vl_site_local },		' Site origine
+
+	{ TRUE,		SYB#INT4_,		NULL }				' Numero d'action creee
+} )
+
+
+IF COM05_SQL_Procedure (XZAC66_Commande_PAL, vl_parametres, vl_resultats, CM_MODULE) <> COM_OK {
+	va_NumAction = NULL
+	RETURN (COM_NOK)
+}
+
+va_NumAction = vl_resultats.return_parameters[0]
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* -------------------------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Envoi d'une commande a un biseau de rabattement BRA (NAV).
+*
+* --------------------------------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCPX_Commande_NAV (va_NumNAV, va_SiteNAV, va_NumEvt, va_CleEvt, va_Scenario_NAV, va_NumAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_NumNAV           : numero de l'equipement
+*   va_SiteNAV          : site de l'equipement
+*   va_NumEvt           : numero de l'evenement
+*   va_CleEvt           : cle de l'evenement
+*   va_Scenario_NAV     : scenario commandé à l'equipement
+*
+* ARGUMENTS EN SORTIE :
+*   va_NumAction	: le numero d'action retourné par la base
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPX.Commande_Equipements()
+*
+*
+* FONCTION
+*   Envoi effectif d'une commande a un biseau de rabattement.
+*
+* ----------------------------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	vl_site_local
+VAR	vl_poste_oper
+VAR	vl_maintenant
+
+vl_site_local = SYSTEM_VAR@ (vg_site)
+vl_poste_oper = SYSTEM_VAR@ (vg_numero_poste)
+vl_maintenant = COM09_Date_Courante (TRUE)
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#INT4_,		va_NumEvt },
+	{ FALSE,	SYB#INT1_,		va_CleEvt },
+
+	{ FALSE,	SYB#INT2_,		vl_poste_oper },
+	{ FALSE,	SYB#INT2_,		va_NumNAV },
+	{ FALSE,	SYB#DATETIME_,		vl_maintenant },
+	{ FALSE,	SYB#BIT_,		XDC_FAUX },			' Non manuelle
+	{ FALSE,	SYB#INT1_,		0 },				' Priorite
+	{ FALSE,	SYB#INT4_,		0 },				' DistanceEvt
+
+	{ FALSE,	SYB#CHAR_,		va_Scenario_NAV },
+	{ FALSE,	SYB#INT1_,		va_SiteNAV },
+	{ FALSE,	SYB#INT1_,		vl_site_local },		' Site origine
+
+	{ TRUE,		SYB#INT4_,		NULL }				' Numero d'action creee
+} )
+
+
+IF COM05_SQL_Procedure (XZAC03_Commande_NAV, vl_parametres, vl_resultats, CM_MODULE) <> COM_OK {
+	va_NumAction = NULL
+	RETURN (COM_NOK)
+}
+
+va_NumAction = vl_resultats.return_parameters[0]
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* -------------------------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Envoi d'une commande a une barriere BAF.
+*
+* --------------------------------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCPX_Commande_BAF (va_NumBAF, va_SiteBAF, va_NumEvt, va_CleEvt,
+                                 va_Module11,va_Module12,va_Module15, va_Module21,va_Module22,va_Module25,
+                                 va_NumAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_NumBAF           : numero de l'equipement
+*   va_SiteBAF          : site de l'equipement
+*   va_NumEvt           : numero de l'evenement
+*   va_CleEvt           : cle de l'evenement
+*   va_Module11         : \
+*   va_Module12         :  \
+*   va_Module15         :   | valeurs des commandes elementaires
+*   va_Module21         :   | aux modules equipement
+*   va_Module22         :  /
+*   va_Module25         : /
+*
+* ARGUMENTS EN SORTIE :
+*   va_NumAction	: le numero d'action retourné par la base
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPX_Piloter_BAF
+*
+*
+* FONCTION
+*   Envoi effectif d'une commande a une barriere BAF.
+*
+* ----------------------------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	vl_site_local
+VAR	vl_poste_oper
+VAR	vl_maintenant
+
+vl_site_local = SYSTEM_VAR@ (vg_site)
+vl_poste_oper = SYSTEM_VAR@ (vg_numero_poste)
+vl_maintenant = COM09_Date_Courante (TRUE)
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#INT4_,		va_NumEvt },
+	{ FALSE,	SYB#INT2_,		va_CleEvt },
+
+	{ FALSE,	SYB#INT2_,		vl_poste_oper },
+	{ FALSE,	SYB#INT2_,		va_NumBAF },
+	{ FALSE,	SYB#DATETIME_,		vl_maintenant },
+	{ FALSE,	SYB#BIT_,		XDC_FAUX },			' Non manuelle
+	{ FALSE,	SYB#INT1_,		0 },				' Priorite
+	{ FALSE,	SYB#INT4_,		0 },				' DistanceEvt
+
+	{ FALSE,	SYB#INT1_,		va_Module11 },
+	{ FALSE,	SYB#INT1_,		va_Module12 },
+	{ FALSE,	SYB#INT1_,		va_Module15 },
+
+	{ FALSE,	SYB#INT1_,		va_Module21 },
+	{ FALSE,	SYB#INT1_,		va_Module22 },
+	{ FALSE,	SYB#INT1_,		va_Module25 },
+
+	{ FALSE,	SYB#INT1_,		va_SiteBAF },
+	{ FALSE,	SYB#INT1_,		vl_site_local },		' Site origine
+
+	{ TRUE,		SYB#INT4_,		NULL }				' Numero d'action creee
+} )
+
+
+IF COM05_SQL_Procedure (XZAC92_Commande_BAF, vl_parametres, vl_resultats, CM_MODULE) <> COM_OK {
+	va_NumAction = NULL
+	RETURN (COM_NOK)
+}
+
+va_NumAction = vl_resultats.return_parameters[0]
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* -------------------------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Action de pilotage d'une barriere BAF selon les specificites du module.
+*
+* --------------------------------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCPX_Piloter_BAF (va_NumBAF, va_SiteBAF, va_NumEvt, va_CleEvt,
+                                va_Commande_BAF, va_NumAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_NumBAF           : numero de l'equipement
+*   va_SiteBAF          : site de l'equipement
+*   va_NumEvt           : numero de l'evenement
+*   va_CleEvt           : cle de l'evenement
+*   va_Commande_BAF     : commande globale a l'equipement BAF
+*
+* ARGUMENTS EN SORTIE :
+*   va_NumAction	: le numero d'action retourné par la base
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPX.Commande_Equipements()
+*
+*
+* FONCTION
+*   Envoi des commandes adequates a l'equipement en detaillant
+*   les commandes aux modules elementaires.
+*
+* ----------------------------------------------------------------------------------------------- */
+
+DEFINE	CM_CMD_BARRIERE_AUCUNE		{ 0, 0, 0 }
+DEFINE	CM_CMD_BARRIERE_FEUX		{ 1, 1, 0 }
+DEFINE	CM_CMD_BARRIERE_FERMEE		{ 1, 1, 1 }
+
+VAR	vl_cmd_barriere_VL, vl_cmd_barriere_VR
+VAR	vl_cr
+
+
+vl_cmd_barriere_VL = CM_CMD_BARRIERE_AUCUNE			' Par defaut
+vl_cmd_barriere_VR = CM_CMD_BARRIERE_AUCUNE
+
+IF (va_Commande_BAF = "FEUX")
+{
+	vl_cmd_barriere_VL = CM_CMD_BARRIERE_FEUX
+	vl_cmd_barriere_VR = CM_CMD_BARRIERE_FEUX
+}
+ELSE IF (va_Commande_BAF = "FERMETURE")
+{
+	vl_cmd_barriere_VL = CM_CMD_BARRIERE_FERMEE
+	vl_cmd_barriere_VR = CM_CMD_BARRIERE_FERMEE
+}
+ELSE IF (va_Commande_BAF = "FERMETURE1")  OR  (va_Commande_BAF = "FERMETURE2")
+{
+	/*A Envoyer une commande prealable d'allumage des feux a la barriere a fermer */
+	IF (va_Commande_BAF = "FERMETURE1") {
+		ITMA_TCPX_Commande_BAF (va_NumBAF, va_SiteBAF, va_NumEvt, va_CleEvt, 1,1,0, 0,0,0, va_NumAction)
+		vl_cmd_barriere_VL = CM_CMD_BARRIERE_FERMEE
+	} ELSE {
+		ITMA_TCPX_Commande_BAF (va_NumBAF, va_SiteBAF, va_NumEvt, va_CleEvt, 0,0,0, 1,1,0, va_NumAction)
+		vl_cmd_barriere_VR = CM_CMD_BARRIERE_FERMEE
+	}
+}
+ELSE RETURN (COM_NOK)
+
+vl_cr = ITMA_TCPX_Commande_BAF (va_NumBAF, va_SiteBAF, va_NumEvt, va_CleEvt,
+                                   vl_cmd_barriere_VL[0], vl_cmd_barriere_VL[1], vl_cmd_barriere_VL[2],
+                                   vl_cmd_barriere_VR[0], vl_cmd_barriere_VR[1], vl_cmd_barriere_VR[2],
+                                   va_NumAction)
+RETURN (vl_cr)
+
+ENDMACRO

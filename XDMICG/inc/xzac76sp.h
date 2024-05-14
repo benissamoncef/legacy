@@ -1,0 +1,1 @@
+define XZAC76_Lire_PMV_DATEX	"XZAC76"

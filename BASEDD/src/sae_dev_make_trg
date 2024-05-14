@@ -1,0 +1,171 @@
+#!/bin/ksh
+#################################################################################
+# PROJET MIGRAZUR
+#################################################################################
+#
+# SOUS-SYSTEME outils
+#################################################################################
+#
+# DESCRIPTION DU SCRIPT :
+# Syntaxe  : 
+#
+#############################################################################
+#
+# Service rendu
+#################################################################################
+
+# ------------------------------------------------ 
+# Variables et constantes
+proc_ref="/share_podf1_home/references_dev/proc_sybase"
+Nom_Prog=`basename $0`
+# Nom des fichiers temporaires utilises durant la compilation de la procedure
+# Repertoire des fichiers d'en-tete communs inclus
+Rep_Inclus_Commun=$PROJ_SYSSRC/XDMICG/inc
+Fichier_Trace=$Nom_Prog.err
+Fichier_log=${proc_ref}/trigger_prc.log
+directive_compil_Plateforme=""
+liv_ref="/share_podf1_home/transfert_DEV/livraisons"
+								
+# ------------------------------------------------ 
+# fonctions
+# ------------------------------------------------ 
+
+echo_err ()
+{
+	echo ""
+	echo -e '\E[47;31m'"\033[1m(`basename $0`) Erreur: $1  \033[0m"
+	exit 1;
+}
+
+
+# ------------------------------------------------ 
+usage ()
+{
+    echo " "
+    echo -e '\E[47;31m'"\033[1mla commande de recompilatin trigger a ete  modifiee.\033[0m"
+    echo "   le script ${Nom_Prog} qui prend en compte les specificites de l'environement de developpement et celles de production."
+    echo " " 
+    echo " Usage    : $Nom_Prog  (<trigger>) <site>  <cible>"
+    echo " les parametres:" 
+    echo " <proc> : par convension nom de la procedure en minuscule "    
+    echo " <fichichier_trg> : nom du fichier " 
+    echo " <site> : CI | CA | VC| DP| HIS"  
+    echo " <cible> : DEV| <numero_jira>"  
+    echo " <numero_jira> : corespond au numero de la jira de reference correspondant a la livraison"  
+    echo " "
+    echo -e '\E[47;31m'"\033[1mPOUR ENVIRONEMENT DE DEVELOPPEMENT \033[0m"
+    echo "  appel du script (${Nom_Prog} ) pour prendre en compte les specificites de l'environement de developpement.(directive DEV)"
+	echo " "
+    echo -e '\E[47;31m'"\033[1mPOUR ENVIRONEMENT DE PRODUCTION \033[0m" 
+    echo " le trigger pour l'environement de production est  compilee depuis l'espace de DEV."
+    echo " le livrable d'un triggere devient le fichier .sql  ( anciennement .i)"
+    echo " ${Nom_Prog} genere le fichier .sql a livrer en production via le script sae_liv <num_jira> -p <fichichier_proc> <site> "
+    echo -e '\E[47;34m'"\033[1m Exemple: procedure pour le site CI en production (via sae_liv) : $0 xzae49 CI 113 \033[0m"
+    echo " "
+
+
+}
+
+# ------------------------------------------------ 
+# main
+# ------------------------------------------------ 
+
+# Verifier la presence et la validite des arguments obligatoires
+if [[ $# -ne 3 ]]; then
+	usage
+	exit 1
+fi
+
+
+Fichier_Proc=$1
+typeset -u Site_Compil=$2
+cible=$3
+
+directive_compil_Plateforme=""
+
+# recuperation du nom de la procedure dans le fichier
+nom_procedure_reel=`cat $Fichier_Proc | grep "create trigger" | awk  '{ print $3 }'`
+
+# Determiner les options de compilation Si DEV ou PROD
+case $cible in
+    "DEV" ) # cette directive permet de bouchonner les equipements
+    directive_compil_Plateforme="-DDEV"
+    ;;
+
+    *)  # pas de directive particuliere pour la prod en revanche nous devons connaitre le numero de la jira
+        directive_compil_Plateforme=""
+        # ces controle on deja ete faiten amont     
+		if ! [[ $cible =~ ^[0-9]+$ ]]
+		then
+		   echo_err  "le parametre $cible doit corespondre au numero de la Jira qui porte la demande de modification (DEM)" 
+          
+ 		fi
+		liv_ref_complet="$liv_ref/SAE_$cible/proc"
+   
+    ;;
+esac ;
+
+# Determiner les options de compilation en fonction du serveur
+case $Site_Compil in
+    "HIS" )
+    Option_Serveur="HIST"
+    ;;
+    "CI" )
+    Option_Serveur=$Site_Compil
+    ;;
+    "CA" )
+    Option_Serveur="$Site_Compil	-DCI"
+    ;;
+    *)
+    Option_Serveur=""    
+    ;;
+esac ;
+
+
+Nom_Fic_Source=$Fichier_Proc
+								
+# Initialiser le fichier de trace des erreurs
+{
+	echo "____________________________________________________________________________________________________"
+	echo ""
+	date +'%d/%m/%Y %H:%M:%S'
+	echo "Compilation sur le serveur $Site_Compil du fichier de procedure stockee :"
+	echo "${Fichier_Proc}"
+	echo ""
+} >> $Fichier_Trace
+
+# Initialiser le fichier source avec les inclusions de fichiers d'en-tete
+{
+	echo "#include \"$Rep_Inclus_Commun/xdc.h\""
+	echo "#include \"$Rep_Inclus_Commun/xzaec.h\""
+	echo "#include \"$Rep_Inclus_Commun/xzahc.h\"" 
+}  > ${Nom_Fic_Source}.c
+
+	
+# Ajouter le code source de la procedure elle-meme
+cat $Fichier_Proc >> ${Nom_Fic_Source}.c
+
+# 
+
+
+# # Passer le preprocesseur C sur le code de la procedure puis l'executer sur le site indique
+
+if [ "$cible" != "DEV" ]
+then
+    echo "  cc -E -P -C ${directive_compil_Plateforme} -D${Option_Serveur} ${Nom_Fic_Source}.c  > ${liv_ref_complet}/${Site_Compil}_${Nom_Fic_Source}.sql"    
+    cc -E -P -C  ${directive_compil_Plateforme} -D${Option_Serveur} ${Nom_Fic_Source}.c  > ${liv_ref_complet}/${Site_Compil}_${Nom_Fic_Source}.sql
+
+else   # cas de la plateforme de dev, on effectue  les mêmes opération qu'avant
+echo "cc -E -P -C ${directive_compil_Plateforme}  -D${Option_Serveur} ${Nom_Fic_Source}.c  > ${Site_Compil}_${Nom_Fic_Source}.sql"
+
+    cc -E -P -C ${directive_compil_Plateforme} -D${Option_Serveur} ${Nom_Fic_Source}.c  > ${Site_Compil}_${Nom_Fic_Source}.sql
+    
+    echo "Compilation du trigger sur le site ${Site_Compil} en cours ..."
+     isql -UMIGRAZUR -PMIGRAZUR  -SSQL_${Site_Compil}  -i ${Site_Compil}_${Nom_Fic_Source}.sql  2>&1  | tee -a $Fichier_Trace 
+
+    # Supprimer les fichiers intermediaires
+     rm ${Nom_Fic_Source}.c ${Site_Compil}_${Nom_Fic_Source}.sql $proc_ref/${Site_Compil}_${Nom_Fic_Source}.svg
+fi
+
+# fichier log centralisé des procedures stockees
+echo "`date +'%d/%m/%Y %H:%M:%S'`$USER ${Nom_Prog} cible SAE_$cible : Compilation sur $Site_Compil de la procedure stockee : ${Fichier_Proc}"  >> $Fichier_log

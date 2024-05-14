@@ -1,0 +1,358 @@
+/*E*/
+/* Fichier : $Id: dedi_ec35_38.am,v 1.4 1998/02/20 14:24:42 verdier Exp $	      Release : $Revision: 1.4 $	       Date : $Date: 1998/02/20 14:24:42 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec35_38.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* definition de la nature d'un evenement
+* choix du pictogramme 
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	05 dec 1994	: Creation						V1.1
+* Thomas	08 sep 1995	: ajout edition seuil (1.2)
+* Thomas	20 nov 1995	: ajout edition element probabilite (1.3)
+* Guilhou	10 dec 1997	: ajout nature avec bifurcation (dem/1534) 1.4
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+VAR FORMAT dedi_evenement 	tm_evts,tm_evts_pictolib,tm_evts_pictoval
+VAR FORMAT dedi_picto		tm_pictos
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition de la nature d'un evenement 
+* et du choix du pictogramme
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec35_38 (va_mode)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_mode: 0->nature, 1->pictogramme
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice
+var vl_selection
+var vl_picto
+var tl_pokes
+
+/*! si la fenetre des perturbations PMV est ouverte*/
+IF (SYSTEM_VAR@(vg_presence_ec29)=TRUE)
+	/*! je la ferme*/
+	DB_SEND_POKE@(dedi_canal_ec29_fin)
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec35_38")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,0)
+DB_YPOS@(vl_fenetre,70)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*A suivant le mode d'appel*/
+IF (va_mode=0)
+	DB_TITLE@(vl_fenetre,"Formulation de l'element nature")
+ELSE
+	DB_TITLE@(vl_fenetre,"Choix du pictogramme")
+
+/*initialisation du module*/
+ec35_38_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+			
+			IF ec35_38_valide(vl_fenetre)=TRUE
+				RETURN
+
+		/*A selection d'un element dans la liste des evenements*/
+		CASE "TA_evts"
+			/*A degrise le bouton modifier*/
+			IF (vl_selection=null)
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_modifier",FALSE)
+
+			/*A on affiche les caracteristiques de l'evt selectionne */
+			vl_indice = DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_evts")
+			vl_selection=vl_indice[0]
+		
+			DB_CTRL_TITLE@(vl_fenetre, "LI_evt",	tm_evts[vl_selection].nom)
+			DB_CTRL_VALUE@(vl_fenetre, "BS_l1", 	tm_evts[vl_selection].t1)
+			DB_CTRL_VALUE@(vl_fenetre, "BS_l2", 	tm_evts[vl_selection].t2)
+			DB_CTRL_VALUE@(vl_fenetre, "BS_l3",	tm_evts[vl_selection].t3)
+			DB_CTRL_VALUE@(vl_fenetre, "BS_l4", 	tm_evts[vl_selection].t4)
+			DB_CTRL_VALUE@(vl_fenetre, "BS_l5", 	tm_evts[vl_selection].t5)
+			DB_CTRL_VALUE@(vl_fenetre, "BS_l6", 	tm_evts[vl_selection].t6)
+			DB_CTRL_VALUE@(vl_fenetre, "BS_l7", 	tm_evts[vl_selection].t7)
+			DB_CTRL_VALUE@(vl_fenetre, "BS_l8", 	tm_evts[vl_selection].t8)
+			DB_CTRL_VALUE@(vl_fenetre, "BS_l9", 	tm_evts[vl_selection].t9)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_proba1", 	tm_evts[vl_selection].p1)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_proba2", 	tm_evts[vl_selection].p2)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_proba3",	tm_evts[vl_selection].p3)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_proba4", 	tm_evts[vl_selection].p4)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_proba5", 	tm_evts[vl_selection].p5)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_proba6", 	tm_evts[vl_selection].p6)
+			DB_CTRL_VALUE@(vl_fenetre, "BO_picto",
+									tm_evts_pictoval[vl_selection].picto)	
+
+			/*! si delestage ou deviation*/
+			IF (tm_evts[vl_selection].nom="Delestage") OR 
+				(tm_evts[vl_selection].nom="Deviation")
+			{
+				/*! j'efface les boites de saisie de la nature*/
+				FOR vl_indice=1 TO 9
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_l"++vl_indice,FALSE)
+				NEXT vl_indice
+				DB_REFRESH@(vl_fenetre)
+
+				INFO_MESSAGE@("Pour la formulation de l'élément nature pour cet événement, il faut choisir la rubrique PMV->Nature délestage et déviation dans le menu principal")
+			}
+			ELSE
+			{
+				/*! j'affiche les boites de saisie*/
+				FOR vl_indice=1 TO 9
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_l"++vl_indice,TRUE)
+				NEXT vl_indice
+			}
+
+			/* dans tous les cas, on affiche les boites de sasie de l'elt proba*/
+			FOR vl_indice=1 TO 6
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_proba"++vl_indice,TRUE)
+			NEXT vl_indice
+
+		/*A appui sur le bouton modifier*/
+		CASE "BP_modifier"
+			/*A ajoute cet element dans la liste des objectifs*/
+			tm_evts[vl_selection].t1=DB_CTRL_GET_VALUE@(vl_fenetre, "BS_l1")
+			tm_evts[vl_selection].t2=DB_CTRL_GET_VALUE@(vl_fenetre, "BS_l2")
+			tm_evts[vl_selection].t3=DB_CTRL_GET_VALUE@(vl_fenetre, "BS_l3")
+			tm_evts[vl_selection].t4=DB_CTRL_GET_VALUE@(vl_fenetre, "BS_l4")
+			tm_evts[vl_selection].t5=DB_CTRL_GET_VALUE@(vl_fenetre, "BS_l5")
+			tm_evts[vl_selection].t6=DB_CTRL_GET_VALUE@(vl_fenetre, "BS_l6")
+			tm_evts[vl_selection].t7=DB_CTRL_GET_VALUE@(vl_fenetre, "BS_l7")
+			tm_evts[vl_selection].t8=DB_CTRL_GET_VALUE@(vl_fenetre, "BS_l8")
+			tm_evts[vl_selection].t9=DB_CTRL_GET_VALUE@(vl_fenetre, "BS_l9")
+			tm_evts[vl_selection].p1=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba1")
+			tm_evts[vl_selection].p2=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba2")
+			tm_evts[vl_selection].p3=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba3")
+			tm_evts[vl_selection].p4=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba4")
+			tm_evts[vl_selection].p5=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba5")
+			tm_evts[vl_selection].p6=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba6")
+	
+			vl_picto=DB_CTRL_GET_VALUE@(vl_fenetre, "BO_picto")
+
+			/*A ajoute cet element dans la liste des objectifs*/
+			tm_evts_pictoval[vl_selection]=tm_evts[vl_selection]
+			tm_evts_pictolib[vl_selection]=tm_evts[vl_selection]
+			tm_evts_pictoval[vl_selection].picto=vl_picto
+			tm_evts_pictolib[vl_selection].picto=tm_pictos[vl_picto].libelle
+			tm_evts[vl_selection].picto=tm_pictos[vl_picto].trigramme
+
+			vl_indice[0]=vl_selection
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_evts", tm_evts_pictolib, 0)
+			DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_evts",vl_indice)
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec35_38_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_titre_objs
+VAR tl_data
+VAR vl_indice,vl_index
+
+	/*A recupere les pictos*/
+	tm_pictos=SYSTEM_VAR@(vg_pictos)
+
+	/*A affiche cette liste*/
+	DB_CTRL_STRINGS@(va_fenetre,"BO_picto",ARRAY_COLUMN@(tm_pictos,1))
+	
+	/*A grise le bouton modifier*/
+	DB_CTRL_GRAYED@(va_fenetre,"BP_modifier",TRUE)
+
+	/*A chargement du seuil depuis le fichier de config*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_SEUIL_EVT_PMV)
+	DB_CTRL_VALUE@(va_fenetre,"BS_seuil",tl_data[0])
+
+	/*A chargement des evts depuis le fichier de config*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_EVT_PMV)
+
+	/*A parcourt le tableau lu et extrait les champs*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tm_evts[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+											DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+	/*A affiche la liste des evenements*/
+	tl_titre_objs[0][0] = "Evénements"
+	tl_titre_objs[0][1] = 200
+	tl_titre_objs[1][0] = "Picto"
+	tl_titre_objs[1][1] = 85
+	tl_titre_objs[2][0] = "Ligne 1 (cas general)"
+	tl_titre_objs[2][1] = 150
+	tl_titre_objs[3][0] = "Ligne 2 (cas general)"
+	tl_titre_objs[3][1] = 150
+	tl_titre_objs[4][0] = "Ligne 3 (cas general)"
+	tl_titre_objs[4][1] = 150
+	tl_titre_objs[5][0] = "Ligne 1 (cas de la fin)"
+	tl_titre_objs[5][1] = 150
+	tl_titre_objs[6][0] = "Ligne 2 (cas de la fin)"
+	tl_titre_objs[6][1] = 150
+	tl_titre_objs[7][0] = "Ligne 3 (cas de la fin)"
+	tl_titre_objs[7][1] = 150
+	tl_titre_objs[8][0] = "Ligne 1 (cas bifurcation)"
+	tl_titre_objs[8][1] = 150
+	tl_titre_objs[9][0] = "Ligne 2 (cas bifurcation)"
+	tl_titre_objs[9][1] = 150
+	tl_titre_objs[10][0] = "Ligne 3 (cas bifurcation)"
+	tl_titre_objs[10][1] = 150
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_evts", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_evts",TRUE)
+
+	/*A parcourt le tableau des evts pour remplacer le trigramme des pictos
+	* par leur nom et genere la table evts/indice picto*/
+	tm_evts_pictolib=tm_evts
+	tm_evts_pictoval=tm_evts
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_evts)-1)
+		vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_pictos,0),
+							tm_evts[vl_indice].picto)
+		tm_evts_pictoval[vl_indice].picto=vl_index
+		IF (vl_index<>-1)
+			tm_evts_pictolib[vl_indice].picto=tm_pictos[vl_index].libelle
+		ELSE
+			tm_evts_pictolib[vl_indice].picto=""			
+	NEXT vl_indice
+
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_evts", tm_evts_pictolib, tl_titre_objs)
+
+ENDFUNCTION
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec35_38_valide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : TRUE si le seuil est renseigné, FALSE sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A le seuil */
+	tl_data[0]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_seuil")
+	IF tl_data[0]=NULL
+	{
+		INFO_MESSAGE@("Le seuil doit être renseigné. Validation refusée.")
+		RETURN(FALSE)
+	}
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_SEUIL_EVT_PMV,tl_data)
+
+	/*A les formulations */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_evts)-1)
+		tl_data[vl_indice]=ARRAY_TO_STRING@(tm_evts[vl_indice],
+										DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_EVT_PMV,tl_data)
+	RETURN(TRUE)
+
+ENDMACRO
+

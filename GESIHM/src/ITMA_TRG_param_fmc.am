@@ -1,0 +1,518 @@
+/*E*/
+/* Fichier : @(#)ITMA_TRG_param_fmc.am	1.1      Release : 1.1        Date : 04/19/12
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TRG * FICHIER ITMA_TRG_param_fmc.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Module permettant de choisir les types de fmc a diffuser
+*   aux personnes abonnees au service TRGDA
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou 8 Mai 1997	: Creation                                         V1.1
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TRG.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xzaec_ax.h"
+INCLUDE "../inc/xzae112sp.h"
+INCLUDE "../inc/xzao590sp.h"
+INCLUDE "../inc/xzao591sp.h"
+INCLUDE "../inc/xzao592sp.h"
+INCLUDE	"../inc/xzao562.h"
+
+DEFINE	C_MODULE	"MTRG"					' Nom du module
+
+VAR FORMAT T_FMC	tm_fmc
+VAR FORMAT T_FMC	tm_fmc_select
+VAR FORMAT TDO_Type_FMC tm_types
+VAR FORMAT T_FMC tm_types_Prev
+VAR tm_qualif
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Gestion de la liste des fmc a diffuser.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRG_param_fmc ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION :
+*
+---------------------------------------------------------------------------- */
+
+VAR     vl_fenetre				' Nom de la fenetre du module
+VAR     vl_objet_selecte			' L'objet courant de la fenetre
+VAR     vl_les_messages_acceptes		' Pour reception de signaux
+VAR     vl_la_fenetre_est_active
+VAR     vl_installer_traitement_erreur
+VAR     vl_select					' Selections
+VAR FORMAT TDO_Type_FMC tl_types
+VAR FORMAT TDO_Type_FMC tl_typesPrev
+VAR vl_ret
+VAR	tl_data
+VAR	tl_data_select
+VAR	vl_autoroute
+VAR 	vl_debut,vl_fin
+VAR	vl_position
+VAR vl_indice,vl_index,vl_i
+VAR vl_deja_selectionne,vl_nb_stations_selectionnees
+VAR tl_titres
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Choix des FMC"
+ * ------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TRG_param_fmc")
+/*DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)*/
+DB_HEIGHT@(vl_fenetre, 850)
+DB_XPOS@(vl_fenetre, 0)
+DB_YPOS@(vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TRG_param_fmc")
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre, "BO_refer", TRUE)
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+tm_qualif[0][0]=0
+tm_qualif[0][1]="Non"
+tm_qualif[1][0]=1
+tm_qualif[1][1]="Oui"
+
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*A recupere les types de fmc*/
+vl_ret=TRG_liste_type_fmc_tries(tm_types)
+
+if vl_ret <> COM_OK
+           RETURN (NULL)
+
+    /*A
+      * Ne jamais proposer les types "fiche operateur" et "tete de bouchon" ;
+       */
+       vl_index=0
+       FOR vl_indice=0 TO (ARRAY_SIZE@(tm_types)-1)
+                IF tm_types[vl_indice].numero <> XZAEC_FMC_PosteOperateur  AND
+                        tm_types[vl_indice].numero <> XZAEC_FMC_TeteBouchon  
+                {
+                        tm_types_Prev[vl_index]=tm_types[vl_indice]
+                        vl_index=vl_index+1
+                }
+        NEXT vl_indice
+
+        /*A les affiche*/
+tl_titres[0]="Type",500
+tl_data=tm_types_Prev
+for vl_indice=0 to (ARRAY_SIZE@(tl_data)-1)
+  tl_data[vl_indice][0]=tl_data[vl_indice][TDO_NOM_FMC]
+next vl_indice
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_fmc",tl_data,tl_titres)
+
+/*recupere la config des fmc exportees vers strada et l'affiche*/
+vl_ret = TRG_liste_FMC(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_annuler"
+	vl_la_fenetre_est_active = FALSE
+
+
+
+/* bouton validation station */
+/* ------------------------- */
+    CASE "BP_droit"
+		/*indice de la station*/
+		vl_indice=null
+		vl_indice=DB_CTRL_GET_VALUE@( vl_fenetre, "TA_fmc")
+		IF(IS_ARRAY@(vl_indice))
+			vl_indice=vl_indice[0]
+
+
+		/* Flag qui permet de dire si la station est deja selectionnee */
+		/* Si le flag est a 0 => la station n'a pas ete selectionnee */
+		vl_deja_selectionne = 0
+
+
+		tl_data_select=DB_TABLE_GET_DATA@(vl_fenetre,"TA_fmc_valid")
+		tl_data=DB_TABLE_GET_DATA@(vl_fenetre,"TA_fmc")
+
+		/* La station a-t-elle deja ete selectionnee ? */
+		/* ------------------------------------------- */
+		vl_nb_stations_selectionnees = ARRAY_SIZE@(tm_fmc_select)
+
+		IF (vl_nb_stations_selectionnees <> 0)
+		{
+			/* On parcourt le tableau des stations selectionnees */
+			/* pour savoir si elle a deja ete selectionnee */
+
+			FOR vl_i = 0 TO vl_nb_stations_selectionnees-1
+				IF (tm_fmc_select[vl_i].numero_type=tm_types_prev[vl_indice][TDO_NUMERO_FMC]) 
+								{
+					INFO_MESSAGE@("FMC dejà sélectionnée !!")
+					vl_deja_selectionne = 1
+				}
+
+			NEXT vl_i
+
+			IF (vl_deja_selectionne = 0)
+				vl_position = vl_nb_stations_selectionnees
+		}
+		ELSE
+			vl_position=0
+
+		tm_fmc_select[vl_position].numero_type = tm_types_prev[vl_indice][TDO_NUMERO_FMC]
+ 
+                tl_data_select[vl_position][0] = tm_types_prev[vl_indice][TDO_NOM_FMC]
+
+					
+vl_i=DB_CTRL_GET_VALUE@(vl_fenetre, "BO_qualif")
+        tl_data_select[vl_position][1] = 	tm_qualif[vl_i][1]
+        tl_data_select[vl_position][2] = 	tm_qualif[vl_i][0]
+			
+			tm_fmc_select[vl_position].qualification = tm_qualif[vl_i][0]
+				
+
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_fmc_valid", tl_data_select, 0)
+		DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_fmc_valid", NULL)
+
+
+	/* bouton deselection d'une station de la liste */
+	/* -------------------------------------------- */
+     CASE "BP_gauche"
+
+		vl_indice = null
+		vl_indice = Db_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_fmc_valid")
+		vl_indice=vl_indice[0]
+
+
+		IF (vl_indice++""=NULL)
+			ERROR@(501,"Sélectionnez d'abord une fmc dans la liste des fmc selectionnees !!")
+
+
+		tm_fmc_select = ARRAY_DELETE@( tm_fmc_select,vl_indice)
+		tl_data=DB_TABLE_GET_DATA@(vl_fenetre,"TA_fmc_valid")
+		tl_data = ARRAY_DELETE@( tl_data,vl_indice)
+
+		DB_TABLE_CLEAR_DATA@(vl_fenetre, "TA_fmc_valid", 0, -1)
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_fmc_valid", tl_data, 0)
+		DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_fmc_valid", NULL)
+
+    /*A
+     * Sur choix "Valider", construire le nouveau fichier contenant 
+	* les stations
+     * --------------------------------------------------------------------
+     */
+
+    CASE "BP_valider"
+
+		TRG_Enregistre_Config(vl_fenetre)
+		vl_la_fenetre_est_active = FALSE
+
+	/*A
+	 * Sur selection bouton basculer base
+	 * ----------------------------------
+	 */
+	CASE "BP_Base"
+		IF COM05_SQL_Procedure (XZAO562_Trans_RegParam, vl_parametres
+, vl_resultats, C_MODULE) <> COM_OK
+		info_message@("probleme de bascul")	
+    	
+	
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* sauvegarde de la config en base
+* -----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TRG_Enregistre_Config (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte ;
+*                     : COM_NOK si aucune selection n'a ete effectuee.
+*
+* CONDITION D'UTILISATION
+*
+*
+* -------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR	vl_indice, vl_base
+
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = "CFG"
+if vl_base = 1
+	vl_base = "CFT"
+
+vl_parametres=NULL
+  vl_parametres[0].type = SYB#CHAR_	
+  vl_parametres[0].data= vl_base
+  vl_parametres[0].output = FALSE
+IF COM05_SQL_Procedure (XZAO591_Efface_Config_FMC_Regulation,
+	   vl_parametres, vl_resultats, "MTRG") <> COM_OK
+{
+	   INFO_MESSAGE@("Impossible de mettre a jour la configuration en base")
+	   RETURN (COM_NOK)
+}
+
+/*sauvegarde des fmc en base*/
+vl_parametres=NULL
+  vl_parametres[0].type = SYB#CHAR_	
+  vl_parametres[0].data= vl_base
+  vl_parametres[0].output = FALSE
+for vl_indice=0 to (ARRAY_SIZE@(tm_fmc_select)-1)
+  vl_parametres[1].type = SYB#INT4_	
+  vl_parametres[1].data= tm_fmc_select[vl_indice].numero_type
+  vl_parametres[1].output = FALSE
+
+  vl_parametres[2].type = SYB#BIT_	
+ 		 vl_parametres[2].data= tm_fmc_select[vl_indice][1]=1
+  vl_parametres[2].output = FALSE
+
+  IF COM05_SQL_Procedure (XZAO592_Sauve_Config_FMC_Regulation,
+	     vl_parametres, vl_resultats, "MTRG") <> COM_OK
+	     {
+		INFO_MESSAGE@("Impossible de sauvegarder la configuration en base")
+		RETURN (COM_NOK)
+	     }
+next vl_indice
+
+ENDFUNCTION
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* permet de choisir un type de fiche main courante
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_liste_type_fmc_tries (FORMAT TDO_Type_FMC ta_liste_types)
+
+/*
+* ARGUMENTS EN ENTREE : neant
+*
+*
+* ARGUMENTS EN SORTIE : liste des types de fmc tries
+*
+*
+* CODE RETOUR         : COM_OK ou COM_NOK
+*
+* CONDITION D'UTILISATION
+*
+*
+---------------------------------------------------------------------------- */
+
+VAR FORMAT TDO_Type_FMC                 vl_les_types_FMC
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+
+VAR i, j
+
+IF COM05_SQL_Procedure (XZAE112_Liste_Types_FMC_Tries,
+                           NULL, vl_resultats, C_MODULE) <> COM_OK
+        RETURN (COM_NOK)
+
+vl_les_types_FMC = vl_resultats.select_results[0]
+FOR i = 0  TO ARRAY_SIZE@ (vl_les_types_FMC) - 1
+        IF (vl_les_types_FMC[i].supprime = XDC_FAUX) {
+                ta_liste_types[j] = vl_les_types_FMC[i]
+                j = j + 1
+        }
+NEXT i
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* recupere en base la config des FMC exportees
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_liste_fmc (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE : neant
+*
+*
+* ARGUMENTS EN SORTIE : liste des types de fmc tries
+*
+*
+* CODE RETOUR         : COM_OK ou COM_NOK
+*
+* CONDITION D'UTILISATION
+*
+*
+---------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR	tl_data
+VAR 	i
+VAR	vl_indice
+VAR 	tl_titres
+VAR   vl_base
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = "CFG"
+if vl_base = 1
+	vl_base = "CFT"
+
+
+  vl_parametres[0].type = SYB#CHAR_	
+  vl_parametres[0].data= vl_base
+  vl_parametres[0].output = FALSE
+
+IF COM05_SQL_Procedure (XZAO590_Lect_FMC_A_Exporter,
+                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+        RETURN (COM_NOK)
+
+tm_fmc_select = vl_resultats.select_results[0]
+
+tl_data = tm_fmc_select
+FOR i = 0  TO ARRAY_SIZE@ (tm_fmc_select) - 1
+
+	vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_types,TDO_NUMERO_FMC),
+				tm_fmc_select[i][0])
+	if (vl_indice=-1)
+		vl_indice=0
+
+	tl_data[i][0]=tm_types[vl_indice][TDO_NOM_FMC]
+
+	if (tm_fmc_select[i][1]=1)
+		tl_data[i][1]="Oui"
+	else
+		tl_data[i][1]="Non"
+
+NEXT i
+
+tl_titres[0]="Type",230
+tl_titres[1]="Qualification",100
+DB_DISPLAY_ONLY@(va_fenetre,TRUE)
+DB_DISPLAY@(va_fenetre)
+DB_TABLE_SET_DATA@(va_fenetre,"TA_fmc_valid",tl_data,tl_titres)
+DB_DISPLAY_ONLY@(va_fenetre,FALSE)
+return (XDC_OK)
+ENDFUNCTION

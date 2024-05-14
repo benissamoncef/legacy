@@ -1,0 +1,550 @@
+/*E*/
+/* Fichier : $Id: ITMA_STRA_Choix_PMV.am,v 1.2 1999/03/19 17:02:20 gesconf Exp $      Release : $Revision: 1.2 $        Date : $Date: 1999/03/19 17:02:20 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_STRA * FICHIER ITMA_STRA_Choix_PMV.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Module permettant de choisir les PMV du SAE a diffuser
+*   aux personnes abonnees au service STRADA
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Niepceron 20 Nov 1998	: Creation v1.1 dem/1723
+* Niepceron  19 Mar 1999	: preselection du tableau des pmv v1.2 dem/1733
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xdf_ax.h"
+
+INCLUDE	"../inc/xzas58sp.h"
+INCLUDE	"../inc/xzas59sp.h"
+INCLUDE	"../inc/xzas60sp.h"
+
+
+
+
+
+DEFINE	C_MODULE	"MSTRA"					' Nom du module
+
+
+
+
+VAR	tg_pmv
+VAR	tm_pmv_select
+VAR	vm_nb_lignes_pmv
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Gestion de la liste des fichiers a diffuser.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_STRA_Choix_PMV ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION :
+*
+---------------------------------------------------------------------------- */
+
+VAR     vl_fenetre				' Nom de la fenetre du module
+VAR     vl_objet_selecte			' L'objet courant de la fenetre
+VAR     vl_les_messages_acceptes		' Pour reception de signaux
+VAR     vl_la_fenetre_est_active
+VAR     vl_installer_traitement_erreur
+VAR     vl_select					' Selections
+VAR     vl_ligne					' Ligne selectee
+VAR     i, j, k
+
+VAR	tl_autoroutes
+VAR	tl_pmv
+VAR	vl_indice, vl_indice_courant
+VAR	vl_auto
+VAR	tl_data, tl_data_select
+VAR	tl_titres, tl_titres2
+VAR	vl_deja_selectionne
+VAR	vl_nb_pmv_selectionnees
+VAR	vl_i, vl_j
+VAR	tl_ajout_pmv
+VAR	FORMAT SQL_Procedure_Params@ vl_parametres
+VAR	FORMAT SQL_Procedure_Result@ vl_resultats
+VAR	vl_sens_pmv
+VAR  vl_presel
+
+VAR vl_msg
+
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Choix des PMV"
+ * ------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_STRA_Choix_PMV")
+/*DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)*/
+
+DB_XPOS@(vl_fenetre, 0)
+DB_YPOS@(vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_STRA_Choix_PMV")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+
+/*A
+* initialiser la liste des autoroutes
+*/
+tl_autoroutes=SYSTEM_VAR@("vg_les_autoroutes")
+
+/*liste des pmv*/
+vl_parametres=null
+vl_resultats=null
+tl_pmv=null
+tg_pmv=null
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = "CFG"
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#CHAR_
+vl_parametres[1].data = ""
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = NULL
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#INT4_
+vl_parametres[3].output = TRUE
+
+IF COM05_SQL_Procedure ( "XZAO;124", 
+			vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+    info_message@("Problème d'accès à la base")
+    RETURN (COM_NOK)
+}
+
+vl_resultats=vl_resultats[0][0]
+tg_pmv=vl_resultats
+
+FOR vl_indice=0 TO (ARRAY_SIZE@(tg_pmv)-1)
+        tl_data[vl_indice][0]=tg_pmv[vl_indice][1]
+        vl_auto = ARRAY_INDEX@(ARRAY_COLUMN@(tl_autoroutes,0), tg_pmv[vl_indice][4])
+        tl_data[vl_indice][1]=tl_autoroutes[vl_auto][1]++" pr "++ (tg_pmv[vl_indice][2]/1000) ++ " sens "++tg_pmv[vl_indice][3]
+NEXT vl_indice
+
+
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+tl_titres[0,0]="PMV"
+tl_titres[0,1]=60
+tl_titres[1,0]="Localisation"
+tl_titres[1,1]=300
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_pmv",tl_data,tl_titres,NULL)
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_pmv",NULL)
+vl_indice=NULL
+
+
+/* Initialisation de la table contenant la liste des pmv selectionnees */
+/* ------------------------------------------------------------------------ */
+tl_titres2[0,0]="PMV"
+tl_titres2[0,1]=60
+tl_titres2[1,0]="Localisation"
+tl_titres2[1,1]=300
+
+tl_data_select = null
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_pmv_valid",TRUE)
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_pmv_valid", null,tl_titres2,NULL)
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_pmv_valid",NULL)
+
+
+tm_pmv_select = null
+
+/* remplissage du tableau des pmv selectionnees */
+/* ------------------------------------------------- */
+
+STRA_Lit_PMVsel()
+/* On reforme le tableau de donnees a afficher et on l'affiche */
+tl_data_select = null
+vl_indice_courant = null
+
+FOR vl_j=0 TO (ARRAY_SIZE@(tm_pmv_select)-1)
+			
+	vl_indice_courant = tm_pmv_select[vl_j]
+	tl_data_select[vl_j][0]=tg_pmv[vl_indice_courant][1]
+	vl_auto=ARRAY_INDEX@(ARRAY_COLUMN@(tl_autoroutes,0), tg_pmv[vl_indice_courant][4])
+
+	tl_data_select[vl_j][1] = tl_autoroutes[vl_auto][1] ++ " pr " ++ (tg_pmv[vl_indice_courant][2]/1000)++ " sens " ++ tg_pmv[vl_indice_courant][3]
+		
+NEXT vl_j
+
+DB_TABLE_SET_DATA@(vl_fenetre, "TA_pmv_valid", tl_data_select, tl_titres2, NULL)
+vl_presel[0] = 0
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_pmv_valid", vl_presel)
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_pmv", vl_presel)
+
+
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+vl_indice = null
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_annuler"
+	vl_la_fenetre_est_active = FALSE
+
+
+
+	/* bouton validation pmv */
+	/* ------------------------- */
+    CASE "BP_droit"
+
+
+		/*indice de la pmv*/
+		vl_indice=null
+		vl_indice=DB_CTRL_GET_VALUE@( vl_fenetre, "TA_pmv")
+		IF(IS_ARRAY@(vl_indice))
+			vl_indice=vl_indice[0]
+
+
+		
+
+
+		/* Flag qui permet de dire si la pmv est deja selectionnee */
+		/* Si le flag est a 0 => la pmv n'a pas ete selectionnee */
+		vl_deja_selectionne = 0
+
+
+		/* La pmv a-t-elle deja ete selectionnee ? */
+		/* ------------------------------------------- */
+		vl_nb_pmv_selectionnees = ARRAY_SIZE@(tm_pmv_select)
+
+
+		IF (vl_nb_pmv_selectionnees = 0)
+		{
+			tm_pmv_select[0] = vl_indice
+           }
+           ELSE
+		{
+			/* On parcourt le tableau des pmv selectionnees */
+			/* pour savoir si elle a deja ete selectionnee */
+
+
+
+			FOR vl_i = 0 TO vl_nb_pmv_selectionnees-1
+				IF (tm_pmv_select[vl_i]=vl_indice)
+				{
+					INFO_MESSAGE@("pmv dejà sélectionnée !!")
+					vl_deja_selectionne = 1
+				}
+
+			NEXT vl_i
+
+			IF (vl_deja_selectionne = 0)
+			{
+				tl_ajout_pmv[0] = vl_indice
+				tm_pmv_select = ARRAY_APPEND@( tm_pmv_select, tl_ajout_pmv)
+			}
+
+
+		}
+
+
+		/* On reforme le tableau de donnees a afficher et on l'affiche */
+		tl_data_select = null
+
+		FOR vl_j=0 TO (ARRAY_SIZE@(tm_pmv_select)-1)
+			
+			vl_indice_courant = tm_pmv_select[vl_j]
+			tl_data_select[vl_j][0]=tg_pmv[vl_indice_courant][1]
+			vl_auto=ARRAY_INDEX@(ARRAY_COLUMN@(tl_autoroutes,0), tg_pmv[vl_indice_courant][4])
+
+			tl_data_select[vl_j][1] = tl_autoroutes[vl_auto][1] ++ " pr " ++ (tg_pmv[vl_indice_courant][2]/1000)++ " sens " ++ tg_pmv[vl_indice_courant][3]
+		
+		NEXT vl_j
+
+		DB_TABLE_SET_DATA@(vl_fenetre, "TA_pmv_valid", tl_data_select, tl_titres2, NULL)
+		DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_pmv_valid", NULL)
+
+
+
+
+	/* bouton deselection d'une pmv de la liste */
+	/* -------------------------------------------- */
+     CASE "BP_gauche"
+
+		vl_indice = null
+		vl_indice = Db_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_pmv_valid")
+		vl_indice=vl_indice[0]
+
+
+		IF (vl_indice++""=NULL)
+			ERROR@(501,"Sélectionnez d'abord une pmv dans la liste des pmv selectionnees !!")
+
+
+		tm_pmv_select = ARRAY_DELETE@( tm_pmv_select,vl_indice)
+
+		/* On reforme tableau de donnees a afficher et on l'affiche */
+
+		tl_data_select = null
+
+		FOR vl_j=0 TO (ARRAY_SIZE@(tm_pmv_select)-1)
+			
+			vl_indice_courant = tm_pmv_select[vl_j]
+			tl_data_select[vl_j][0] = tg_pmv[vl_indice_courant][1]
+			vl_auto=ARRAY_INDEX@(ARRAY_COLUMN@(tl_autoroutes,0), tg_pmv[vl_indice_courant][4])
+			tl_data_select[vl_j][1] = tl_autoroutes[vl_auto][1] ++ " pr " ++ (tg_pmv[vl_indice_courant][2]/1000)++ " sens " ++ tg_pmv[vl_indice_courant][3]
+                        
+		NEXT vl_j
+
+		DB_TABLE_CLEAR_DATA@(vl_fenetre, "TA_pmv_valid", 0, -1)
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_pmv_valid", tl_data_select, 0)
+		DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_pmv_valid", NULL)
+
+
+
+    
+    /*A
+     * Sur choix "Valider", construire le nouveau fichier contenant 
+	* les pmv
+     * --------------------------------------------------------------------
+     */
+
+    CASE "BP_valider"
+
+		STRA_Svg_PMVConfig()
+
+		vl_la_fenetre_est_active = FALSE
+    	
+	
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit le fichier contenant la liste des pmv et met a jour le
+*  tableau global au module tm_pmv_select
+* -------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+* ------------------------------------------------------------------------------ */
+
+MACRO STRA_Lit_PMVsel()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte ;
+*                     : COM_NOK si aucune selection n'a ete effectuee.
+*
+* CONDITION D'UTILISATION
+*   STRA_Lit_PMVsel()
+*
+*
+* -------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR	tl_ligne
+VAR	tl_liste_inter
+VAR	j,i,k,l
+VAR	vl_num_pmv_courante
+VAR	vl_indice	
+VAR	tl_liste_pmv
+
+
+
+IF COM05_SQL_Procedure (XZAS58_Lect_PMV_A_Exporter,
+			   NULL, vl_resultats, C_MODULE) <> COM_OK
+   RETURN (COM_NOK)
+
+
+vl_indice=0
+
+tl_liste_pmv=vl_resultats.select_results[0]
+vm_nb_lignes_pmv=ARRAY_SIZE@(tl_liste_pmv)
+
+/* Remplissage de tm_pmv_select avec les indices corrects */
+FOR k=0 to vm_nb_lignes_pmv-1
+
+	vl_num_pmv_courante = tl_liste_pmv[k][0]
+
+	/* recherche de l'indice correspondant a la pmv */
+	FOR l=0 TO ARRAY_SIZE@(tg_pmv)-1
+
+		IF (tg_pmv[l][1]=vl_num_pmv_courante  )
+			vl_indice=l
+
+	NEXT l
+
+	tm_pmv_select[k]=vl_indice
+
+NEXT k
+ 
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Produit le fichier des pmv selectionnees
+* -----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO STRA_Svg_PMVConfig ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte ;
+*                     : COM_NOK si aucune selection n'a ete effectuee.
+*
+* CONDITION D'UTILISATION
+*   STRA_Svg_Config()
+*
+*
+* -------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR     vl_indice
+VAR		i
+VAR	vl_indice_courant
+
+vl_parametres=NULL
+IF COM05_SQL_Procedure (XZAS59_Efface_Config_PMV,
+	   vl_parametres, vl_resultats, "MSTRA") <> COM_OK
+{
+      INFO_MESSAGE@("Impossible de mettre a jour la configuration en base")
+	RETURN (COM_NOK)
+}
+
+/* Formation du tableau composant le fichier */
+/* ----------------------------------------- */
+FOR i=0 TO ARRAY_SIZE@(tm_pmv_select)-1
+
+	vl_indice_courant = tm_pmv_select[i]
+vl_parametres=NULL
+vl_parametres[0].type = SYB#INT4_
+vl_parametres[0].data= tg_pmv[vl_indice_courant][1]
+vl_parametres[0].output = FALSE
+
+IF COM05_SQL_Procedure (XZAS60_Sauve_Config_PMV,
+	     vl_parametres, vl_resultats, "MSTRA") <> COM_OK
+{
+  INFO_MESSAGE@("Impossible de sauvegarder la configuration en base")
+  RETURN (COM_NOK)
+}
+
+NEXT i
+
+RETURN (COM_OK)
+
+ENDMACRO
+

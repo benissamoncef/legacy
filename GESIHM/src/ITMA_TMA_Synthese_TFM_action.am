@@ -1,0 +1,205 @@
+/* Fichier : @(#)ITMA_TMA_Synthese_TFM.am	1.1      Release : 1.1        Date : 09/12/03
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TMA * FICHIER ITMA_TMA_Synthese_TFM_action.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* synthese des messages TFM a partir d'un operateur CI
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* CLUCHAGUE     07/07/2003  creation 
+* CLUCHAGUE     11/02/05 on l'avait perdu, on l'a recree 1.2
+* PNI		16/11/10 : appel de ITMA_TMA_Synthese_TFM si on n'est pas sur un poste opérateur exploitation DEM960 1.3
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+
+DEFINE	C_MODULE	"MTMA"			' Nom du module
+DEFINE  C_MODELE_MSG            "ITMA_TMA_Synthese_TFM"  ' Modele d'impression
+DEFINE  C_SOUS_REP_MODELES      COM_SOUS_REP_IHM        ' Repertoire des modeles
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMA_Synthese_TFM_action (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre		' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     vl_fichier,vl_poste, vl_numero_fmc_operateur, vl_cle_fmc_operateur,i
+    VAR vl_data, tl_msg
+    VAR     tl_num_fiche     ,va_enrichir, vl_niveau, vl_retour
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+'ON ERROR {
+ '   ERROR_BOX@
+  '  COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+   ' RETURN
+'}
+
+/* on recupere le numero du poste */
+if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+	vl_poste=4
+else
+	vl_poste=SYSTEM_VAR@(vg_numero_poste)
+
+/* On cherche le numero de la fiche operateur a partir du poste duquel on a lance la macro */
+vl_parametres[0].type = SYB#INT4_
+vl_parametres[0].data = vl_poste
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = 0
+vl_parametres[1].output = TRUE
+
+vl_parametres[2].type = SYB#INT1_
+vl_parametres[2].data = 0
+vl_parametres[2].output = TRUE
+
+IF COM05_SQL_Procedure ("XZAE113",
+                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+  RETURN (COM_NOK)
+
+vl_numero_fmc_operateur = vl_resultats.return_parameters[0]
+vl_cle_fmc_operateur = vl_resultats.return_parameters[1]
+
+
+/* On appelle la proc stockee qui cherche la synthese des messages TFM */
+
+vl_parametres[0].type = SYB#INT1_
+vl_parametres[0].data = 1
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#DATETIME_
+vl_parametres[1].data = null
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT1_
+vl_parametres[2].data = null
+vl_parametres[2].output = FALSE
+
+
+IF COM05_SQL_Procedure ("XZAE201",
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+       RETURN (COM_NOK)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+FOR i = 0 to ARRAY_SIZE@ (vl_resultats.select_results[0])
+			vl_data = vl_data ++ "\n" ++ "\n" ++ vl_resultats.select_results[0][i][0]
+NEXT i
+
+
+
+if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+
+{
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+vl_retour = NEW_TASK@("ITMA_TMA_Synthese_TFM",
+			"ITMA_TMA_Synthese_TFM_action",
+					vl_data)
+
+
+}
+
+
+else
+{
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+/* on ouvre la fenetre message  TFM */
+tl_num_fiche[0] = vl_numero_fmc_operateur
+tl_num_fiche[1] = vl_cle_fmc_operateur
+va_enrichir = TRUE
+vl_niveau=3
+
+vl_retour = NEW_TASK@("ITMA_TFM_Fiche_Trafic_FM",
+				       "DPAC_TFM",
+					tl_num_fiche,
+					va_enrichir,
+					vl_data,
+					vl_niveau)
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre)
+	CASE COM_CANAL_FIN
+	    vl_la_fenetre_est_active = FALSE
+	ENDCASE
+
+    CASE "BP_Quit"
+		vl_la_fenetre_est_active = FALSE
+
+    CASE "BP_Imp"
+	    /*B Ouvrir une fenetre ApplixWord non visible et charger le modele */
+	    WP_APPLICATION_DLG@ (NULL, TRUE)
+	    WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+	    C_SOUS_REP_MODELES ++ C_MODELE_MSG ++ ".aw")
+	WP_SET_DOC_VAR@("message",
+	    DB_EDITBOX_GET_DATA@ (vl_fenetre, "BE_synthese"))
+
+	    /*B Formater le texte actuellement ouvert en PCL */
+	    vl_fichier = C_MODELE_MSG ++ "_" ++ SYSTEM_VAR@ (vg_numero_poste)
+	    COM36_Imprimer_Texte(vl_fichier)
+
+    ENDCASE
+WEND
+}
+ENDMACRO
+

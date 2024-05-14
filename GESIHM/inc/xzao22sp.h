@@ -1,0 +1,1 @@
+DEFINE	XZAO22_Distance		"XZAO;22"

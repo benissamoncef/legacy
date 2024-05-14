@@ -1,0 +1,422 @@
+/*E*/
+/* Fichier : $Id: ITMA_TFQ_FAQ.am,v 1.6 2009/09/28 11:35:04 gesconf Exp $        Release : $Revision: 1.6 $        Date : $Date: 2009/09/28 11:35:04 $
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR / PASTRE
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTFQ * FICHIER ITMA_TFQ_FAQ.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Forum aux questions
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Hilmarcher 	24/08/05: Creation sous le nom "ITMA_TFA_FAQ.am"
+* Niepceron	05/10/05: Fichier commun à tous les sites DEM518 v1.2
+* JPL		06/07/05: Integration a ce fichier des macros "Sauvegarder" et "Quitter" 1.3
+* JPL		07/07/09 : Module renomme MTFQ; menu personnalise; gestion pbs. d'acces (DEM 530) 1.4
+* JPL		25/09/09 : Indiquer qui est le poste editeur a l'ouverture sans droit d'edition 1.5
+* JPL		28/09/09 : Sortir si serveur indisponible; supprimer fichier local si autre poste editeur 1.6
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TBR.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+
+
+DEFINE	C_MODULE	"MTFQ"				' Nom du module
+
+
+
+/*A
+ * Definition des variables globales utilises par le module FAQ
+ * ------------------------------------------------------------
+ */
+
+DEFINE	vg_faq_editable		"vg_faq_editable"
+DEFINE	vg_faq_modif_locale	"vg_faq_modif_locale"
+
+
+
+/*A
+ * Definition de la localisation du document de FAQ
+ * ------------------------------------------------
+ */
+
+DEFINE	CM_POSTE_FAQ	"SDCI1"						' machine hote FAQ
+DEFINE	CM_REP_FAQ	"/produits/migrazur/appliSD/fichiers/opr/"	' repertoire FAQ
+DEFINE	CM_FICHIER_FAQ	"faq.aw"					' document FAQ
+DEFINE	CM_VERROU_FAQ	"faq_verrou.txt"				' verrou de reservation
+
+DEFINE	CM_POSTE_INCONNU	"<Inconnu>"				' poste editeur
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	CM_ERR_ACCES		1
+DEFINE	CM_ERR_SAUVE		2
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Ouvre le fichier "FAQ" dans une nouvelle fenetre traitement de texte.
+*  Le document est ouvert en lecture seule si un autre utilisateur du SAE
+*  l'a deja ouvert, et en edition sinon.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFQ_FAQ ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*  MTMT
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_id_menu
+	VAR	vl_poste_editeur, vl_editable
+	VAR	vl_cmd
+	VAR	vl_info_operateur
+
+ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	SET_SYSTEM_VAR@ (vg_faq_editable, NULL)
+	IF (vl_editable = TRUE) {
+		ITMA_TFQ_Liberer_FAQ ()
+	}
+	RETURN (COM_NOK)
+}
+
+/* Verifier si la visualisation de FAQ est deja en cours */
+IF (NOT IS_NULL@ (SYSTEM_VAR@ (vg_faq_editable))) {
+	RETURN (COM_OK)
+}
+
+/* Obtenir le menu personnalise du traitement de texte pour le document de FAQ */
+vl_id_menu = ITMA_TBR_Menu_Appli_Applix (TBR_MENU_WP_FAQ)
+IF (vl_id_menu <= 0) {
+	RETURN (COM_NOK)
+}
+
+/* Reserver le document FAQ (s'il n'est pas deja en edition par un autre operateur) */
+vl_poste_editeur = ITMA_TFQ_Reserver_FAQ ()
+
+
+/* Terminer immediatement en cas d'inaccessibilite du serveur */
+IF (vl_poste_editeur = CM_POSTE_INCONNU)  OR  (vl_poste_editeur = "") {
+	ERROR@ (CM_ERR_ACCES, "Accès au document de FAQ impossible pour le moment")
+}
+
+
+/* Memoriser les droits d'edition du poste local */
+IF (vl_poste_editeur = SYSTEM_VAR@ (vg_poste)) {
+	vl_editable = TRUE
+} ELSE {
+	vl_editable = FALSE
+}
+SET_SYSTEM_VAR@ (vg_faq_editable, vl_editable)
+
+
+/* Si le document est en edition par un autre poste alors supprimer toute copie locale */
+/* (laisse lors d'une edition precedente par fermeture de la fenetre au niveau Motif par exemple) */
+IF (vl_editable = FALSE) {
+	DELETE_FILE@ (CM_REP_FAQ ++ CM_FICHIER_FAQ)
+}
+
+
+/* Si une version a ete precedemment conservee en local alors */
+IF FILE_EXISTS@ (CM_REP_FAQ ++ CM_FICHIER_FAQ) {
+	SET_SYSTEM_VAR@ (vg_faq_modif_locale, TRUE)
+	vl_info_operateur = "EDITION DE LA DERNIERE VERSION CONSERVEE SUR LE POSTE LOCAL."
+
+	/* verifier l'obtention des droits d'edition depuis le serveur */
+	IF (vl_editable = TRUE) {
+		vl_info_operateur = vl_info_operateur ++ " VOUS POUVEZ MODIFIER !"
+	} ELSE {
+		/* pour completude, l'obtention des droits d'edition etant exige precedemment */
+		vl_info_operateur = vl_info_operateur ++ " MODIFICATION TEMPORAIREMENT IMPOSSIBLE."
+	}
+} ELSE {
+	SET_SYSTEM_VAR@ (vg_faq_modif_locale, FALSE)
+
+	/* sinon prendre une copie locale du document de FAQ */
+	vl_cmd = FORMAT@ ("rcp %s:%s/%s %s",
+			     CM_POSTE_FAQ, CM_REP_FAQ, CM_FICHIER_FAQ, CM_REP_FAQ)
+	SHELL_COMMAND@ (vl_cmd)
+
+	/* verifier que l'acces au document est correct */
+	IF NOT FILE_EXISTS@ (CM_REP_FAQ ++ CM_FICHIER_FAQ) {
+		ERROR@ (CM_ERR_ACCES, "Accès au document de FAQ impossible pour le moment")
+	} ELSE IF (vl_editable = FALSE) {
+		/* et si l'editeur n'est pas ce poste ou n'est pas identifiable alors le signaler */
+		IF (vl_poste_editeur = CM_POSTE_INCONNU) {
+			vl_info_operateur = "Le document est déjà en édition. Vous ne pouvez pas le modifier"
+		} ELSE {
+			vl_info_operateur = FORMAT@ ("Le document est édité sur %s. Vous ne pouvez pas le modifier",
+			                                vl_poste_editeur)
+		}
+	}
+}
+
+
+/* Ouvrir le traitement de texte avec le document FAQ, en edition ou en lecture seule */
+WP_APPLICATION_DLG@ (vl_id_menu, FALSE)
+WP_LOAD_FILE@ (CM_REP_FAQ ++ CM_FICHIER_FAQ)
+IF (vl_editable = FALSE) {
+	WP_SET_VIEW_ONLY@ (TRUE)
+}
+
+/* Informer l'operateur de l'etat du document et des droits d'edition */
+IF NOT IS_NULL@ (vl_info_operateur) {
+	INFO_MESSAGE@ (vl_info_operateur)
+}
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Si le document de FAQ est en edition,
+*  sauvegarde l'etat actuel en local puis le copie sur le serveur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFQ_Ecrire_Fichier_FAQ ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*  Choix de l'item "Sauvegarder" au menu du traitement de texte.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_nom_svg
+	VAR	vl_cmd, vl_cr_cmd
+
+ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN (COM_NOK)
+}
+
+/* Dans tous les cas ecrire l'etat actuel du document en local */
+WP_SAVE@ ()
+
+/* Si l'operateur a les droits d'edition alors */
+IF (SYSTEM_VAR@ (vg_faq_editable) = TRUE)
+{
+	/* copier sur le serveur le document FAQ edite en local */
+	vl_cmd = FORMAT@ ("rcp %s/%s %s:%s",
+	                     CM_REP_FAQ, CM_FICHIER_FAQ, CM_POSTE_FAQ, CM_REP_FAQ)
+	vl_cr_cmd = SHELL_COMMAND@ (vl_cmd)
+
+	IF (ARRAY_SIZE@ (vl_cr_cmd) > 0) {
+		SET_SYSTEM_VAR@ (vg_faq_modif_locale, TRUE)
+		ERROR@ (CM_ERR_SAUVE, "Impossible de sauvegarder le document de FAQ. Une copie locale est conservée")
+	} ELSE {
+		SET_SYSTEM_VAR@ (vg_faq_modif_locale, FALSE)
+		/* copier egalement sur le serveur une copie de sauvegarde datee du jour */
+		vl_nom_svg = CM_FICHIER_FAQ ++ "." ++ DATE_FORMAT@ (CURRENT_TIME@ (), 6)
+		vl_cmd = vl_cmd ++ "/" ++ vl_nom_svg
+		SHELL_COMMAND@ (vl_cmd)
+	}
+}
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Quitte la visualisation ou l'edition du document de FAQ.
+*  Si le document est en edition et a ete modifie,
+*  demande confirmation a l'operateur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFQ_Quitter_FAQ ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*  Choix de l'item "Quitter" au menu du traitement de texte.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_quitter
+	VAR	vl_editable, vl_modif_locale
+	VAR	vl_msg
+
+vl_editable = SYSTEM_VAR@ (vg_faq_editable)
+vl_modif_locale = SYSTEM_VAR@ (vg_faq_modif_locale)
+
+/* Si le document a ete modifie alors demander confirmation a l'operateur */
+vl_quitter = TRUE
+IF (vl_editable = TRUE)  OR  (vl_modif_locale = TRUE)
+{
+	IF (WP_MODIFIED@ ()) {
+		vl_quitter = YES_NO_PROMPT@ ("Vous avez modifié le document. Abandonner les modifications ?", "CONFIRMEZ")
+	}
+}
+
+/* Si tout est pret pour quitter alors */
+IF (vl_quitter = TRUE)
+{
+	/* si le document edite n'a pas pu etre sauvegarde sur le serveur alors */
+	IF (vl_modif_locale = TRUE) {
+		/* le conserver en l'etat sur le poste local et en informer l'operateur */
+		vl_msg = "Vous gardez les droits d'édition;"
+		vl_msg = vl_msg ++ " celle-ci reprendra à partir de la copie conservée sur le poste local"
+		INFO_MESSAGE@ (vl_msg)
+	} ELSE {
+		/* sinon supprimer la copie locale du document */
+		SHELL_COMMAND@ ("rm -f " ++ CM_REP_FAQ ++ CM_FICHIER_FAQ)
+
+		/* puis restituer les droits d'edition */
+		IF (vl_editable = TRUE) {
+			ITMA_TFQ_Liberer_FAQ ()
+		}
+	}
+
+	/* quitter le traitement de texte */
+	SET_SYSTEM_VAR@ (vg_faq_editable, NULL)
+	WP_EXIT@ ()
+}
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Macros effectuant les operations de reservation / liberation
+*  des droits de modification de la "FAQ".
+*
+*  Les droits d'edition est materialise par l'ecriture du nom du poste
+*  editeur dans le fichier faisant office de "verrou" sur le serveur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFQ_Reserver_FAQ ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*  Le poste ayant les droits d'edition du document,
+*  CM_POSTE_INCONNU en cas d'impossibilite de le connaitre (pb. d'acces).
+*
+* CONDITION D'UTILISATION
+*  Initialisation du module.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_cmd, vl_cr_cmd
+	VAR	vl_poste_editeur
+
+vl_cmd = FORMAT@ ("remsh %s 'export V_FAQ=%s/%s; { [ \"`head -1 $V_FAQ`\" = \"\" ] && echo %s >$V_FAQ; head -1 $V_FAQ; } 2>&-'",
+                     CM_POSTE_FAQ, CM_REP_FAQ, CM_VERROU_FAQ, SYSTEM_VAR@ (vg_poste))
+vl_cr_cmd = SHELL_COMMAND@ (vl_cmd)
+
+/*! Si le compte-rendu de la commande comporte plus d'un mot alors */
+/*! c'est un message d'erreur, et l'editeur du fichier est inconnu */
+IF (STRING_INDEX@ (vl_cr_cmd[0], " ") <> 0)  OR  (ARRAY_SIZE@ (vl_cr_cmd) > 1) {
+	vl_poste_editeur = CM_POSTE_INCONNU
+} ELSE {
+	vl_poste_editeur = vl_cr_cmd[0]
+}
+
+RETURN (vl_poste_editeur)
+
+ENDMACRO
+
+
+
+
+MACRO ITMA_TFQ_Liberer_FAQ ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*
+*
+* CONDITION D'UTILISATION
+*  Toute situation de terminaison du module.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_cmd, vl_cr_cmd
+	VAR	vl_poste_editeur
+
+vl_cmd = FORMAT@ ("remsh %s 'export V_FAQ=%s/%s; { [ \"`head -1 $V_FAQ`\" = %s ] && rm -f $V_FAQ; head -1 $V_FAQ; } 2>&-'",
+                     CM_POSTE_FAQ, CM_REP_FAQ, CM_VERROU_FAQ, SYSTEM_VAR@ (vg_poste))
+vl_cr_cmd = SHELL_COMMAND@ (vl_cmd)
+
+/*! Si le compte-rendu de la commande comporte plus d'un mot alors */
+/*! c'est un message d'erreur, et l'editeur du fichier est inconnu */
+IF (STRING_INDEX@ (vl_cr_cmd[0], " ") <> 0)  OR  (ARRAY_SIZE@ (vl_cr_cmd) > 1) {
+	vl_poste_editeur = CM_POSTE_INCONNU
+} ELSE {
+	vl_poste_editeur = vl_cr_cmd[0]
+}
+
+RETURN (vl_poste_editeur)
+
+ENDMACRO

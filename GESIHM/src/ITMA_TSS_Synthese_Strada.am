@@ -1,0 +1,373 @@
+/*E*/
+/* Fichier : $Id: ITMA_TSS_Synthese_Strada.am,v 1.3 1999/03/19 17:05:26 gesconf Exp $		      Release : $Revision: 1.3 $        Date : $Date: 1999/03/19 17:05:26 $
+-------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------
+* MODULE ITMA_TBN * FICHIER ITMA_TSS_Synthese_Strada.am
+-------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Affiche la synthèse d'une fiche main courante
+*
+*   Cf. DCG 2.4.65
+*
+-------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou    27 Sep 1994 : Creation                                       V1.1
+* Niepceron  24 Nov 1998 : Nouvel intergestionnaire v1.2 v1.3
+---------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"wp_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzaec_ax.h"
+INCLUDE	"../../BASEDD/inc/xzae144sp.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+DEFINE	C_MODULE	"MTSS"			' Nom du module
+
+DEFINE	W_LIGNE		"-------------------------------------------------------------------------------------------"
+DEFINE	C_LIGNE		"--------------------------------------------------------------------------------------------------------------------------------------------"
+
+DEFINE	C_MODELE_SYNTHESE	"ITMA_TSS_Synthese_Strada"	' Modele d'impression
+DEFINE	C_SOUS_REP_MODELES	COM_SOUS_REP_IHM		' Repertoire des modeles
+
+FORMAT T_SYNTHESE
+	emetteur,
+	reference,
+	type,
+	horodate
+
+VAR tm_ligne
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* afficher la synthèse d'une fiche strada
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TSS_Synthese_Strada (va_alerte)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_numero_fiche: numero de la fiche main courante
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR FORMAT T_Synthese tl_synthese
+	VAR vl_horodate
+	VAR vl_fichier
+	VAR vl_cmd, vl_params
+	VAR vl_liste, vl_sel, i, j
+	VAR vl_indice
+	VAR vl_index
+	VAR tl_lignes
+	VAR tm_tab
+	VAR vl_site_local
+	VAR vl_enrichir
+	VAR vl_etat
+	VAR vl_ligne
+	VAR tl_message_tmp
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Synthese Evenement"
+ * ---------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TSS")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TSS_Synthese_Strada")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_synthese", TRUE)
+DB_CTRL_MONOSPACE@ (vl_fenetre, "BL_synthese", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_synthese", -1)
+
+/*A Le bouton "Quitter" est choisi par defaut */
+DB_CTRL_DEFAULT_BUTTON@(vl_fenetre,"BP_quitter",TRUE)
+
+
+/*A
+ * Recuperer la liste des fiches constituant la synthese et l'afficher
+ * -------------------------------------------------------------------
+ */
+tl_synthese = ITMA_TSS_Recup_Synthese (va_alerte)
+
+'DUMP_ARRAY@(tl_synthese)
+
+vl_index=0
+vl_liste[vl_index]=C_LIGNE
+vl_liste[vl_index+1] 		= "Emetteur	: " ++ 		tl_synthese[0].emetteur
+vl_liste[vl_index+2] 		= "Reference	: " ++ " " ++ tl_synthese[0].reference
+vl_liste[vl_index+3] 		= "Type		: " ++ tl_synthese[0].type
+vl_liste[vl_index+3]	= "Horodate	: " ++ COM18_Date_SGBD_Formatee(tl_synthese[0].horodate)
+vl_index=vl_index+5
+tl_lignes=""
+
+FOR i = 1 to ARRAY_SIZE@ (tm_ligne) -1
+	tl_lignes = tl_lignes ++ tm_ligne[i][0]
+NEXT i
+
+tl_message_tmp = ARRAY_FROM_STRING@(tl_lignes, "|")
+FOR j = 0  TO ARRAY_SIZE@ (tl_message_tmp) - 1
+	vl_liste[vl_index]	= tl_message_tmp[j]
+	vl_index=vl_index+1
+NEXT j
+
+
+/*
+FOR i = 0  TO ARRAY_SIZE@ (tl_synthese) - 1
+	IF (i=0)
+	{
+		vl_liste[vl_index+1] 		= "Reference	: " ++ tl_synthese[i].emetteur ++ " " ++ tl_synthese[i].reference
+		vl_liste[vl_index+2] 		= "Type	: " ++ tl_synthese[i].type
+		vl_liste[vl_index+2]	= "Horodate	: " ++ COM18_Date_SGBD_Formatee (tl_synthese[i].horodate)
+
+		tl_message_tmp = ARRAY_FROM_STRING@(tl_synthese[i].ligne, "|")
+			FOR j = 0  TO ARRAY_SIZE@ (tl_message_tmp) - 1
+				vl_liste[vl_index+5+j]	= tl_message_tmp[j]
+				
+			NEXT j
+		vl_liste[vl_index]=C_LIGNE
+
+		vl_index=vl_index+ARRAY_SIZE@ (tl_message_tmp)+5
+	}
+	ELSE {
+
+
+	IF  (tl_synthese[i].version <> tl_synthese[i-1].version)
+	{
+		vl_liste[vl_index+1] 		= "Reference : " ++ va_reference
+		vl_liste[vl_index+2] 		= "Type	: " ++ tl_synthese[i].type
+		vl_liste[vl_index+3]	= "Version	: " ++ tl_synthese[i].version
+		vl_liste[vl_index+3]	= "Horodate	: " ++ tl_synthese[i].horodate
+
+		tl_message_tmp = ARRAY_FROM_STRING@(tl_synthese[i].ligne, "|")
+			FOR j = 0  TO ARRAY_SIZE@ (tl_message_tmp) - 1
+				vl_liste[vl_index+5+j]	= tl_message_tmp[j]
+				
+			NEXT j
+
+		vl_liste[vl_index]=C_LIGNE
+
+		vl_index=vl_index+ARRAY_SIZE@ (tl_message_tmp)+5
+
+	}
+	ELSE {
+		tl_message_tmp = ARRAY_FROM_STRING@(tl_synthese[i][0].ligne, "|")
+		vl_liste[vl_index - 1] = vl_liste[vl_index - 1] ++ tl_message_tmp[0]
+			FOR j = 1  TO ARRAY_SIZE@ (tl_message_tmp) - 1
+				vl_liste[vl_index+j-1]	= tl_message_tmp[j]
+				
+			NEXT j
+
+		'vl_liste[vl_index]=C_LIGNE
+
+		vl_index=vl_index+ARRAY_SIZE@ (tl_message_tmp)-1
+	}
+	}
+NEXT i
+		vl_liste[vl_index]=C_LIGNE
+*/
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_synthese", vl_liste)
+
+
+/*A Recuperation du site local */
+vl_site_local = SYSTEM_VAR@(vg_site)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+	DB_DISPLAY@(vl_fenetre)
+	DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+
+		/*A
+		* appui sur le bouton quitter*/
+		CASE "BP_quitter"
+			/*A Bye*/
+			RETURN (COM_QUITTE)
+
+
+		/*A
+		* demande d'impression*/
+		CASE "BP_imprimer"
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_imprimer", TRUE)
+			DB_DISPLAY@ (vl_fenetre)
+
+			/*B Ouvrir une fenetre ApplixWord non visible et charger le modele*/
+			WP_APPLICATION_DLG@ (NULL, TRUE)
+			WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+							C_SOUS_REP_MODELES ++ C_MODELE_SYNTHESE ++ ".aw")
+			WP_SET_DOC_VAR@ ("evenement", tl_synthese[0].reference)
+			WP_GOTO_END@()
+			WP_TEXT_COURIER@()
+
+			/*B Se positionner a la table et ecrire chacune des lignes */
+			FOR i = 0  TO ARRAY_SIZE@ (vl_liste) - 1
+				IF (vl_liste[i] = C_LIGNE)
+				{
+					WP_ENTER_TEXT@(W_LIGNE)
+					WP_ENTER_TEXT@ ("\n")
+				}
+				ELSE
+				{
+					WP_ENTER_TEXT@(vl_liste[i])
+					WP_ENTER_TEXT@ ("\n")
+				}
+					
+			NEXT i
+
+			/*B Produire un fichier contenant le document en format PCL */
+			vl_fichier = C_MODELE_SYNTHESE ++ "_" ++SYSTEM_VAR@(vg_numero_poste)
+			COM36_Imprimer_Texte(vl_fichier)
+
+
+	ENDCASE
+WEND
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* recupere la liste des fiches constituant la synthese
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TSS_Recup_Synthese (va_alerte)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_numero_fiche: numero de la fiche main courante
+*
+* ARGUMENTS EN SORTIE : Synthese de la fiche
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR vl_msg,vl_canal
+VAR i
+
+MACRO_WINS_BUSY@()
+
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = va_alerte
+	vl_parametres[0].output = FALSE
+
+	IF COM05_SQL_Procedure (XZAE144_Synthese_Situation_Strada,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@("Erreur de la base de données pour générer la synthèse")
+     	RETURN (NULL)
+	}
+
+
+IF vl_resultats.status <> COM_OK {
+	CASE OF (vl_resultats.status)
+		CASE XDC_ARG_INV
+			vl_msg="Arguments invalides"
+
+		CASE XDC_NOK
+			vl_msg="Erreur lors de la génération de la synthèse"
+	ENDCASE
+
+	INFO_MESSAGE@(vl_msg)
+     	RETURN (NULL)
+}
+
+tm_ligne=vl_resultats.select_results[1]
+
+
+RETURN (vl_resultats.select_results[0])
+
+ENDMACRO
+

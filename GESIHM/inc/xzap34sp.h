@@ -1,0 +1,1 @@
+DEFINE	XZAP34_Lire_Prop_SAGA		"XZAP34"

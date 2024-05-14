@@ -1,0 +1,174 @@
+/*E*/
+/* Fichier : $Id: dedi_ec35_longbouchon.am,v 1.1 1995/05/24 10:15:09 gesconf Exp $	      Release : $Revision: 1.1 $        Date : $Date: 1995/05/24 10:15:09 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec35_longbouchon.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* definition de la longueur de bouchon d'un evenement
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	05 dec 1994	: Creation						V1.1
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+VAR 		tm_def
+VAR		tm_var
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition de la longueur de bouchon d'un evenement
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec35_longbouchon ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice
+var vl_selection
+var tl_data
+var tl_pokes
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec35_longbouchon")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,220)
+DB_YPOS@(vl_fenetre,70)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+dedi_ec35_longbouchon_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*A recupere les donnees de l'ecran*/
+			tm_def[0][0]=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_amont_l1")
+			tm_def[0][1]=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_amont_l2")
+			tm_def[0][2]=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_amont_l3")
+			tm_def[1][0]=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_l1")
+			tm_def[1][1]=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_l2")
+			tm_def[1][2]=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_l3")
+	
+			/*A on genere le fichier de config*/
+			FOR vl_indice=0 TO (ARRAY_SIZE@(tm_def)-1)
+				tl_data[vl_indice]=ARRAY_TO_STRING@(tm_def[vl_indice],
+											DEDI_CAR_SEPAR)
+			NEXT vl_indice
+			WRITE_ASCII_FILE@(AX_PATH++IE_FILE_BOUCHON_PMV,tl_data)
+			RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION dedi_ec35_longbouchon_init(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A affichage des variables autorisees*/
+	tl_data=dedi_var_fenetre(IE_FILE_BOUCHON_PMV)
+	DB_CTRL_STRINGS@(va_fenetre,"BL_var",tl_data)
+
+	/*A chargement des perturbations depuis le fichier de config*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_BOUCHON_PMV)
+
+	/*A parcourt le tableau lu et extrait les champs*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tm_def[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+											DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+	/*A affiche les textes*/
+	DB_CTRL_VALUE@(va_fenetre,"BS_amont_l1",tm_def[0][0])
+	DB_CTRL_VALUE@(va_fenetre,"BS_amont_l2",tm_def[0][1])
+	DB_CTRL_VALUE@(va_fenetre,"BS_amont_l3",tm_def[0][2])
+	DB_CTRL_VALUE@(va_fenetre,"BS_l1",tm_def[1][0])
+	DB_CTRL_VALUE@(va_fenetre,"BS_l2",tm_def[1][1])
+	DB_CTRL_VALUE@(va_fenetre,"BS_l3",tm_def[1][2])
+
+ENDFUNCTION

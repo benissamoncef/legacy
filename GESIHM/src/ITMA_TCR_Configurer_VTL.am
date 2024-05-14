@@ -1,0 +1,423 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCR_Configurer_VTL.am,v 1.1 1995/12/13 11:20:45 gaborit Exp $      Release : $Revision: 1.1 $        Date : $Date: 1995/12/13 11:20:45 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TCR * FICHIER ITMA_TCR_Configurer_VTL.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fiche de configuration des vitesse libres 
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Torregrossa 11 Dec 1995	: Creation                              V1.1
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../inc/xzao321sp.h"
+INCLUDE "../inc/xzao320sp.h"
+
+
+
+DEFINE	C_MODULE	"MTCR"				' Nom du module
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+/*A
+ * Definition des formats des donnees utilisees 
+ * --------------------------------------------
+ */
+DEFINE	C_NUM_RAD		0
+DEFINE	C_SENS		1
+DEFINE	C_VITESSE		2
+DEFINE	C_LIBELLE		3
+
+DEFINE	C_TAB_LIBELLE		0
+DEFINE	C_TAB_SENS		1
+DEFINE	C_TAB_VITESSE		2
+
+FORMAT	C_Liste_vtl_base	'lecture en base
+	numero,			' numero de la station
+	autoroute,		' autoroute de la station
+	PR,				' PR de la station
+	sens,			' sens de la station
+	sens_point_mesure,	' sens du point de mesure de la station
+	vitesse			' vitesse libre
+
+FORMAT	C_Liste_vtl
+	numero,			' numero de la station
+	sens,			' sens de la station
+	vitesse,			' vitesse libre
+	libelle			' libelle de la station
+
+VAR  FORMAT C_Liste_vtl vm_tab_stations				' Liste stations
+VAR	vm_lib_stations							' libelles affiches
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Definir les vitesses libres par station radt
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCR_Configurer_VTL (va_appelant, va_arg1)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+**
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option Configurer -> Echangeurs
+*
+* FONCTION
+*   Permet de modifier le numero des sorties Escota des echangeurs
+*
+---------------------------------------------------------------------------- */
+
+	VAR   vl_fenetre				' Nom de la fenetre du module
+	VAR   vl_objet_selecte			' L'objet courant de la fenetre
+    	VAR   vl_les_messages_acceptes		' Pour reception de signaux
+	VAR    vl_la_fenetre_est_active
+	VAR    vl_installer_traitement_erreur
+	VAR    vl_status
+	VAR   vl_les_objets				' Noms des objets de la fenetre
+	VAR    vl_vitesse
+	VAR    vl_site
+
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A si on est pas sur le site du CI, on sort */
+vl_site = SYSTEM_VAR@(vg_site)
+if vl_site <> XDC_CI
+	RETURN(COM_OK)
+
+/*A
+ * Determiner l'origine de l'invocation et le type de courbe a visualiser
+ * ----------------------------------------------------------------------
+ */
+
+
+/*A
+ * Charger la fenetre "Configuration des sorties des echangeurs"
+ * -------------------------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TCR_Configurer_VTL")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TCR_Configurer_VTL")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Modifier_VTL", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BS_VTL", NULL)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BS_VTL", FALSE)
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_VTL", COM_CHIFFRES)
+
+/*A
+ * Lire et afficher (si necessaire) la liste des stations
+ * ------------------------------------------------------
+ */
+TCR_Init_Liste_Stations(vl_fenetre)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> C_ERR_IHM
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY_ONLY@ (vl_fenetre,FALSE)
+    DB_DISPLAY@ (vl_fenetre)
+    DB_DISPLAY_ONLY@ (vl_fenetre,TRUE)
+
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "timer_"  AND vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+   CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "TA_Stations"
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Modifier_VTL", FALSE)
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur choix "Modifier", verifier la validite des criteres saisis
+     * et stocker en base
+     * -------------------------------------------------------------
+     */
+
+    CASE "BP_Modifier_VTL"
+	vl_vitesse = DB_CTRL_GET_VALUE@(vl_fenetre,"BS_VTL")
+	IF vl_vitesse = ""
+		info_message@("Saisie incorrecte")
+	ELSE IF (TCE_Modifier_VTL(vl_fenetre, vl_vitesse) <> COM_OK)
+		info_message@("Erreur d'accès en base")
+
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Modifier le numero de sortie en base
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TCE_Modifier_VTL (va_fenetre, va_vitesse)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre       : Id. de la fenetre contenant les valeurs saisies ;
+*  va_vitesse       : vitesse libre
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCR_Configurer_VTL
+*
+* FONCTION
+*   Modifier la vitesse libre
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_index
+    VAR     vl_indice
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	/*A
+	 * Rechercher la station concernee
+	 * -------------------------------
+	 */
+	vl_index = DB_TABLE_GET_SELECTIONS@(va_fenetre, "TA_Stations")
+	vl_index = vl_index[0]
+	vm_lib_stations[vl_index][C_TAB_VITESSE] = va_vitesse
+
+	/*A
+ 	 * Ecrire et afficher (si necessaire) le numero de sortie
+	 * ----------------------------------------------------
+	 */
+	vl_indice = 0
+	vl_parametres[vl_indice].type = SYB#INT1_
+	vl_parametres[vl_indice].data = vm_tab_stations[vl_index].numero
+	vl_parametres[vl_indice].output = FALSE
+
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#INT1_
+	vl_parametres[vl_indice].data = vm_tab_stations[vl_index].sens
+	vl_parametres[vl_indice].output = FALSE
+
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#INT1_
+	vl_parametres[vl_indice].data = va_vitesse
+	vl_parametres[vl_indice].output = FALSE
+
+	/* execution requete base*/
+	IF COM05_SQL_Procedure (XZAO321_Ecrire_Vitesse_Libre,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+
+   			RETURN (COM_NOK)
+	}	
+
+	/*A
+	 * Afficher la vitesse libre saisie
+	 * --------------------------------
+	 */
+	DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_Stations", vm_lib_stations, 0)
+	DB_TABLE_SET_SELECTIONS@( va_fenetre, "TA_Stations", NULL)
+	DB_CTRL_GRAYED@( va_fenetre, "BP_Modifier_VTL", TRUE)
+
+RETURN (COM_OK)
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialisation de la liste des stations
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TCR_Init_Liste_Stations ( va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre        : Id. de la fenetre contenant les valeurs saisies ;
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCR_Configurer_VTL
+*
+* FONCTION
+*   init liste des stations
+*
+---------------------------------------------------------------------------- */
+VAR	FORMAT COM_Localisation vl_localisation
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR	tl_colonnes
+VAR	FORMAT C_Liste_vtl_base tl_vtl
+VAR	i, j
+
+	/*A rechercher les vitesses libres associees aux stations */
+	IF (COM05_SQL_Procedure (XZAO320_Liste_VTL, NULL, vl_resultats, C_MODULE) <> COM_OK)
+		RETURN (COM_OK)
+
+	tl_vtl = vl_resultats.select_results[0]
+	j = 0
+
+	FOR i=0 TO (ARRAY_SIZE@(tl_vtl) - 1)
+		IF tl_vtl[i].sens_point_mesure = XDC_SENS_SUD OR 
+		   tl_vtl[i].sens_point_mesure = XDC_SENS_NORD
+		{
+			/*A localisation de la station */
+			vl_localisation.NumAuto = tl_vtl[i].autoroute
+			vl_localisation.PR = tl_vtl[i].PR
+			vl_localisation.sens_circulation = tl_vtl[i].sens
+
+
+			/* tableau a afficher */
+			IF NOT IS_NULL@(tl_vtl.vitesse)
+				vm_lib_stations[j][C_TAB_VITESSE] = tl_vtl[i].vitesse
+			ELSE	vm_lib_stations[j][C_TAB_VITESSE] = XDC_CHAINE_VIDE
+
+			vm_lib_stations[j][C_TAB_SENS] = tl_vtl[i].sens_point_mesure
+			vm_lib_stations[j][C_TAB_LIBELLE] = COM10_Localisation(vl_localisation)
+
+			/*A memoriser la station */
+			vm_tab_stations[j].numero = tl_vtl[i].numero
+			vm_tab_stations[j].sens = tl_vtl[i].sens_point_mesure
+			vm_tab_stations[j].libelle = vm_lib_stations[j][C_TAB_LIBELLE]
+
+			j = j+1
+		}
+	NEXT i
+
+	/*A colonnes de la table des stations */
+	tl_colonnes[0]="Station", 150
+	tl_colonnes[1]="Sens", 80
+	tl_colonnes[2]="Vitesse", 80
+
+
+	DB_TABLE_ALLOW_COLUMN_RESIZING@( va_fenetre, "TA_Stations", FALSE)
+	DB_CTRL_HORIZ_SCROLL@( va_fenetre, "TA_Stations", FALSE)
+
+	/*A mise a jour des controles*/
+	DB_DISPLAY_ONLY@( va_fenetre, TRUE)
+	DB_DISPLAY@( va_fenetre )
+	DB_DISPLAY_ONLY@( va_fenetre, FALSE)
+
+	/*A initialisation de la table des stations sans selection par defaut */
+	DB_TABLE_SET_DATA@( va_fenetre, "TA_Stations", vm_lib_stations, tl_colonnes, null)
+	DB_TABLE_SET_SELECTIONS@( va_fenetre, "TA_Stations", NULL)
+	DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, "TA_Stations", TRUE)
+
+	RETURN (COM_OK)
+
+ENDFUNCTION

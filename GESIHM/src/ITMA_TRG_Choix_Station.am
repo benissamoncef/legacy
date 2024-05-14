@@ -1,0 +1,754 @@
+
+/*E*/
+/* Fichier : @(#)ITMA_TRG_Choix_Station.am	1.1   Release : 1.1       Date : 04/19/12
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TRG * FICHIER ITMA_TRG_Choix_Station.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Module permettant de choisir les donnees desstations du SAE a diffuser
+*   aux personnes abonnees au service TRGDA
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* 
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xdf_ax.h"
+
+INCLUDE	"../inc/xzao557sp.h"
+INCLUDE	"../inc/xzao563sp.h"
+INCLUDE	"../inc/xzao564sp.h"
+INCLUDE	"../inc/xzao565sp.h"
+
+
+
+
+FORMAT T_zone
+	numero,
+	nom,
+	autoroute,
+	sens,
+	debut,
+	fin,
+	vitesse_amont,
+	inhibition
+
+VAR FORMAT T_zone  vm_zones
+
+
+DEFINE	C_MODULE	"MTRG"					' Nom du module
+
+
+
+
+VAR	tg_stations
+VAR	tg_stations_zone
+VAR	tg_stations_full
+VAR	tm_stations_select
+VAR	vm_nb_lignes_station
+
+VAR FORMAT T_zone vm_zone
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Gestion de la liste des fichiers a diffuser.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRG_Choix_Station ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION :
+*
+---------------------------------------------------------------------------- */
+
+VAR     vl_fenetre				' Nom de la fenetre du module
+VAR     vl_objet_selecte			' L'objet courant de la fenetre
+VAR     vl_les_messages_acceptes		' Pour reception de signaux
+VAR     vl_la_fenetre_est_active
+VAR     vl_installer_traitement_erreur
+VAR     vl_select					' Selections
+VAR     vl_ligne					' Ligne selectee
+VAR     i, j, k
+
+VAR	tl_autoroutes
+VAR	tl_stations
+VAR	vl_indice, vl_indice_courant
+VAR	vl_auto
+VAR	tl_data, tl_data_select
+VAR	tl_titres, tl_titres2
+VAR	vl_deja_selectionne
+VAR	vl_nb_stations_selectionnees
+VAR	vl_i, vl_j
+VAR	tl_ajout_station
+VAR	FORMAT SQL_Procedure_Params@ vl_parametres
+VAR	FORMAT SQL_Procedure_Result@ vl_resultats
+VAR	vl_sens_station
+VAR vl_autoroute
+VAr vl_base
+VAR vl_msg
+VAR  vl_presel
+VAR vl_valeur
+
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+/*ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}*/
+
+
+/*A
+ * Charger la fenetre "Choix des Stations"
+ * ------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TRG_Choix_Station")
+
+DB_XPOS@(vl_fenetre, 0)
+DB_YPOS@(vl_fenetre, 93)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TRG_Choix_Stations")
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_zone", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_refer", TRUE)
+DB_CTRL_VALUE@(vl_fenetre, "BO_zone", -1)
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+vl_base = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = "CFG"
+if vl_base = 1
+	vl_base = "CFT"
+
+
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT4_
+vl_parametres[1].data = SYSTEM_VAR@(vg_site)
+vl_parametres[1].output = FALSE
+vl_resultats = null
+
+	IF COM05_SQL_Procedure (XZAO557_Liste_Zones,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+vm_zones = vl_resultats.select_results[0]
+DB_CTRL_STRINGS@(vl_fenetre,"BO_zone",ARRAY_COLUMN@(vm_zones,1))
+
+/*liste des stations*/
+tl_data = null
+vl_parametres=null
+vl_resultats=null
+tl_stations=null
+tg_stations=null
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = "CFG"
+vl_parametres[0].output = FALSE
+
+IF COM05_SQL_Procedure ( "XZAO306", 
+			vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+    info_message@("Probleme d'acces a la base")
+    RETURN (COM_NOK)
+}
+
+vl_resultats=vl_resultats[0][0]
+tg_stations=vl_resultats
+tg_stations_full = tg_stations
+
+tl_autoroutes = SYSTEM_VAR@(vg_les_autoroutes)
+FOR vl_indice=0 TO (ARRAY_SIZE@(tg_stations)-1)      tl_data[vl_indice][0]=tg_stations[vl_indice][0]
+        vl_auto = ARRAY_INDEX@(ARRAY_COLUMN@(tl_autoroutes,0), tg_stations[vl_indice][1])
+	tl_data[vl_indice][1]= SUBSTRING@(tg_stations[vl_indice][4],1,3)++
+		tl_autoroutes[vl_auto][1] ++ " PR " ++(tg_stations[vl_indice][3]/1000) ++ " S"++ tg_stations[vl_indice][2]
+NEXT vl_indice
+
+
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+
+/*A  Affichage des libelles du type de libelles choisi */
+
+tl_titres[0] = "Station ",			60
+tl_titres[1] = "Localisation",		250
+
+
+
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+DB_TABLE_CLEAR_DATA@(vl_fenetre, "TA_stations",0,-1)
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_stations",null,tl_titres,NULL)
+vl_presel[0]=0
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_stations",vl_presel)
+vl_indice=NULL
+
+
+/* Initialisation de la table contenant la liste des stations selectionnees */
+/* ------------------------------------------------------------------------ */
+
+tl_titres2[0] = "Station ",			60
+tl_titres2[1] = "Localisation",		250
+
+
+tl_data_select = null
+
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_stations_valid",TRUE)
+
+DB_TABLE_CLEAR_DATA@(vl_fenetre, "TA_stations_valid",0,-1)
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_stations_valid", null,tl_titres2,NULL)
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_stations_valid",NULL)
+
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+/*
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND*/
+
+
+vl_indice = null
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+	CASE "BO_refer"
+		DB_CTRL_VALUE@(vl_fenetre, "BO_zone", 0)
+		TRG_Lit_Base(vl_fenetre, vm_zones[0].numero)
+
+	CASE "BO_zone"
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre, "BO_zone")
+		DB_TABLE_CLEAR_DATA@(vl_fenetre, "TA_stations_valid",0,-1)
+		vm_zone = vm_zones[vl_valeur]
+		TRG_Lit_Base(vl_fenetre, vm_zones[vl_valeur].numero)
+
+
+
+    CASE "BP_annuler"
+	vl_la_fenetre_est_active = FALSE
+
+
+
+	/* bouton validation station */
+	/* ------------------------- */
+    CASE "BP_droit"
+
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre, "BO_zone")	
+
+		/*indice de la station*/
+		vl_indice=null
+		vl_indice=DB_CTRL_GET_VALUE@( vl_fenetre, "TA_stations")
+		IF(IS_ARRAY@(vl_indice))
+			vl_indice=vl_indice[0]
+
+		/* determination du sens de la station */		
+		vl_sens_station = tg_stations[vl_indice][2]
+
+
+		/* Flag qui permet de dire si la station est deja selectionnee */
+		/* Si le flag est a 0 => la station n'a pas ete selectionnee */
+		vl_deja_selectionne = 0
+
+
+		/* La station a-t-elle deja ete selectionnee ? */
+		/* ------------------------------------------- */
+		vl_nb_stations_selectionnees = ARRAY_SIZE@(tg_stations_zone)
+
+		IF (vl_nb_stations_selectionnees = 0)
+		{
+			tm_stations_select[0] = vl_indice
+ 			TRG_Update(vl_fenetre, 
+						vm_zones[vl_valeur].numero,
+						vl_indice,
+						0)
+          }
+           ELSE
+		{
+			/* On parcourt le tableau des stations selectionnees */
+			/* pour savoir si elle a deja ete selectionnee */
+
+
+			FOR vl_i = 0 TO vl_nb_stations_selectionnees-1
+				IF (tg_stations_zone[vl_i][0] = tg_stations[vl_indice][0])
+				{
+					INFO_MESSAGE@("station deja selectionnee !!")
+					vl_deja_selectionne = 1
+				}
+
+			NEXT vl_i
+
+			IF (vl_deja_selectionne = 0)
+			{
+        vl_auto = ARRAY_INDEX@(ARRAY_COLUMN@(tl_autoroutes,0), tg_stations[vl_indice][1])
+				tl_ajout_station[0] = tg_stations[vl_indice][0]
+				tl_ajout_station[1] =tl_autoroutes[vl_auto][1] 
+				tl_ajout_station[2] = tg_stations[vl_indice][2]
+				tl_ajout_station[4] = tg_stations[vl_indice][1]
+				tl_ajout_station[3] = tg_stations[vl_indice][3]
+				tl_ajout_station[5] = tg_stations[vl_indice][4]
+
+
+
+				tg_stations_zone[vl_nb_stations_selectionnees] =
+						tl_ajout_station
+				TRG_Update(vl_fenetre, 
+						vm_zones[vl_valeur].numero,
+						vl_nb_stations_selectionnees,
+						0)
+			}
+
+
+		}
+
+
+		/* On reforme le tableau de donnees a afficher et on l'affiche */
+		tl_data_select = null
+
+
+
+FOR vl_j=0 TO (ARRAY_SIZE@(tg_stations_zone)-1)	
+	vl_indice_courant = tg_stations_zone[vl_j]
+	tl_data_select[vl_j][0]= tg_stations_zone[vl_j][0]
+	vl_auto=ARRAY_INDEX@(ARRAY_COLUMN@(tl_autoroutes,0), 
+						tg_stations_zone[vl_j][1])
+	tl_data_select[vl_j][1]=tg_stations_zone[vl_j][1]++ " PR " ++
+			(tg_stations_zone[vl_j][3]/1000) ++ " S" ++ 
+			tg_stations_zone[vl_j][2]
+	tl_data_select[vl_j][1] = SUBSTRING@(tg_stations_zone[vl_j][5],1,3)
+				++tl_data_select[vl_j][1]
+NEXT vl_j
+
+		DB_TABLE_CLEAR_DATA@(vl_fenetre, "TA_stations_valid",0,-1)
+		DB_TABLE_SET_DATA@(vl_fenetre, "TA_stations_valid", tl_data_select, tl_titres2, NULL)
+		DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_stations_valid", NULL)
+
+
+
+
+	/* bouton deselection d'une station de la liste */
+	/* -------------------------------------------- */
+     CASE "BP_gauche"
+
+		vl_indice = null
+		vl_indice = Db_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_stations_valid")
+		vl_indice=vl_indice[0]
+
+
+		IF (vl_indice++""=NULL)
+			ERROR@(501,"Selectionnez d'abord une station dans la liste des stations selectionnees !!")
+
+
+		IF TRG_Update(vl_fenetre, 
+						vm_zones[vl_valeur].numero,
+						vl_indice,
+						1) <> COM_NOK
+		{
+			tm_stations_select = ARRAY_DELETE@( tm_stations_select,vl_indice)
+			tg_stations_zone = ARRAY_DELETE@( tg_stations_zone,vl_indice)
+		}
+
+		
+		/* On reforme tableau de donnees a afficher et on l'affiche */
+
+		tl_data_select = null
+
+
+FOR vl_j=0 TO (ARRAY_SIZE@(tg_stations_zone)-1)	
+	vl_indice_courant = tg_stations_zone[vl_j]
+	tl_data_select[vl_j][0]= tg_stations_zone[vl_j][0]
+	vl_auto=ARRAY_INDEX@(ARRAY_COLUMN@(tl_autoroutes,0), 
+						tg_stations_zone[vl_j][1])
+	tl_data_select[vl_j][1]=tg_stations_zone[vl_j][1]++ " PR " ++
+			(tg_stations_zone[vl_j][3]/1000) ++ " S" ++ 
+			tg_stations_zone[vl_j][2]
+	tl_data_select[vl_j][1] = SUBSTRING@(tg_stations_zone[vl_j][5],1,3)
+				++tl_data_select[vl_j][1]
+NEXT vl_j
+
+/*
+		FOR vl_j=0 TO (ARRAY_SIZE@(tm_stations_select)-1)
+			vl_indice_courant = tm_stations_select[vl_j]
+			tl_data_select[vl_j][0] = tg_stations[vl_indice_courant][0]
+			vl_auto=ARRAY_INDEX@(ARRAY_COLUMN@(tl_autoroutes,0), tg_stations[vl_indice_courant][1])
+tl_data_select[vl_j][1] = tl_autoroutes[vl_auto][1] ++ " PR " ++ (tg_stations[vl_indice_courant][3]/1000) ++ " S" ++ tg_stations[vl_indice_courant][2]                        
+			tl_data_select[vl_j][1] = SUBSTRING@(tg_stations[vl_indice_courant][4],1,3)++tl_data_select[vl_j][1]
+		NEXT vl_j*/
+
+		DB_TABLE_CLEAR_DATA@(vl_fenetre, "TA_stations_valid", 0, -1)
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_stations_valid", tl_data_select, 0)
+		DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_stations_valid", NULL)
+
+	/*A
+	 * Sur selection bouton Basculer base
+	 * ----------------------------------
+	 */
+	CASE "BP_Base"
+		IF COM05_SQL_Procedure (XZAO565_Trans_RegComptage, vl_parametres
+, vl_resultats, C_MODULE) <> COM_OK
+		info_message@("probleme de bascul")	
+
+
+
+
+
+        	
+	
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  
+* -------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+* ------------------------------------------------------------------------------ */
+
+MACRO TRG_Lit_Base(va_fenetre,va_zone)
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte ;
+*                     : COM_NOK si aucune selection n'a ete effectuee.
+*
+* CONDITION D'UTILISATION
+*   TRG_Lit_Fichier()
+*
+*
+* -------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR	tl_ligne
+VAR	tl_liste_inter
+VAR	j,i,k,l,vl_j
+VAR	vl_num_station_courante
+VAR	vl_sens_station_courante
+VAR  vl_autoroute_station_courante
+VAR	vl_indice	, vl_presel
+VAR	tl_liste_station,vl_auto, tl_stations
+var vl_base
+var vl_indice_courant, tl_data_select, tl_data
+var tl_autoroutes
+VAR vl_t_titres2, vl_t_titres
+VAR vl_min, vl_max
+var vl_sens_sortie
+var vl_sens_entree
+
+
+/*liste des stations*/
+i=0
+vl_min = MIN@(vm_zone.debut, vm_zone.fin)
+vl_max = MAx@(vm_zone.debut, vm_zone.fin)
+tl_autoroutes = SYSTEM_VAR@(vg_les_autoroutes)
+
+'DUMP_ARRAY@(tg_stations,2)
+'INFO_MESSAGE@(tg_stations[0][2])
+if vm_zone.sens = XDC_SENS_SUD 
+{
+	vl_sens_sortie = XDC_SENS_SORTIE_SUD
+	vl_sens_entree= XDC_SENS_ENTREE_SUD
+}
+else
+{
+	vl_sens_sortie = XDC_SENS_SORTIE_NORD
+	vl_sens_entree= XDC_SENS_ENTREE_NORD
+}
+
+tl_data=null
+TG_STATIONS=NULL
+FOR vl_indice=0 TO (ARRAY_SIZE@(tg_stations_full)-1)   
+	if (tg_stations_full[vl_indice][1] = vm_zone.autoroute) and
+		/*(tg_stations_full[vl_indice][3] >= vl_min) and 
+		(tg_stations_full[vl_indice][3] <= vl_max)  and*/
+		(tg_stations_full[vl_indice][2] = vm_zone.sens or
+			tg_stations_full[vl_indice][2] = vl_sens_sortie or
+			tg_stations_full[vl_indice][2] = vl_sens_entree)
+
+	 {
+		tl_data[i][0]=tg_stations_full[vl_indice][0]
+        	vl_auto = ARRAY_INDEX@(ARRAY_COLUMN@(tl_autoroutes,0),
+				tg_stations_full[vl_indice][1])
+  	   	tl_data[i][1]= tl_autoroutes[vl_auto][1] ++ " PR " 
+				++(tg_stations_full[vl_indice][3]/1000) ++ " S"
+				++ tg_stations_full[vl_indice][2]
+		tl_data[i][1]= SUBSTRING@(tg_stations_full[vl_indice][4],1,3)++
+					tl_data[i][1]
+		tg_stations[i]=tg_stations_full[vl_indice]
+		i = i +1
+	}
+NEXT vl_indice
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = "CFG"
+if vl_base = 1
+	vl_base = "CFT"
+
+
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_zone
+vl_parametres[1].output = FALSE
+vl_resultats = null
+
+IF COM05_SQL_Procedure (XZAO563_Liste_Comptage,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+   RETURN (COM_NOK)
+
+vl_indice=0
+
+tm_stations_select=null
+tl_liste_station=vl_resultats.select_results[0]
+tg_stations_zone = tl_liste_station
+
+vm_nb_lignes_station=ARRAY_SIZE@(tl_liste_station)
+'DUMP_ARRAY@(tg_stations_zone,2)
+'DUMP_ARRAY@(tl_liste_station,2)
+
+/* Remplissage de tm_stations_select avec les indices corrects */
+/*FOR k=0 to vm_nb_lignes_station-1
+	vl_num_station_courante = tl_liste_station[k][0]
+	vl_sens_station_courante = tl_liste_station[k][2]
+INFO_MESSAGE@(vl_num_station_courante ++ " " ++vl_sens_station_courante )
+	FOR l=0 TO ARRAY_SIZE@(tg_stations)-1
+		IF (tg_stations[l][0]=vl_num_station_courante and 						 	tg_stations[l][2]=vl_sens_station_courante ) {
+			vl_indice=l
+INFO_MESSAGE@(vl_num_station_courante ++ " " ++vl_sens_station_courante )
+		}
+	NEXT l
+	tm_stations_select[k]=vl_indice
+NEXT k
+ DUMP_ARRAY@(tm_stations_select,2)*/
+
+/* remplissage du tableau des stations selectionnees */
+/* ------------------------------------------------- */
+
+/* On reforme le tableau de donnees a afficher et on l'affiche */
+tl_data_select = null
+vl_indice_courant = null
+tl_autoroutes=SYSTEM_VAR@(vg_les_autoroutes)
+
+
+FOR vl_j=0 TO (ARRAY_SIZE@(tl_liste_station)-1)	
+	vl_indice_courant = tl_liste_station[vl_j]
+	tl_data_select[vl_j][0]= tl_liste_station[vl_j][0]
+	vl_auto=ARRAY_INDEX@(ARRAY_COLUMN@(tl_autoroutes,0), 
+						tl_liste_station[vl_j][1])
+	tl_data_select[vl_j][1]=tl_liste_station[vl_j][1]++ " PR " ++
+			(tl_liste_station[vl_j][3]/1000) ++ " S" ++ 
+			tl_liste_station[vl_j][2]
+	tl_data_select[vl_j][1] = SUBSTRING@(tl_liste_station[vl_j][5],1,3)
+				++tl_data_select[vl_j][1]
+NEXT vl_j
+tm_stations_select = tl_data_select
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_stations_valid",0,-1)
+DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_stations_valid", tl_data_select)
+
+
+
+
+
+
+
+
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_stations",0,-1)
+DB_TABLE_SET_NEW_DATA@(va_fenetre,"TA_stations",tl_data,0)
+vl_presel[0]=0
+DB_TABLE_SET_SELECTIONS@(va_fenetre,"TA_stations",vl_presel)
+
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Produit le fichier des stations selectionnees
+* -----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_Update (va_fenetre,va_zone,va_station, va_ajout)
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte ;
+*                     : COM_NOK si aucune selection n'a ete effectuee.
+*
+* CONDITION D'UTILISATION
+*   TRG_Cree_Fichier()
+*
+*
+* -------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR     vl_indice
+VAR		i
+VAR	vl_indice_courant
+var vl_base
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = "CFG"
+if vl_base = 1
+	vl_base = "CFT"
+
+
+vl_parametres=NULL
+
+/* Formation du tableau composant le fichier */
+/* ----------------------------------------- */
+vl_parametres=NULL
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_zone
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data= tg_stations_zone[va_station][0]	/*num*/
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#INT2_
+vl_parametres[3].data=tg_stations_zone[va_station][2]	/*sens*/
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#INT2_
+vl_parametres[4].data=va_ajout		/*sens*/
+vl_parametres[4].output = FALSE
+'DUMP_ARRAY@(vl_parametres,2)
+
+vl_parametres[5].type = SYB#INT2_
+vl_parametres[5].data=0		/*sens*/
+vl_parametres[5].output = True
+
+vl_resultats = null
+
+
+IF COM05_SQL_Procedure (XZAO564_Ecrire_Stations,
+	     vl_parametres, vl_resultats, "MTRG") <> COM_OK 
+{
+ INFO_MESSAGE@("Impossible de sauvegarder la configuration en base")
+  RETURN (COM_NOK)
+	
+}
+else IF vl_resultats.return_parameters[0]=1 
+{
+	INFO_MESSAGE@("Impossible de supprimer cette station car elle est associee a une condition de regulation")
+	return (COM_NOK)
+}
+
+
+/*IF  COM05_SQL_Procedure (XZAO564_Ecrire_Stations,
+	     vl_parametres, vl_resultats, "MTRG") = 5 
+{
+  INFO_MESSAGE@("Impossible de supprimer cette station car elle est associee a une condition de regulation")
+}*/
+
+
+
+
+RETURN (COM_OK)
+
+ENDMACRO

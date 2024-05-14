@@ -1,0 +1,234 @@
+/*E*/
+/* Fichier : $Id: ITMA_menu_LT.am,v 1.17 2017/12/21 15:14:30 gesconf Exp $      Release : $Revision: 1.17 $        Date : $Date: 2017/12/21 15:14:30 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_menu_LT
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Affichage du menu principal dans un LT*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Cornu 		16 Sep 1994	: Creation
+* Charle 		04 Jui 1995	: Action qualité V1.13
+* Mismer 		26 Jan 1998	: Ajout PAL V1.15
+---------------------------------------------------------------------------- */
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+macro ITMA_menu_LT
+
+var 	vl_fenetre
+var	vl_la_fenetre_est_active
+var 	vl_object_select
+var 	vl_objet
+var  i
+var  vl_droits
+var	x
+var	vl_repertoire, vl_liste
+var	tl_names
+
+
+/*A
+ * Determiner le chemin d'acces complet au logiciel
+ * ------------------------------------------------
+ */
+
+vl_repertoire = CURRENT_DIR@()
+vl_liste = ARRAY_FROM_STRING@ (vl_repertoire, "/")
+vl_liste = ARRAY_DELETE@ (vl_liste, ARRAY_SIZE@ (vl_liste))
+vl_repertoire = ARRAY_TO_STRING@ (vl_liste, "/")
+SET_SYSTEM_VAR@ (vg_repertoire_migrazur, vl_repertoire ++ "/")
+
+
+
+/*A
+ * Ajouter le repertoire des pictogrammes
+ * a la liste des repertoires de recherche
+ * ---------------------------------------
+ */
+
+tl_names = SYSTEM_VAR@ ("elf_search_list@")
+tl_names[ARRAY_SIZE@(tl_names)] = SYSTEM_VAR@(vg_repertoire_migrazur) ++ COM_SOUS_REP_PICTOS
+SET_SYSTEM_VAR@ ("elf_search_list@", tl_names)
+
+
+
+/*A
+* Definition du traitement a realiser en cas d'erreur
+* ---------------------------------------------------*/
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur ("MTLM"))
+    RETURN
+}
+
+/*A
+ * forcer les droits
+ * ------------------
+ */
+for i = 0 to 50
+	vl_droits[i] = TRUE
+next i
+SET_SYSTEM_VAR@(vg_familles,vl_droits)
+
+
+
+
+/*A
+ * installer le fichier ITMA_TAR01_Emission
+ * -------------------------------------
+ */
+/*INSTALL_FILE@("ITMA_TAR01_Emission.am")*/
+
+
+
+
+/*A
+ * Charger la fenetre
+ * ------------------
+ */
+vl_fenetre = DB_LOAD@ ("ITMA_menu_LT")
+
+DB_XPOS@ (vl_fenetre, 75)
+DB_YPOS@ (vl_fenetre, 1)
+
+
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY@ (vl_fenetre)
+	vl_objet = DB_EXIT_CTRL@ (vl_fenetre)
+	IF SYSTEM_VAR@ (vg_verrou) vl_objet = NULL
+
+     /*A
+     * Suivant l'objet sélectionné
+     * ------------------
+     */
+	CASE OF vl_objet
+
+	     /*A
+	     * Si l'objet sélectionné est "Quitter"
+	     * ------------------
+ 	     */
+		CASE "BP_Quitter"
+			/*A
+			* Quitter la fenêtre en cours
+ 			*/
+			DB_SEND_POKE@(COM_CANAL_FIN,TRUE)
+			vl_la_fenetre_est_active = FALSE
+OPEN_ASCII_FILE@ ( "/tmp/surv_log.log", "a")
+WRITE_FILE@ ( "/tmp/surv_log.log", FORMAT@ ("\n%s : %s  ", COM09_Date_Courante (TRUE), "______ FIN 2  CONNEXION ______"))
+CLOSE_FILE@  ( "/tmp/surv_log.log")
+
+
+
+	     /*A
+	     * Si l'objet sélectionné est "Pilotage PMV"
+	     * ------------------
+ 	     */
+		CASE "BP_PMV"
+			/*A
+			* Lancer la fenêtre de pilotage PMV
+ 			*/
+			New_task@("ITMA_TPM_pilotage_PMV_LT","ITMA_TMT")
+
+	     /*A
+	     * Si l'objet sélectionné est "Pilotage PAL"
+	     * ------------------
+ 	     */
+		CASE "BP_PAL"
+			/*A
+			* Lancer la fenêtre de pilotage PAL
+ 			*/
+			New_task@("ITMA_TPP_pilotage_PAL_LT","ITMA_TMT")
+
+	     /*A
+	     * Si l'objet sélectionné est "Pilotage BRA"
+	     * ------------------
+ 	     */
+		CASE "BP_NAV"
+			/*A
+			* Lancer la fenêtre de pilotage BRA
+ 			*/
+			/*! New_task@("ITMA_TNA_pilotage_NAV_LT","ITMA_TMT") */
+
+	     /*A
+	     * Si l'objet sélectionné est "LCR"
+	     * ------------------
+ 	     */
+		CASE "BP_LCR"
+			/*A
+			* Lancer la fenêtre de pilotage LCR
+ 			*/
+			New_task@("ITMA_TIE_fenetre_LCR","ITMA_TMT")
+
+	     /*A
+	     * Si l'objet sélectionné est "Alarmes"
+	     * ------------------
+ 	     */
+		CASE "BP_Alarmes"
+			/*A
+			* Lancer la fenêtre des alarmes LT
+ 			*/
+			New_task@("ITMA_TLX_fenetre_alarmes","ITMA_TMT")
+
+	     /*A
+	     * Si l'objet sélectionné est "Menu Config"
+	     * ------------------
+ 	     */
+		CASE "BP_config"
+			/*A
+			* Lancer la fenêtre de menu config
+ 			*/
+			New_task@("ITMA_menu_config","ITMA_TMT")
+
+	     /*A
+	     * Si l'objet sélectionné est "OpenView"
+	     * ------------------
+ 	     */
+		CASE "BP_openview"
+			/*A
+			* Lancer OpenView
+ 			*/
+			x = Shell_Command@("mido_ovw.sh")
+		/*A
+	     * Si l'objet sélectionné est "EasyCam"
+	     * ------------------
+ 	     */
+		CASE "BP_easycam"
+			/*A
+			* Lancer Easy Cam
+ 			*/
+			x = Shell_Command@("mido_cam.sh")
+
+	 /*A
+	 * Fin de traitement de l'objet sélectionné
+	 * ------------------
+ 	 */
+ 	 ENDCASE
+
+/*A
+ * Fin de traitement de la fenetre 
+ * --------------------------------
+ */
+WEND
+
+ENDMACRO
+
+

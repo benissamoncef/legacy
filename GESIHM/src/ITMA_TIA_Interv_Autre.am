@@ -1,0 +1,879 @@
+/*E*/
+/* Fichier : $Id: ITMA_TIA_Interv_Autre.am,v 1.21 2020/11/03 17:39:08 pc2dpdy Exp $      Release : $Revision: 1.21 $        Date : $Date: 2020/11/03 17:39:08 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TIA * FICHIER ITMA_TIA_Interv_Autre.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Description d'une intervention de type autre que depanneur et patrouille SIS.
+*
+* Non decrit dans le DCG
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 30 Nov 1994	: Creation                                         V1.1
+* Lecrivain 15 Dec 1994	: Fonctions de traitements de dates, appel MSOP    V1.3
+* Noel	  16 Dec 1994	: Mise à jour interface MSOP et MTMC		V1.4
+* Guilhou  26 dec 1994	: modif evt lie					V1.5
+* Guilhou  27 dec 1994	: aide composition horodates			V1.6
+* Lecrivain 16 Fev 1995	: Types "Pompier", "GN" et "Autre" non modifiables V1.8
+* Torregrossa 11 Sep 1995	: Ajout controle sur dates V1.9
+* Torregrossa 04 Oct 1995	: Ajout controle sur dates suite V1.10
+* Guilhou	17 sep 1996	: modif gestion lien cause pour applix 4.2 V1.11
+* Guilhou	03 dec 1996	: refonte de la gestion des astreintes (DEM/1306) 1.12
+* Guilhou	16 dec 1996 : activer le bouton bascule Annulation 1.13
+* Guilhou	21 jan 1997 : correction annulation intervention 1.14 (DEM/1379)
+* Guilhou		03 oct 1997	: liste FMC cause a le m look que liste des FMC a traiter (ana/65) 1.15
+* Lecrivain	06 mar 2007	: Nom intervenant Pompiers ou GN initialisé en création 1.16
+* JPL		31/07/0207 : Gestion des secondes pour toutes les dates (DEM 679) 1.17
+* JPL		31/07/2007 : Restauration taille prevue a l'ouverture (Display avant) 1.18
+* JPL		03/09/2007 : Ne plus redimensionner la fenetre pour eviter un "fantome" (DEM 699) 1.19
+* PNI		10/03/09 : Bt valider pour CI & PC niv2 (DEM871) 1.20
+* LCL   	22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+INCLUDE	"../inc/xzac16sp.h"
+INCLUDE	"../inc/xzac36sp.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTIA"			' Nom du module
+
+
+
+/*A
+ * Definition des libelles des titres de la fenetre
+ *     et noms de l'intervenant selon le type
+ * ------------------------------------------------
+ */
+
+DEFINE	TIA_LIB_INTERV_POMPIER	"Intervention Pompiers"
+DEFINE	TIA_LIB_INTERV_GN	"Intervention Gendarmerie"
+
+DEFINE	TIA_NOM_INTERV_POMPIER	"POMPIERS"
+DEFINE	TIA_NOM_INTERV_GN	"GENDARMERIE"
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+DEFINE	C_LIB_LIER_FMC		"Lier d'abord un événement à l'intervention"
+DEFINE	C_LIB_SAISIR_DATE	"Indiquer l'horodate de départ pour le site ou d'arrivée sur site"
+
+
+
+/*A
+ * Description du format des donnees action
+ * ----------------------------------------
+ */
+
+FORMAT	TIA_Action
+	nom,					' Nom intervention
+	type,					' Type de l'intervention
+	date_debut,				' Horodate debut
+	date_fin,				' Horodate de fin
+	operateur,				' Identifiant operateur
+	date_succes,				' Horodate d'arrivee sur site
+	sous_type_astreinte,
+	annulation,
+	date_annulation
+
+
+
+VAR     vm_num_action				' Identifiant de l'action
+VAR     vm_num_site_action			' Cle action (site de creation)
+VAR FORMAT TIA_Action vm_action			' Informations action
+VAR FORMAT COM_Identifiant_FMC vm_FMC		' Identifiant FMC liee
+VAR	tm_liste_causes
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Creation, modification ou visualisation d'une fiche d'intervention de type
+*  autre que depanneur et patrouille SIS.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TIA_Interv_Autre (va_appelant, va_arg1)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_appelant       : Nom de la macro Applix ayant invoque la presente ;
+*
+* . Si activation depuis MTMT :
+*   va_type_action    : Type de l'intervention (pompier, depanneur, ...).
+*
+* . Si activation depuis MTMC :
+*   va_num_action     : Numero de l'action a visualiser ou modifier ;
+*   va_num_site       : Identifiant du site de creation de l'action ;
+*   va_num_FMC        : Identifiant de la FMC liee a l'action ;
+*   va_cle_FMC        : Cle de la FMC liee a l'action ;
+*   va_lib_FMC        : Libelle de la fiche main courante liee.
+*
+* . Si activation depuis MSOP :
+*   va_arg1[]         : Liste d'arguments :
+*    va_num_action    : Numero de l'action a visualiser ou modifier ;
+*    va_num_site      : Identifiant du site de creation de l'action ;
+*    va_num_FMC       : Identifiant de la FMC liee a l'action ;
+*    va_cle_FMC       : Cle de la FMC liee a l'action.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option "Decrire -> Intervention -> Pompiers" ou
+*                                                  -> Gendarmerie ou
+*                                                  -> Autre  dans MTMT
+*   Selection d'une action dans MTMC ;
+*   Selection d'un vehicule d'intervenant dans MSOP.
+*
+* FONCTION
+*   Permet a l'operateur de creer une fiche d'intervention de type different
+*   de depanneur et patrouille SIS.
+*   Permet de visualiser une fiche deja creee et de la modifier (uniquement
+*   sur le site de creation).
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_liste, i
+    VAR     tl_data,tl_retour,tl_titres
+	VAR	vl_Status
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (COM_NOK)
+}
+
+
+/*A
+ * Charger la fenetre "Autre Intervention"
+ * ---------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TIA")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TIA_Interv_Autre")
+
+
+/*A
+ * Positionner et redimensionner la fenetre
+ * ----------------------------------------
+ */
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+vl_liste = {
+	"BS_Jour_Depart_Pour_Site", "BS_Mois_Depart_Pour_Site",
+	"BS_Annee_Depart_Pour_Site", "BS_Heure_Depart_Pour_Site",
+	"BS_Minute_Depart_Pour_Site", "BS_Seconde_Depart_Pour_Site",
+	"BS_Jour_Arrivee_Site", "BS_Mois_Arrivee_Site",
+	"BS_Annee_Arrivee_Site", "BS_Heure_Arrivee_Site",
+	"BS_Minute_Arrivee_Site", "BS_Seconde_Arrivee_Site",
+	"BS_Jour_Depart_Du_Site", "BS_Mois_Depart_Du_Site",
+	"BS_Annee_Depart_Du_Site", "BS_Heure_Depart_Du_Site",
+	"BS_Minute_Depart_Du_Site", "BS_Seconde_Depart_Du_Site",
+	"BS_Jour_annulation", "BS_Mois_annulation", "BS_Annee_annulation",
+	"BS_Heure_annulation", "BS_Minute_annulation", "BS_Seconde_annulation"
+}
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_liste) - 1
+    DB_CTRL_VALID_CHARS@ (vl_fenetre, vl_liste[i], COM_CHIFFRES)
+NEXT i
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BA_annulation",TRUE)
+
+
+/*A
+ * Initialiser les donnees a visualiser
+ * ------------------------------------
+ */
+
+IF SUBSTRING@(va_appelant, 6, 3) = "TMT" {
+    vm_action.type = va_arg1
+} ELSE {
+    vm_num_action = va_arg1[2] + 0
+    vm_num_site_action = va_arg1[3] + 0
+    vm_FMC.numero = va_arg1[0] + 0
+    vm_FMC.cle = va_arg1[1] + 0
+} 
+
+IF TIA_Init_Autre_Intervention (vl_fenetre, vm_num_action, vm_num_site_action,
+				   null) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+    /*annulation*/
+    CASE "BA_annulation"
+	vl_status = DB_CTRL_GET_VALUE@(vl_fenetre,vl_objet_selecte)
+	DB_CTRL_GRAYED@(vl_fenetre,"BS_Jour_annulation",NOT vl_status)
+	DB_CTRL_GRAYED@(vl_fenetre,"BS_Mois_annulation",NOT vl_status)
+	DB_CTRL_GRAYED@(vl_fenetre,"BS_Annee_annulation",NOT vl_status)
+	DB_CTRL_GRAYED@(vl_fenetre,"BS_Heure_annulation",NOT vl_status)
+	DB_CTRL_GRAYED@(vl_fenetre,"BS_Minute_annulation",NOT vl_status)
+	DB_CTRL_GRAYED@(vl_fenetre,"BS_Seconde_annulation",NOT vl_status)
+	DB_CTRL_GRAYED@(vl_fenetre,"BP_hannulation",NOT vl_status)
+
+     /*A bouton aide a la composition de l'horodate annulation*/
+    CASE "BP_hannulation"
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(TRUE), vl_fenetre,
+	                            "BS_Jour_annulation", "BS_Mois_annulation",
+	                            "BS_Annee_annulation", "BS_Heure_annulation",
+	                            "BS_Minute_annulation", "BS_Seconde_annulation")
+
+  /*A bouton aide a la composition de l'horodate depart pour le site*/
+    CASE "BP_horodepart_site"
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(TRUE), vl_fenetre,
+	                            "BS_Jour_Depart_Pour_Site", "BS_Mois_Depart_Pour_Site",
+	                            "BS_Annee_Depart_Pour_Site", "BS_Heure_Depart_Pour_Site",
+	                            "BS_Minute_Depart_Pour_Site", "BS_Seconde_Depart_Pour_Site")
+
+      /*A bouton aide a la composition de l'horodate arrivee sur le site*/
+    CASE "BP_horoarrivee_site"
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(TRUE), vl_fenetre,
+	                            "BS_Jour_Arrivee_Site", "BS_Mois_Arrivee_Site",
+	                            "BS_Annee_Arrivee_Site", "BS_Heure_Arrivee_Site",
+	                            "BS_Minute_Arrivee_Site", "BS_Seconde_Arrivee_Site")
+
+    /*A bouton aide a la composition de l'horodate depart du site*/
+    CASE "BP_horodepart_dusite"
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(TRUE), vl_fenetre,
+	                            "BS_Jour_Depart_Du_Site", "BS_Mois_Depart_Du_Site",
+	                            "BS_Annee_Depart_Du_Site", "BS_Heure_Depart_Du_Site",
+	                            "BS_Minute_Depart_Du_Site", "BS_Seconde_Depart_Du_Site")
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+ 	/*B appui sur le bouton lier fmc*/
+	CASE "BP_Lier_FMC"
+		MACRO_WINS_BUSY@()
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+							"ITMA_TIA_Interv_Autre")
+
+		tm_liste_causes=tl_data[0]
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vl_fenetre,"TA_Evenements",TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_Evenements",TRUE)
+		DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre, "TA_Evenements", 25)
+		tl_titres[0] = { COM_CAUSE_NUMERO, COM_CAUSE_LONG_NUMERO }
+		tl_titres[1] = { COM_CAUSE_CLE, COM_CAUSE_LONG_CLE }
+		tl_titres[2] = { COM_CAUSE_TYPE, COM_CAUSE_LONG_TYPE }
+		tl_titres[3] = { COM_CAUSE_DATE, COM_CAUSE_LONG_DATE }
+		tl_titres[4] = { COM_CAUSE_LOCALISATION, COM_CAUSE_LONG_LOCALISATION }
+		DB_TABLE_SET_DATA@(vl_fenetre,"TA_Evenements",tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vl_fenetre, "TA_Evenements", 0, tl_data[2])
+		
+
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+		MACRO_WINS_BUSY@()
+		tl_retour=ITMA_COM_Validite_Cause("ITMA_TIA_Interv_Autre",vl_fenetre,tm_liste_causes)
+		vm_FMC = tl_retour[0]
+		DB_CTRL_TITLE@ (vl_fenetre, "LI_Libelle_FMC",  tl_retour[1])
+		
+   /*A
+     * Sur choix "Valider", verifier la validite des donnees saisies
+     * et la presence de la date de debut ou de succes et d'une FMC liee
+     * -----------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	IF vm_FMC.numero = NULL
+	    ERROR@ (C_ERR_IHM, C_LIB_LIER_FMC)
+
+	vm_action.date_debut = COM23_Horodate (vl_fenetre,
+						  "BS_Jour_Depart_Pour_Site",
+						  "BS_Mois_Depart_Pour_Site",
+						  "BS_Annee_Depart_Pour_Site",
+						  "BS_Heure_Depart_Pour_Site",
+						  "BS_Minute_Depart_Pour_Site",
+						  "BS_Seconde_Depart_Pour_Site")
+
+	vm_action.date_succes = COM23_Horodate (vl_fenetre,
+						   "BS_Jour_Arrivee_Site",
+						   "BS_Mois_Arrivee_Site",
+						   "BS_Annee_Arrivee_Site",
+						   "BS_Heure_Arrivee_Site",
+						   "BS_Minute_Arrivee_Site",
+						   "BS_Seconde_Arrivee_Site")
+
+	IF vm_action.date_debut = NULL  AND  vm_action.date_succes = NULL
+	    ERROR@ (C_ERR_IHM, C_LIB_SAISIR_DATE)
+
+	vm_action.annulation = DB_CTRL_GET_VALUE@(vl_fenetre,"BA_annulation")
+	if (vm_action.annulation) {
+	  vm_action.annulation=1
+	  vm_action.date_annulation = COM23_Horodate(vl_fenetre,
+						"BS_Jour_annulation",
+						"BS_Mois_annulation",
+						"BS_Annee_annulation",
+						"BS_Heure_annulation",
+						"BS_Minute_annulation",
+						"BS_Seconde_annulation")
+	}
+	else {
+	  vm_action.annulation=0
+	  vm_action.date_annulation = null
+	}
+
+	vm_action.date_fin = COM23_Horodate (vl_fenetre,
+						"BS_Jour_Depart_Du_Site",
+						"BS_Mois_Depart_Du_Site",
+						"BS_Annee_Depart_Du_Site",
+						"BS_Heure_Depart_Du_Site",
+						"BS_Minute_Depart_Du_Site",
+						"BS_Seconde_Depart_Du_Site")
+
+	/*A
+	 * controle la coherence des dates
+	 * -------------------------------
+	 */
+	vl_Status = COM_OK
+
+	IF ( IS_NULL@(vm_action.date_debut)) 
+	{
+		INFO_MESSAGE@("L'horodate de départ sur site doit être renseignée")
+		vl_Status = COM_NOK
+	}
+	ELSE IF (COM17_Difference_Dates(vm_action.date_debut,COM09_Date_Courante (TRUE))>0)
+	{
+		INFO_MESSAGE@("L'horodate de départ sur site ne doit pas être supérieure à la date courante")
+		vl_Status = COM_NOK
+	}
+
+	IF ( NOT IS_NULL@(vm_action.date_succes)) 
+		IF (COM17_Difference_Dates(vm_action.date_succes,vm_action.date_debut)<0)
+	{
+		INFO_MESSAGE@("L'horodate d'arrivée sur site doit être supérieure à l'horodate de départ sur site")
+		vl_Status = COM_NOK
+	}
+
+	IF ( NOT IS_NULL@(vm_action.date_fin))  AND (vl_Status = COM_OK)
+		IF ( IS_NULL@(vm_action.date_succes)) 
+		{
+			INFO_MESSAGE@("L'horodate d'arrivée sur site doit être valuée avant l'horodate de départ sur site")
+			vl_Status = COM_NOK
+		}
+		ELSE IF (COM17_Difference_Dates(vm_action.date_fin,vm_action.date_succes)<0)
+	{
+		INFO_MESSAGE@("L'horodate de départ du site doit être supérieure à l'horodate d'arrivée sur site")
+		vl_Status = COM_NOK
+	}
+
+	IF ((vm_action.annulation=1) and IS_NULL@(vm_action.date_annulation)) {
+		INFO_MESSAGE@("Dans le cas d'une annulation, l'horodate d'annulation doit être renseignée")
+		vl_status = COM_NOK
+	}
+
+	IF (vm_action.annulation = 1) and (NOT IS_NULL@(vm_action.date_annulation)) {
+		IF NOT IS_NULL@(vm_action.date_debut) {
+			IF (COM17_Difference_Dates(vm_action.date_annulation,vm_action.date_debut)<0) {
+				INFO_MESSAGE@("L'horodate d'annulation doit être superieure à l'horodate de depart")
+				vl_status = COM_NOK
+			}
+		}
+	}
+
+	IF vl_Status = COM_OK
+	{
+		/*A
+		 * puis archiver les (nouvelles) donnees intervention et terminer
+		 * --------------------------------------------------------------
+		 */
+		vm_action.nom = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Nom_Intervention")
+
+		vm_action.operateur = SYSTEM_VAR@ (vg_numero_operateur)
+
+		IF TIA_Ecrire_Autre_Intervention (vm_num_action, vm_num_site_action,
+					     vm_FMC, vm_action) = COM_OK
+		    vl_la_fenetre_est_active = FALSE
+	}
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les informations visualisees sur l'intervention.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TIA_Init_Autre_Intervention (va_fenetre, va_num_action, va_num_site,
+				    va_lib_FMC)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_num_action     : Numero de l'action a visualiser ou modifier ;
+*   va_num_site       : Identifiant du site de creation de l'action ;
+*   va_lib_FMC        : Libelle de la fiche main courante liee.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TIA_Interv_Autre
+*
+* FONCTION
+*   Si une action est fournie en entree, lit en base de donnees et affiche les
+*   informations sur l'intervention et sur l'evenement associe.
+*   En creation, initialise a l'ecran l'horodate de debut d'intervention
+*   avec l'horodate courante.
+*   Value enfin le titre de la fenetre selon le type d'intervention.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TIA_Action vl_action		' Infos de l'action traitee
+    VAR FORMAT COM_Intitule_FMC vl_FMC		' Informations evenement
+	VAR vl_val
+
+/*A
+ * Si aucun numero de site n'a ete fourni (mode creation),
+ * valuer l'horodate de debut a l'horodate courante
+ * -------------------------------------------------------
+ */
+
+IF va_num_site = NULL {
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Libelle_FMC", NULL)
+
+    COM24_Afficher_Horodate (COM09_Date_Courante(TRUE), va_fenetre,
+				"BS_Jour_Depart_Pour_Site",
+				"BS_Mois_Depart_Pour_Site",
+				"BS_Annee_Depart_Pour_Site",
+				"BS_Heure_Depart_Pour_Site",
+				"BS_Minute_Depart_Pour_Site",
+				"BS_Seconde_Depart_Pour_Site")
+
+    /*A
+     * et le nom de l'intervenant selon le type d'intervention
+     * -------------------------------------------------------
+     */
+    CASE OF vm_action.type
+    CASE XDC_ACT_INT_POM
+	DB_CTRL_VALUE@ (va_fenetre, "BS_Nom_Intervention", TIA_NOM_INTERV_POMPIER)
+    CASE XDC_ACT_INT_GND
+	DB_CTRL_VALUE@ (va_fenetre, "BS_Nom_Intervention", TIA_NOM_INTERV_GN)
+    ENDCASE
+} ELSE {
+
+    /*A
+     * sinon lire en base les donnees de l'intervention,
+     * -------------------------------------------------
+     */
+
+    IF TIA_Lire_Autre_Intervention (va_num_action, va_num_site, vl_action)
+	  <> COM_OK
+	RETURN (COM_NOK)
+
+    DB_CTRL_VALUE@ (va_fenetre, "BS_Nom_Intervention", vl_action.nom)
+    vm_action.type = vl_action.type
+
+    COM24_Afficher_Horodate (COM18_Date_SGBD_Formatee (vl_action.date_debut),
+				va_fenetre,
+				"BS_Jour_Depart_Pour_Site",
+				"BS_Mois_Depart_Pour_Site",
+				"BS_Annee_Depart_Pour_Site",
+				"BS_Heure_Depart_Pour_Site",
+				"BS_Minute_Depart_Pour_Site",
+				"BS_Seconde_Depart_Pour_Site")
+
+    COM24_Afficher_Horodate (COM18_Date_SGBD_Formatee (vl_action.date_succes),
+				va_fenetre,
+				"BS_Jour_Arrivee_Site",
+				"BS_Mois_Arrivee_Site",
+				"BS_Annee_Arrivee_Site",
+				"BS_Heure_Arrivee_Site",
+				"BS_Minute_Arrivee_Site",
+				"BS_Seconde_Arrivee_Site")
+
+    COM24_Afficher_Horodate (COM18_Date_SGBD_Formatee (vl_action.date_fin),
+				va_fenetre,
+				"BS_Jour_Depart_Du_Site",
+				"BS_Mois_Depart_Du_Site",
+				"BS_Annee_Depart_Du_Site",
+				"BS_Heure_Depart_Du_Site",
+				"BS_Minute_Depart_Du_Site",
+				"BS_Seconde_Depart_Du_Site")
+
+    COM24_Afficher_Horodate (COM18_Date_SGBD_Formatee (vl_action.date_annulation),
+				va_fenetre,
+				"BS_Jour_annulation",
+				"BS_Mois_annulation",
+				"BS_Annee_annulation",
+				"BS_Heure_annulation",
+				"BS_Minute_annulation",
+				"BS_Seconde_annulation")
+
+    /*si l'action a ete annulee*/
+    if (vl_action.annulation+0=XDC_VRAI) 
+	vl_val=TRUE
+    else
+	vl_val=FALSE
+    DB_CTRL_VALUE@(va_fenetre,"BA_annulation",vl_val)
+
+    DB_CTRL_GRAYED@(va_fenetre,"BS_Jour_annulation",not vl_val)
+    DB_CTRL_GRAYED@(va_fenetre,"BS_Mois_annulation",not vl_val)
+    DB_CTRL_GRAYED@(va_fenetre,"BS_Annee_annulation",not vl_val)
+    DB_CTRL_GRAYED@(va_fenetre,"BS_Heure_annulation",not vl_val)
+    DB_CTRL_GRAYED@(va_fenetre,"BS_Minute_annulation",not vl_val)
+    DB_CTRL_GRAYED@(va_fenetre,"BS_Seconde_annulation",not vl_val)
+    DB_CTRL_GRAYED@(va_fenetre,"BP_hannulation",not vl_val)
+
+	if (not vl_val){
+    		DB_CTRL_VALUE@(va_fenetre,"BS_Jour_annulation",null)
+    		DB_CTRL_VALUE@(va_fenetre,"BS_Mois_annulation",null)
+    		DB_CTRL_VALUE@(va_fenetre,"BS_Annee_annulation",null)
+    		DB_CTRL_VALUE@(va_fenetre,"BS_Heure_annulation",null)
+    		DB_CTRL_VALUE@(va_fenetre,"BS_Minute_annulation",null)
+    		DB_CTRL_VALUE@(va_fenetre,"BS_Seconde_annulation",null)
+    }
+
+    /*A
+     * puis si le libelle de la FMC associee n'est pas
+     * fourni, lire en base les donnees de l'evenement
+     * -----------------------------------------------
+     */
+
+    IF va_lib_FMC <> NULL
+	DB_CTRL_TITLE@ (va_fenetre, "LI_Libelle_FMC", va_lib_FMC)
+    ELSE IF ITMA_COM_Lire_Evenement (vm_FMC.numero, vm_FMC.cle,
+					vl_FMC, C_MODULE) = COM_OK
+	DB_CTRL_TITLE@ (va_fenetre, "LI_Libelle_FMC", COM11_Libelle_FMC(vl_FMC))
+    ELSE DB_CTRL_TITLE@ (va_fenetre, "LI_Libelle_FMC", NULL)
+
+	if (vl_action.sous_type_astreinte<>null)
+		DB_CTRL_TITLE@(va_fenetre, "LI_sous_type", vl_action.sous_type_astreinte)
+	else {
+		DB_CTRL_DISPLAY@(va_fenetre, "LI_sous_type", FALSE)
+		DB_CTRL_DISPLAY@(va_fenetre, "LI_sous", FALSE)
+    }
+
+    /*A
+     * enfin si le site de creation de l'action n'est
+     * pas le site local, interdire toute modification
+     * -----------------------------------------------
+     */
+
+/* DEM871 */
+    IF (vm_num_site_action <> SYSTEM_VAR@ (vg_site)) and (SYSTEM_VAR@ (vg_site)<>XDC_CI) and  (vm_num_site_action <> XDC_CI) {
+	DB_CTRL_DISPLAY@ (va_fenetre, "BP_Lier_FMC", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BP_Valider", FALSE)
+    }
+}
+
+
+/*A
+ * Valuer le titre de la fenetre selon le type d'intervention
+ * ----------------------------------------------------------
+ */
+
+CASE OF vm_action.type
+    CASE XDC_ACT_INT_POM
+	DB_TITLE@ (va_fenetre, TIA_LIB_INTERV_POMPIER)
+
+    CASE XDC_ACT_INT_GND
+	DB_TITLE@ (va_fenetre, TIA_LIB_INTERV_GN)
+ENDCASE
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les informations visualisees sur l'intervention.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TIA_Lire_Autre_Intervention (va_num_action, va_num_site,
+				      FORMAT TIA_Action va_action)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_action     : Numero de l'action a lire ;
+*   va_num_site       : Identifiant du site de l'action.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_action         : Informations concernant l'action.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TIA_Init_Autre_Intervention
+*
+* FONCTION
+*   Execute la requete SGBD adequate pour lire les donnees de l'action indiquee.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = COM_Identifiant_Action
+vl_parametres[0].data = va_num_action
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Site_Action
+vl_parametres[1].data = va_num_site
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#CHAR_			    ' Nom intervention
+vl_parametres[2].output = TRUE
+
+vl_parametres[3].type = COM_Identifiant_Type_Interv	    ' Type intervention
+vl_parametres[3].output = TRUE
+
+vl_parametres[4].type = SYB#DATETIME_			    ' Horodate debut
+vl_parametres[4].output = TRUE
+
+vl_parametres[5].type = SYB#DATETIME_			    ' Horodate fin
+vl_parametres[5].output = TRUE
+
+vl_parametres[6].type = COM_Identifiant_Operateur	    ' Operateur
+vl_parametres[6].output = TRUE
+
+vl_parametres[7].type = SYB#DATETIME_			    ' Horodate succes
+vl_parametres[7].output = TRUE
+
+vl_parametres[8].type = SYB#CHAR_                              ' sous type
+vl_parametres[8].output = TRUE
+
+vl_parametres[9].type = SYB#INT1_                              'annulation
+vl_parametres[9].output = TRUE
+
+vl_parametres[10].type = SYB#DATETIME_                       ' horodate annulation
+vl_parametres[10].output = TRUE
+
+IF COM05_SQL_Procedure (XZAC36_Lire_Autre_Intervention,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+va_action = vl_resultats.return_parameters
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Cree ou modifie une action d'intervention.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TIA_Ecrire_Autre_Intervention (va_num_action, va_num_site,
+					FORMAT COM_Identifiant_FMC va_FMC,
+					FORMAT TIA_Action va_action)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_action     : Numero de l'action a archiver ;
+*   va_num_site       : Identifiant du site de l'action ;
+*   va_FMC            : Evenement associe a l'action ;
+*   va_action         : Informations concernant l'action.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TIA_Interv_Autre
+*
+* FONCTION
+*   Execute la requete SGBD adequate pour archiver les donnees de l'action
+*   de numero et site indiques (numero et site NULLs en cas de creation).
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = COM_Numero_Evenement
+vl_parametres[0].data = va_FMC.numero
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Cle_Evenement
+vl_parametres[1].data = va_FMC.cle
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Action
+vl_parametres[2].data = va_num_action
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Identifiant_Site_Action
+vl_parametres[3].data = va_num_site
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#CHAR_			    ' Nom intervention
+vl_parametres[4].data = va_action.nom
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = COM_Identifiant_Type_Interv	    ' Type intervention
+vl_parametres[5].data = va_action.type
+vl_parametres[5].output = FALSE
+
+vl_parametres[6].type = SYB#DATETIME_			    ' Horodate debut
+vl_parametres[6].data = va_action.date_debut
+vl_parametres[6].output = FALSE
+
+vl_parametres[7].type = SYB#DATETIME_			    ' Horodate fin
+vl_parametres[7].data = va_action.date_fin
+vl_parametres[7].output = FALSE
+
+vl_parametres[8].type = COM_Identifiant_Operateur	    ' Operateur
+vl_parametres[8].data = va_action.operateur
+vl_parametres[8].output = FALSE
+
+vl_parametres[9].type = SYB#DATETIME_			    ' Horodate succes
+vl_parametres[9].data = va_action.date_succes
+vl_parametres[9].output = FALSE
+
+vl_parametres[10].type = SYB#DATETIME_				' Horodate annulation
+vl_parametres[10].data = va_action.date_annulation
+vl_parametres[10].output = FALSE
+
+vl_parametres[11].type = SYB#INT1_				' Annulation intervention
+vl_parametres[11].data = va_action.annulation
+vl_parametres[11].output = FALSE
+
+vl_parametres[12].type = SYB#INT4_				' num competence
+vl_parametres[12].data = null
+vl_parametres[12].output = FALSE
+
+vl_parametres[13].type = SYB#INT4_				' Numero action
+vl_parametres[13].output = TRUE
+
+vl_parametres[14].type = SYB#CHAR_                               ' Site local
+vl_parametres[14].data = SYSTEM_VAR@(vg_nom_site)
+vl_parametres[14].output = FALSE
+
+IF COM05_SQL_Procedure (XZAC16_Ecrire_Autre_Interv,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO

@@ -1,0 +1,190 @@
+/*E*/
+/* Fichier : @(#)ITMA_TMC_valide_comp_bouchon.am	1.1		  Release :1.1	   Date : 09/21/09
+-----------------------------------------------------------------------
+*  GTIE  *  PROJET MIGRAZUR
+-----------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-----------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMC_valide_comp_bouchon.am
+-----------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*  validation d'un bouchon
+*
+-----------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  Torregrossa	27 Nov 1995	1.9	: Modif acces valeur type trafic 
+*  Torregrossa	24 Sep 1995	1.10	: Modif cr de sauvegarde (ANA 21)  
+* Guilhou	17 oct 1996	1.11	: sauvegarde config des voies (DEM/1249)
+* Torregrossa	22 oct 1996	1.12	: Suppression declaration format TMC_bouchon (DEM/1250)
+* Guilhou	23 dec 1996 : archivage longueur de bouchon 1.13
+* Torregrossa	20 Avr 1998	: Ajout test sur appel XZAE60 (1612) V1.14
+*  Niepceron	02 Mar 2005	: Ajout type accordeon DEM428; types en table libelles predefinis  v1.15
+* JPL		22/08/2007	: Toujours prendre pour la fiche tete les dates de la fiche queue (DEM 689) 1.16
+* JPL		21/09/2009	: La cause du bouchon est trouvee dans la fiche tete (DEM 911) 1.17
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+-----------------------------------------------------------------------
+*/
+include	"dbase_.am"
+include 	"../inc/ITMA_COM.h"
+include 	"../inc/ITMA_TDO.h"
+include	"../../XDMICG/inc/xdc_ax.h"
+include	"../../XDMICG/inc/xzaec_ax.h"
+include	"../inc/ITMA_TAR.h"
+include	"../../XDMICG/inc/xzic_ax.h"
+include	"../inc/xzae60sp.h"
+include	"../inc/ITMA_TMC.h"
+
+DEFINE  COL_LIB                 3
+DEFINE  COL_POS                 2
+DEFINE  COL_CODE                1
+
+VAR tm_types_bouchon, tm_types_bouchon_valide
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* sauve en base les informations specifiques du type bouchon
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_valide_comp_bouchon (FORMAT TMC_fmc va_fiche,
+								FORMAT TMC_fmc va_fiche_tete, 
+								FORMAT TMC_bouchon va_tampon,
+								va_mode,
+								va_horodate,
+								va_fenetre,
+								va_enrichir_tete,
+								va_enrichir_queue,
+								ta_config,
+								va_longueur)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fiche		: partie generique de la fiche
+* va_fiche_tete		: fiche tete de bouchon
+* va_fenetre		: id de la boite de dialogue
+* va_enrichir_tete	: enrichir la tete
+* va_enrichir_queue	: enrichir la queue
+* ta_config		: configuration des voies 
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@	vl_parametres	
+VAR FORMAT SQL_Procedure_Result@	vl_resultats
+VAR vl_indice
+VAR FORMAT TMC_fmc vl_fiche_tete
+VAR vl_cr
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur ("MTMC"))
+    RETURN
+}
+	ALL_WINDOWS_BUSY@()
+
+	/*! si je peux enrichir la tete */
+	IF (va_enrichir_tete<>0) 
+	{
+		/*! je recupere les infos de la tete */
+		vl_fiche_tete=va_fiche_tete
+
+		/*! je recupere les horodates*/
+		vl_fiche_tete.debut_prevu=va_fiche.debut_prevu
+		vl_fiche_tete.debut=va_fiche.debut
+		vl_fiche_tete.fin=va_fiche.fin
+
+		/*! sauve la fiche tete de bouchon*/
+		vl_fiche_tete.longueur=va_longueur
+		vl_cr=PEND_FOR_NEW_TASK@("ITMA_TMC_valide_bouchon",
+							va_horodate,
+							vl_fiche_tete,
+							va_mode,
+							va_longueur,		'longueur
+							ta_config)
+		IF (vl_cr<>COM_OK)
+		{
+			RETURN (vl_cr)
+		}
+	}
+
+	/*A si je peux enrichir la queue de bouchon*/
+	IF (va_enrichir_queue<>0)
+	{
+		/*! je sauve le tampon bouchon*/
+		vl_indice=0
+		vl_parametres=null
+		vl_resultats=null
+		/*A preparation des parametres de la procedure stockee*/
+		vl_parametres[vl_indice].data=va_fiche.numero
+		vl_parametres[vl_indice].type=SYB#INT4_
+		vl_parametres[vl_indice].output=FALSE
+		vl_indice=vl_indice+1
+
+		vl_parametres[vl_indice].data=va_fiche.cle
+		vl_parametres[vl_indice].type=SYB#INT4_
+		vl_parametres[vl_indice].output=FALSE
+		vl_indice=vl_indice+1
+
+	/*Ecriture en base du code type bouchon a partir du libelle DEM428 */
+	COM37_Lit_Libelles_Predefinis(TYP_BOUCHON,tm_types_bouchon,tm_types_bouchon_valide)
+	vl_parametres[vl_indice].data=tm_types_bouchon[DB_CTRL_GET_VALUE@(va_fenetre,"BO_typetrafic")][COL_CODE]
+		vl_parametres[vl_indice].type=SYB#INT4_
+		vl_parametres[vl_indice].output=FALSE
+		vl_indice=vl_indice+1
+
+		vl_parametres[vl_indice].data=va_horodate
+		vl_parametres[vl_indice].type=SYB#DATETIME_
+		vl_parametres[vl_indice].output=FALSE
+		vl_indice=vl_indice+1
+
+		IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+			vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste_surcharge)
+		ELSE
+			vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste)
+		vl_parametres[vl_indice].type=SYB#INT4_
+		vl_parametres[vl_indice].output=FALSE
+		vl_indice=vl_indice+1
+
+		vl_parametres[vl_indice].data=va_mode
+		vl_parametres[vl_indice].type=SYB#INT4_
+		vl_parametres[vl_indice].output=FALSE
+	        vl_indice = vl_indice +1
+
+/*B Site local */
+        	vl_parametres[vl_indice].type = SYB#CHAR_
+	        vl_parametres[vl_indice].data = SYSTEM_VAR@(vg_nom_site)
+	        vl_parametres[vl_indice].output = FALSE
+
+		IF COM05_SQL_Procedure (XZAE60_Ecrire_Fiche_Bouchon,
+			   vl_parametres, vl_resultats, "MTMC") <> COM_OK
+		{
+			INFO_MESSAGE@("Impossible de sauver le tampon bouchon en base")
+			RETURN (COM_NOK)
+		}
+		ELSE IF vl_resultats.status <> COM_OK and vl_resultats.status <> XZAEC_FMC_CLOSE_PAS_ENR
+		{
+			IF vl_resultats.status <> XZAEC_FMC_PAS_ENR
+				INFO_MESSAGE@("Impossible de sauver le tampon bouchon en base")
+			RETURN (vl_resultats.status)
+		}
+	}
+	
+	RETURN (COM_OK)
+ENDMACRO

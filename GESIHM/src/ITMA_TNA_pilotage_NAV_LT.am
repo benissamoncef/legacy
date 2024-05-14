@@ -1,0 +1,1367 @@
+/*E*/
+/* Fichier : $Id: ITMA_TNA_pilotage_NAV_LT.am,v 1.14 1995/07/05 09:29:15 volcic Exp $      Release : $Revision: 1.14 $        Date : $Date: 1995/07/05 09:29:15 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER ITMA_TNA_pilotage_NAV_LT.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de commande des NAV.
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Cornu 		21 Dec 1994	: Creation					1.1
+* Cornu 		13 Jan 1994	: Pb sccs 
+*						 (obligé d'écraser version 1.7 )	1.6
+* Charles		05 Jul 1995	: Action qualité nom des variables	1.14 
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes générales
+ * ------------------------------------- */
+DEFINE	C_MODULE			"MTNA_LT"	' Nom du module
+DEFINE	REP_CONFIG		"../fichiers/"
+DEFINE	REP_FICHIER		"../fichiers/"
+
+
+/*A Description des modules à inclures 
+* ------------------------------------ */
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+/*A Déclaration des variables globales 
+* ------------------------------------ */
+var 		vm_fenetre_TNA			' item de la fenetre du module
+var		vm_statut				' Valeur de retour du module
+var		vm_messages_acceptes
+var		vm_dispo				' indice de disponibilité
+var		vm_District				' N° du district
+var		vm_Simulation			' flag de simulation
+var		vm_NomSite			' Nom du site en cours
+var		vm_text				' text en edition
+var		vm_F_config			' liste des pictos
+var		vm_panneau			' liste des panneaux
+var		vm_NumNAV				' N° de la NAV en cours
+var		vm_scenario			' la liste des scenarios en base
+var		vm_NumScenario			' Numero du scenario en cours
+var		vm_NomScenario			' Nom du scenario en cours
+var		vm_NomOperateur		' nom de l'operateur
+var		vm_mode_PA			' mode de retour du plan d'action
+var		vm_lecture			' le n° d'evenement lié + clé
+var		vm_NumEvt 			' N° d'evenement
+var		vm_CleEvt 			' Clé de l'evenement
+var		vm_machine			' nom de la machine
+var		vm_pic				' nom des picto à afficher
+var		vm_mess				' message reçu et envoyé
+var		vm_NomMachineNAV		' Nom du LT qui gere la NAV
+var		vm_F_NomMachine		' Liste des nom des LT
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commande le pilotage des NAV depuis un LT
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_pilotage_NAV_LT(va_appelant,va_1,va_2,va_3,va_4,va_5,va_6,va_7)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 à va_6		: Suivant la procedure d'appel
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant résultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> NAV dans MTMT
+*
+* FONCTION
+*    Pilote les NAV depuis un LT
+*
+---------------------------------------------------------------------------- */
+
+/*A Déclaration des variables statiques */
+var		vl_Poste			' Le nom de la machine
+var		vl_fenetre_active	' flag de fenetre active
+var		vl_controle_sortie	' flag de sortie
+var		vl_erreur			' flag d'erreur
+var		i,j,vl_mess			' index de loop
+var		vl_taille			' taille de tableau
+var		vl_taille2		' taille de tableau
+var		vl_numero			' numero selectionné
+var		vl_message		' mesage affiché
+var		vl_text			' text libre
+var		vl_F_tpm			' tableau fichier tampon
+var		vl_F_tpm2			' tableau fichier tampon
+var		vl_tpm			' tableau tampon
+var		vl_ligne			' tableau d'une ligne
+var		vl_NumAction		' N° d'action retourné par la base
+var		vl_fermeture		' flag de fermeture de la fenetre par socket
+var		vl_F_scenario		' liste des scenarios
+var		vl_scenario		' liste des scenarios pour boite de liste
+var		vl_panneau_actuel	' etat du panneau dans la commande
+var		vl_objet			' objet en edition
+var		vl_rang			' rang de la selection dans la liste
+var		vl_expliquer		' expliquation du PA
+var		vl_abt_panneau		' flag d'abonnement des panneaux
+var		vl_manuel			' flag de commande manuelle
+var		vl_liste_NAV		' liste des NAV disponibles pour le district
+var		vl_trouve			' flag pour trouver le bon scenario d'après le code
+var		vl_fmc			' libelle fmc à construire
+var		vl_lib_fmc		' tableau du libellé fmc à construire
+var		vl_titre			' titre de la fenetre
+var		vl_fichier			' nom du 1er fichier tampon
+var		vl_fichier2			' nom du 2eme fichier tampon
+
+
+ALL_WINDOWS_BUSY@()
+
+
+/*A MAJ des variables statiques */
+vm_simulation = SYSTEM_VAR@("vg_simuler_SQL")
+vm_District = SYSTEM_VAR@("vg_site")
+vm_NomSite = SYSTEM_VAR@("vg_nom_site")
+vm_dispo = 0
+vl_poste = SYSTEM_VAR@("vg_numero_operateur")
+if vl_poste = NULL vl_poste=0
+vl_abt_panneau = FALSE
+vl_manuel = FALSE
+vm_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vm_machine = SYSTEM_VAR@(vg_poste)
+vm_NomOperateur = SUBSTRING@(vm_NomOperateur, 1, 25)
+vm_Mode_PA = COM_QUITTE
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN(COM_NOK)
+}
+
+
+/*A Tracer l'initialisation de la procedure : 
+* ------------------------------------------- */
+vm_text = "------------------------------------------------------------"
+COM01_Trace(0,vm_text)
+vm_text = COM09_Date_Courante() ++ " Start ITMA_TNA_pilotage_NAV_LT "
+vm_text = vm_text  ++ "   User : " ++ vm_NomOperateur
+COM01_Trace(0,vm_text)
+COM01_Trace(0," ")
+
+
+MACRO_WINS_BUSY@()
+
+/*A Lecture de la liste des NAV disponibles   
+*   --------------------------------------- */
+vl_Liste_NAV = ""
+
+if LEN@(vm_NomSite)>0
+{
+	if vm_NomSite="CI"
+	{	vl_fichier = REP_FICHIER++"deq/Config_NAV_LCR_DM"
+		vl_fichier2 = REP_FICHIER++"deq/Config_NAV_LCR_DN"
+	}
+	else { vl_fichier = REP_FICHIER++"deq/Config_NAV_LCR_"++vm_NomSite }
+	if FILE_EXISTS@(vl_fichier) { vl_F_tpm = READ_ASCII_FILE@(vl_fichier) }
+
+	if FILE_EXISTS@(vl_fichier2) { vl_F_tpm2 = READ_ASCII_FILE@(vl_fichier2) }
+	
+	if IS_ARRAY@(vl_F_tpm2) and IS_ARRAY@(vl_F_tpm)
+	{
+		vl_taille = ARRAY_SIZE@(vl_F_tpm)
+		vl_taille2 = ARRAY_SIZE@(vl_F_tpm2)
+		for i = 0 to vl_taille2-1
+			vl_F_tpm[vl_taille+i] = vl_F_tpm2[i]
+		next i
+	}
+
+	if IS_ARRAY@(vl_F_tpm2) and NOT IS_ARRAY@(vl_F_tpm)
+	{	vl_F_tpm = vl_F_tpm2	}
+
+}
+else
+{
+ 	info_message@("Mauvaise config du nom site : " ++vm_NomSite )
+	return(COM_NOK)
+}
+
+vl_taille = ARRAY_SIZE@(vl_F_tpm)-1
+for i = 0 to vl_taille
+	vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+	vl_taille2 = ARRAY_SIZE@(vl_ligne)-1
+	for j = 0 to vl_taille2
+		vl_tpm[i,j] = TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+		if LEN@(vl_tpm[i,1])=1 {vl_tpm[i,1] = "00"++vl_tpm[i,1]}
+		if LEN@(vl_tpm[i,1])=2 {vl_tpm[i,1] = "0"++vl_tpm[i,1]}
+	next j
+	vl_Liste_NAV[i] = vl_tpm[i,1] ++ "  " ++ vl_tpm[i,0]
+	vm_F_NomMachine[i] = vl_tpm[i,2]
+next i
+
+if NOT IS_ARRAY@(vl_Liste_NAV)
+{
+	info_message@("Pas de NAV à piloter pour ce LT ")
+	RETURN(COM_NOK)
+}
+
+
+/*A Ouvertue de la liste des NAV */
+vm_fenetre_TNA = DB_LOAD@("ITMA_TNA_liste_NAV_LT")
+vm_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vm_fenetre_TNA, vm_messages_acceptes)
+
+
+/*A si pas de Consultation dans SYBASE de la liste des NAV */
+if NOT IS_ARRAY@(vl_liste_NAV) 
+{
+	info_message@("Consultataion de la liste des NAV impossible !!!")
+	RETURN(COM_NOK)
+}
+
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(vm_fenetre_TNA,400)
+DB_YPOS@(vm_fenetre_TNA,300)
+DEFINE_HELPFILE@("Liste des NAV", REP_CONFIG ++ "aid/ITMA_TNA_liste_NAV_LT.aide")
+DB_HELP_TOPIC@(vm_fenetre_TNA,"Liste des NAV")
+
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TNA,"BL_NAV",True)
+DB_CTRL_STRINGS@(vm_fenetre_TNA,"BL_NAV",vl_liste_NAV)
+
+
+/*A Boucle de capture des événements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vm_fenetre_TNA)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vm_fenetre_TNA)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+	CASE "BP_quitter"
+
+	/*A fermer la fenetre */
+		RETURN(COM_NOK)
+
+	/*A sur action piloter */
+	CASE "BP_piloter"
+
+		/*A fermer la fenetre */
+		vl_fenetre_active = FALSE
+		vl_titre = "Piloter la NAV : " ++ vl_liste_NAV[vl_rang]
+
+	/*A sur action sur liste des BRA */
+	CASE "BL_NAV"
+
+		/*A Capture du rang dans la liste des NAV */
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre_TNA,"BL_NAV")
+		vm_NumNAV = SUBSTRING@(vl_liste_NAV[vl_rang],1,3)+0
+		vm_NomMachineNAV = vm_F_nomMachine[vl_rang]
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_piloter",False)
+
+	/*A sur reception de poke */
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vm_fenetre_TNA)
+
+		/*A si poke de fin de canal */
+		CASE COM_CANAL_FIN
+
+			/*A fermer la fenetre */
+			RETURN(COM_NOK)
+
+		ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+
+/*A Ouvertue de la fiche de pilotage NAV */
+vm_fenetre_TNA = DB_LOAD@("ITMA_TNA_pilotage_NAV_LT")
+vm_messages_acceptes[0] = COM_CANAL_FIN
+vm_messages_acceptes[1] = COM_CANAL_MTNA
+DB_ACCEPT_POKES@ (vm_fenetre_TNA, vm_messages_acceptes)
+
+
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(vm_fenetre_TNA,20)
+DB_YPOS@(vm_fenetre_TNA, 300)
+DEFINE_HELPFILE@("Pilotage des NAV depuis le LT", REP_CONFIG ++ "aid/ITMA_TNA_pilotage_NAV_LT.aide")
+DB_HELP_TOPIC@(vm_fenetre_TNA,"Pilotage des NAV depuis le LT")
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TNA,"BL_scenario",TRUE)
+
+
+/*A Lecture du fichier de scénario et MAJ de la liste  
+*   ------------------------------------------------- */
+vl_F_tpm = READ_ASCII_FILE@(REP_CONFIG ++ "nav/ConfigScenario.cfg")
+for i = 0 to ARRAY_SIZE@(vl_F_tpm)-1
+
+	vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+	vl_scenario[i] = TRIM@(TABS_TO_SPACES@(vl_ligne[0]))
+
+	for j = 0 to ARRAY_SIZE@(vl_ligne)-1
+		vl_F_scenario[i,j] = TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+	next j
+
+next i
+
+DB_CTRL_STRINGS@(vm_fenetre_TNA,"BL_scenario",vl_scenario)
+
+/*A Lecture en base des scénarios 
+*   ----------------------------- */
+vm_scenario = vl_scenario
+
+
+/*A Lecture du fichier de scénario et MAJ de la liste  
+*   ------------------------------------------------- */
+vm_F_config = ""
+vl_F_tpm = READ_ASCII_FILE@(REP_CONFIG ++ "nav/Config_NAV.cfg")
+
+
+for i = 1 to ARRAY_SIZE@(vl_F_tpm)-1
+	vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+	for j = 0 to ARRAY_SIZE@(vl_ligne)-1
+		vm_F_config[i-1,j] = TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+	next j
+next i
+
+
+/*A Griser le bouton 'Executer' */
+DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_executer",True)
+DB_DISPLAY_ONLY@(vm_fenetre_TNA,TRUE)
+DB_DISPLAY@(vm_fenetre_TNA)
+DB_DISPLAY_ONLY@(vm_fenetre_TNA,FALSE)
+
+
+/*A MAJ du titre de la fenetre */
+DB_TITLE@(vm_fenetre_TNA,vl_titre)
+
+
+
+/*A Reset de la table vm_panneau */ 
+vm_panneau = ""
+for i  = 0 to (ARRAY_SIZE@(vm_F_config)/2)-1
+   
+	vm_panneau[i,0] = 	vm_F_config[i,0]			' nom du panneau d'etat	
+	vm_panneau[i,1] =	vm_F_config[i+15,0]			' nom du panneau de commande
+	vm_panneau[i,2] =	"-1"						' etat du panneau d'etat
+	vm_panneau[i,3] =	"-1"						' etat du panneau de commande
+	vm_panneau[i,4] =	vm_F_config[i,1]			' N° du module
+
+	vm_mess[vm_panneau[i,4],0] =	"-1"				' zone vide
+	vm_mess[vm_panneau[i,4],1] =	vm_F_config[i,9]	' message Eteint
+	vm_mess[vm_panneau[i,4],2] =	vm_F_config[i,3]	' message Alummé 1
+	vm_mess[vm_panneau[i,4],3] =	vm_F_config[i,5]	' message Alummé 2 
+	vm_mess[vm_panneau[i,4],4] =	vm_F_config[i,7]	' message Alummé 3
+	vm_mess[vm_panneau[i,4],5] =	vm_F_config[i,11]	' message en cours
+
+	vm_pic[vm_panneau[i,4],0] =	vm_F_config[i,2]	' picto neutre
+	vm_pic[vm_panneau[i,4],1] =	vm_F_config[i,10]	' picto Eteint
+	vm_pic[vm_panneau[i,4],2] =	vm_F_config[i,4]	' picto Alummé 1
+	vm_pic[vm_panneau[i,4],3] =	vm_F_config[i,6]	' picto Alummé 2 
+	vm_pic[vm_panneau[i,4],4] =	vm_F_config[i,8]	' picto Alummé 3
+	vm_pic[vm_panneau[i,4],5] =	vm_F_config[i,12]	' picto en cours
+
+next i
+
+/*A test les droits d'acces à la fonction manuelle*/
+if (COM04_Operateur_A_Le_Droit_De(XDC_FAM_PILOTAGE_MANUEL_NAV))
+{ DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_manuel",FALSE) }
+
+
+/*A Abonnement a l'etat des panneaux */ 
+vl_erreur = ITMA_TNA_Abt_Etat_Panneaux_NAV(XDC_DEBUT_ABONNEMENT_EQUEXT,vm_NomSite)
+if (vl_erreur <> COM_NOK) { vl_abt_panneau = TRUE }
+
+
+/*A Boucle de capture des événements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vm_fenetre_TNA)
+
+	/*A capture de l'evenement dans la BD TNA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vm_fenetre_TNA)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+	CASE "BP_quitter"
+		vl_fenetre_active = FALSE
+
+	/*A sur action executer */
+	CASE "BP_executer"
+
+		/*A Griser le bouton Executer */
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_executer",TRUE)
+
+		/*A Activer le bouton d'arret d'urgence */
+		DB_CTRL_DISPLAY@(vm_fenetre_TNA,"BP_arret",True)
+
+		/*A si mode manuel */
+		if vl_manuel = TRUE
+		{
+			/* envoi de l'etat des modules */			
+			for i = 0 to ARRAY_SIZE@(vm_panneau)-1
+				ITMA_TNA_Commande_module_NAV 
+					(vm_NumNav,vm_panneau[i,4],vm_panneau[i,3],
+					0,0,vm_NomMachineNAV)
+			next i
+
+			/*A MAJ status */
+			DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_status",
+						"Status : Pilotage manuelle NAV !!!")
+		}
+		else
+		{
+		   if vm_NumScenario <> 0
+		   {
+			/* envoi de la commande scenario */			
+			ITMA_TNA_Commande_SCEN(vm_NumNav,vm_NomScenario,0,vm_NomMachineNAV)
+
+			/*A MAJ status */
+			DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_status",
+						"Status : Pilotage scenario NAV !!!")
+		   }
+		}
+
+
+	/*A sur action 'valider' une sequence */
+	CASE "BP_valider"
+				
+		/*A Set du flag */
+		vl_manuel = FALSE
+
+		/*A degriser les boutons de pilotage de barrieres */
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_NAV1",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_NAV2",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_NAV3",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_NAV4",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_NAV5",True)
+
+		/*A degriser les boutons de pilotage de panneaux */
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN1_1",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN1_2",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN1_3",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN1_4",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN2_2",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN2_3",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN2_4",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN3_1",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN3_2",True)
+
+		/*A Activer le bouton executer */
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_executer",FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_valider",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_reset",False)
+
+		/*A si proposition PA : mode refus */
+		if SUBSTRING@(va_appelant,1,8)="ITMA_TPA"
+		{ vm_mode_PA = COM_REFUSE }
+		else { vm_mode_PA = COM_QUITTE }
+
+		/*A Reset de la position sur l'IHM */
+
+		for i = 0 to ARRAY_SIZE@(vm_panneau)-1
+			DB_CTRL_TITLE@(vm_fenetre_TNA, vm_F_config[i,0], 
+				REP_CONFIG ++ "pic/" ++ vm_F_config[i,2])
+			vm_panneau[i,3]="-1"
+		next i
+
+		/*A capture du rang dans la liste */
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre_TNA,"BL_scenario")
+
+		/*A MAJ du libellé status */
+		DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_status",vl_scenario[vl_rang])
+
+		/*A MAJ des variables */
+		vm_NumScenario = vl_rang +1
+		vm_NomScenario = vl_F_scenario[vl_rang,1]
+
+		/*A MAJ des boutons de commande */
+		for i = 0 to 14
+			ITMA_TNA_pos_picto(vm_panneau[i,4],vl_F_scenario[vl_rang,i+2])
+		next i
+
+	/*A sur action manuel */
+	CASE "BP_manuel"
+
+		/*A Set du flag */
+		vl_manuel = TRUE
+
+		/*A degriser les boutons de pilotage de barrieres */
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_NAV1",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_NAV2",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_NAV3",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_NAV4",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_NAV5",False)
+
+		/*A degriser les boutons de pilotage de panneaux */
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN1_1",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN1_2",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN1_3",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN1_4",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN2_2",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN2_3",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN2_4",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN3_1",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_PAN3_2",False)
+		DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_status","Status : Commande manuelle active !")
+
+	/*A sur action 'BP_cmd_doubler' */
+	CASE "BP_cmd_doubler"
+
+		/*A Activer le bouton Executer */
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_executer",FALSE)
+
+		/*A MAJ du status */
+		DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_status",
+				"Status : Modification du panneau 'interdiction de doubler' !")
+
+		/*A Capture de l'etat */
+		vl_objet= DB_CTRL_GET_TITLE@(vm_fenetre_TNA,"BP_PAN2_1")
+
+		/*A si l'etat est allumé : eteindre */
+		if vl_objet = REP_CONFIG ++ "pic/PIX_noir_40_40"
+		{ 	vl_objet = REP_CONFIG ++ "pic/pix_interdit_doubler_PL_40_40"
+			vm_panneau[4,3]="IDPL"
+		}
+
+		/*A sinon : allumer */
+		else 
+		{ 	vl_objet = REP_CONFIG ++ "pic/PIX_noir_40_40"
+ 			  	vm_panneau[4,3]="0" 
+		}
+
+		/*A MAJ de l'objet */
+		DB_CTRL_TITLE@(vm_fenetre_TNA,"BP_PAN2_1",vl_objet)
+
+	/*A sur action 'BP_PAN1_1' */
+	CASE "BP_PAN1_1"
+
+		vl_erreur = ITMA_TNA_modif_picto("BP_PAN1_1")
+
+	/*A sur action 'BP_PAN1_2' */
+	CASE "BP_PAN1_2"
+
+		vl_erreur = ITMA_TNA_modif_picto("BP_PAN1_2")
+
+	/*A sur action 'BP_PAN1_3' */
+	CASE "BP_PAN1_3"
+
+		vl_erreur = ITMA_TNA_modif_picto("BP_PAN1_3")
+
+	/*A sur action 'BP_PAN1_4' */
+	CASE "BP_PAN1_4"
+
+		vl_erreur = ITMA_TNA_modif_picto("BP_PAN1_4")
+
+	/*A sur action 'BP_PAN2_2' */
+	CASE "BP_PAN2_2"
+
+		vl_erreur = ITMA_TNA_modif_picto("BP_PAN2_2")
+
+	/*A sur action 'BP_PAN2_3' */
+	CASE "BP_PAN2_3"
+
+		vl_erreur = ITMA_TNA_modif_picto("BP_PAN2_3")
+
+	/*A sur action 'BP_PAN2_4' */
+	CASE "BP_PAN2_4"
+
+		vl_erreur = ITMA_TNA_modif_picto("BP_PAN2_4")
+
+	/*A sur action 'BP_PAN3_1' */
+	CASE "BP_PAN3_1"
+
+		vl_erreur = ITMA_TNA_modif_picto("BP_PAN3_1")
+
+	/*A sur action 'BP_PAN3_2' */
+	CASE "BP_PAN3_2"
+		vl_erreur = ITMA_TNA_modif_picto("BP_PAN3_2")
+
+	/*A sur action 'BP_NAV1' */
+	CASE "BP_NAV1"
+		vl_erreur = ITMA_TNA_modif_picto("BP_NAV1")
+
+	/*A sur action 'BP_NAV2' */
+	CASE "BP_NAV2"
+		vl_erreur = ITMA_TNA_modif_picto("BP_NAV2")
+
+	/*A sur action 'BP_NAV3' */
+	CASE "BP_NAV3"
+		vl_erreur = ITMA_TNA_modif_picto("BP_NAV3")
+
+	/*A sur action 'BP_NAV4' */
+	CASE "BP_NAV4"
+		vl_erreur = ITMA_TNA_modif_picto("BP_NAV4")
+
+	/*A sur action 'BP_NAV5' */
+	CASE "BP_NAV5"
+		vl_erreur = ITMA_TNA_modif_picto("BP_NAV5")
+
+	/*A sur action arrêt d'urgence */
+	CASE "BP_arret"
+
+        IF PEND_FOR_NEW_TASK@ ("ITMA_TCF_Demande_Confirmation",
+				  "Voulez-vous arreter le scenario ?") = COM_OK
+	   {
+
+		/*A Sonnerie & MAJ du status */
+		BEEP@()
+		DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_status",
+				"Status : Arrêt d'urgence déclenché sur la NAV !!!")
+		BEEP@()
+
+		/*A Appel de la procedure d'arrêt d'urgence */
+		ITMA_TNA_Arret_Nav(vm_NumNAV,0,vm_NomMachineNAV)
+
+		/*A Désactiver le bouton d'arret d'urgence */
+		DB_CTRL_DISPLAY@(vm_fenetre_TNA,"BP_arret",False)
+
+	   }
+
+	/*A sur action liste scenario */
+	CASE "BL_scenario"
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_valider",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_reset",False)
+
+	/*A sur action arrêt d'urgence */
+	CASE "BP_reset"
+
+		/*A MAJ du status */
+		DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_status",
+					"Status : Reset du scénario NAV à commander")
+
+		/*A Reset de la position sur l'IHM */
+		for i = 0 to 14
+			DB_CTRL_TITLE@(vm_fenetre_TNA,vm_F_config[i,0],
+					REP_CONFIG ++ "pic/" ++ vm_F_config[i,2])
+			vm_panneau[i,3]="-1"
+		next i
+
+		vm_NumScenario = 0 ;
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_valider",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_executer",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_reset",True)
+
+	/*A sur reception de poke */		
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vm_fenetre_TNA)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+			vl_fermeture = TRUE
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_MTNA
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre_TNA)
+
+			/*A trace de la reception du message */
+			vm_text = COM09_Date_Courante() ++ "   MsgPoke MTNA : "
+			vm_text =  vm_text ++ vl_message[0]
+			COM01_Trace(0,vm_text)
+			COM01_Trace(0," ")
+
+			/*A décomposition des messages en tableau */
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+			/*A si numéro de NAV en cours d'édition */
+			if vl_mess[0]+0 =  vm_NumNAV+0
+			{				
+				/*A on boucle sur toutes les infos du message */
+				for i = 1 to ARRAY_SIZE@(vl_mess)-1
+				
+					ITMA_TNA_MAJ_NAV(vl_mess[i],vl_mess[i+1])
+					i = i + 1
+
+				next i
+			}
+
+		ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+
+
+/*B Fermerture des abonnements */
+if (vl_abt_panneau) ITMA_TNA_Abt_Etat_Panneaux_NAV(XDC_FERMER_ABONNEMENT_EQUEXT,vm_NomSite)
+
+/*B trace de la fin de traitement */
+vm_text = COM09_Date_Courante() ++ " Stop ITMA_TNA_pilotage_NAV_LT "
+vm_text = vm_text ++ "   User : " ++ vm_NomOperateur
+COM01_Trace(0,vm_text)
+
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	MAJ du panneau dans la vue actuelle
+* 
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_MAJ_NAV(va_num,va_pos)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_num	: le N° du panneau
+*	va_pos	: l'etat à positionné
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   appel de la reception de socket
+*
+* FONCTION
+*    MAJ du panneau dans la vue actuelle
+*
+---------------------------------------------------------------------------- */
+
+var		vl_titre
+var		vl_objet
+var 		i
+var		vl_size
+var		vl_taille
+var		vl_pos
+var		vl_num
+
+vl_num = -1
+vl_pos = -1
+
+/*A recherche de l'index */
+for i = 0 to ARRAY_size@(vm_panneau)-1
+	if va_num = vm_panneau[i,4] { vl_num = i }
+next i
+
+/*A si pas trouvé : retour NOK */
+if vl_num = -1 {return(COM_NOK) }
+
+/*A construction du nom de l'objet vl_objet */
+vl_objet = vm_panneau[vl_num,1]
+
+/*A si le bouton existe */
+if vl_objet<>""
+{
+	/*A recherche de l'index du picto avec le message*/
+	for i = 0 to 5
+	if vm_mess[va_num,i] = va_pos { vl_pos = i }
+	next i
+
+	/*A si pas trouvé : retour NOK */
+	if vl_pos = -1 {return(COM_NOK) }
+	
+	/*A construction du nom du picto */
+	vl_titre =  REP_CONFIG ++ "pic/" ++ vm_pic[va_num,vl_pos]
+	vm_panneau[vl_num,3] = vm_mess[va_num,i]
+
+	/*A si le picto existe pour cette position : MAJ du bouton */
+	if vl_titre <> REP_CONFIG ++ "pic/"
+	{ DB_CTRL_TITLE@(vm_fenetre_TNA,vl_objet,vl_titre) }
+
+	/*A retour OK */
+	Return(COM_OK)
+}
+
+/*A sinon */
+else
+{
+	/*A retour NOK */
+	Return(COM_NOK)
+}
+
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Affiche les différents pictos d'un panneau
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_modif_picto(va_panneau)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*  va_panneau		: Nom du panneau à modifier.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant résultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> NAV dans MTMT
+*
+* FONCTION
+*    affiche les différents pictos d'un panneau
+*
+---------------------------------------------------------------------------- */
+
+var	i,j,k
+var	vl_panneau_actuel
+var	vl_module 
+var	pan
+
+/*A Activer le bouton Executer */
+DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_executer",False)
+
+/*A capture de l'etat actuel dans la commande */
+vl_panneau_actuel = DB_CTRL_GET_TITLE@(vm_fenetre_TNA,va_panneau)
+
+/*A MAJ du flag de mode PA */
+vm_Mode_PA = COM_REFUSE
+
+/*A recherche du n° de module */
+vl_module = -1
+for j = 0 to ARRAY_SIZE@(vm_panneau)-1
+	if vm_F_config[j,0] = va_panneau 
+	{
+		vl_module=vm_F_config[j,1]
+		pan = j }
+next j
+
+/*A si pas de config pour ce tableau : retour NOK */
+if vl_module=-1 then RETURN(COM_NOK)
+
+/*A lecture et MAJ du panneau suivant */
+for i = 0 to 5
+
+	/*A si panneau en cours existe */
+	if REP_CONFIG ++ "pic/" ++ vm_pic[vl_module,i]= vl_panneau_actuel
+	{
+
+		/*A si panneau NAV : pas de position 4 */
+		if i=2 and SUBSTRING@(va_panneau,4,3)="NAV" { i = -1}
+	
+		/*A si panneau suivant existant */
+		if vm_pic[vl_module,i+1]<>""
+		{
+			DB_CTRL_TITLE@(vm_fenetre_TNA,va_panneau,
+				REP_CONFIG++"pic/"++vm_pic[vl_module,i+1])
+
+			/*A MAJ etat du panneau de cmd */
+			vm_panneau[pan,3] = vm_mess[vl_module,i+1]
+		}
+
+		/*A sinon prendre celui en debut de liste */
+		if vm_pic[vl_module,i+1]=""
+		{
+			DB_CTRL_TITLE@(vm_fenetre_TNA,va_panneau,REP_CONFIG++
+				"pic/"++vm_pic[vl_module,0])
+
+			/*A Reset etat du panneau de cmd */
+			vm_panneau[pan,3] = "-1"
+		}
+
+		vl_panneau_actuel  = "'" ++ SUBSTRING@(va_panneau,4,7) ++ "'"
+
+		/*A MAJ du status */
+		DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_status",
+				"Status : Modification du panneau "++vl_panneau_actuel)
+
+		RETURN(COM_OK)
+	}
+
+next i
+
+/*A retour : OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commander le sequence d'une voie vers EQUEXT
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Commande_NAV(va_posteOperateur,va_Manuelle,va_NomScenario)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_posteOperateur		:	le nom du poste operateur
+*		va_Manuelle			:	le type manuel ou auto
+*		va_NomScenario		:	Nom du scenario
+
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TNA_pilotage_NAV
+*
+* FONCTION
+*   		Commander le sequence d'une voie vers EQUEXT.
+*
+---------------------------------------------------------------------------- */
+
+	var	vl_Heure			' heure courante
+
+	vl_Heure = COM09_Date_Courante()
+
+	/*A trace de l'appel de la procedure */
+	vm_text = COM09_Date_Courante()++" ---> Appel de la procedure 'XZAC03_Commande_NAV("++va_posteOperateur++","++va_Manuelle++","++va_NomScenario++")'"
+	COM01_Trace(0,vm_text)
+
+	/*A retour OK */
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Affichage d'un panneau dan la position désirée
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_pos_picto(va_module,va_num)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*	va_module	: N° du module.
+*	va_num		: N° de la position désiré
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant résultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> NAV dans MTMT
+*
+* FONCTION
+*    affichage d'un panneau dan la position désirée
+*
+---------------------------------------------------------------------------- */
+
+var	vl_picto,i
+var	vl_panneau
+var	vl_index
+
+/*A si mauvaise position : retour */
+if va_num<0 {RETURN(COM_OK)}
+
+/*A Activer le bouton Executer */
+DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_executer",False)
+
+vl_picto = vm_pic[va_module,va_num]
+
+vl_panneau = ""
+for i = 0 to ARRAY_SIZE@(vm_panneau)-1
+	if vm_panneau[i,4] = va_module 
+	{ vl_panneau = vm_F_config[i,0] 
+	  vl_index = i}
+next i
+
+if vl_panneau = "" {RETURN(COM_OK)} 
+vm_panneau[vl_index,3] = vm_mess[va_module,va_num]
+
+/*A positionnement du panneau */
+DB_CTRL_TITLE@(vm_fenetre_TNA,vl_panneau,REP_CONFIG++"pic/"++vl_picto)
+
+/*A retour : OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner à l'état des panneaux de la base.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Abt_Etat_Panneaux_Nav(va_Abonnement,va_NomSite)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_Abonnement	:	Type d'abonnement (debut ou fin)
+*		va_NomSite		:	Nom du site
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet de s'abonner à l'état des panneaux de la NAV.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+
+
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+	{
+		Acces_interdit("ITMA_TNA_Abt_Etat_Panneaux_Nav")
+		RETURN(COM_NOK)
+	}
+
+	/*A trace de l'appel de procedure */
+	vm_text = COM09_Date_Courante()  
+	vm_text =  vm_text ++ " --> XZEA10_Abt_Etat_Panneaux_Nav "
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA10  
+
+	/*B arguments */
+	vl_cmd[3]= va_Abonnement ++ MTAR_CAR_SEPAR ++ va_NomSite
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_status","Status : Abt aux etats NAV")
+
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = COM09_Date_Courante() ++ " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+ 
+
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de commander un module de la NAV.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Commande_module_NAV(va_numEqt,va_module,va_Symb,va_Flash,va_numAction,va_NomMachine)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_numEqt		:	Numero d'equipement
+*		va_module		:	type de module
+*		va_Symb			:	Symbole
+*		va_Flash		:	Avec ou sans flash
+*		va_numAction		:	Numero d'action
+*		va_NomMachine	:	Nom de la machine
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet de commander un module de la NAV.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_sep
+	VAR i
+	VAR vl_index
+	VAR vl_Symbole
+
+	vl_Symbole = va_Symb ++"  "
+
+	/*A Retour NOK si commande vide */
+	if TRIM@(vl_Symbole)= "" { RETURN(COM_NOK) }
+
+	/*A Retour NOK si commande neutre */
+	if TRIM@(vl_Symbole)="-1" { RETURN(COM_NOK) }
+
+	/*A trace de l'appel de procedure */
+	vm_text = COM09_Date_Courante()  
+	vm_text =  vm_text ++ " --> XZEN01_Commande_NAV "
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEN01  
+
+	/*B arguments */
+	vl_sep = MTAR_CAR_SEPAR
+	vl_cmd[3]= va_numEqt ++vl_sep++ va_module ++vl_sep++ TRIM@(vl_Symbole) ++vl_sep++ va_Flash ++vl_sep++ va_numAction ++vl_sep++ va_NomMachine
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = COM09_Date_Courante() ++ " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+ 
+
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de commander un scenario de la NAV.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Commande_SCEN(va_numEqt,va_Scenario,va_numAction,va_NomMachine)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_numEqt		:	Numero d'equipement
+*		va_Scenario		:	nom du scenario
+*		va_numAction		:	Numero d'action
+*		va_NomMachine	:	Nom de la machine
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet de commander un scenario de la NAV.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_sep
+
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+	{
+		Acces_interdit("ITMA_TNA_commande_SCEN")
+		RETURN(COM_NOK)
+	}
+
+	/*A trace de l'appel de procedure */
+	vm_text = COM09_Date_Courante()  
+	vm_text =  vm_text ++ " --> XZEN02_Commande_SCEN "
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEN02  
+
+	/*B arguments */
+	vl_sep = MTAR_CAR_SEPAR
+	vl_cmd[3]= va_numEqt ++vl_sep++ va_Scenario ++vl_sep++ va_numAction ++vl_sep++ va_NomMachine
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = COM09_Date_Courante() ++ " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+ 
+
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de commander un module de la NAV.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Arret_NAV(va_numEqt,va_numAction,va_NomMachine)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_numEqt		:	Numero d'equipement
+*		va_numAction		:	Numero d'action
+*		va_NomMachine	:	Nom de la machine
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet de commander un module de la NAV.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_sep
+
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+	{
+		Acces_interdit("ITMA_TNA_Abt_Etat_Panneaux_Nav")
+		RETURN(COM_NOK)
+	}
+
+	/*A trace de l'appel de procedure */
+	vm_text = COM09_Date_Courante()  
+	vm_text =  vm_text ++ " --> XZEN04_Arret_SCEN "
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEN04  
+
+	/*B arguments */
+	vl_sep = MTAR_CAR_SEPAR
+	vl_cmd[3]= va_numEqt ++vl_sep++ va_numAction ++vl_sep++ va_NomMachine
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = COM09_Date_Courante() ++ " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+

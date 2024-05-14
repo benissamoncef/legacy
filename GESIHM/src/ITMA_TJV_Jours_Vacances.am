@@ -1,0 +1,693 @@
+/*E*/
+/* Fichier : $Id: ITMA_TJV_Jours_Vacances.am,v 1.1 2018/11/30 20:39:36 devgfi Exp $        $Revision: 1.1 $        $Date: 2018/11/30 20:39:36 $
+------------------------------------------------------------------------------
+*  ESCOTA * PROJET MIGRAZUR
+------------------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+------------------------------------------------------------------------------
+*  MODULE MTJV * Fichier ITMA_TJV_Jours_Vacances.am
+------------------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*
+*   Gère le calendrier de vacances et jours fériés.
+*
+------------------------------------------------------------------------------
+*  HISTORIQUE :
+*
+* JPL	26/11/18 : Creation (DEM 1312)  1.1
+------------------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"xdc_ax.h"
+INCLUDE	"xzic_ax.h"
+
+INCLUDE	"xzax01sp.h"
+INCLUDE	"xzax02sp.h"
+INCLUDE	"xzax03sp.h"
+
+INCLUDE	"ITMA_COM.h"
+INCLUDE	"ITMA_TDO.h"
+
+
+
+/*A Définition des constantes */
+
+DEFINE	CM_MODULE		"MTJV"				' Nom du module
+
+
+
+/*A
+** Format des donnees de calendrier de vacances affichees
+** ------------------------------------------------------
+*/
+
+FORMAT	TJV_Calendrier
+	jour_debut,					' Jour de début de la période
+	jour_fin,					' Jour de fin de la période
+	type						' Type de la période au format textuel
+
+
+
+/*A
+** Format des donnees de calendrier de vacances en base de donnees
+** ---------------------------------------------------------------
+*/
+
+FORMAT	TJV_Donnees_Calendrier
+	type,						' Identifiant du type de période
+	jour_debut,
+	jour_fin
+
+
+
+/*A Définition des variables globales */
+VAR	FORMAT TJV_Calendrier		tm_Calendrier		' Table des périodes du calendrier affichee
+
+VAR	FORMAT TJV_Donnees_Calendrier	tm_d_Calendrier		' Donnees du calendrier en base
+
+
+
+VAR	FORMAT	TDO_Dictionnaire	tm_types_jours		' Les types de joours chômés (férié, vacances)
+
+
+VAR	tm_titres_Calendrier					' Titres de la table affichée
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Visualisation et saisie du calendrier de vacances et jours fériés.
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TJV_Jours_Vacances (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*  Presente a l'operateur la table des périodes chômées actuellement
+*  configurées.
+*  Permet l'ajout et la suppression de périodes chômées,
+*  avec leur type (vacances ou férié).
+*
+--------------------------------------------------------------------------------- */
+
+	VAR	vl_fenetre
+	VAR	vl_objet_selecte			' L'objet courant de la fenetre
+	VAR	tl_les_messages_acceptes		' Pour reception de signaux
+	VAR	vl_la_fenetre_est_active
+	VAR	vl_installer_traitement_erreur
+
+	VAR	vl_i_type, vl_i_periode
+	VAR	vl_appelant
+	VAR	tl_select
+	VAR	vl_cr
+	VAR	i
+
+
+vl_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+
+
+/*A
+** Traitements en cas d'erreur :
+** informer l'operateur, tracer l'erreur et abandonner
+** ---------------------------------------------------
+*/
+
+ON ERROR
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN
+}
+
+
+/*A
+** Charger la fenetre de saisie
+** ----------------------------
+*/
+
+vl_fenetre = DB_LOAD@ ("ITMA_TJV")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 450)
+DB_YPOS@ (vl_fenetre, 200)
+
+
+
+/*A
+** Initialiser les caracteristiques des objets graphiques
+** ------------------------------------------------------
+*/
+
+/*B Table de visualisation du calendrier */
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_Calendrier", FALSE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_Calendrier", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "TA_Calendrier", TRUE)
+
+
+/* Initialement, pas de période selectionnée, rien à supprimer */
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Supprimer", TRUE)
+
+
+
+/*A
+** Mettre en place la reception des messages
+** -----------------------------------------
+*/
+
+tl_les_messages_acceptes = {
+	COM_CANAL_FIN
+}
+DB_ACCEPT_POKES@ (vl_fenetre, tl_les_messages_acceptes)
+
+
+
+/*A
+** Initialiser la visualisation
+** ----------------------------
+*/
+
+IF ITMA_TJV_Init_Calendrier_Vacances (vl_fenetre, vl_appelant) <> COM_OK {
+	RETURN (COM_NOK)
+}
+
+
+
+/*A
+** Traitements en cas d'erreur durant la visualisation :
+** informer l'operateur et selon la nature et la gravite
+** de l'erreur la tracer ou non, continuer ou abandonner
+** -----------------------------------------------------
+*/
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		IF (ERROR_NUMBER@ () <> COM_ERR_NON_SAISI)  AND
+		   (ERROR_NUMBER@ () <> COM_ERR_DATE_INVAL)
+		{
+			COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+		}
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+
+/*A
+** Tant que la fenetre n'est pas desactivee, la visualiser
+** -------------------------------------------------------
+*/
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY_ONLY@ (vl_fenetre, FALSE)
+	DB_DISPLAY@ (vl_fenetre)
+	DB_DISPLAY_ONLY@ (vl_fenetre, TRUE)
+
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+	/*B Ignorer l'action si c'est un redimensionnement de colonne */
+	IF (DB_EXIT_CODE@ (vl_fenetre) = EV_TBL_COLUMN_RESIZE_)
+	{
+		vl_objet_selecte = NULL
+	}
+
+
+	CASE OF vl_objet_selecte
+
+	/*A
+	** Sur sélection d'une ligne dans la table du calendrier,
+	** afficher les données de la période dans la zone de saisie
+	** ---------------------------------------------------------
+	*/
+
+	CASE "TA_Calendrier"
+		tl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Calendrier")
+		vl_i_periode = tl_select[0]
+
+		vl_i_type = COM45_IndexEnColonne (tm_types_jours, TDO_DICO_CLE, tm_d_Calendrier[vl_i_periode].type)
+		IF (vl_i_type >= 0) {
+			DB_CTRL_VALUE@ (vl_fenetre, "BR_Type", vl_i_type)
+		} ELSE {
+			DB_CTRL_VALUE@ (vl_fenetre, "BR_Type", NULL)
+		}
+
+		COM24_Afficher_Horodate (tm_Calendrier[vl_i_periode].jour_debut, vl_fenetre,
+		                            "BS_Jour_Debut", "BS_Mois_Debut", "BS_Annee_Debut", NULL, NULL)
+		COM24_Afficher_Horodate (tm_Calendrier[vl_i_periode].jour_fin, vl_fenetre,
+		                            "BS_Jour_Fin", "BS_Mois_Fin", "BS_Annee_Fin", NULL, NULL)
+
+
+		/*A et autoriser la suppression de la période */
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Supprimer", FALSE)
+
+
+
+	/*A
+	** Sur action "Ajouter", vérifier les valeurs saisies
+	** puis ajouter la période de vacances au calendrier
+	** --------------------------------------------------
+	*/
+
+	CASE "BP_Ajouter"
+		vl_cr = ITMA_TJV_Ajouter_Periode_Vacances (vl_fenetre)
+
+
+
+	/*A
+	** Sur action "Supprimer", demander à la base la suppression de cette période
+	** --------------------------------------------------------------------------
+	*/
+
+	CASE "BP_Supprimer"
+		vl_cr = ITMA_TJV_Supprimer_Periode_Vacances (vl_fenetre)
+
+
+
+	/*A
+	** Sur appui sur une montre, afficher l'horodate correspondante
+	** ------------------------------------------------------------
+	*/
+
+	CASE "BP_Heure_Debut"
+		COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+		                            "BS_Jour_Debut", "BS_Mois_Debut", "BS_Annee_Debut",
+		                            NULL, NULL)
+
+	CASE "BP_Heure_Fin"
+		COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+		                            "BS_Jour_Fin", "BS_Mois_Fin", "BS_Annee_Fin",
+		                            NULL, NULL)
+
+
+
+	CASE "BP_Quitter"
+		vl_la_fenetre_est_active = FALSE
+
+
+
+	CASE "poke_"
+		CASE OF  DB_GET_POKE@ (vl_fenetre)
+
+		/*A
+		** Sur reception d'un message de fin,
+		** terminer la tache et fermer la fenetre
+		** --------------------------------------
+		*/
+
+		CASE COM_CANAL_FIN
+			vl_la_fenetre_est_active = FALSE
+
+		ENDCASE
+	ENDCASE
+WEND
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialise la visualisation du calendrier de vacances et jours fériés.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TJV_Init_Calendrier_Vacances (va_fenetre, va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* va_fenetre          : Id. de la fenetre a initialiser ;
+* va_appelant         : Nom du module appelant.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TJV_Jours_Vacances
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@	tl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+	VAR	vl_cr
+	VAR	vl_i_type
+	VAR	i
+
+/*A Initialiser et afficher la liste des types de jours chômés */
+tm_types_jours = {
+	{ XDC_JOUR_VACANCES,	"Vacances" },
+	{ XDC_JOUR_FERIE,	"Férié" }
+}
+
+DB_CTRL_STRINGS@ (va_fenetre, "BR_Type", ARRAY_COLUMN@ (tm_types_jours, TDO_DICO_VAL))
+DB_CTRL_VALUE@ (va_fenetre, "BR_Type", 0)
+
+
+/*A
+** Initialiser la table des périodes chômées
+** -----------------------------------------
+*/
+
+/*A Lire en base le calendrier complet */
+tl_parametres = {}
+
+vl_cr = COM05_SQL_Procedure (XZAX01_Liste_Periodes_Vacances, tl_parametres, vl_resultats, CM_MODULE)
+IF (vl_cr <> COM_OK)
+{
+	INFO_MESSAGE@ ("Erreur lors de la lecture du calendrier de vacances")
+	RETURN (COM_NOK)
+}
+
+tm_d_Calendrier = vl_resultats.select_results[0]
+
+
+/*A Constituer la table des périodes affichée */
+FOR i = 0  TO (ARRAY_SIZE@ (tm_d_Calendrier) - 1)
+	/*B Nom du type de jour chômé */
+	vl_i_type = COM45_IndexEnColonne (tm_types_jours, TDO_DICO_CLE, tm_d_Calendrier[i].type)
+
+	tm_Calendrier[i].jour_debut	= SUBSTRING@ (COM18_Date_SGBD_Formatee (tm_d_Calendrier[i].jour_debut), 1, 10)
+	tm_Calendrier[i].jour_fin	= SUBSTRING@ (COM18_Date_SGBD_Formatee (tm_d_Calendrier[i].jour_fin), 1, 10)
+	tm_Calendrier[i].type		= tm_types_jours[vl_i_type].valeur
+NEXT i
+
+
+/*A Definir les colonnes de la table du calendrier */
+tm_titres_Calendrier = {
+	{ "Début",		100 },
+	{ "Fin",		100 },
+	{ "Type",		100 }
+}
+
+
+/*A Afficher la table des périodes chômées */
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)
+DB_DISPLAY@ (va_fenetre)
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Calendrier", tm_Calendrier, tm_titres_Calendrier, NULL)
+DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Calendrier", NULL)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Ajoute au calendrier de vacances la période définie par les dates et
+*  le type saisis, si elle n'est pas incompatible (par des jours en commun)
+*  avec l'une des périodes déjà définies.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TJV_Ajouter_Periode_Vacances (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* va_fenetre          : Id. de la fenetre de saisie.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TJV_Jours_Vacances
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@	tl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+	VAR	FORMAT TJV_Calendrier		vl_Periode
+	VAR	FORMAT TJV_Donnees_Calendrier	vl_d_Periode
+
+	VAR	vl_jour_debut, vl_jour_fin
+	VAR	vl_type, vl_i_type
+	VAR	vl_Maintenant
+	VAR	vl_txt_err
+	VAR	vl_cr, vl_cr_macro
+	VAR	vl_index, i
+
+vl_cr_macro = COM_OK
+
+/*A Formater et verifier les jours de début et fin saisie */
+vl_jour_debut = COM23_Horodate (va_fenetre, "BS_Jour_Debut", "BS_Mois_Debut", "BS_Annee_Debut")
+vl_jour_fin = COM23_Horodate (va_fenetre, "BS_Jour_Fin", "BS_Mois_Fin", "BS_Annee_Fin")
+
+IF (IS_NULL@ (vl_jour_debut)  OR  IS_NULL@ (vl_jour_fin)) {
+	INFO_MESSAGE@ ("Veuillez saisir les jours de début et fin de la période")
+	RETURN (COM_NOK)
+}
+
+vl_jour_debut = SUBSTRING@ (vl_jour_debut, 1, 10)
+vl_jour_fin = SUBSTRING@ (vl_jour_fin, 1, 10)
+
+IF (COM17_Difference_Dates (vl_jour_fin, vl_jour_debut) < 0) {
+	INFO_MESSAGE@ ("Les jours de début et de fin sont incompatibles")
+	RETURN (COM_NOK)
+}
+
+vl_Maintenant = COM09_Date_Courante ()
+IF (COM17_Difference_Dates (vl_jour_fin, vl_Maintenant) <= 0) {
+	INFO_MESSAGE@ ("Pas de saisie de vacances dans le passé S.V.P.")
+	RETURN (COM_NOK)
+}
+
+
+/*A Déterminer le type de jour saisi */
+vl_i_type = DB_CTRL_GET_VALUE@ (va_fenetre, "BR_Type")
+IF IS_NULL@ (vl_i_type) {
+	INFO_MESSAGE@ ("Veuillez saisir le type de la période")
+	RETURN (COM_NOK)
+}
+vl_type = tm_types_jours[vl_i_type].kle
+
+IF (vl_type = XDC_JOUR_FERIE) {
+	vl_txt_err = "fériés"
+} ELSE {
+	vl_txt_err = "de vacances"
+}
+
+
+/*A Vérifier que la période n'a pas de jour commun avec une autre période de même type */
+FOR i = 0  TO (ARRAY_SIZE@ (tm_Calendrier) - 1)
+	IF (vl_type = tm_d_Calendrier[i].type)
+	{
+		IF (COM17_Difference_Dates (vl_jour_fin, tm_Calendrier[i].jour_debut) >= 0)  AND
+		   (COM17_Difference_Dates (tm_Calendrier[i].jour_fin, vl_jour_debut) >= 0)
+		{
+			INFO_MESSAGE@ ("Un ou plusieurs jours " ++ vl_txt_err ++ " ont déjà été saisis dans cette période")
+			RETURN (COM_NOK)
+		}
+	}
+NEXT i
+
+
+/*A Ajouter la période définie au calendrier de vacances */
+tl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#INT1_,		vl_type },
+	{ FALSE,	SYB#DATETIME_,		vl_jour_debut },
+	{ FALSE,	SYB#DATETIME_,		vl_jour_fin }
+} )
+
+vl_cr = COM05_SQL_Procedure (XZAX02_Ajouter_Periode_Vacances, tl_parametres, vl_resultats, CM_MODULE)
+
+IF (vl_cr = COM_OK)  AND  (vl_resultats.status = XDC_OBJ_EXISTE)
+{
+	INFO_MESSAGE@ ("Un ou plusieurs jours " ++ vl_txt_err ++ " ont déjà été saisis dans cette période")
+	vl_cr_macro = COM_NOK
+}
+ELSE IF NOT ( (vl_cr = COM_OK)  AND  (vl_resultats.status = 0) )
+{
+	INFO_MESSAGE@ ("Erreur lors de l'ajout de la période au calendrier en base")
+	vl_cr_macro = COM_NOK
+}
+
+
+/* Si la période a été ajoutée au calendrier en base, l'insérer aux données et rafraîchir l'affichage */
+IF (vl_cr_macro = COM_OK)
+{
+	/*B Déterminer la première période du calendrier dont le début n'est pas antérieur au début saisi */
+	vl_index = 0
+	i = 0
+	WHILE i < ARRAY_SIZE@ (tm_Calendrier)
+		IF (COM17_Difference_Dates (tm_Calendrier[i].jour_debut, vl_jour_debut) >= 0) {
+			i = ARRAY_SIZE@ (tm_Calendrier)
+		} ELSE {
+			vl_index = vl_index + 1
+			i = i + 1
+		}
+	WEND
+
+	/*B puis insérer la nouvelle période à cet endroit */
+	vl_d_Periode.type = vl_type
+	vl_d_Periode.jour_debut = vl_jour_debut
+	vl_d_Periode.jour_fin = vl_jour_fin
+	tm_d_Calendrier = ARRAY_INSERT@ (tm_d_Calendrier, vl_d_Periode, vl_index)
+
+	vl_Periode.jour_debut = vl_jour_debut
+	vl_Periode.jour_fin = vl_jour_fin
+	vl_Periode.type = tm_types_jours[vl_i_type].valeur
+	tm_Calendrier = ARRAY_INSERT@ (tm_Calendrier, vl_Periode, vl_index)
+
+	DB_TABLE_SET_DATA@ (va_fenetre, "TA_Calendrier", tm_Calendrier, tm_titres_Calendrier, NULL)
+	DB_TABLE_SET_NEW_TOP_ROW@ (va_fenetre, "TA_Calendrier", 0)
+	DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Calendrier", NULL)
+
+	DB_CTRL_GRAYED@ (va_fenetre, "BP_Supprimer", TRUE)
+}
+
+
+RETURN (vl_cr_macro)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Supprime la période de vacances ou fériée définie par la ligne
+*  selectionnée dans la table des périodes chômées.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TJV_Supprimer_Periode_Vacances (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* va_fenetre          : Id. de la fenetre de saisie.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TJV_Jours_Vacances
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@	tl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+	VAR	tl_selectes
+	VAR	vl_i_periode
+	VAR	vl_supprime
+	VAR	vl_cr, vl_cr_macro
+
+vl_cr_macro = COM_OK
+
+/*A Si aucune période n'est selectionnée alors il n'y rien a faire */
+tl_selectes = DB_TABLE_GET_SELECTIONS@ (va_fenetre, "TA_Calendrier")
+IF (ARRAY_SIZE@ (tl_selectes) = 0) {
+	RETURN (COM_OK)
+}
+vl_i_periode = tl_selectes[0]
+
+
+/*A Demander l'annulation de la programmation selectionnee */
+vl_supprime = XDC_FAUX
+tl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#INT1_,	tm_d_Calendrier[vl_i_periode].type },
+	{ FALSE,	SYB#DATETIME_,	tm_Calendrier[vl_i_periode].jour_debut }
+} )
+
+vl_cr = COM05_SQL_Procedure (XZAX03_Supprimer_Periode_Vacances, tl_parametres, vl_resultats, CM_MODULE)
+
+IF (vl_cr = COM_OK)
+{
+	IF (vl_resultats.status = 0)
+	{
+		vl_supprime = XDC_VRAI
+	}
+	ELSE IF (vl_resultats.status = XDC_OBJ_AUCUN)
+	{
+		vl_cr = COM_NOK
+	}
+	ELSE
+	{
+		vl_cr = COM_NOK
+	}
+}
+
+IF (vl_cr <> COM_OK)
+{
+	INFO_MESSAGE@ ("Impossible de supprimer la période de type '" ++ tm_Calendrier[vl_i_periode].type ++
+	                  "' débutant le " ++ tm_Calendrier[vl_i_periode].jour_debut)
+	vl_cr_macro = COM_NOK
+}
+
+
+/* Si la période a été supprimée, mettre à jour la table */
+IF (vl_supprime = XDC_VRAI)
+{
+	tm_Calendrier = ARRAY_DELETE@ (tm_Calendrier, vl_i_periode)
+	tm_d_Calendrier = ARRAY_DELETE@ (tm_d_Calendrier, vl_i_periode)
+	DB_TABLE_SET_DATA@ (va_fenetre, "TA_Calendrier", tm_Calendrier, tm_titres_Calendrier, NULL)
+	DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Calendrier", NULL)
+
+	DB_CTRL_GRAYED@ (va_fenetre, "BP_Supprimer", TRUE)
+}
+
+
+RETURN (vl_cr_macro)
+
+ENDMACRO

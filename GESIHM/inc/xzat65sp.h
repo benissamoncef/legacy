@@ -1,0 +1,1 @@
+DEFINE	XZAT65_Liste_Neutres_PMVA	"XZAT65"

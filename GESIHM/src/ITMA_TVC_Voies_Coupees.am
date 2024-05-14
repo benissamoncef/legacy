@@ -1,0 +1,284 @@
+/*E*/
+/* Fichier : $Id: ITMA_TVC_Voies_Coupees.am,v 1.6 1998/09/22 13:16:23 gaborit Exp $      Release : $Revision: 1.6 $        Date : $Date: 1998/09/22 13:16:23 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTVC * FICHIER ITMA_TVC_Voies_Coupees.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   voies coupees
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou   30 dec 1994	: Creation                                         V1.1
+* Lecrivain 06 Mar 1995	: Ajout controles de date et impression            V1.3
+* Noel	    21 Sep 1995 : Introduction de la procédure commune 
+				d'impression				   V1.4
+* Guilhou   10 Sep 1996 : ajout longueur reseau					V1.5
+* Niepceron   03 Jul 1998 : Connexion a SQL_HIS (dem/1699) v1.6
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xzas34sp.h"
+
+
+
+
+DEFINE	C_MODULE	"MTVC"					' Nom du module
+
+
+
+DEFINE	C_MODELE_IMPRESSION	"ITMA_TVC_Voies_Coupees"		' Fichier modele
+DEFINE	C_SOUS_REP_MODELES	COM_SOUS_REP_IHM				' Repertoire modeles
+
+
+
+VAR	vm_date									' Horodate de calcul
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TVC_Voies_Coupees (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+	VAR 	vl_date
+    VAR     tl_message, tl_args			' Message envoye, arguments
+    VAR     vl_fichier
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "gene travaux"
+ * ---------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TVC")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+DB_WIDTH@ (vl_fenetre, COM_LARGEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TVC_Voies_Coupees")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_imprimer", TRUE)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+		ERROR_BOX@
+		IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL
+			COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+	CASE "poke_"
+		CASE OF  DB_GET_POKE@ (vl_fenetre)
+		CASE COM_CANAL_FIN
+		    RETURN
+		ENDCASE
+
+
+     CASE "BP_fermer"
+		RETURN
+
+
+  	/*A appui sur le bouton horohelp */
+	CASE "BP_horohelp"
+		COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+								 "BS_jour", "BS_mois", "BS_annee",
+								 "BS_heure", "BS_minute")
+
+
+	CASE "BP_calculer"
+		MACRO_WINS_BUSY@ ()
+		vl_date = COM23_Horodate (vl_fenetre,
+								 "BS_jour", "BS_mois", "BS_annee",
+								 "BS_heure", "BS_minute")
+		IF IS_NULL@ (vl_date)
+			ERROR@ (COM_ERR_DATE_INVAL, "Indiquer une date de calcul")
+
+		IF TVC_calcul_voies (vl_fenetre, vl_date) = COM_OK
+		{
+			vm_date = vl_date
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_imprimer", FALSE)
+		}
+
+
+    /*A Sur choix "Imprimer", produire le fichier et demander son impression */
+    CASE "BP_imprimer"
+
+	/*A Charger le document modele */
+	WP_APPLICATION_DLG@(NULL, TRUE)
+	WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+					C_SOUS_REP_MODELES ++ C_MODELE_IMPRESSION ++ ".aw")
+
+	/*A Valuer les variables */
+	WP_SET_DOC_VAR@ ("Horodate", vm_date)
+	WP_SET_DOC_VAR@ ("Pourcentage", DB_CTRL_GET_TITLE@ (vl_fenetre, "LI_voies"))
+
+	vl_fichier = C_MODELE_IMPRESSION ++ "_" ++ SYSTEM_VAR@(vg_numero_operateur)
+	COM36_Imprimer_Texte(vl_fichier)
+
+    ENDCASE
+
+WEND
+
+
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Calcule le % de voies coupees
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TVC_calcul_voies (va_fenetre, va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*   .
+---------------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = SYB#INT4_
+vl_parametres[0].data = -1
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#DATETIME_
+vl_parametres[1].data = va_horodate
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT4_
+vl_parametres[2].output = TRUE
+
+vl_parametres[3].type = SYB#INT4_
+vl_parametres[3].output = TRUE
+
+/*A execution requete base*/
+IF COM50_DateHistorique(va_horodate)
+{
+	IF COM41_SQL_Procedure_HIS (XZAS34_Voies_Coupees,
+						vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+	RETURN (COM_NOK)
+	}
+}
+ELSE
+{
+	IF COM05_SQL_Procedure (XZAS34_Voies_Coupees,
+						vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+	RETURN (COM_NOK)
+	}
+}
+
+DB_CTRL_TITLE@ (va_fenetre,"LI_voies", vl_resultats.return_parameters[0]/1000)
+DB_CTRL_TITLE@ (va_fenetre,"LI_longueur", vl_resultats.return_parameters[1]/1000)
+
+RETURN (COM_OK)
+
+ENDMACRO

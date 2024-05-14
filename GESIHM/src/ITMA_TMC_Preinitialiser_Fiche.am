@@ -1,0 +1,639 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_Preinitialiser_Fiche.am,v 1.13 2019/05/13 12:02:45 devgfi Exp $        $Revision: 1.13 $        $Date: 2019/05/13 12:02:45 $
+-----------------------------------------------------------------------
+*  GTIE  *  PROJET MIGRAZUR
+-----------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-----------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMC_Preinitialiser_Fiche.am
+-----------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+* Initialise certaines informations de la fiche courante
+* avec celles de sa cause.
+*
+-----------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  Torregrossa	12 Dec 1996	1.1	: Création (FMC9 : DEM/1284)
+*  Torregrossa	15 Dec 1997	1.2	: Ajout degrade en sortie de XZAE40 (1531) 
+*  Torregrossa  08 jan 1998 : modif interface XZAE40, format ITMA_TMC (1532) V1.3
+*  Torregrossa  06 avr 1998 : modif interface XZAE40, format ITMA_TMC (1532) V1.4
+*  Niepceron  	13 jan 1999 : modif interface XZAE40, format ITMA_TMC (1624) V1.5
+*  Niepceron    17 jan 1999 : init flag datex avec celui de la cause (1750) V.1.6
+*  Lecrivain    26 fev 2007 : prendre origine et veracite de la cause (DEM 624) 1.7
+*  Lecrivain    26/04/2007 : Prise en compte nouveaux types FMC (DEM 643-646) 1.8
+*  Lecrivain	30/05/2007 : Prise en compte type Basculement pour travaux (DEM 647) 1.9
+*  JPL		19/08/2010 : Prise en compte type Zone de Stockage (DEM 942) 1.10
+* JMG		09/04/12	: regulation de vitesse DEM 1016 1.11
+* JMG		26/11/16 : ajout majeur lot 23 1.12
+* JPL		04/04/19 : Ajout de l'indicateur d'écoulement (DEM 1326)  1.13
+-----------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE		"dbase_.am"
+
+INCLUDE		"xdc_ax.h"
+INCLUDE		"xzic_ax.h"
+INCLUDE		"xzaec_ax.h"
+
+INCLUDE		"ITMA_COM.h"
+INCLUDE		"ITMA_TMC.h"
+INCLUDE		"ITMA_TDO.h"
+INCLUDE		"xzae40sp.h"
+
+
+/*A Définition des constantes */
+
+DEFINE	C_MODULE		"MTMC"		' Nom du module
+
+
+/*A Définition des variables globales */
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* Recherche les informations de la fiche cause de la fiche courante,
+* et  renseigne differents champs de la fiche avec ceux de la cause.
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Preinitialiser_Fiche(va_fenetre, FORMAT TMC_fmc_a_creer va_args, FORMAT TMC_fmc va_fiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fenetre		: id de la boite de dialogue ou afficher les champs
+* va_args			: type, numero cause, cle cause
+* va_fiche		: fmc a creer
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : fiche
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+--------------------------------------------------------------------- */
+
+VAR FORMAT TMC_fmc vl_fiche, vl_fiche_tete, tl_cause
+VAR vl_loc_valide
+VAR vl_fenetre
+VAR tl_retour
+
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+vl_fenetre = va_fenetre
+
+/*A initialiser avec les caracteristiques par defaut de la fmc */
+vl_fiche = va_fiche
+
+/* libelle cause */
+vl_fiche.numero_cause = va_args.cause
+vl_fiche.cle_cause = va_args.cle_cause
+DB_CTRL_TITLE@(va_fenetre, "LI_fmc_cause", va_args.libelle_cause)
+
+/* lecture des caracteristiques de la cause */
+tl_cause = ITMA_TMC_lire_cause(vl_fiche.numero_cause, vl_fiche.cle_cause, XDC_DATE_NULLE)
+
+IF NOT IS_ARRAY@(tl_cause)
+	return (NULL)
+
+/* recopier l'origine, la veracite et l'indicateur Datex */
+/*! on extrait les 25 premiers caracteres */
+vl_fiche.origine = TRIM@ (SUBSTRING@ (tl_cause.origine, 1, 25))
+
+vl_fiche.confirme = tl_cause.confirme
+
+vl_fiche.datex=tl_cause.datex
+
+vl_fiche.majeur = FALSE
+
+/* recopier la localisation si elle est valide */
+vl_loc_valide = FALSE
+
+CASE OF va_args.type
+
+/*B Une aire fermee ou un incident sous-concessionnaire */
+CASE XZAEC_FMC_AireFermee, XZAEC_FMC_IncSsConces
+	/*B ne peuvent etre localises que sur une aire */
+	IF (tl_cause.point_car = XDC_POINT_CARACT_AIRE) {
+		vl_loc_valide = TRUE
+	}
+
+/*B Un delestage ou une deviation, */
+/*B   une fermeture echangeur ou echangeur deconseille */
+CASE XZAEC_FMC_Delestage, XZAEC_FMC_Deviation
+CASE XZAEC_FMC_FermetureEch, XZAEC_FMC_EchDeconseille
+	/*B ne peuvent etre localises que sur un echangeur */
+	IF (tl_cause.point_car = XDC_POINT_CARACT_ECHANGEUR) {
+		vl_loc_valide = TRUE
+	}
+
+/*B Un basculement */
+/*B ou une frontiere fermee */
+CASE XZAEC_FMC_Basculement, XZAEC_FMC_BasculTravaux
+CASE XZAEC_FMC_FrontiereFermee
+CASE XZAEC_FMC_Regulation
+	/*B ne peuvent etre localises que sur section courante */
+	IF (tl_cause.point_car = NULL) {
+		vl_loc_valide = TRUE
+	}
+
+/*B Un bouchon, un vehicule lent ou a contresens, */
+/*B un convoi, une manifestation */
+/*B ou un evenement hors reseau */
+CASE XZAEC_FMC_QueueBouchon, XZAEC_FMC_TeteBouchon
+CASE XZAEC_FMC_Contresens, XZAEC_FMC_VehMarcheArr
+CASE XZAEC_FMC_Cirque, XZAEC_FMC_ConvoiExc, XZAEC_FMC_ConvoiMil, XZAEC_FMC_VehLent
+CASE XZAEC_FMC_Escargot, XZAEC_FMC_GreveESCOTA, XZAEC_FMC_Manifestation
+CASE XZAEC_FMC_EvtHorsReseau
+	/*B ne peuvent etre ni sur une aire ni sur un lit d'arret */
+	IF (tl_cause.point_car <> XDC_POINT_CARACT_AIRE) AND
+	   (tl_cause.point_car <> XDC_POINT_CARACT_LIT_ARRET)
+	{
+		vl_loc_valide = TRUE
+	}
+	if va_args.type = XZAEC_FMC_Contresens
+		vl_fiche.majeur = TRUE
+
+/*B Un hold-up */
+/*B ou un evenement sur chaussee */
+CASE XZAEC_FMC_HoldUpVol
+CASE XZAEC_FMC_PietonChaussee
+CASE XZAEC_FMC_Salage
+CASE XZAEC_FMC_ChausseeGliss
+CASE XZAEC_FMC_TraitChaussees
+	/*B ne peuvent pas etre sur un lit d'arret */
+	IF (tl_cause.point_car <> XDC_POINT_CARACT_LIT_ARRET) {
+		vl_loc_valide = TRUE
+	}
+
+DEFAULT
+	/* pour les autres types de FMC, aucune restriction de localisation */
+	'XZAEC_FMC_Accident,
+	'XZAEC_FMC_VehArrete, XZAEC_FMC_VehPanne, XZAEC_FMC_VehFeu,
+	'XZAEC_FMC_Travaux,
+	'XZAEC_FMC_Eboulement, XZAEC_FMC_Incendie, XZAEC_FMC_Inondation,
+	'XZAEC_FMC_ChausseDeter, XZAEC_FMC_FlaqueHuile, XZAEC_FMC_AnimalErrant,
+	'XZAEC_FMC_AltercationUsager, XZAEC_FMC_Agression, XZAEC_FMC_MalaiseUsager,
+	'XZAEC_FMC_Obstacle, XZAEC_FMC_Autre
+	vl_loc_valide = TRUE
+ENDCASE
+
+IF (vl_loc_valide = TRUE)
+{
+	vl_fiche.autoroute = tl_cause.autoroute
+	vl_fiche.pr = tl_cause.pr
+	vl_fiche.sens = tl_cause.sens
+	vl_fiche.point_car = tl_cause.point_car
+	vl_fiche.nom_point_car = tl_cause.nom_point_car
+	vl_fiche.num_point_car = tl_cause.num_point_car
+	vl_fiche.position = tl_cause.position
+	vl_fiche.autoroute_cause  = tl_cause.autoroute
+	vl_fiche.pr_cause = tl_cause.pr
+	vl_fiche.sens_cause = tl_cause.sens
+
+}
+tl_retour[0] = vl_fiche
+
+
+/*A initialisation de la partie tete de bouchon */
+IF va_args.type = XZAEC_FMC_QueueBouchon
+{
+	/* initialiser l'origine, la veracite et l'indicateur Datex */
+	/*! on extrait les 25 premiers caracteres */
+	vl_fiche_tete.origine = TRIM@ (SUBSTRING@ (tl_cause.origine, 1, 25))
+
+	vl_fiche_tete.confirme = tl_cause.confirme
+
+	vl_fiche_tete.datex=tl_cause.datex		
+
+
+	/* initialiser la localisation */
+	IF (tl_cause.point_car = XDC_POINT_CARACT_ECHANGEUR OR
+	    tl_cause.point_car = NULL OR
+	    tl_cause.point_car = XDC_POINT_CARACT_PEAGE)
+	{
+		vl_fiche_tete.autoroute = tl_cause.autoroute
+		vl_fiche_tete.pr = tl_cause.pr
+		vl_fiche_tete.sens = tl_cause.sens
+		vl_fiche_tete.point_car = tl_cause.point_car
+		vl_fiche_tete.nom_point_car = tl_cause.nom_point_car
+		vl_fiche_tete.num_point_car = tl_cause.num_point_car
+		vl_fiche_tete.position = tl_cause.position
+		vl_fiche_tete.autoroute_cause  = tl_cause.autoroute
+		vl_fiche_tete.pr_cause = tl_cause.pr
+		vl_fiche_tete.sens_cause = tl_cause.sens
+	}
+
+	tl_retour[1] = vl_fiche_tete
+
+}
+
+
+	RETURN (tl_retour)
+ENDMACRO
+
+
+
+
+
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* lire la cause en base
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ITMA_TMC_lire_cause (va_numero, va_cle, va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fiche		: numero et cle d'evenement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : resultat de la lecture en base
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@	vl_parametres	
+VAR FORMAT SQL_Procedure_Result@	vl_resultats
+VAR vl_indice
+VAR tl_retour
+VAR vl_num, i
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+	vl_indice=0
+	/*A preparation des parametres de la requete*/
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].data = va_horodate
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].data = va_numero
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].data = va_cle
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	'vl_parametres[i].data=null	'num
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'cle
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'site
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'deb prev
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'deb
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'fin prev
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'fin
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'validation
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'num cause
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'cle cause
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type cause
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'num alerte
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'horo alerte
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type alerte
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'origine
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'confirme
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'autoroute
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'pr
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'sens
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'pt car
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'nom pt car
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vr
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vm2
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vm1
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vl
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'bau
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vri
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vm2i
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vm1i
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vli
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'baui
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'autoroute cause
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'pr cause
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'sens cause
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'horo cause
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'position sur aire ou echangeur
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+
+	'vl_parametres[i].data=" "	'degats domaine
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type fmc precedent
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'fausse alerte
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'BAU etroite 
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'BAU inverse etroite
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'longueur escargot
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'abrev point car
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'numero point car
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'fmc degrade
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'num fmc init 
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'cle fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'commentaire fmc init
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'autoroute fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'PR fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'sens fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'horodate fmc init
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'site alerte
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'datex
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'trafic
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'gravite
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'bloquant
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'duree
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'majeur
+	vl_parametres[i].type = SYB#INT2_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'ecoulement
+	vl_parametres[i].type = SYB#INT1_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	/*A execution de la requete*/
+	IF COM05_SQL_Procedure (XZAE40_Lire_Fiche_MC,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@("Erreur dans la lecture de la fiche en base")
+		 RETURN (COM_NOK)
+	}
+
+	/*A retourner les parametres de sortie*/
+	RETURN (vl_resultats.return_parameters)
+
+
+ENDFUNCTION

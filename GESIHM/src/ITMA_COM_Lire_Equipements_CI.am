@@ -1,0 +1,134 @@
+/*E*/
+/* Fichier : $Id: ITMA_COM_Lire_Equipements_CI.am,v 1.3 2010/10/29 15:24:32 gesconf Exp $      Release : $Revision: 1.3 $        Date : $Date: 2010/10/29 15:24:32 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_COM * FICHIER ITMA_COM_Lire_Equipements.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fonctions communes.
+*
+*   Non decrit dans le DCG
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Niepceron	28 nov 2005 : Creation : Execution à distance des proc    V1.1 1.2 DEM365
+* JPL		29/10/2010 : Initialisation des donnees retournees  1.3
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE "XDMICG/inc/xdc_ax.h"
+
+INCLUDE "GESIHM/inc/ITMA_COM.h"
+INCLUDE "GESIHM/inc/ITMA_TDO.h"
+
+INCLUDE "GESIHM/inc/xzat01sp.h"
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit les informations sur des equipements.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_COM_Lire_Equipements_CI (va_type_equip, va_district,
+				 va_selectes, va_selectes_non,
+				 va_exclus, va_exclus_non,
+				 FORMAT COM_Donnees_Equipements va_info_equip,
+				 va_module)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_type_equip     : Identifiant du type d'equipements a lire ;
+*   va_district       : Identifiant du district ;
+*   va_selectes       : Criteres a verifier pour selection ;
+*   va_selectes_non   : Criteres a ne pas verifier pour selection ;
+*   va_exclus         : Criteres d'exclusion ;
+*   va_exclus_non     : Criteres d'exclusion si non verifies ;
+*   va_module         : Nom du module appelant.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_info_equip     : Informations sur les equipements lues en base.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   Toute macro.
+*
+* FONCTION
+*   Lit en base de donnees et retourne les informations sur les equipements
+*   repondant aux criteres indiques en arguments.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR vl_retour
+
+va_info_equip = { }
+
+/*A
+ * Lire en base de donnees les equipements verifiant les criteres
+ * --------------------------------------------------------------
+ */
+vl_parametres=null
+
+vl_parametres[0].type = COM_Identifiant_Type_Equip
+vl_parametres[0].data = va_type_equip
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_District
+vl_parametres[1].data = va_district
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Critere_Equip	      ' Conditions
+vl_parametres[2].data = va_selectes
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Identifiant_Critere_Equip	      ' Conditions niees
+vl_parametres[3].data = va_selectes_non
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = COM_Identifiant_Critere_Equip	      ' Exclusions
+vl_parametres[4].data = va_exclus
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = COM_Identifiant_Critere_Equip	      ' Exclusions niees
+vl_parametres[5].data = va_exclus_non
+vl_parametres[5].output = FALSE
+
+if (SYSTEM_VAR@(vg_formation)<>null)
+{
+vl_parametres[6].type = SYB#DATETIME_
+vl_parametres[6].data = SYSTEM_VAR@(vg_horodate_formation)
+vl_parametres[6].output = FALSE
+}
+
+/*sur pc simplifie et pas degrade et si je ne cherche pas uniquement sur mon site*/
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) and (SYSTEM_VAR@(vg_comm_CI)=COM_OK)
+	and (SYSTEM_VAR@(vg_site)<>va_district)
+  vl_retour=COM39_SQL_Procedure_PCS (XZAT01_Liste_Eqt_Dispo,
+				vl_parametres, vl_resultats, va_module)
+else
+  vl_retour=COM41_SQL_Procedure_Distante (va_district,XZAT01_Liste_Eqt_Dispo,
+				vl_parametres, vl_resultats, va_module)
+
+IF vl_retour <> COM_OK
+    RETURN (COM_NOK)
+
+va_info_equip = vl_resultats.select_results[0]
+
+RETURN (COM_OK)
+
+ENDMACRO

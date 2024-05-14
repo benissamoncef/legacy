@@ -1,0 +1,2046 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCV_Courbe_A_Visualiser.am,v 1.48 2012/07/04 18:13:55 pc2dpdy Exp $      Release : $Revision: 1.48 $        Date : $Date: 2012/07/04 18:13:55 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TCV * FICHIER ITMA_TCV_Courbe_A_Visualiser.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fiche de definition d'une courbe a visualiser.
+*
+*   Cf. DCG 2.4.21
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 19 Dec 1994	: Creation                                        V1.1
+* Lecrivain 27 Dec 1994	: Redimensionnement                               V1.1
+* Lecrivain 02 Jan 1995 : Utilisation fonction d'appel du synoptique      V1.2
+* Lecrivain 29 Mar 1995 : Designation differente des equipements          V1.15
+* Lecrivain 10 Avr 1995 : Nom de la station RADT initialisee depuis MSOP  V1.16
+* Lecrivain 29 Mai 1995 : Ajout du sens de circulation (reserve 694)      V1.17
+* Torregrossa 06 Jun 1995 : Suppression des bouton mesure et fenetre pour
+*                           Q_V_TO                                        V1.18
+* Torregrossa 15 Jun 1995 : Nom de la station RADT initialisee depuis MSOP  V1.19
+* Guilhou+Gaborit	27 Sep 1995 : montre + controle dates			V1.21
+*  CT+BG  24 Oct 1995 : (CT) Prise en compte des sens des autoroutes au niveau
+*                             du test de cohenrence de PR (A57)
+*					(BG) modif de l'appel à ITMA_TRE_Retard		V1.22
+* Torregrossa 09 Jan 1996 : Suppression bouton BO_Fenetre pour retard et
+*                           controle date <= date courante V1.23
+* Torregrossa 16 Fev 1996 : Ajout nom autoroute pour graphe inrets V1.24
+* Torregrossa 16 Fev 1996 : init sens pour station sur echangeur via SOP V1.25
+* Guilhou 26 Mar 1996 : Courbe dans spreadsheet pour impression bureautique V1.26 (DEM 607)
+*			Parametres par defaut pour f(t) depuis synoptiques (DEM 879)
+* Guilhou 28 Mar 1996 : on passe nom station, horodates debut et fin a ITMA_QVT.am (DEM 872) V1.27
+* Guilhou 09 Mai 1996 : passage nb voies a ITMA_QVT.am (DEM 867) V1.28
+* Guilhou 14 mai 1996 : changement terme Inrets (DEM 881) V1.29
+* Guilhou 03 juillet 1996 : ajout liste de périodes (DEM 866) V1.30 
+* Verdier 03 Sept 1996 : Limitation plage de données V1.31 (DEM 1170)
+* Guilhou 06 Sep 1996 : calcul depuis le PC simplifie (RADT) V1.32
+* Guilhou 19 sep 1996 : la liste des stations est reduite aux locales en degrade sur pc simplifie (RADT) V1.34
+* Niepceron 25 Sep 1996 : Ajout de la plage pour le graphe inrets (ana3) V1.35
+* Niepceron 27 Sep 1996 : Ajout choix 1mn ou 6mn  (IHM9) V1.36
+* Niepceron 30 Sep 1996 : Init des mesures F(t) a Q,V,TO,PL par defaut (ana1)(dem/1210) V1.37
+* Niepceron 30 Sep 1996 : Memorisation des donnees F(t) pour rappel ulterieur (ana8)(dem/1211) V1.38
+* Guilhou 04 nov 1996 : correction libelle et gestion des stations (DEM/1275) V1.39
+* Niepceron   03 Jul 1998 : Connexion a SQL_HIS (dem/1699) v1.40
+* Hilmarcher  08 aout 2005: La periode de recueil doit pouvoir etre >24h mais <= 70h DEM489 v1.41
+* JPL		01/08/07 : Ajout des graphes F(t) avec reference (DEM 673) 1.42
+* JPL		16/08/07 : Modif. fonction synoptique pour graphe F(t) avec reference (DEM 673) 1.43
+* JPL		01/10/07 : Ne plus redimensionner la fenetre pour eviter un "fantome" (DEM 699) 1.44
+* PNI		18/08/08 : Correction sens incohérent en appel du synoptic DEM803 v1.45
+* JPL		06/07/09 : Gestion des barres de menu personnalisees Applix et leur id. 1.46
+* JMG		29/05/12 : flash 1.47
+* JMG		26/06/12 : correction linux 1.48
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE "spsheet_.am"
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TBR.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xzas20sp.h"
+INCLUDE	"../../XDMICG/inc/xzas01sp.h"
+INCLUDE	"../../XDMICG/inc/xzas06sp.h"
+INCLUDE	"../inc/isyn_svu_applix_ax.h"
+INCLUDE	"../inc/ITMA_TCV.h"
+
+format CHART_AXIS@
+	TYPE,
+	AUTO_MAX,
+	MAX_VALUE,
+	AUTO_MIN,
+	MIN_VALUE,
+	AUTO_BAS,
+	BAS_VALUE,
+	POSITION,
+	FLOATING_VALUE,
+	MINOR_TIK_TYPE,
+	MINOR_TIK_SIZE,
+	AUTO_N_MINOR_TIKS,
+	N_MINOR_TIKS,
+	MAJOR_TIK_TYPE,
+	MAJOR_TIK_SIZE,
+	AUTO_N_MAJOR_TIKS,
+	N_MAJOR_TIKS,
+	BAR_MARGIN,
+	BAR_OVERLAP,
+	USE_TIK_ATTRIBUTES,
+	BEHIND_DATA,
+	HIDDEN
+
+
+format chart_title@
+	title,
+	subtitle,
+	footer,
+	title_alignment,
+	subtitle_alignment,
+	footer_alignment
+
+DEFINE	C_MODULE	"MTCV"				' Nom du module
+DEFINE	VUE_COMMUN	"VUES_Commun.elo"
+DEFINE	VUE_APPLIX	"CVUEM_ApplixData.elo"
+
+DEFINE	QVTOMax 48
+
+DEFINE	P1MN	0
+DEFINE	P6MN  1
+
+/*A
+ * libelles des boutons de selection de stations pour f(t)
+ * -------------------------------------------------------
+ */
+
+DEFINE	C_LIB_CHOIX_STAT	"Station Graphe "
+DEFINE	C_LIB_SUP_STAT		"Supprimer Station Graphe "
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+DEFINE	C_LIB_PERIODE_INVAL	"Période définie trop large"
+DEFINE	C_LIB_DATE_INVAL	"La date doit être inférieure ou égale à la date courante"
+DEFINE	C_LIB_PAS_PNT_MES	"Pas de point de mesure pour cette station de comptage"
+DEFINE	C_LIB_PERIODE_INVAL	"Période invalide"
+DEFINE	C_LIB_PERIODE_MAX	"La durée totale est supérieure à la période max autorisée"
+
+DEFINE	PATH_OUTILS	"/produits/migrazur/appliSD/fichiers/mbo"
+
+FORMAT	FORM_SENS_VOIES
+		sens,						' numero de sens
+		voies,						' liste numeros de voies pour un sens
+		nomsvoies						' liste noms de voies pour un sens
+
+FORMAT	FORM_DONNEES_F_T_Station
+		station,						' Nom station
+		mesure,						' Mesure
+		voie,						' Voie
+		sens,						' Sens
+		bt_station					' etat bouton BP_StationX
+
+FORMAT	FORM_DONNEES_F_T
+		FORMAT FORM_DONNEES_F_T_Station station, ' donnees stationX
+		jour,						' jour
+		mois,						' mois
+		annee,						' annee
+		heure,						' heure
+		minute,						' minute
+		temps_reel,					' Etat bouton Temps Reel
+		periode,						' Valeur BR_Periode
+		echelle,						' echelle
+		fenetre,						' fenetre
+		nb_courbes,					' nombre de courbes
+		type_visu					' type de visualisation dans la fenetre
+
+	
+VAR vm_type_courbe						' Type de la courbe
+VAR vm_type_visu						' Type de visualisation pour courbes F(t)
+VAR vm_l_num_stations					' Liste stations choisies
+VAR vm_liste
+VAr tm_periodes,tm_duree,tm_resultats
+
+VAR FORMAT COM_Donnees_Equipements vm_l_stations	' Liste stations comptage
+VAR	vm_l_noms_stations						' Leurs designations
+VAR FORMAT TDO_Autoroute vm_l_autoroutes		' Liste des autoroutes
+VAR FORMAT TDO_Echangeur vm_l_echangeurs		' Liste des echangeurs
+VAR FORMAT TDO_Sens_Circulation vm_l_sens		' Liste sens circulation
+VAR FORMAT TCV_Donnees_Station vm_l_sens_station	' Liste sens circul. d'une station
+VAR      vm_numeros_sens						' Liste numeros sens circulation
+VAR		vm_l_sens_voies		' liste sens circulation et voies pour f(t)
+VAR     vm_l_voies							' Liste des voies
+VAR     vm_l_noms_voies						' Liste des noms des voies
+VAR     vm_l_types							' Liste types de visu
+VAR     vm_l_echelles						' Liste echelles de visu
+VAR		vm_qvto_plage_max
+
+VAR 		vm_appelant					' Nom du module appelant
+VAR 		vm_simplifie
+
+VAR FORMAT FORM_DONNEES_F_T vm_donnees_F_T		' donnees de la fenetre de saisie F de T
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Definition des donnees d'une courbe a visualiser.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCV_Courbe_A_Visualiser (va_appelant, va_arg1, va_type_visu)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*
+*  . Si appel depuis MTMT :
+*    va_type_courbe   : Type de la courbe a visualiser.
+*    va_type_visu     : Type de visualisation des courbes F(t): bureautique, synoptiques
+*
+*  . Si appel depuis MSOP :
+*    va_arg1[]        : Liste d'arguments :
+*     va_num_station  : Identifiant de la station de comptage choisie.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option Analyser -> Courbe -> Trafic
+*                                            -> Q, V, TO
+*                                            -> Retard
+*                                            -> F(t)     dans MTMT ;
+*   Selection d'un symbole station de comptage dans MSOP.
+*
+* FONCTION
+*   Permet la saisie des donnees a visualiser pour le type de courbe indique
+*   en argument (F(t) sur appel depuis MSOP).
+*   Demande ensuite la visualisation a MSOP.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_les_objets			' Noms des objets de la fenetre
+    VAR     vl_station				' Station selectionnee
+    VAR     vl_num_graphe,vl_nom,vl_libSens
+    VAR     vl_objet, vl_num_objet
+    VAR     vl_args, vl_var
+    VAR     i,j, k, l,vl_sens,vl_nb_voies
+    VAR    vl_index_sens, vl_index_voie, vl_indice_selecte
+    VAR    vl_noms_sens, vl_noms_voies, vl_liste_voies
+    Var 	 vl_valeur				'recuperation de la valeur d'un champs
+    VAR  FORMAt FORM_SENS_VOIES vl_info_un_sens		' info pour 1 sens d'une
+							' station selectionnee
+    VAR  FORMAt FORM_SENS_VOIES vl_sens_voies_graphe	' info pour les sens d'une
+							' station selectionnee
+    VAR FORMAT TCV_Donnees_Station vl_info_station 	' Informations sur station
+							' selectionnee lues en base
+ 
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A
+ * Determiner l'origine de l'invocation et le type de courbe a visualiser
+ * ----------------------------------------------------------------------
+ */
+
+vm_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+
+IF vm_appelant = "MSOP" {
+    vm_type_courbe = TCV_COURBE_F_T
+    IF ( va_arg1[0] <> "rappel") { 
+	vm_donnees_F_T = NULL
+	vm_l_num_stations[0] = va_arg1[0]
+	vm_type_visu = TCV_TYPE_SYNOPTIQUE
+    } ELSE {
+	if ( va_arg1[1] = XDC_GR_FENETRE_GAUCHE ) {
+		vm_donnees_F_T = SYSTEM_VAR@(vg_F_T_gauche)
+    	} else {
+		vm_donnees_F_T = SYSTEM_VAR@(vg_F_T_droite)
+    	}
+	vm_type_visu = vm_donnees_F_T.type_visu
+    }
+} ELSE {
+    vm_type_courbe = va_arg1
+    vm_type_visu = va_type_visu
+}
+
+
+/*si calcul au PC simplifie*/
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  vm_simplifie=TRUE
+else
+  vm_simplifie=FALSE
+
+
+/*A
+ * Charger la fenetre "Courbe a visualiser"
+ * ----------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TCV_" ++ vm_type_courbe)
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TCV_Courbe_A_Visualiser")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+vl_les_objets = DB_GET_CTRL_NAMES@ (vl_fenetre)
+FOR i = 0  TO ARRAY_SIZE@ (vl_les_objets) - 1
+    CASE OF  SUBSTRING@ (vl_les_objets[i], 1, 3)
+    CASE "BL_"
+	DB_CTRL_VALUE@ (vl_fenetre, vl_les_objets[i], -1)
+
+    CASE "BO_"
+	DB_CTRL_VALUE@ (vl_fenetre, vl_les_objets[i], 0)
+
+    CASE "BA_"
+	DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, vl_les_objets[i], TRUE)
+	DB_CTRL_VALUE@ (vl_fenetre, vl_les_objets[i], 0)
+
+    CASE "BS_"
+	CASE OF  SUBSTRING@ (vl_les_objets[i], 4, 3)
+	CASE "Jou"
+	CASE "Moi"
+	CASE "Ann"
+	CASE "Heu"
+	CASE "Min"
+	    DB_CTRL_VALID_CHARS@ (vl_fenetre, vl_les_objets[i], COM_CHIFFRES)
+
+	CASE "PR_"
+	    DB_CTRL_VALID_CHARS@ (vl_fenetre, vl_les_objets[i], COM_CHIFFRES ++ ".,")
+	ENDCASE
+    ENDCASE
+NEXT i
+
+
+/*A
+ * Lecture du parametre : QVTOPlageMax
+ */
+/*DEM492*/
+/*vm_qvto_plage_max = 24*/
+vm_qvto_plage_max = 70
+vl_var = COM38_Lecture_Param("QVTOPlageMax")
+IF ((vl_var<>NULL) and (vl_var>0))
+	vm_qvto_plage_max = vl_var
+
+
+/*A
+ * Initialiser la visualisation (liste des stations, echangeurs, ...)
+ * ------------------------------------------------------------------
+ */
+
+IF TCV_Init_Visualisation (vl_fenetre, vm_type_courbe, vm_type_visu) <> COM_OK {
+    RETURN (COM_NOK)
+}
+
+
+/*A
+ * Positionner et dimensionner la fenetre
+ * --------------------------------------
+ */
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> C_ERR_IHM
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+    /*A
+    * Sur choix dans "BL_Stations", rechercher les sens et voies possibles 
+     * pour la station selectionnee
+     * ----------------------------------------------------------------------
+     */
+
+    CASE "BL_Stations"
+	vl_station = DB_CTRL_GET_VALUE@ (vl_fenetre, vl_objet_selecte)
+
+	IF vm_type_courbe = TCV_COURBE_Q_V_TO {
+		vm_l_sens_station = NULL
+		vm_l_sens_station[0].sens = NULL
+		vl_sens_voies_graphe = NULL
+		vl_sens_voies_graphe[0].sens = NULL
+		vl_noms_sens = NULL
+		tm_duree=null
+		tm_periodes=null
+     		DB_CTRL_STRINGS@(vl_fenetre, "BL_periodes", NULL)
+		DB_CTRL_TITLE@(vl_fenetre, "LI_periode", "Liste des périodes (0 min)")
+		tm_resultats=null
+		IF ITMA_TCV_Lire_Station(vm_l_stations[vl_station].numero, 
+							vl_info_station, C_MODULE) = COM_OK
+		{
+			/*rechercher la liste des sens et la liste des voies*/
+			j = 0
+			FOR i = 0 TO (ARRAY_SIZE@ (vl_info_station) - 1)
+				IF vl_info_station[i].sens <> vm_l_sens_station[j].sens {
+					vl_index_sens = ARRAY_INDEX@(vm_numeros_sens, 
+											vl_info_station[i].sens)
+					vl_noms_sens[j] = vm_l_sens[vl_index_sens].nom
+					j = j + 1
+					vm_l_sens_station[j] = vl_info_station[i]
+					vl_info_un_sens = NULL
+					vl_info_un_sens.sens = vl_info_station[i].sens
+
+					/*recherche les voies correspondants au sens*/
+					vl_liste_voies = NULL
+					vl_noms_voies = NULL
+					l=0
+					FOR k = 0 TO (ARRAY_SIZE@ (vl_info_station) - 1)
+						IF vl_info_station[k].sens = vl_info_un_sens.sens {
+							vl_liste_voies[l] = vl_info_station[k].voie
+							vl_index_voie = ARRAY_INDEX@(vm_l_voies,
+										vl_info_station[k].voie)
+							vl_noms_voies[l] = vm_l_noms_voies[vl_index_voie]
+							l = l + 1
+						}
+					NEXT k
+					vl_info_un_sens.nomsvoies = vl_noms_voies
+					vl_info_un_sens.voies = vl_liste_voies
+					vl_sens_voies_graphe[j] = vl_info_un_sens
+				}
+			NEXT i
+			vm_l_sens_voies= ARRAY_DELETE@(vl_sens_voies_graphe,0)
+
+			vm_l_sens_station = ARRAY_DELETE@ (vm_l_sens_station, 0)
+			if j = 0 {
+				vl_noms_sens[0] = " "
+				DB_CTRL_VALUE@ (vl_fenetre, vl_objet_selecte, -1)
+   				DB_CTRL_STRINGS@ (vl_fenetre, "BO_Sens1", vl_noms_sens)
+				DB_CTRL_VALUE@ (vl_fenetre, "BO_Sens1", -1)
+				ERROR@ (C_ERR_IHM, C_LIB_PAS_PNT_MES)
+			}
+			DB_CTRL_STRINGS@ (vl_fenetre, "BO_Sens1", vl_noms_sens)
+			DB_CTRL_VALUE@ (vl_fenetre, "BO_Sens1", 0)
+		}
+		ELSE {
+			vl_noms_sens[0] = " "
+			DB_CTRL_VALUE@ (vl_fenetre, vl_objet_selecte, -1)
+   			DB_CTRL_STRINGS@ (vl_fenetre, "BO_Sens1", vl_noms_sens)
+			DB_CTRL_VALUE@ (vl_fenetre, "BO_Sens1", -1)
+		}
+	}
+
+
+    /*A
+     * Sur choix "Sens n", valuer la liste des voies associees
+     * -------------------------------------------------------
+     */
+
+    CASE "BO_Sens1"
+    CASE "BO_Sens2"
+    CASE "BO_Sens3"
+    CASE "BO_Sens4"
+	IF vm_type_courbe = TCV_COURBE_F_T {
+		vl_index_sens = DB_CTRL_GET_VALUE@ (vl_fenetre, vl_objet_selecte)
+	   	TCV_Choix_Sens_FT (vl_fenetre, vl_index_sens, vl_objet_selecte)
+	}
+
+    /*A
+     * Sur choix "Station n", valuer la station choisie ou annuler le choix.
+     * Valuer la liste des sens associes a cette station et la liste des voies
+     * par rapport au sens selectionne par defaut (1er sens de la liste)
+     * -----------------------------------------------------------------------
+     */
+
+    CASE "BP_Station1"
+    CASE "BP_Station2"
+    CASE "BP_Station3"
+    CASE "BP_Station4"
+	vl_station = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Stations")
+	TCV_Choix_Station_FT (vl_fenetre, vl_station, vl_objet_selecte)
+
+    /*A
+     * Sur choix "Temps Reel", afficher ou cacher les objets de saisie de date
+     * -----------------------------------------------------------------------
+     */
+
+    CASE "BA_Temps_Reel"
+	TCV_Visibilite_Horodate_Debut
+	    (vl_fenetre, NOT DB_CTRL_GET_VALUE@ (vl_fenetre, "BA_Temps_Reel"))
+
+
+    /*A
+     * Sur choix "Valider", verifier la validite des criteres saisis
+     * puis invoquer MSOP avec en arguments les valeurs des criteres
+     * -------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	MACRO_WINS_BUSY@()
+	if (vm_type_courbe=TCV_COURBE_Q_V_TO){
+	  	vl_station = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Stations")
+    		IF vl_station < 0
+		ERROR@ (C_ERR_IHM, COM_LIB_NON_SAISI, "Station de comptage ")
+    		vl_nom = vm_l_noms_stations[vl_station]
+    		vl_station = vm_l_stations[vl_station].numero
+
+    		vl_sens = DB_CTRL_GET_VALUE@ (vl_fenetre, "BO_Sens1")
+		vl_info_un_sens = vm_l_sens_voies[vl_sens]
+    		vl_libSens=Db_CTRL_GEt_STRINGS@(vl_fenetre, "BO_Sens1")
+    		vl_libSens=vl_libSens[vl_sens]
+    		vl_sens = vm_l_sens_station[vl_sens].sens
+		vl_nb_voies=ARRAY_SIZE@(vl_info_un_sens[1])
+	    	vl_la_fenetre_est_active = FALSE
+
+		IF (tm_duree=null)
+			ERROR@(C_ERR_IHM,C_LIB_PERIODE_INVAL)
+
+		vl_args=tm_periodes[0]
+		vl_args=ARRAY_FROM_STRING@(vl_args, "-")
+		NEW_TASK@("ITMA_QVT",  "ITMA_TCV_",  tm_resultats,vl_nom++" sens "++vl_libSens,null,null,vl_nb_voies)
+	}
+	else {
+	IF TCV_Requete_Visualisation (vl_fenetre, vm_type_courbe, vm_type_visu) = COM_OK
+	    vl_la_fenetre_est_active = FALSE
+	}
+
+
+	CASE "BP_perso"
+	MACRO_WINS_BUSY@()
+	  vl_station = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Stations")
+    IF vl_station < 0
+	ERROR@ (C_ERR_IHM, COM_LIB_NON_SAISI, "Station de comptage ")
+    vl_nom = vm_l_noms_stations[vl_station]
+    vl_station = vm_l_stations[vl_station].numero
+
+    vl_sens = DB_CTRL_GET_VALUE@ (vl_fenetre, "BO_Sens1")
+	vl_info_un_sens = vm_l_sens_voies[vl_sens]
+    vl_libSens=Db_CTRL_GEt_STRINGS@(vl_fenetre, "BO_Sens1")
+    vl_libSens=vl_libSens[vl_sens]
+    vl_sens = vm_l_sens_station[vl_sens].sens
+	vl_nb_voies=ARRAY_SIZE@(vl_info_un_sens[1])
+	    vl_la_fenetre_est_active = FALSE
+
+	IF (tm_duree=null)
+		ERROR@(C_ERR_IHM,C_LIB_PERIODE_INVAL)
+
+	vl_args=tm_periodes[0]
+	vl_args=ARRAY_FROM_STRING@(vl_args, "-")
+		INSTALL_FILE@(PATH_OUTILS++"/"++VUE_COMMUN)
+		INSTALL_FILE@(PATH_OUTILS++"/"++VUE_APPLIX)
+		INSTALL_FILE@(PATH_OUTILS ++ "/" ++ "Calcul_QVT_perso.elo")
+
+		NEW_TASK@("Calcul_QVT_perso",  "ITMA_TCV_",  tm_resultats,vl_nom++" sens "++vl_libSens,null,null,vl_nb_voies)
+
+    CASE "BP_horohelp"
+    CASE "BP_horodeb"
+	COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+			       "BS_Jour_Debut","BS_Mois_Debut","BS_Annee_Debut",
+				 "BS_Heure_Debut", "BS_Minute_Debut")
+
+    CASE "BP_horofin"
+	COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+				 "BS_Jour_Fin", "BS_Mois_Fin", "BS_Annee_Fin",
+				 "BS_Heure_Fin", "BS_Minute_Fin")
+
+    CASE "BP_ajouter"
+	TCV_ajouter(vl_fenetre)
+
+    CASE "BP_supprimer"
+      TCV_supprimer(vl_fenetre)
+
+    CASE "BO_Mesure"
+      vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_Mesure")
+      if ( vm_l_types[vl_valeur ] = XDC_GR_INRETS )
+		{
+		DB_CTRL_GRAYED@( vl_fenetre,"BS_Plage", FALSE )
+		DB_CTRL_GRAYED@( vl_fenetre,"BO_Fenetre", TRUE )
+		}
+      else
+		{
+		DB_CTRL_GRAYED@( vl_fenetre,"BS_Plage", TRUE )
+		DB_CTRL_GRAYED@( vl_fenetre,"BO_Fenetre", FALSE )
+		}
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation (listes stations de comptage ou echangeurs, ...)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCV_Init_Visualisation (va_fenetre, va_type_courbe, va_type_visu)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_type_courbe    : Identifiant du type de courbe a visualiser ;
+*   va_type_visu      : Identifiant du type de visualisation.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCV_Courbe_A_Visualiser
+*
+* FONCTION
+*   Initialise les valeurs des objets graphiques : listes des stations de
+*   comptage, liste des echangeurs, valeurs des boutons options et bascules.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT COM_Localisation vl_localisation
+    VAR     vl_liste
+    VAR     vl_indice
+    VAR     i, j
+    VAR	vl_district
+
+/*A
+ * Pour une courbe F(t) avec reference, masquer les deux derniers graphes
+ * ----------------------------------------------------------------------
+ */
+
+IF (va_type_courbe = TCV_COURBE_F_T) AND (va_type_visu = TCV_TYPE_SYN_AVEC_REF) {
+	vl_liste = {
+		"LI_Graphe",
+		"LI_Station",
+		"BO_Mesure",
+		"BO_Voie",
+		"BO_Sens",
+		"PA_Lig",
+		"BP_Station"
+	}
+	FOR i = 3 TO 4
+		FOR j = 0 TO ARRAY_SIZE@ (vl_liste) - 1
+			DB_CTRL_DISPLAY@ (va_fenetre, vl_liste[j] ++ i, FALSE)
+		NEXT j
+	NEXT i
+	DB_CTRL_DISPLAY@ (va_fenetre, "PA_Col2_2", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "PA_Col3_2", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "PA_Col4_2", FALSE)
+
+	/* Masquer les champs de periode et d'heure */
+	DB_CTRL_DISPLAY@ (va_fenetre, "BA_Temps_Reel", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BR_Periode", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BS_Heure_Debut", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BS_Minute_Debut", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "LI_Deux_Points", FALSE)
+
+	DB_CTRL_TITLE@ (va_fenetre, "LI_Horodate_Debut", "Date Référence")
+	DB_CTRL_XPOS@ (va_fenetre, "LI_Horodate_Debut",
+	                  DB_CTRL_GET_XPOS@ (va_fenetre, "BS_Jour_Debut") + 10)
+
+	DB_CTRL_XPOS@ (va_fenetre, "BP_horodeb",
+	                  DB_CTRL_GET_XPOS@ (va_fenetre, "BS_Annee_Debut") + 50)
+}
+
+/*A
+ * Pour une courbe F(t) visualisee en tableur, masquer les criteres inutiles
+ * -------------------------------------------------------------------------
+ */
+
+IF (va_type_courbe = TCV_COURBE_F_T) AND (va_type_visu = TCV_TYPE_BUREAUTIQUE) {
+    DB_CTRL_DISPLAY@(va_fenetre, "BA_Temps_Reel",FALSE)
+    DB_CTRL_DISPLAY@(va_fenetre, "BR_Periode", FALSE )
+    DB_CTRL_DISPLAY@(va_fenetre, "BO_Echelle",FALSE)
+    DB_CTRL_DISPLAY@(va_fenetre, "BO_Fenetre",FALSE)
+}
+
+
+/*A
+ * Lire et afficher (si necessaire) la liste des stations de comptage
+ * ------------------------------------------------------------------
+ */
+
+IF va_type_courbe = TCV_COURBE_Q_V_TO  OR  va_type_courbe = TCV_COURBE_F_T {
+
+    /*en mode degrade sur pc simplifie*/
+    vl_district=null
+    if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) and (SYSTEM_VAR@(vg_comm_CI)<>COM_OK)
+      vl_district=SYSTEM_VAR@(vg_site)
+    IF ITMA_COM_Lire_Equipements (XDC_EQT_RAD, vl_district, XDC_EQT_HS, XDC_EQT_NON_HS,
+				    0, 0, vm_l_stations, C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+
+    FOR i = 0  TO ARRAY_SIZE@ (vm_l_stations) - 1
+	IF vm_l_stations[i].autoroute = NULL
+	    vm_l_noms_stations[i] = vm_l_stations[i].nom
+	ELSE {
+	    vl_localisation.NumAuto = vm_l_stations[i].autoroute
+	    vl_localisation.PR = vm_l_stations[i].PR
+	    vl_localisation.sens_circulation = vm_l_stations[i].sens
+	    vm_l_noms_stations[i] = COM10_Localisation (vl_localisation)
+	}
+    NEXT i
+
+    DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, "BL_Stations", TRUE)
+    DB_CTRL_STRINGS@ (va_fenetre, "BL_Stations", vm_l_noms_stations)
+
+}
+
+
+/*A
+ * Pour une courbe "Trafic" afficher la liste des autoroutes
+ * ---------------------------------------------------------
+ */
+
+IF va_type_courbe = TCV_COURBE_TRAFIC {
+    DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, "BO_Mesure", TRUE )
+    DB_CTRL_GRAYED@ (va_fenetre, "BO_Fenetre" , TRUE )
+      DB_CTRL_VALUE@( va_fenetre , "BS_Plage" , 6 )
+    vm_l_autoroutes = SYSTEM_VAR@ (vg_les_autoroutes)
+    vl_liste = ARRAY_COLUMN@ (vm_l_autoroutes, TDO_NOM_AUTOROUTE)
+    DB_CTRL_STRINGS@ (va_fenetre, "BL_Autoroutes", vl_liste)
+}
+
+
+/*A
+ * Pour une courbe "Retard sur itineraire" afficher la liste des echangeurs
+ * ------------------------------------------------------------------------
+ */
+
+IF va_type_courbe = TCV_COURBE_RETARD {
+    vm_l_echangeurs = SYSTEM_VAR@ (vg_les_echangeurs)
+    vl_liste = ARRAY_COLUMN@ (vm_l_echangeurs, TDO_NOM_ECHANGEUR)
+    DB_CTRL_STRINGS@ (va_fenetre, "BL_Echangeurs_Amont", vl_liste)
+    DB_CTRL_STRINGS@ (va_fenetre, "BL_Echangeurs_Aval", vl_liste)
+}
+
+
+/*A
+ * Afficher (si necessaire) la liste des sens de circulation
+ * ---------------------------------------------------------
+ */
+
+IF va_type_courbe <> TCV_COURBE_RETARD {
+    	vm_l_sens = ARRAY_DELETE@ (SYSTEM_VAR@ (vg_les_sens_circulation), 0)
+	vm_numeros_sens = ARRAY_COLUMN@ (vm_l_sens, TDO_NUMERO_SENS)
+
+	IF va_type_courbe = TCV_COURBE_TRAFIC {
+    		vl_liste = ARRAY_COLUMN@ (vm_l_sens, TDO_NOM_SENS)
+	}
+	ELSE vl_liste = { " " }
+
+
+   DB_CTRL_STRINGS@ (va_fenetre, "BO_Sens1", vl_liste)
+    IF va_type_courbe = TCV_COURBE_F_T {
+	DB_CTRL_STRINGS@ (va_fenetre, "BO_Sens2", vl_liste)
+	DB_CTRL_STRINGS@ (va_fenetre, "BO_Sens3", vl_liste)
+	DB_CTRL_STRINGS@ (va_fenetre, "BO_Sens4", vl_liste)
+
+    	DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, "BO_Sens1", TRUE)
+	DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, "BO_Sens2", TRUE)
+  	DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, "BO_Sens3", TRUE)
+	DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, "BO_Sens4", TRUE)
+    }
+}
+
+/*A
+ * Pour une courbe "F(t)" afficher une liste vide des voies,
+ * et definir le libelle des boutons de selection de graphe
+ * ---------------------------------------------------------
+ */
+
+IF va_type_courbe = TCV_COURBE_F_T {
+    vm_l_voies = { XDC_RADT_CHAUSSEE, XDC_RADT_V1, XDC_RADT_V2, XDC_RADT_V3, XDC_RADT_V4 }
+    vm_l_noms_voies = { "Chaussee", "Voie 1", "Voie 2", "Voie 3", "Voie 4" }
+    vl_liste = { " " }
+    DB_CTRL_STRINGS@ (va_fenetre, "BO_Voie1", vl_liste)
+    DB_CTRL_STRINGS@ (va_fenetre, "BO_Voie2", vl_liste)
+    DB_CTRL_STRINGS@ (va_fenetre, "BO_Voie3", vl_liste)
+    DB_CTRL_STRINGS@ (va_fenetre, "BO_Voie4", vl_liste)
+
+  DB_CTRL_TITLE@ (va_fenetre, "BP_Station1",	C_LIB_CHOIX_STAT ++ "1")
+  DB_CTRL_TITLE@ (va_fenetre, "BP_Station2",	C_LIB_CHOIX_STAT ++ "2")
+  DB_CTRL_TITLE@ (va_fenetre, "BP_Station3",	C_LIB_CHOIX_STAT ++ "3")
+  DB_CTRL_TITLE@ (va_fenetre, "BP_Station4",	C_LIB_CHOIX_STAT ++ "4")
+}
+
+
+/*A
+ * Valuer selon le type de courbe les choix du sous-type
+ * -----------------------------------------------------
+ */
+DB_CTRL_TITLE@(va_fenetre, "BP_Valider", "Valider")
+
+CASE OF  va_type_courbe
+CASE TCV_COURBE_TRAFIC
+    vm_l_types = { XDC_GR_INRETS, XDC_GR_INRETS_BOUCHON, XDC_GR_BOUCHON }
+    vl_liste = { "Cartographie densite", "Cartographie densite avec bouchon", "Bouchon seul" }
+    DB_CTRL_STRINGS@ (va_fenetre, "BO_Mesure", vl_liste)
+
+CASE TCV_COURBE_Q_V_TO
+    DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, "BL_periodes", TRUE)
+	DB_CTRL_DISPLAY@(va_fenetre, "BP_perso", TRUE)
+	DB_CTRL_TITLE@(va_fenetre, "BP_Valider", "Calcul Underwood")
+    
+
+CASE TCV_COURBE_F_T
+    vm_l_types = { XDC_RADT_V, XDC_RADT_Q, XDC_RADT_TO, XDC_RADT_PL }
+    vl_liste = { "V", "Q", "TO", "% PL" }
+    vm_liste=vl_liste
+    DB_CTRL_STRINGS@ (va_fenetre, "BO_Mesure1", vl_liste)
+    DB_CTRL_STRINGS@ (va_fenetre, "BO_Mesure2", vl_liste)
+    DB_CTRL_STRINGS@ (va_fenetre, "BO_Mesure3", vl_liste)
+    DB_CTRL_STRINGS@ (va_fenetre, "BO_Mesure4", vl_liste)
+ENDCASE
+
+
+/*A
+ * Pour une courbe "F(t)" valuer les choix d'echelle
+ * -------------------------------------------------
+ */
+
+IF va_type_courbe = TCV_COURBE_F_T {
+    vm_l_echelles = { CM_ECH_PET, CM_ECH_MOY, CM_ECH_GRD }
+    vl_liste = { "Petite", "Moyenne", "Grande" }
+    DB_CTRL_STRINGS@ (va_fenetre, "BO_Echelle", vl_liste)
+}
+
+
+/*A
+ * Valuer les choix de fenetre d'affichage
+ * ---------------------------------------
+ */
+
+IF va_type_courbe <> TCV_COURBE_Q_V_TO AND va_type_courbe <> TCV_COURBE_RETARD {
+    vl_liste = { "Gauche", "Droite" }
+    DB_CTRL_STRINGS@ (va_fenetre, "BO_Fenetre", vl_liste)
+}
+
+
+/*A
+ * Initialiser les valeurs des choix
+ * ---------------------------------
+ */
+
+IF va_type_courbe = TCV_COURBE_F_T {
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Station1", NULL)
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Station2", NULL)
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Station3", NULL)
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Station4", NULL)
+
+    DB_CTRL_VALUE@(va_fenetre,"BO_Mesure1",0)
+    DB_CTRL_VALUE@(va_fenetre,"BO_Mesure2",1)
+    DB_CTRL_VALUE@(va_fenetre,"BO_Mesure3",2)
+    DB_CTRL_VALUE@(va_fenetre,"BO_Mesure4",3)
+
+    /*A
+     * Definir les criteres de periodicite de mise a jour
+     * --------------------------------------------------
+     */
+
+    IF (va_type_visu = TCV_TYPE_SYN_AVEC_REF) {
+	DB_CTRL_VALUE@ (va_fenetre, "BA_Temps_Reel", TRUE)
+	DB_CTRL_VALUE@ (va_fenetre, "BR_Periode", P1MN)
+    } ELSE {
+	DB_CTRL_VALUE@ (va_fenetre, "BA_Temps_Reel", FALSE)
+	DB_CTRL_VALUE@ (va_fenetre, "BR_Periode", P6MN)
+    }
+    DB_CTRL_GRAYED@ (va_fenetre, "BR_Periode", TRUE)
+
+    IF vm_appelant = "MSOP" {
+	IF vm_donnees_F_T <> NULL {
+		/*
+		 * Sur rappel depuis le synoptique, restaurer
+		 * les criteres de visualisation saisis pour la fenetre choisie
+		 * ------------------------------------------------------------
+		 */
+		FOR i=0 TO ( vm_donnees_F_T.nb_courbes-1)
+			vl_indice = ARRAY_INDEX@ (vm_l_noms_stations, vm_donnees_F_T.station[i].station)
+	    		TCV_Choix_Station_FT (va_fenetre, vl_indice, "BP_Station" ++ (i + 1))
+	    		vl_indice = ARRAY_INDEX@( ARRAY_COLUMN@ (vm_l_sens, TDO_NUMERO_SENS),
+						vm_l_stations[vl_indice].sens)
+	   		vl_indice = ARRAY_INDEX@ (DB_CTRL_GET_STRINGS@(va_fenetre, "BO_Sens"
+					 ++ (i + 1)), vm_l_sens[vl_indice].nom)
+	   		TCV_Choix_Sens_FT (va_fenetre, vl_indice, "BO_Sens" ++ (i + 1))
+			DB_CTRL_TITLE@ (va_fenetre, "LI_Station" ++ (i + 1) ,
+ 					vm_donnees_F_T.station[i].station)
+			DB_CTRL_VALUE@(va_fenetre,"BO_Mesure" ++ (i + 1) ,
+ 					vm_donnees_F_T.station[i].mesure)
+			DB_CTRL_VALUE@(va_fenetre,"BO_Voie" ++ (i + 1) ,
+ 					vm_donnees_F_T.station[i].voie)
+			DB_CTRL_VALUE@(va_fenetre,"BO_Sens" ++ (i + 1) ,
+ 					vm_donnees_F_T.station[i].sens)
+			DB_CTRL_VALUE@(va_fenetre,"BP_Station" ++ (i + 1) ,
+ 					vm_donnees_F_T.station[i].bt_station)
+		NEXT i
+		i=0
+		DB_CTRL_VALUE@(va_fenetre,"BS_Jour_Debut",vm_donnees_F_T.jour)
+		DB_CTRL_VALUE@(va_fenetre,"BS_Mois_Debut",vm_donnees_F_T.mois)
+		DB_CTRL_VALUE@(va_fenetre,"BS_Annee_Debut",vm_donnees_F_T.annee)
+		DB_CTRL_VALUE@(va_fenetre,"BS_Heure_Debut",vm_donnees_F_T.heure)
+		DB_CTRL_VALUE@(va_fenetre,"BS_Minute_Debut",vm_donnees_F_T.minute)
+		DB_CTRL_VALUE@(va_fenetre,"BA_Temps_Reel",vm_donnees_F_T.temps_reel)
+		DB_CTRL_VALUE@(va_fenetre,"BR_Periode",vm_donnees_F_T.periode)
+		DB_CTRL_VALUE@(va_fenetre,"BO_Echelle",vm_donnees_F_T.echelle)
+		DB_CTRL_VALUE@(va_fenetre,"BO_Fenetre",vm_donnees_F_T.fenetre)
+		IF (va_type_visu <> TCV_TYPE_SYN_AVEC_REF) AND vm_donnees_F_T.temps_reel {
+			TCV_Visibilite_Horodate_Debut (va_fenetre, FALSE)
+		}
+	} ELSE {
+		/*
+		 * Sur premier appel depuis le synoptique,
+		 * initialiser la visualisation pour la station choisie
+		 * ----------------------------------------------------
+		 */
+		i = ARRAY_INDEX@ (ARRAY_COLUMN@ (vm_l_stations, COM_NUMERO_EQUIPEMENT),
+		                     vm_l_num_stations[0])
+
+		IF i >= 0 {
+		    DB_CTRL_VALUE@ (va_fenetre, "BL_Stations", i)
+
+		    /* initialisation avec la station choisie */
+		    vm_l_num_stations[0] = NULL
+		    TCV_Choix_Station_FT (va_fenetre, i, "BP_Station1")
+		    TCV_Choix_Station_FT (va_fenetre, i, "BP_Station2")
+		    TCV_Choix_Station_FT (va_fenetre, i, "BP_Station3")
+		    TCV_Choix_Station_FT (va_fenetre, i, "BP_Station4")
+
+		    /* initialisation le sens et le menu des voies en fonction du sens */
+		    vl_indice = ARRAY_INDEX@( ARRAY_COLUMN@ (vm_l_sens, TDO_NUMERO_SENS),
+		                                                vm_l_stations[i].sens)
+						
+		   i = ARRAY_INDEX@ (DB_CTRL_GET_STRINGS@(va_fenetre, "BO_Sens1"), vm_l_sens[vl_indice].nom)
+		   /* si le sens de la station n'existe pas prendre le premier dans la liste */
+		   /* ( cas des stations sur echangeur )                                     */
+		   IF i < 0 { i = 0 }
+
+		   DB_CTRL_VALUE@ (va_fenetre, "BO_Sens1", i)
+		   DB_CTRL_VALUE@ (va_fenetre, "BO_Sens2", i)
+		   DB_CTRL_VALUE@ (va_fenetre, "BO_Sens3", i)
+		   DB_CTRL_VALUE@ (va_fenetre, "BO_Sens4", i)
+		   TCV_Choix_Sens_FT (va_fenetre, i, "BO_Sens1")
+		   TCV_Choix_Sens_FT (va_fenetre, i, "BO_Sens2")
+		   TCV_Choix_Sens_FT (va_fenetre, i, "BO_Sens3")
+		   TCV_Choix_Sens_FT (va_fenetre, i, "BO_Sens4")
+
+		   DB_CTRL_VALUE@(va_fenetre,"BO_Mesure1",0)
+		   DB_CTRL_VALUE@(va_fenetre,"BO_Mesure2",1)
+		   DB_CTRL_VALUE@(va_fenetre,"BO_Mesure3",2)
+		   DB_CTRL_VALUE@(va_fenetre,"BO_Mesure4",3)
+		} ELSE {
+		    vm_l_num_stations[0] = NULL
+		    DB_CTRL_TITLE@ (va_fenetre, "LI_Station1", "???")
+		}
+	}
+    }
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualise ou cache les objets de saisie de l'horodate de debut.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCV_Visibilite_Horodate_Debut (va_fenetre, va_visible)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a visualiser ;
+*   va_visible        : Vrai ou faux selon que les objets sont ou non visibles.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCV_Courbe_A_Visualiser
+*
+* FONCTION
+*   Affecte a chacun des objets de la fenetre relevant de la saisie de
+*   l'horodate de debut le critere de visibilite indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_liste, i
+
+
+vl_liste = "BS_Jour_Debut", "BS_Mois_Debut", "BS_Annee_Debut",
+		"BS_Heure_Debut", "BS_Minute_Debut", "BP_horodeb",
+		"LI_Horodate_Debut", "LI_Slash1", "LI_Slash2", "LI_Deux_Points"
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_liste) - 1
+    DB_CTRL_DISPLAY@ (va_fenetre, vl_liste[i], va_visible)
+NEXT i
+
+/* Si on n'est pas PC simplifie alors on degrise ou grise le chois de la periode */
+IF ( vm_simplifie=FALSE ) 
+	DB_CTRL_GRAYED@ (va_fenetre,"BR_Periode", va_visible)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recupere les valeurs des criteres saisis et demande la visualisation a MSOP.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCV_Requete_Visualisation (va_fenetre, va_type_courbe, va_type_visu)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les valeurs saisies ;
+*   va_type_courbe    : Identifiant du type de courbe a visualiser ;
+*   va_type_visu      : Identifiant du type de visualisation.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCV_Courbe_A_Visualiser
+*
+* FONCTION
+*   Lit les valeurs saisies dans la fenetre d'identifiant indique en argument
+*   et verifie leur validite ; effectue ensuite la requete au synoptique pour
+*   visualiser la ou les courbes decrites.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_date_debut, vl_date_fin, vl_periode, vl_temps_reel
+    VAR     vl_autoroute
+    VAR     vl_PR_debut, vl_PR_fin
+    VAR     vl_nb_courbes, vl_fenetre
+    VAR     vl_mesure
+    VAR     vl_sens, vl_voie
+    VAR     vl_station
+    VAR     vl_nom
+    VAR     vl_echelle
+    VAR     vl_echangeur_amont, vl_echangeur_aval
+    VAR	    tl_voies
+    VAR	    vl_libSens
+    VAR     vl_maintenant				' Horodate courante
+    VAR     vl_fonction, vl_l_args			' Fonction appelee, arg.
+    VAR     i
+    VAR     vl_valeur					' valeur du champs Plage
+	VAR  FORMAt FORM_SENS_VOIES vl_info_un_sens		' info pour 1 sens d'une
+											' station selectionnee
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR vl_indice		/* indice des donnees passes a la requete BDD */
+	VAr vl_nb_voies
+    VAR vl_1mn
+    VAR vl_jj, vl_mm, vl_aa, vl_hh, vl_mn
+
+
+vl_maintenant = COM09_Date_Courante ()
+
+
+/*A
+ * Lire la fenetre d'affichage
+ * ---------------------------
+ */
+
+IF (va_type_courbe <> TCV_COURBE_Q_V_TO)AND (va_type_courbe <> TCV_COURBE_RETARD)
+{
+	vm_donnees_F_T.fenetre=DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Fenetre")
+     IF vm_donnees_F_T.fenetre = 0
+    	vl_fenetre = XDC_GR_FENETRE_GAUCHE
+	ELSE vl_fenetre = XDC_GR_FENETRE_DROITE
+}
+
+
+/*A
+ * Lire les autres criteres selon le type de courbe
+ * ------------------------------------------------
+ */
+
+CASE OF  va_type_courbe
+CASE TCV_COURBE_TRAFIC
+    vl_autoroute = DB_CTRL_GET_VALUE@ (va_fenetre, "BL_Autoroutes")
+    IF vl_autoroute < 0
+	ERROR@ (C_ERR_IHM, COM_LIB_NON_SAISI, "Autoroute ")
+
+    vl_valeur = 6
+    vl_mesure = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Mesure")
+    if ( vm_l_types[vl_mesure ] = XDC_GR_INRETS ) {
+	vl_valeur = DB_CTRL_GET_VALUE@(va_fenetre,"BS_Plage")
+	if (( vl_valeur > 24 ) OR ( vl_valeur < 6 )) {
+	    DB_CTRL_VALUE@( va_fenetre , "BS_Plage" , 6 )
+	    ERROR@ (C_ERR_IHM, "La Plage horaire doit être comprise entre 6 heures et 24 heures ")
+	}
+    }
+
+    vl_date_debut = COM23_Horodate (va_fenetre, "BS_Jour_Debut", "BS_Mois_Debut",
+                                       "BS_Annee_Debut",
+                                       "BS_Heure_Debut", "BS_Minute_Debut")
+    if COM17_Difference_Dates (vl_maintenant, vl_date_debut) < (vl_valeur*60) {
+	DB_CURSOR_IN_ENTRY@ (va_fenetre, "BS_Jour_Debut", FALSE)
+	ERROR@ (COM_ERR_DATE_INVAL, "La date de début et la plage horaire sont incompatibles ")
+    }
+
+    vl_mesure = vm_l_types[vl_mesure]
+
+    vl_sens = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Sens1")
+    vl_sens = vm_l_sens[vl_sens].numero
+
+    vl_PR_debut = COM26_Valeur_PR (va_fenetre, "BS_PR_Debut")
+    vl_PR_fin = COM26_Valeur_PR (va_fenetre, "BS_PR_Fin")
+    IF ITMA_TMC_coherence_pr (vm_l_autoroutes[vl_autoroute].numero, vl_PR_fin, vl_PR_debut, vl_sens) <> COM_OK
+	RETURN (COM_NOK)
+
+        vl_fonction = CM_CARACT_INRETS
+    vl_l_args = vl_date_debut ++ ":00",
+		   vl_PR_debut, vl_PR_fin,
+		   vl_mesure, vl_fenetre, vm_l_autoroutes[vl_autoroute].numero,
+		   vm_l_autoroutes[vl_autoroute].nom, vl_valeur , vl_sens
+
+
+
+CASE TCV_COURBE_Q_V_TO
+    vl_date_debut = COM23_Horodate (va_fenetre, "BS_Jour_Debut", "BS_Mois_Debut",
+                                       "BS_Annee_Debut",
+                                       "BS_Heure_Debut", "BS_Minute_Debut")
+    vl_date_fin = COM23_Horodate (va_fenetre, "BS_Jour_Fin", "BS_Mois_Fin",
+				     "BS_Annee_Fin",
+				     "BS_Heure_Fin", "BS_Minute_Fin")
+    vl_periode = COM17_Difference_Dates (vl_date_fin, vl_date_debut)
+    IF COM17_Difference_Dates(vl_maintenant,vl_date_fin) < 0 OR vl_periode <=0 {
+	DB_CURSOR_IN_ENTRY@ (va_fenetre, "BS_Jour_Fin", FALSE)
+	ERROR@ (COM_ERR_DATE_INVAL, COM_LIB_DATE_INVAL)
+    }
+    /*DEM492
+    IF vl_periode > (vm_qvto_plage_max*60)*/
+    IF vl_periode > (vm_qvto_plage_max*60)
+	ERROR@ (C_ERR_IHM, C_LIB_PERIODE_MAX)
+
+    vl_station = DB_CTRL_GET_VALUE@ (va_fenetre, "BL_Stations")
+    IF vl_station < 0
+	ERROR@ (C_ERR_IHM, COM_LIB_NON_SAISI, "Station de comptage ")
+    vl_nom = vm_l_noms_stations[vl_station]
+    vl_station = vm_l_stations[vl_station].numero
+
+    vl_sens = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Sens1")
+	vl_info_un_sens = vm_l_sens_voies[vl_sens]
+    vl_libSens=Db_CTRL_GEt_STRINGS@(va_fenetre, "BO_Sens1")
+    vl_libSens=vl_libSens[vl_sens]
+    vl_sens = vm_l_sens_station[vl_sens].sens
+	vl_nb_voies=ARRAY_SIZE@(vl_info_un_sens[1])
+
+    /*si sens pas sur section courante*/
+    if (vl_sens<>XDC_SENS_NORD) AND (vl_sens<>XDC_SENS_SUD) {
+      INFO_MESSAGE@("Le sens doit forcément etre "++XDC_SENS_SUD++" ou "++XDC_SENS_NORD)
+      return (COM_NOK)
+    }
+
+    vl_fonction = CM_CARACT_QVTO
+    vl_l_args = vl_station, vl_sens,
+		   vl_date_debut ++ ":00", vl_date_fin ++ ":00",
+		   "QVTO ()", vl_fenetre
+
+	/*B Recuperer les donnees des courbes et les transmettre via le
+		presse papier au speadsheet */
+
+		/* Numero de la station*/
+		vl_indice = 0
+		vl_parametres[vl_indice].type = SYB#INT4_
+		vl_parametres[vl_indice].data = vl_station
+		vl_parametres[vl_indice].output = FALSE
+
+		/* le Sens */
+		vl_indice = vl_indice + 1
+		vl_parametres[vl_indice].type = SYB#INT4_
+		vl_parametres[vl_indice].data = vl_sens
+		vl_parametres[vl_indice].output = FALSE
+
+		/* l'horodate de debut */
+		vl_indice = vl_indice + 1
+		vl_parametres[vl_indice].type = SYB#DATETIME_
+		vl_parametres[vl_indice].data = vl_date_debut ++ ":00"
+		vl_parametres[vl_indice].output = FALSE
+
+		/* l'horodate de fin */
+		vl_indice = vl_indice + 1
+		vl_parametres[vl_indice].type = SYB#DATETIME_
+		vl_parametres[vl_indice].data = vl_date_fin ++ ":00"
+		vl_parametres[vl_indice].output = FALSE
+
+		/* execution requete base*/
+		IF COM50_DateHistorique(vl_date_debut ++ ":00")
+		{
+			IF COM41_SQL_Procedure_HIS (XZAS01_Points_QVTO,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+			{
+   				RETURN (COM_NOK)
+			}
+		}
+		ELSE
+		{
+			IF COM05_SQL_Procedure (XZAS01_Points_QVTO,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+			{
+   				RETURN (COM_NOK)
+			}	
+		}
+return (vl_resultats.select_results[0])
+/*		NEW_TASK@("ITMA_QVT",  "ITMA_TCV_",  vl_resultats,vl_nom++" sens "++vl_libSens,vl_date_debut,vl_date_fin,vl_nb_voies)*/
+RETURN(COM_OK)
+
+
+
+CASE TCV_COURBE_RETARD
+    vl_date_debut = COM23_Horodate (va_fenetre, "BS_Jour_Debut", "BS_Mois_Debut",
+                                       "BS_Annee_Debut",
+                                       "BS_Heure_Debut", "BS_Minute_Debut")
+    IF COM17_Difference_Dates (vl_maintenant, vl_date_debut) < 0
+	ERROR@ (C_ERR_IHM, C_LIB_DATE_INVAL)
+
+    vl_echangeur_amont = DB_CTRL_GET_VALUE@ (va_fenetre, "BL_Echangeurs_Amont")
+    IF vl_echangeur_amont < 0
+	ERROR@ (C_ERR_IHM, COM_LIB_NON_SAISI, "Echangeur Amont ")
+    vl_echangeur_amont = vm_l_echangeurs[vl_echangeur_amont].numero
+
+    vl_echangeur_aval = DB_CTRL_GET_VALUE@ (va_fenetre, "BL_Echangeurs_Aval")
+    IF vl_echangeur_aval < 0
+	ERROR@ (C_ERR_IHM, COM_LIB_NON_SAISI, "Echangeur Aval ")
+    vl_echangeur_aval = vm_l_echangeurs[vl_echangeur_aval].numero
+
+    vl_fonction = CM_CARACT_RETITI
+	
+	if (vm_simplifie=TRUE)
+	  NEW_TASK@("ITMA_TRE_Retard", "ITMA_TCV_PCS", vl_echangeur_amont, vl_echangeur_aval, vl_date_debut)
+	else
+	  NEW_TASK@("ITMA_TRE_Retard", "ITMA_TCV_", vl_echangeur_amont, vl_echangeur_aval, vl_date_debut)
+
+
+
+CASE TCV_COURBE_F_T
+    IF va_type_visu = TCV_TYPE_SYN_AVEC_REF {
+	/* Lire la date saisie, en positionnant l'heure à l'heure courante */
+	COM14_Valeurs_Horodate (vl_maintenant, vl_jj, vl_mm, vl_aa, vl_hh, vl_mn)
+	DB_CTRL_VALUE@ (va_fenetre, "BS_Heure_Debut", vl_hh)
+	DB_CTRL_VALUE@ (va_fenetre, "BS_Minute_Debut", vl_mn)
+	vl_date_debut = COM23_Horodate (va_fenetre, "BS_Jour_Debut", "BS_Mois_Debut",
+					   "BS_Annee_Debut",
+					   "BS_Heure_Debut", "BS_Minute_Debut")
+
+	/* Le jour de reference saisi doit etre anterieur a aujourd'hui ... */
+	IF COM17_Difference_Dates (vl_maintenant, vl_date_debut) <= 0 {
+	    DB_CURSOR_IN_ENTRY@ (va_fenetre, "BS_Jour_Debut", FALSE)
+	    ERROR@ (COM_ERR_DATE_INVAL, "La date de référence doit être antérieure à la date courante ")
+	}
+
+	/* ... et dans les districts, il ne peut etre anterieur a un mois */
+	IF SYSTEM_VAR@ (vg_site) <> XDC_CI {
+	    IF COM17_Difference_Dates (vl_maintenant, vl_date_debut) > 28 * 1440 {
+		DB_CURSOR_IN_ENTRY@ (va_fenetre, "BS_Jour_Debut", FALSE)
+		ERROR@ (COM_ERR_DATE_INVAL, "La date de référence ne peut être antérieure à un mois ")
+	    }
+	}
+    } ELSE {
+	IF DB_CTRL_GET_VALUE@ (va_fenetre, "BA_Temps_Reel") {
+	    vl_date_debut = vl_maintenant
+	} ELSE {
+	    vl_date_debut = COM23_Horodate (va_fenetre, "BS_Jour_Debut", "BS_Mois_Debut",
+					       "BS_Annee_Debut",
+					       "BS_Heure_Debut", "BS_Minute_Debut")
+	    IF COM17_Difference_Dates (vl_maintenant, vl_date_debut) < 360 {
+		DB_CURSOR_IN_ENTRY@ (va_fenetre, "BS_Jour_Debut", FALSE)
+		ERROR@ (COM_ERR_DATE_INVAL, "La date de début doit être antérieure d'au moins 6 heures à la date courante ")
+	    }
+	}
+    }
+
+    vl_nb_courbes = 4
+    FOR i = 3  TO 0  STEP -1
+	IF NOT IS_NULL@(vm_l_sens_voies[i]) {
+		vl_mesure[i] = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Mesure" ++ (i + 1))
+		vm_donnees_F_T.station[i].mesure=vl_mesure[i]
+		vl_mesure[i] = vm_l_types[vl_mesure[i]]
+
+		vl_sens[i] = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Sens" ++ (i + 1))
+		vm_donnees_F_T.station[i].sens=vl_sens[i]
+		vl_info_un_sens = vm_l_sens_voies[i][vl_sens[i]]
+		tl_voies[i] = vl_info_un_sens
+
+		vl_voie[i] = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Voie" ++ (i + 1))
+		IF vl_voie[i] = -1 or IS_NULL@(vl_voie[i])
+			ERROR@ (C_ERR_IHM, "Choisir une voie pour le graphe " ++ (i + 1))
+		vm_donnees_F_T.station[i].voie=vl_voie[i]
+		vl_voie[i] = vl_info_un_sens.voies[vl_voie[i]]
+
+		vl_sens[i] = vl_info_un_sens.sens
+
+		vl_nom[i] = DB_CTRL_GET_TITLE@ (va_fenetre, "LI_Station" ++ (i + 1))
+		vm_donnees_F_T.station[i].station=vl_nom[i]
+		vm_donnees_F_T.station[i].bt_station=DB_CTRL_GET_VALUE@ (va_fenetre, "BP_Station" ++ (i + 1))
+	}
+	ELSE {
+		vl_nb_courbes = i
+		vm_donnees_F_T.station[i].bt_station=DB_CTRL_GET_VALUE@ (va_fenetre, "BP_Station" ++ (i + 1))
+		vm_donnees_F_T.station[i].mesure=DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Mesure" ++ (i + 1))
+		vm_donnees_F_T.station[i].sens=DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Sens" ++ (i + 1))
+		vm_donnees_F_T.station[i].voie=DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Voie" ++ (i + 1))
+		vm_donnees_F_T.station[i].station=DB_CTRL_GET_TITLE@ (va_fenetre, "LI_Station" ++ (i + 1))
+
+	}
+    NEXT i
+
+    IF vl_nb_courbes = 0
+	IF IS_NULL@(vm_l_sens_voies)
+		ERROR@ (C_ERR_IHM, "Choisir au moins une courbe à visualiser ")
+	else ERROR@ (C_ERR_IHM, "Choisir les courbes à visualiser a partir de graphe 1")
+
+	vm_donnees_F_T.jour=DB_CTRL_GET_VALUE@(va_fenetre,"BS_Jour_Debut")
+	vm_donnees_F_T.mois=DB_CTRL_GET_VALUE@(va_fenetre,"BS_Mois_Debut")
+	vm_donnees_F_T.annee=DB_CTRL_GET_VALUE@(va_fenetre,"BS_Annee_Debut")
+	vm_donnees_F_T.heure=DB_CTRL_GET_VALUE@(va_fenetre,"BS_Heure_Debut")
+	vm_donnees_F_T.minute=DB_CTRL_GET_VALUE@(va_fenetre,"BS_Minute_Debut")
+
+    vl_echelle = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Echelle")
+    vm_donnees_F_T.echelle=vl_echelle
+    vl_echelle = vm_l_echelles[vl_echelle]
+
+    vm_donnees_F_T.temps_reel=DB_CTRL_GET_VALUE@ (va_fenetre, "BA_Temps_Reel")
+
+    IF vm_donnees_F_T.temps_reel
+	vl_temps_reel = XDC_OUI
+    ELSE vl_temps_reel = XDC_NON
+
+    vm_donnees_F_T.periode=DB_CTRL_GET_VALUE@ (va_fenetre, "BR_Periode")
+    IF ( vm_donnees_F_T.periode = P1MN )
+	vl_1mn = XDC_OUI
+    ELSE vl_1mn = XDC_NON
+
+    vm_donnees_F_T.nb_courbes = vl_nb_courbes
+    vm_donnees_F_T.type_visu = vm_type_visu
+
+    /* Memorisation des donnees de la fenetre */
+    if ( vl_fenetre = XDC_GR_FENETRE_GAUCHE )
+		SET_SYSTEM_VAR@(vg_F_T_gauche, vm_donnees_F_T )
+    else
+		SET_SYSTEM_VAR@(vg_F_T_droite, vm_donnees_F_T )
+
+    IF va_type_visu = TCV_TYPE_SYN_AVEC_REF {
+	vl_fonction = CM_CARACT_FT_REF
+    } ELSE {
+	vl_fonction = CM_CARACT_FT
+    }
+    vl_l_args = TRIM@(vl_nom[0]), vm_l_num_stations[0],
+		vl_mesure[0], vl_voie[0], vl_sens[0],
+		TRIM@(vl_nom[1]), vm_l_num_stations[1],
+		vl_mesure[1], vl_voie[1], vl_sens[1],
+		TRIM@(vl_nom[2]), vm_l_num_stations[2],
+		vl_mesure[2], vl_voie[2], vl_sens[2],
+		TRIM@(vl_nom[3]), vm_l_num_stations[3],
+		vl_mesure[3], vl_voie[3], vl_sens[3],
+		vl_nb_courbes, vl_temps_reel, vl_date_debut ++ ":00",
+		vl_fenetre, vl_echelle , vl_1mn
+ENDCASE
+
+/*A
+ * si appel pour impression bureautique
+ * tracer la courbe dans le spreadsheet
+ */
+ if (va_type_courbe = TCV_COURBE_F_T) AND (va_type_visu = TCV_TYPE_BUREAUTIQUE) {
+  TCV_Courbe_SS(vl_nom,vm_l_num_stations,vl_mesure,vl_voie,vl_sens,vl_nb_courbes,vl_date_debut ++ ":00",vl_echelle,tl_voies)
+  RETURN (COM_NOK)
+ }
+   
+/*A
+ * Envoyer la requete de visualisation au module synoptique
+ * --------------------------------------------------------
+ */
+
+IF va_type_courbe <> TCV_COURBE_RETARD
+
+	if (GET_ENV_VAR@("RTARCH")="hp700_hpux") {
+	IF NEW_TASK@ ("COM28_Exec_Synoptique", vl_fonction, vl_l_args) <> COM_OK
+			RETURN (COM_NOK)
+	}
+	else {
+	FOR i = 0 to ARRAY_SIZE@(vl_l_args)
+		if (vl_l_args[i]=null)
+			vl_l_args[i]="-1"
+	next i
+	IF NEW_TASK@ ("COM54_ExecSynoptiqueFlash", vl_fonction, ARRAY_TO_STRING@(vl_l_args,"|")) <> COM_OK
+    		RETURN (COM_NOK)
+	}
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialiser la station et le menu des sens
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCV_Choix_Station_FT (va_fenetre, va_station, va_objet_selecte)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les valeurs saisies ;
+*   va_station        : Indice de la station selectionnee
+*   va_objet_selecte  : bouton de selection de station selectionne
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCV_Courbe_A_Visualiser
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+    VAR  vl_num_graphe
+    VAR  vl_objet, vl_num_objet
+    VAR  vl_args
+    VAR  i,j, k, l
+    VAR  vl_index_sens, vl_index_voie, vl_indice_selecte
+    VAR  vl_noms_sens, vl_noms_voies, vl_liste_voies
+    VAR  FORMAT FORM_SENS_VOIES vl_info_un_sens		' info pour 1 sens d'une
+							' station selectionnee
+    VAR  FORMAT FORM_SENS_VOIES vl_sens_voies_graphe	' info pour les sens d'une
+							' station selectionnee
+    VAR FORMAT TCV_Donnees_Station vl_info_station 	' Informations sur station
+							' selectionnee lues en base
+
+	vl_objet = "LI_" ++ SUBSTRING@ (va_objet_selecte, 4)
+	vl_num_objet = SUBSTRING@ (va_objet_selecte, 11, 1)
+	vl_num_graphe = vl_num_objet - 1
+	vl_noms_sens = NULL
+	vl_noms_sens[0] = " "	' init de la liste des sens
+	vl_noms_voies = NULL
+	vl_noms_voies[0] = " "	' init de la liste des voies
+	vl_indice_selecte = -1	' pas de sens selectionne par defaut dans la liste
+
+	/* suppression de la station selectionnee */
+	IF va_station < 0 OR NOT IS_NULL@(vm_l_num_stations[vl_num_graphe]) {
+	    vm_l_num_stations[vl_num_graphe] = NULL
+         vm_l_sens_voies[vl_num_graphe] = NULL
+         DB_CTRL_TITLE@ (va_fenetre, vl_objet, NULL)
+	    DB_CTRL_TITLE@ (va_fenetre, va_objet_selecte, 
+					C_LIB_CHOIX_STAT ++ vl_num_objet)
+	}
+	/* choix d'une station  */
+	ELSE {
+	   MACRO_WINS_BUSY@()
+
+
+	   vm_l_num_stations[vl_num_graphe] = vm_l_stations[va_station].numero
+	   DB_CTRL_TITLE@(va_fenetre, vl_objet, vm_l_noms_stations[va_station])
+	   DB_CTRL_TITLE@ (va_fenetre, va_objet_selecte, 
+					C_LIB_SUP_STAT ++ vl_num_objet)
+
+         vm_l_sens_voies[vl_num_graphe] = NULL
+         vl_info_station = NULL
+
+         IF ITMA_TCV_Lire_Station(vm_l_num_stations[vl_num_graphe],
+					vl_info_station, C_MODULE) = COM_OK
+	    {
+		/* rechercher la liste des sens et les listes des voies */
+		j = 0
+		vl_sens_voies_graphe = NULL
+		vl_sens_voies_graphe[0].sens = NULL
+		vl_noms_sens = NULL
+		FOR i = 0 TO (ARRAY_SIZE@ (vl_info_station) - 1)
+			IF vl_info_station[i].sens <> vl_sens_voies_graphe[j].sens {
+				vl_index_sens = ARRAY_INDEX@(vm_numeros_sens, 
+										vl_info_station[i].sens)
+				vl_noms_sens[j] = vm_l_sens[vl_index_sens].nom
+				j = j + 1
+				vl_info_un_sens = NULL
+				vl_info_un_sens.sens = vl_info_station[i].sens
+
+				/* recherche les voies correspondantes au sens */
+				vl_liste_voies = NULL
+				vl_noms_voies = NULL
+				l = 0
+				FOR k = 0 TO (ARRAY_SIZE@ (vl_info_station) - 1)
+					IF vl_info_station[k].sens = vl_info_un_sens.sens {
+						vl_liste_voies[l] = vl_info_station[k].voie
+						vl_index_voie = ARRAY_INDEX@(vm_l_voies,
+										vl_info_station[k].voie)
+						vl_noms_voies[l] = vm_l_noms_voies[vl_index_voie]
+						l = l + 1
+					}
+				NEXT k
+
+				vl_info_un_sens.nomsvoies = vl_noms_voies
+				vl_info_un_sens.voies = vl_liste_voies
+				vl_sens_voies_graphe[j] = vl_info_un_sens
+			}
+		NEXT i
+		vl_sens_voies_graphe = ARRAY_DELETE@ (vl_sens_voies_graphe, 0)
+
+		/* pas de sens pour cette station : erreur */
+		if j = 0 {
+			vl_noms_sens[0] = " "
+			vl_num_objet = SUBSTRING@ (va_objet_selecte, 11, 1)
+			vl_objet = "BO_Sens" ++ vl_num_objet
+			DB_CTRL_VALUE@ (va_fenetre, va_objet_selecte, -1)
+   			DB_CTRL_STRINGS@ (va_fenetre, vl_objet, vl_noms_sens)
+
+			/* raz de la liste des voies */
+			vl_noms_voies = NULL
+			vl_noms_voies[0] = " "
+			vl_objet = "BO_Voie" ++ vl_num_objet
+			DB_CTRL_STRINGS@ (va_fenetre, vl_objet, vl_noms_voies)
+			DB_CTRL_VALUE@(va_fenetre, vl_objet, -1)
+
+			ERROR@ (C_ERR_IHM, C_LIB_PAS_PNT_MES)
+		}
+
+		vm_l_sens_voies[vl_num_graphe] = vl_sens_voies_graphe
+
+		/* indice du sens selectionne par defaut dans la liste */
+		vl_indice_selecte = 0
+
+		/* liste des voies liee au sens selectionne par defaut */
+		vl_info_un_sens = vm_l_sens_voies[vl_num_graphe][0]
+		vl_noms_voies = vl_info_un_sens.nomsvoies
+	   }
+	}
+	/* mise a  jour de la liste des sens pour le graphe selectionne */
+	vl_objet = "BO_Sens" ++ vl_num_objet
+	DB_CTRL_STRINGS@ (va_fenetre, vl_objet, vl_noms_sens)
+	DB_CTRL_VALUE@(va_fenetre, vl_objet, vl_indice_selecte)
+
+	/* mise a  jour de la liste des voies pour le graphe selectionne */
+	vl_objet = "BO_Voie" ++ vl_num_objet
+	DB_CTRL_STRINGS@ (va_fenetre, vl_objet, vl_noms_voies)
+	DB_CTRL_VALUE@(va_fenetre, vl_objet, vl_indice_selecte)
+	
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialiser le sens de la station et le menu des voies en fonction du sens par defaut
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCV_Choix_Sens_FT (va_fenetre, va_index_sens, va_objet_selecte)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les valeurs saisies ;
+*   va_station        : Indice de la station selectionnee
+*   va_objet_selecte  : bouton de selection de station selectionne
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCV_Courbe_A_Visualiser
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+	VAR vl_num_graphe
+	VAR vl_num_objet
+	VAR vl_objet
+	VAR vl_noms_voies
+ 	VAR  FORMAT FORM_SENS_VOIES vl_info_un_sens	' info pour 1 sens d'une
+
+	IF vm_type_courbe = TCV_COURBE_F_T {
+		va_index_sens = DB_CTRL_GET_VALUE@ (va_fenetre, va_objet_selecte)
+		vl_num_graphe = SUBSTRING@ (va_objet_selecte, 8, 1) - 1
+
+           IF NOT IS_NULL@(vm_l_sens_voies[vl_num_graphe]) {
+			vl_num_objet = SUBSTRING@ (va_objet_selecte, 8, 1)
+			vl_objet = "BO_Voie" ++ vl_num_objet
+			vl_info_un_sens = vm_l_sens_voies[vl_num_graphe][va_index_sens]
+
+			if NOT IS_NULL@(vl_info_un_sens.nomsvoies) {
+				DB_CTRL_STRINGS@ (va_fenetre, vl_objet, 
+							vl_info_un_sens.nomsvoies)
+				DB_CTRL_VALUE@(va_fenetre, vl_objet, 0)
+			} ELSE {
+				vl_noms_voies = NULL
+				vl_noms_voies[0] = " "		' init de la liste des voies
+				DB_CTRL_STRINGS@ (va_fenetre, vl_objet, vl_noms_voies)
+				DB_CTRL_VALUE@(va_fenetre, vl_objet, -1)
+			}
+		}
+	}
+
+	RETURN (COM_OK)
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Trace la courbe avec applix spreadsheet
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCV_Courbe_SS (ta_noms,ta_numeros,ta_mesures,ta_voies,ta_sens,va_nbCourbes,va_date,va_echelle,ta_libVoies)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_noms 	: noms des stations de comptage
+* ta_numeros 	: numeros des stations de comptage
+* ta_mesures    : types de courbes a tracer
+* ta_voies 	: liste des voies choisies pour les stations
+* ta_sens	: liste des sens choisis pour les stations
+* va_nbCourbes  : nombre de courbes a tracer
+* va_date	: horodate de reference
+* va_echelle	: echelle des axes des ordonnees
+* ta_libVoies   : libelles des voies
+
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCV_Courbe_A_Visualiser
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_indice,vl_index,vl_index_sens
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR tl_mesures
+VAR tl_horodates
+VAR vl_menu
+VAR vl_cellule
+VAR vl_annee,vl_jour,vl_mois,vl_heures,vl_min,vl_sec
+VAR vl_date
+       var OBJNAME
+       var NAME
+       var CHART_NAME
+       var GNAME
+       var RNGARR
+       var CHTYPE
+       var COLONNE
+       var LEGEND
+       var AXIS_NAME
+       var format CHART_AXIS@ CHART_AXIS
+       var format CHART_TITLE@ CHART_TITLE
+
+  /* pour toutes les stations choisies*/
+  for vl_index=0 to (va_nbCourbes-1)
+	vl_parametres=null
+	vl_resultats=null
+	vl_indice = 0
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_numeros[vl_index]
+	vl_parametres[vl_indice].output = FALSE
+
+	/* le Sens */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_sens[vl_index]
+	vl_parametres[vl_indice].output = FALSE
+
+	/* la voie */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_voies[vl_index]
+	vl_parametres[vl_indice].output = FALSE
+
+	/* l'horodate de debut */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].data = va_date
+	vl_parametres[vl_indice].output = FALSE
+
+	/* le type de courbe */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_mesures[vl_index]
+	vl_parametres[vl_indice].output = FALSE
+
+	/* date de debut de la courbe en sortie*/
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].output = TRUE
+
+	/* execution requete base*/
+	IF COM50_DateHistorique(va_date)
+	{
+		IF COM41_SQL_Procedure_HIS (XZAS06_Ajout_Niveau_Service,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		{
+			INFO_MESSAGE@("Probleme dans la lecture des niveaux de service en base")
+   			RETURN (COM_NOK)
+		}
+	}	
+	ELSE
+	{
+		IF COM05_SQL_Procedure (XZAS06_Ajout_Niveau_Service,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		{
+			INFO_MESSAGE@("Probleme dans la lecture des niveaux de service en base")
+   			RETURN (COM_NOK)
+		}	
+	}	
+
+	/* memorisation des parametres de retour*/
+	tl_horodates[vl_index]=COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[0])
+	tl_mesures[vl_index]=vl_resultats.select_results[0]
+
+
+  next vl_index
+
+  /*A lancement du spreadsheet avec un menu sans * */
+  vl_menu = ITMA_TBR_Menu_Appli_Applix (TBR_MENU_SS_GEN)
+  SS_APPLICATION_DLG@(vl_menu, FALSE)
+  SS_LOAD_FILE@("ITMA_TCV_SS.as")
+  SS_SAVE_AS@("/tmp/ITMA_TCV_SS.as",1,2,2)
+
+  SS_CALC@(0,0,0,0) /* inhibe le calcul pendant la mise en forme */
+
+  LEGEND[0]="data 0","A:D2"
+  LEGEND[1]="data 1","A:D12"
+  LEGEND[2]="data 2","A:D22"
+  LEGEND[3]="data 3","A:D32"
+  SS_CHART_DEFINE_LEGEND_LABELS@("Graphe", LEGEND)
+
+  /* boucle sur les stations de comptage*/
+  for vl_index = 0 to (va_nbCourbes-1)
+    /*on remplit le spreadsheet*/
+   /* nom de la station*/
+   vl_cellule=SS_COORDINATE@(1,10*vl_index+1)
+   SS_PUT_CELL@(vl_cellule,ta_noms[vl_index])
+
+   /*type de mesure*/
+   vl_cellule=SS_COORDINATE@(1,10*vl_index+2)
+   SS_PUT_CELL@(vl_cellule,vm_liste[ta_mesures[vl_index]-1])
+
+   /*horodate*/
+   COM14_Valeurs_Horodate(tl_horodates[vl_index],vl_jour,vl_mois,vl_annee,vl_heures,vl_min,vl_sec)
+   vl_date=vl_heures/24+vl_min/1440
+   vl_cellule=SS_COORDINATE@(1,10*vl_index+3)
+   SS_PUT_CELL@(vl_cellule,vl_date)
+
+   /*voie*/
+   vl_cellule=SS_COORDINATE@(4,10*vl_index+4)
+   SS_PUT_CELL@(vl_cellule,ta_libVoies[vl_index][2][ta_voies[vl_index]])
+
+   /*sens*/
+   vl_index_sens = ARRAY_INDEX@(vm_numeros_sens, ta_sens[vl_index])
+   vl_cellule=SS_COORDINATE@(1,10*vl_index+4)
+   SS_PUT_CELL@(vl_cellule,vm_l_sens[vl_index_sens].nom)
+   
+   /*mesures*/
+   vl_cellule=SS_COORDINATE@(1,10*vl_index+6)
+   ELF_SET_CLIPBOARD@(ARRAY_TRANSPOSE@(tl_mesures[vl_index]))
+   SS_PASTE@(vl_cellule,  TRUE)
+   
+   CHART_AXIS.AUTO_MAX = -1
+   CHART_AXIS.AUTO_MIN = 0
+   CHART_AXIS.AUTO_N_MINOR_TIKS = 0
+   CHART_AXIS.AUTO_N_MAJOR_TIKS = -1
+   CHART_AXIS.N_MINOR_TIKS = "0"
+   CHART_AXIS.AUTO_BAS = 0
+   CHART_AXIS.BAS_VALUE = 0
+
+   /*suivant le type de courbe*/
+   case of (ta_mesures[vl_index])
+     case (XDC_RADT_V)
+	CHART_AXIS.MIN_VALUE = SS_GET_CELL_VALUE@(1,42)
+	/*CHART_AXIS.MAX_VALUE = SS_GET_CELL_VALUE@(1,43)
+	CHART_AXIS.N_MAJOR_TIKS = SS_GET_CELL_VALUE@(1,44)*/
+	CHART_AXIS.N_MINOR_TIKS = SS_GET_CELL_VALUE@(1,45)
+
+     case (XDC_RADT_Q)
+	CHART_AXIS.MIN_VALUE = SS_GET_CELL_VALUE@(2,42)      
+	/*CHART_AXIS.MAX_VALUE = SS_GET_CELL_VALUE@(2,43)
+	CHART_AXIS.N_MAJOR_TIKS = SS_GET_CELL_VALUE@(2,44)*/
+	CHART_AXIS.N_MINOR_TIKS = SS_GET_CELL_VALUE@(2,45)
+
+     case (XDC_RADT_TO)
+	CHART_AXIS.MIN_VALUE = SS_GET_CELL_VALUE@(3,42)      
+	/*CHART_AXIS.MAX_VALUE = SS_GET_CELL_VALUE@(3,43)
+	CHART_AXIS.N_MAJOR_TIKS = SS_GET_CELL_VALUE@(3,44)*/
+	CHART_AXIS.N_MINOR_TIKS = SS_GET_CELL_VALUE@(3,45)
+
+     case (XDC_RADT_PL)
+	CHART_AXIS.MIN_VALUE = SS_GET_CELL_VALUE@(4,42)      
+	/*CHART_AXIS.MAX_VALUE = SS_GET_CELL_VALUE@(4,43)
+	CHART_AXIS.N_MAJOR_TIKS = SS_GET_CELL_VALUE@(4,44)*/
+	CHART_AXIS.N_MINOR_TIKS = SS_GET_CELL_VALUE@(4,45)
+   endcase
+   CHART_AXIS.MIN_VALUE = 0
+   CHART_AXIS.N_MINOR_TIKS = 0
+
+   AXIS_NAME = "axis y"++vl_index
+   GR_CHART_SET_AXIS_LINE@("Graphe",AXIS_NAME,CHART_AXIS)
+  next vl_index
+
+  CHART_AXIS.AUTO_MAX = 0
+  CHART_AXIS.BAS_VALUE = vl_date
+  CHART_AXIS.MIN_VALUE = vl_date
+  CHART_AXIS.MAX_VALUE = vl_date + 6/24 
+  CHART_AXIS.AUTO_N_MAJOR_TIKS = 0
+  AXIS_NAME = "axis x0"
+  CHART_AXIS.N_MAJOR_TIKS = 7
+  CHART_AXIS.N_MINOR_TIKS = 0
+  GR_CHART_SET_AXIS_LINE@("Graphe",AXIS_NAME,CHART_AXIS)
+
+  vl_date="Temps differe : "++SUBSTRING@(va_date,1,10)
+  vl_cellule=SS_COORDINATE@(9,1)
+  SS_PUT_CELL@(vl_cellule,vl_date)
+
+  SS_CALC@(1,0,0,1) /* retablit le calcul apres la mise en forme */
+  SS_SAVE_AS@("/tmp/ITMA_TCV_SS.as",1,2,2)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* ajoute une periode
+--------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCV_ajouter(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCV_Courbe_A_Visualiser
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAr vl_date_debut,vl_date_fin,vl_maintenant
+VAR vl_periode
+VAr vl_string
+VAr vl_resultats
+
+	vl_maintenant = COM09_Date_Courante ()
+ 	
+	vl_date_debut = COM23_Horodate(va_fenetre, "BS_Jour_Debut", 
+					"BS_Mois_Debut",
+				     "BS_Annee_Debut",
+				     "BS_Heure_Debut", "BS_Minute_Debut")
+	IF IS_NULL@ (vl_date_debut) 
+		ERROR@ (COM_ERR_DATE_INVAL, COM_LIB_DATE_INVAL)
+
+    vl_date_fin = COM23_Horodate (va_fenetre, "BS_Jour_Fin", "BS_Mois_Fin",
+				     "BS_Annee_Fin",
+				     "BS_Heure_Fin", "BS_Minute_Fin")
+    vl_periode = COM17_Difference_Dates (vl_date_fin, vl_date_debut)
+    IF COM17_Difference_Dates(vl_maintenant,vl_date_fin) < 0 OR vl_periode <=0 {
+	DB_CURSOR_IN_ENTRY@ (va_fenetre, "BS_Jour_Fin", FALSE)
+	ERROR@ (COM_ERR_DATE_INVAL, COM_LIB_DATE_INVAL)
+    }
+    /*DEM492
+    IF ((tm_duree+vl_periode > (vm_qvto_plage_max*60)) 
+	   OR (tm_duree+vl_periode > (QVTOMax*60)))*/
+    IF ((tm_duree+vl_periode) > (vm_qvto_plage_max*60))
+	ERROR@ (C_ERR_IHM, C_LIB_PERIODE_MAX)
+    tm_duree=tm_duree+vl_periode
+
+   	vl_string=vl_date_debut++" - "++vl_date_fin
+
+ 	vl_resultats=TCV_Requete_Visualisation (va_fenetre, vm_type_courbe, vm_type_visu)
+	if (ARRAY_SIZE@(vl_resultats)=0){
+        INFO_MESSAGE@("Pas de données pour cette plage")
+    	   tm_duree=tm_duree-vl_periode
+	   return
+	}
+
+
+    if (IS_ARRAY@(tm_periodes)){
+     	tm_periodes[ARRAY_SIZE@(tm_periodes)]=vl_string
+		tm_resultats=ARRAY_APPEND@(tm_resultats, vl_resultats)
+	}
+	else{
+		tm_periodes[0]=vl_string
+		tm_resultats=vl_resultats
+	}
+
+
+     DB_CTRL_STRINGS@(va_fenetre, "BL_periodes", tm_periodes)
+	DB_CTRL_TITLE@(va_fenetre, "LI_periode", 
+				"Liste des périodes ("++tm_duree++" min)")
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* supprime une periode
+--------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCV_supprimer(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCV_Courbe_A_Visualiser
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_periode,vl_index
+VAr vl_string
+Var vl_debut,vl_fin
+
+	if (tm_periodes=null) {
+	  DB_CTRL_STRINGS@(va_fenetre, "BL_periodes",NULL)
+	  DB_CTRL_TITLE@(va_fenetre, "LI_periode",
+					"Liste des périodes (0 min)")
+	  return
+	}
+
+ 	vl_index=DB_CTRL_GET_VALUE@(va_fenetre, "BL_periodes")+0
+	if (vl_index<0)
+     	return
+
+	vl_string=tm_periodes[vl_index]
+
+     vl_string=ARRAY_FROM_STRING@(vl_string, "-")
+	vl_debut=vl_string[0]
+	vl_fin=vl_string[1]
+
+	vl_periode = COM17_Difference_Dates (vl_fin, vl_debut)
+	tm_duree=tm_duree-vl_periode
+	tm_periodes=ARRAY_DELETE@(tm_periodes, vl_index)
+	tm_resultats=ARRAY_DELETE@(tm_resultats, vl_index)
+
+     DB_CTRL_STRINGS@(va_fenetre, "BL_periodes", tm_periodes)
+	DB_CTRL_TITLE@(va_fenetre, "LI_periode", 
+				"Liste des périodes ("++tm_duree++" min)")
+ENDMACRO
+

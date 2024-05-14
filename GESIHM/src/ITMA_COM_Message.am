@@ -1,0 +1,108 @@
+/*E*/
+/* Fichier : $Id: ITMA_COM_Message.am,v 1.4 2000/12/20 18:45:46 gesconf Exp $      Release : $Revision: 1.4 $        Date : $Date: 2000/12/20 18:45:46 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_COM * FICHIER ITMA_COM_Message.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Module commun ; composant d'affichage d'un message a l'operateur.
+*
+*   Non decrit dans le DCG
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain  20 Avr 1995 : Creation      
+*                                  V1.1
+* cluchague  27/10/2000  : modif emplacement fenetre pour ne rien masquer sae135 (1.3)
+* cluchague  20/12/2000 : re.+ diminution taille fenetre
+---------------------------------------------------------------------------- */
+
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Affiche un message a l'operateur jusqu'a recevoir un message de fin.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_COM_Message (va_message)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_message        : Texte du message a afficher.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+
+    VAR     vl_taille_msg
+
+
+/*A
+ * Charger la fenetre du message
+ * -----------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_COM_Message")
+DB_XPOS@ (vl_fenetre, 20)
+DB_YPOS@ (vl_fenetre, 615)
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_FIN_MSG
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Afficher le texte du message
+ * ----------------------------
+ */
+
+DB_CTRL_TITLE@ (vl_fenetre, "LI_Message", va_message)
+vl_taille_msg = LEN@ (va_message)
+DB_WIDTH@ (vl_fenetre, 8 * vl_taille_msg + 40)
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre)
+	CASE COM_CANAL_FIN
+	CASE COM_CANAL_FIN_MSG
+	    vl_la_fenetre_est_active = FALSE
+	ENDCASE
+    ENDCASE
+WEND
+
+ENDMACRO

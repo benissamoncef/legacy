@@ -1,0 +1,1470 @@
+/*E*/
+/* Fichier : $Id: ITMA_TNP_Neutre_PMV.am,v 1.9 2021/03/02 13:27:29 pc2dpdy Exp $        $Revision: 1.9 $        $Date: 2021/03/02 13:27:29 $
+------------------------------------------------------------------------------
+*  ESCOTA  *  PROJET PASTRE
+------------------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+------------------------------------------------------------------------------
+*  MODULE MTNP  *  Fichier ITMA_TNP_Neutre_PMV.am
+------------------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*
+*   Gere la configuration des mises au neutre programmees des PMV.
+*
+------------------------------------------------------------------------------
+*  HISTORIQUE :
+*
+* JPL	26/02/13 : Creation - Initialisation seule (DEM 1061)  1.1
+* JPL	04/03/13 : Ajout actions Ajouter et Supprimer  1.2
+* JPL	12/03/13 : Ajout lignes alternat  1.3
+* JPL	21/03/13 : Ajout support bibliotheque de messages  1.4
+* JPL	24/07/17 : Ajout support du mode d'affichage alterne et du clignotement (DEM 1230)  1.5
+* JPL	13/12/18 : Ignorer une programmation de neutre d'un PMVA inconnu (en cours d'intégration)  1.6
+* JPL	14/12/18 : Support des programmations de neutres discontinus (DEM 1312)  1.7
+* JPL	03/04/19 : Autoriser des programmations de même type dans une période, dans des tranches horaires distinctes  1.8
+* LCL	22/01/21 : MOVIS PRA DEM-SAE93 Ajout site local pour XZAT61 XZAT62 1.9
+------------------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzaec_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/xzat60sp.h"
+INCLUDE	"GESIHM/inc/xzat61sp.h"
+INCLUDE	"GESIHM/inc/xzat62sp.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+
+
+
+/*A Définition des constantes */
+
+DEFINE	CM_MODULE		"MTNP"				' Nom du module
+
+DEFINE	CM_LGR_LIG_PMV		15
+
+DEFINE	CM_LIGNE_VIDE		"               "
+
+DEFINE	CM_LIB_TLJ_CONTINU	"Non"				' Indicateur de période non discontinue
+
+
+/*A Configuration de la bibliotheque de commandes predefinies */
+DEFINE	CM_FIC_CFG_ELT_PMV	"ConfigListeElements.cfg"
+DEFINE	CM_RAC_FIC_CMD_PMV	"Config_Element_"
+DEFINE	CM_SFX_FIC_CMD_PMV	".cfg"
+
+DEFINE	CM_FIC_CFG_PIC_PMV	"Config_Pictogrammes.cfg"
+
+
+
+/*A
+** Format des donnees de mise au neutre programmee affichees
+** ---------------------------------------------------------
+*/
+
+FORMAT	TNP_Neutre_PMV
+	type_fmc,					' Libelle du type FMC
+	numero_fmc,					' Numero FMC attachee
+	cle_fmc,
+	date_debut,					' au format textuel
+	date_fin,					' au format textuel
+	discontinu,					' le type de jour / période si discontinu
+	libelle_pmv,
+	pictogramme,					' Quadrigramme du picto
+	bandeau,					' Texte sur 6 caracteres
+	ligne_1,
+	ligne_2,
+	ligne_3,
+	clignotement,					' Clignotement des 3 lignes
+	alternat1,
+	alternat2,
+	alternat3
+
+
+
+/*A
+** Format des donnees de mise au neutre programmee en base de donnees
+** ------------------------------------------------------------------
+*/
+
+DEFINE	TNP_NUMERO_PMV		3
+
+FORMAT	TNP_Donnees_Neutre_PMV
+	numero_fmc,
+	cle_fmc,
+	type_fmc,
+	numero_pmv,
+	date_debut,
+	date_fin,
+	ligne_1,
+	ligne_2,
+	ligne_3,
+	ligne_1_alternat,
+	ligne_2_alternat,
+	ligne_3_alternat,
+	pictogramme,
+	bandeau,
+	clignotement,
+	type_jour,
+	discontinu
+
+
+
+/*A Définition des variables globales */
+VAR	FORMAT TNP_Neutre_PMV		tm_Neutres		' Table des mises au neutre affichee
+
+VAR	FORMAT TNP_Donnees_Neutre_PMV	tm_d_Neutres		' Donnees de mises au neutre en base
+
+VAR	FORMAT COM_Identifiant_FMC	vm_id_FMC		' Identifiant de la FMC selectionnee
+VAR					vm_type_FMC		' et type associe
+
+
+/*A Données de configuration */
+VAR	FORMAT COM_Donnees_Equipements	tm_PMV			' Table de tous les PMV
+VAR	tm_Pictogrammes						' Table de tous les pictogrammes
+
+
+VAR	FORMAT COM_Donnees_Equipements	tm_PMV_site		' Table des PMV du site local
+VAR	lm_Lib_PMV_site						' Liste des libelles correspondants
+
+
+VAR	FORMAT TDO_Libelle_Predefini	tm_types_jour		' Table des types de jours de semaine / période
+VAR	FORMAT TDO_Type_FMC		tm_types_fmc
+
+
+VAR	tm_titres_Neutres, tm_titres_Biblio			' Titres des tables
+
+VAR	lm_Elements						' Liste des categories de commandes
+
+VAR	tm_Cmd_Predefinies					' Table des commandes predefinies
+VAR	tm_Picto_Cmd_Predefinies				' Table des pictogrammes associes
+VAR	lm_Code_Picto_Predef					' Table des quadrigrammes associes
+
+
+VAR	vm_Site							' Numero du site local
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Visualisation et saisie des mises au neutre programmees des PMV
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNP_Neutre_PMV (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*  Presente a l'operateur la table des mises au neutre programmees des PMV
+*  actuellement configurees.
+*  Permet l'ajout et la suppression des mises au neutre programmees
+*  pour les PMV du site, de tous les PMV au CI.
+*
+--------------------------------------------------------------------------------- */
+
+	VAR	vl_fenetre
+	VAR	vl_objet_selecte			' L'objet courant de la fenetre
+	VAR	tl_les_messages_acceptes		' Pour reception de signaux
+	VAR	vl_la_fenetre_est_active
+	VAR	vl_installer_traitement_erreur
+
+	VAR	tl_liste_causes
+	VAR	tl_evts, tl_titres_evts
+	VAR	FORMAT COM_Intitule_FMC	vl_info_fmc
+	VAR	vl_i_evt, vl_i_type
+
+	VAR	vl_i_pmv, vl_i_neutre, vl_i_prop
+	VAR	vl_appelant
+	VAR	vl_fichier
+	VAR	tl_select
+	VAR	vl_cr
+	VAR	i
+
+
+vl_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+vm_Site = SYSTEM_VAR@("vg_site")
+
+/*A
+** Traitements en cas d'erreur :
+** informer l'operateur, tracer l'erreur et abandonner
+** ---------------------------------------------------
+*/
+
+ON ERROR
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN
+}
+
+
+/*A
+** Charger la fenetre de saisie
+** ----------------------------
+*/
+
+vl_fenetre = DB_LOAD@ ("ITMA_TNP_Neutre_PMV")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+
+
+/*A
+** Initialiser les caracteristiques des objets graphiques
+** ------------------------------------------------------
+*/
+
+/*B Table des mises au neutre programmees */
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_Neutre", FALSE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_Neutre", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "TA_Neutre", TRUE)
+
+/*B Liste des PMV du site */
+DB_CTRL_MULTI_SELECT@ (vl_fenetre, "BL_PMV", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_PMV", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_PMV", { })
+
+
+/*B Table des evenements pour selection FMC */
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre, "TA_Evenements", 25)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre,"TA_Evenements", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "TA_Evenements", TRUE)
+
+/*B Table des titres associes */
+tl_titres_evts = {
+	{ COM_CAUSE_NUMERO,		COM_CAUSE_LONG_NUMERO },
+	{ COM_CAUSE_CLE,		COM_CAUSE_LONG_CLE },
+	{ COM_CAUSE_TYPE,		COM_CAUSE_LONG_TYPE },
+	{ COM_CAUSE_DATE,		COM_CAUSE_LONG_DATE },
+	{ COM_CAUSE_LOCALISATION,	COM_CAUSE_LONG_LOCALISATION }
+}
+
+
+/*B Liste des categories (elements) de commandes PMV */
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Elements", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Elements", -1)
+
+
+/*B Table de bibliotheque de commandes PMV predefinies proposees */
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre, "TA_Proposition", 25)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_Proposition", FALSE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_Proposition", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "TA_Proposition", TRUE)
+
+/*B Table des titres associes */
+tm_titres_Biblio = {
+	{ "Bandeau",		77 },
+	{ "Ligne 1",		170 },
+	{ "Ligne 2",		170 },
+	{ "Ligne 3",		170 }
+}
+
+
+/*B Zone de saisie */
+DB_CTRL_VALUE@ (vl_fenetre, "BA_Discontinu", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BA_Discontinu", TRUE)
+DB_CTRL_DISPLAY@ (vl_fenetre, "BO_Type_Jour", FALSE)
+
+DB_CTRL_VALUE@ (vl_fenetre, "BA_Clignotement", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BA_Clignotement", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BA_Alternat", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BA_Alternat", TRUE)
+
+/* Initialement, pas de mise au neutre selectionnee, rien a supprimer */
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Supprimer", TRUE)
+
+
+
+/*A
+** Mettre en place la reception des messages
+** -----------------------------------------
+*/
+
+tl_les_messages_acceptes = {
+	COM_CANAL_FIN
+}
+DB_ACCEPT_POKES@ (vl_fenetre, tl_les_messages_acceptes)
+
+
+
+/*A
+** Initialiser la visualisation
+** ----------------------------
+*/
+
+IF ITMA_TNP_Init_Neutre_PMV (vl_fenetre, vl_appelant) <> COM_OK {
+	RETURN (COM_NOK)
+}
+
+
+ITMA_TNP_PMV_Commandes_Predefinies (vl_fenetre)
+
+
+/*A
+** Traitements en cas d'erreur durant la visualisation :
+** informer l'operateur et selon la nature et la gravite
+** de l'erreur la tracer ou non, continuer ou abandonner
+** -----------------------------------------------------
+*/
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		IF (ERROR_NUMBER@ () <> COM_ERR_NON_SAISI)  AND
+		   (ERROR_NUMBER@ () <> COM_ERR_DATE_INVAL)
+		{
+			COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+		}
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+
+/*A
+** Tant que la fenetre n'est pas desactivee, la visualiser
+** -------------------------------------------------------
+*/
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY_ONLY@ (vl_fenetre, FALSE)
+	DB_DISPLAY@ (vl_fenetre)
+	DB_DISPLAY_ONLY@ (vl_fenetre, TRUE)
+
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+	/*B Ignorer l'action si c'est un redimensionnement de colonne */
+	IF (DB_EXIT_CODE@ (vl_fenetre) = EV_TBL_COLUMN_RESIZE_)
+	{
+		vl_objet_selecte = NULL
+	}
+
+
+	CASE OF vl_objet_selecte
+
+	/*A
+	** Sur selection d'une mise au neutre, rechercher si le PMV
+	** est dans la liste des equipements pilotables sur le secteur
+	** -----------------------------------------------------------
+	*/
+
+	CASE "TA_Neutre"
+		tl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Neutre")
+		vl_i_neutre = tl_select[0]
+
+		ITMA_TNP_PMV_Afficher_Neutre (tm_Neutres[vl_i_neutre], tm_d_Neutres[vl_i_neutre], vl_fenetre)
+
+		ITMA_TNP_PMV_Fixer_FMC (tm_d_Neutres[vl_i_neutre].numero_fmc,
+		                           tm_d_Neutres[vl_i_neutre].cle_fmc,
+		                           tm_d_Neutres[vl_i_neutre].type_fmc,
+		                           vl_fenetre)
+
+		COM24_Afficher_Horodate (tm_Neutres[vl_i_neutre].date_debut, vl_fenetre,
+		                            "BS_Jour_Debut", "BS_Mois_Debut", "BS_Annee_Debut",
+		                            "BS_Heure_Debut", "BS_Minute_Debut")
+		COM24_Afficher_Horodate (tm_Neutres[vl_i_neutre].date_fin, vl_fenetre,
+		                            "BS_Jour_Fin", "BS_Mois_Fin", "BS_Annee_Fin",
+		                            "BS_Heure_Fin", "BS_Minute_Fin")
+
+
+		/*A et autoriser la suppression de la programmation ssi. le PMV est pilotable */
+		vl_i_pmv = COM45_IndexEnColonne (tm_PMV_site, COM_NUMERO_EQUIPEMENT, tm_d_Neutres[vl_i_neutre].numero_pmv)
+		IF (vl_i_pmv >= 0)
+		{
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_Supprimer", FALSE)
+			'DB_CTRL_VALUE@ (vl_fenetre, "BL_PMV", { vl_i_pmv })
+		}
+		ELSE
+		{
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_Supprimer", TRUE)
+			'DB_CTRL_VALUE@ (vl_fenetre, "BL_PMV", { })
+		}
+
+
+
+	/*A
+	** Sur action sur la case "Discontinu", afficher ou masquer le type de période
+	** ---------------------------------------------------------------------------
+	*/
+
+	CASE "BA_Discontinu"
+		IF (DB_CTRL_GET_VALUE@ (vl_fenetre, "BA_Discontinu")) {
+			DB_CTRL_DISPLAY@ (vl_fenetre, "BO_Type_Jour", TRUE)
+		} ELSE {
+			DB_CTRL_DISPLAY@ (vl_fenetre, "BO_Type_Jour", FALSE)
+		}
+
+
+
+	/*A
+	** Sur action sur la case "Clignotement",
+	** annuler la programmation d'alternat si elle est active
+	** ------------------------------------------------------
+	*/
+
+	CASE "BA_Clignotement"
+		IF (DB_CTRL_GET_VALUE@ (vl_fenetre, "BA_Clignotement")) {
+			DB_CTRL_VALUE@ (vl_fenetre, "BA_Alternat", FALSE)
+			DB_CTRL_VALUE@ (vl_fenetre, "BS_Alternat1", "")
+			DB_CTRL_VALUE@ (vl_fenetre, "BS_Alternat2", "")
+			DB_CTRL_VALUE@ (vl_fenetre, "BS_Alternat3", "")
+		}
+
+
+
+	/*A
+	** Sur action sur la case "Alternat",
+	** annuler la programmation de clignotement si elle est active
+	** -----------------------------------------------------------
+	*/
+
+	CASE "BA_Alternat"
+		IF (DB_CTRL_GET_VALUE@ (vl_fenetre, "BA_Alternat")) {
+			DB_CTRL_VALUE@ (vl_fenetre, "BA_Clignotement", FALSE)
+		} ELSE {
+			DB_CTRL_VALUE@ (vl_fenetre, "BS_Alternat1", "")
+			DB_CTRL_VALUE@ (vl_fenetre, "BS_Alternat2", "")
+			DB_CTRL_VALUE@ (vl_fenetre, "BS_Alternat3", "")
+		}
+
+
+
+	/*A
+	** Sur action "Ajouter", verifier les valeurs saisies
+	** puis ajouter la programmation pour chaque PMV choisi
+	** ----------------------------------------------------
+	*/
+
+	CASE "BP_Ajouter"
+		vl_cr = ITMA_TNP_PMV_Ajouter_Progs_Neutre (vl_fenetre)
+
+
+
+	/*A
+	** Sur action "Supprimer", verifier qu'une mise au neutre est selectionnee
+	** puis demander a la base la suppression de cette programmation
+	** -----------------------------------------------------------------------
+	*/
+
+	CASE "BP_Supprimer"
+		vl_cr = ITMA_TNP_PMV_Supprimer_Prog_Neutre (vl_fenetre)
+
+
+
+	/*A
+	** Sur action "Lier FMC", lire en base les FMC courantes et afficher leur table
+	** ----------------------------------------------------------------------------
+	*/
+
+	CASE "BP_Lier_FMC"
+		tl_evts = PEND_FOR_NEW_TASK@ ("ITMA_COM_Liste_Causes", "ITMA_TNP_Neutre_PMV")
+		tl_liste_causes = tl_evts[0]
+
+		DB_CTRL_DISPLAY@ (vl_fenetre, "TA_Evenements", TRUE)
+		DB_TABLE_SET_DATA@ (vl_fenetre, "TA_Evenements", tl_evts[1], tl_titres_evts)
+		DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre, "TA_Evenements", 0, tl_evts[2])
+		DB_TABLE_SET_SELECTIONS@ (vl_fenetre, "TA_Evenements", NULL)
+
+
+
+	/*A
+	** Sur selection d'une FMC a lier, memoriser son identifiant et masquer la table
+	** -----------------------------------------------------------------------------
+	*/
+
+	CASE "TA_Evenements"
+		tl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Evenements", { })
+		DB_CTRL_DISPLAY@ (vl_fenetre, "TA_Evenements", FALSE)
+		IF (ARRAY_SIZE@ (tl_select) > 0)
+		{
+			vl_i_evt = tl_select[0]
+			vl_info_fmc = tl_liste_causes[vl_i_evt][5]
+			IF (vl_info_fmc.IdFMC.numero <> NULL  AND  vl_info_fmc.IdFMC.cle <> NULL)
+			{
+				ITMA_TNP_PMV_Fixer_FMC (vl_info_fmc.IdFMC.numero, vl_info_fmc.IdFMC.cle,
+				                           vl_info_fmc.Numtype, vl_fenetre)
+			}
+		}
+
+
+
+	/*A
+	** Sur selection d'un element de la bibliotheque de messages,
+	** afficher la liste des commandes predefinies de la categorie
+	** -----------------------------------------------------------
+	*/
+
+	CASE "BL_Elements"
+		ITMA_TNP_PMV_Commandes_Predefinies (vl_fenetre)
+
+
+
+	/*A
+	** Sur selection d'une proposition en bibliotheque
+	** renseigner les champs des lignes PMV a afficher
+	** -----------------------------------------------
+	*/
+
+	CASE "TA_Proposition"
+		tl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Proposition")
+		vl_i_prop = tl_select[0]
+
+		DB_CTRL_VALUE@ (vl_fenetre, "BS_Picto", lm_Code_Picto_Predef[vl_i_prop])
+		DB_CTRL_VALUE@ (vl_fenetre, "BS_Bandeau", tm_Cmd_Predefinies[vl_i_prop, 0])
+		DB_CTRL_VALUE@ (vl_fenetre, "BS_Ligne1", tm_Cmd_Predefinies[vl_i_prop, 1])
+		DB_CTRL_VALUE@ (vl_fenetre, "BS_Ligne2", tm_Cmd_Predefinies[vl_i_prop, 2])
+		DB_CTRL_VALUE@ (vl_fenetre, "BS_Ligne3", tm_Cmd_Predefinies[vl_i_prop, 3])
+
+		DB_CTRL_VALUE@ (vl_fenetre, "BS_Alternat1", "")
+		DB_CTRL_VALUE@ (vl_fenetre, "BS_Alternat2", "")
+		DB_CTRL_VALUE@ (vl_fenetre, "BS_Alternat3", "")
+
+		DB_CTRL_VALUE@ (vl_fenetre, "BA_Clignotement", FALSE)
+		DB_CTRL_VALUE@ (vl_fenetre, "BA_Alternat", FALSE)
+
+
+
+	/*A
+	** Sur appui sur une montre, afficher l'horodate correspondante
+	** ------------------------------------------------------------
+	*/
+
+	CASE "BP_Heure_Debut"
+		COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+		                            "BS_Jour_Debut", "BS_Mois_Debut", "BS_Annee_Debut",
+		                            "BS_Heure_Debut", "BS_Minute_Debut")
+
+	CASE "BP_Heure_Fin"
+		COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+		                            "BS_Jour_Fin", "BS_Mois_Fin", "BS_Annee_Fin",
+		                            "BS_Heure_Fin", "BS_Minute_Fin")
+
+
+
+	CASE "BP_Quitter"
+		vl_la_fenetre_est_active = FALSE
+
+
+
+	/*A Sur reception d'un message de fin, terminer la tache et fermer la fenetre */
+	CASE "poke_"
+		CASE OF  DB_GET_POKE@ (vl_fenetre)
+		CASE COM_CANAL_FIN
+			vl_la_fenetre_est_active = FALSE
+
+		ENDCASE
+	ENDCASE
+WEND
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialise la visualisation des mises au neutre programmees PMV.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNP_Init_Neutre_PMV (va_fenetre, va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* va_fenetre          : Id. de la fenetre a initialiser ;
+* va_appelant         : Nom du module appelant.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TNP_Neutre_PMV
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@	tl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+	VAR	FORMAT TNP_Donnees_Neutre_PMV	tl_donnees_Neutres
+	VAR	FORMAT COM_Localisation		vl_localisation
+
+	VAR	ll_Libelles_PMV					' Libelles de tous les PMV
+
+	VAR	vl_fichier
+	VAR	tl_types_jour
+	VAR	vl_cr
+	VAR	vl_i_pmv, vl_i_type
+	VAR	i, j, k
+
+
+/*A Lire dans l'environnement le numero du site local et les types FMC */
+vm_site = SYSTEM_VAR@ (vg_site)
+tm_types_fmc = SYSTEM_VAR@ (vg_les_types_FMC)
+
+/*B RAZ FMC */
+ITMA_TNP_PMV_Fixer_FMC (NULL, NULL, NULL, va_fenetre)
+
+
+/*A Lire en base la liste des types de jours / périodes et conserver les types valides */
+COM37_Lit_Libelles_Predefinis (XDC_LIB_TYPE_JOUR, tl_types_jour, tm_types_jour)
+
+DB_CTRL_STRINGS@ (va_fenetre, "BO_Type_Jour", ARRAY_COLUMN@ (tm_types_jour, TDO_TEXTE_LIBELLE))
+DB_CTRL_VALUE@ (va_fenetre, "BO_Type_Jour", 0)
+
+
+/*A Lire et afficher la liste des categories de commandes PMV */
+vl_fichier = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_PMV ++ CM_FIC_CFG_ELT_PMV
+lm_Elements = READ_ASCII_FILE@ (vl_fichier)
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Elements", lm_Elements)
+DB_CTRL_VALUE@ (va_fenetre, "BL_Elements", 0)
+
+
+/*A Lire la liste des pictogrammes PMV */
+vl_fichier = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_PMV ++ CM_FIC_CFG_PIC_PMV
+tm_Pictogrammes = COM47_LireTable (vl_fichier, { "#" }, ",")
+
+
+/*A
+** Initialiser les tables des equipements PMV
+** ------------------------------------------
+*/
+
+/*A Lire en base la liste complete des PMV */
+tm_PMV = {}
+
+vl_cr = ITMA_COM_Lire_Equipements (XDC_EQT_PMV, NULL, XDC_EQT_MINEUR, XDC_EQT_MINEUR, 0, 0, tm_PMV, CM_MODULE)
+IF (vl_cr <> COM_OK)
+{
+	RETURN (COM_NOK)
+}
+
+
+/*A Pour chaque PMV */
+k = 0
+FOR i = 0  TO (ARRAY_SIZE@ (tm_PMV) - 1)
+	/*A Construire et memoriser son libelle */
+	vl_localisation.NumAuto = tm_PMV[i].autoroute
+	vl_localisation.PR = tm_PMV[i].PR
+	vl_localisation.sens_circulation = tm_PMV[i].sens
+
+	ll_Libelles_PMV[i] = COM10_Localisation (vl_localisation)
+
+	/*A et s'il est pilotable sur le site, l'ajouter a la table des PMV du site local */
+	IF ( (tm_PMV[i].sitegestion = vm_site)  OR  (vm_site = XDC_CI) )
+	{
+		tm_PMV_site[k] = tm_PMV[i]
+		lm_Lib_PMV_site[k] = ll_Libelles_PMV[i]
+		k = k + 1
+	}
+NEXT i
+
+/*A Renseigner la liste des PMV du site local */
+DB_CTRL_STRINGS@ (va_fenetre, "BL_PMV", lm_lib_PMV_site)
+
+
+/*A
+** Initialiser la table des mises au neutre PMV
+** --------------------------------------------
+*/
+
+/*A Lire en base la table des mises au neutre programmees des PMV */
+
+tl_parametres = { }
+tl_parametres[0].type = SYB#INT1_
+tl_parametres[0].data = vm_site
+tl_parametres[0].output = FALSE
+
+IF (vm_site = XDC_CI) {
+	tl_parametres[0].data = NULL
+}
+
+vl_cr = COM05_SQL_Procedure (XZAT60_Liste_Neutres_PMV, tl_parametres, vl_resultats, CM_MODULE)
+IF (vl_cr <> COM_OK)
+{
+	INFO_MESSAGE@ ("Erreur lors de la lecture des mises au neutre programmées")
+	RETURN (COM_NOK)
+}
+
+tl_donnees_Neutres = vl_resultats.select_results[0]
+
+/*A Constituer la table des mises au neutre affichee */
+i = 0
+FOR k = 0  TO (ARRAY_SIZE@ (tl_donnees_Neutres) - 1)
+	/*B Nom du type FMC */
+	vl_i_type = COM45_IndexEnColonne (tm_types_fmc, TDO_NUMERO_FMC, tl_donnees_Neutres[k].type_fmc)
+
+	/*B Rechercher le PMV dans la liste complete et recuperer son libelle */
+	vl_i_pmv = COM45_IndexEnColonne (tm_PMV, COM_NUMERO_EQUIPEMENT, tl_donnees_Neutres[k].numero_pmv)
+	IF (vl_i_pmv >= 0)
+	{
+		tm_d_Neutres[i] = tl_donnees_Neutres[k]
+
+		tm_Neutres[i].type_fmc		= tm_types_fmc[vl_i_type].nom
+		tm_Neutres[i].numero_fmc	= tm_d_Neutres[i].numero_fmc
+		tm_Neutres[i].cle_fmc		= tm_d_Neutres[i].cle_fmc
+		tm_Neutres[i].date_debut	= SUBSTRING@ (COM18_Date_SGBD_Formatee (tm_d_Neutres[i].date_debut), 1, 16)
+		tm_Neutres[i].date_fin		= SUBSTRING@ (COM18_Date_SGBD_Formatee (tm_d_Neutres[i].date_fin), 1, 16)
+
+		IF (tm_d_Neutres[i].discontinu = XDC_VRAI) {
+			j = COM45_IndexEnColonne (tm_types_jour, TDO_CODE_LIBELLE, tm_d_Neutres[i].type_jour)
+			IF (j >= 0) {
+				tm_Neutres[i].discontinu = tm_types_jour[j].libelle
+			}
+		} ELSE {
+			tm_Neutres[i].discontinu = CM_LIB_TLJ_CONTINU
+		}
+
+		tm_Neutres[i].libelle_pmv	= ll_Libelles_PMV[vl_i_pmv]
+		tm_Neutres[i].pictogramme	= tm_d_Neutres[i].pictogramme
+		tm_Neutres[i].bandeau		= tm_d_Neutres[i].bandeau
+		tm_Neutres[i].ligne_1		= tm_d_Neutres[i].ligne_1
+		tm_Neutres[i].ligne_2		= tm_d_Neutres[i].ligne_2
+		tm_Neutres[i].ligne_3		= tm_d_Neutres[i].ligne_3
+
+		IF (tm_d_Neutres[i].clignotement = XDC_PMV_MODE_CLIGNO) {
+			tm_Neutres[i].clignotement = "X"
+		} else IF (tm_d_Neutres[i].clignotement = XDC_PMV_MODE_ALTERNE) {
+			tm_Neutres[i].alternat1	= tm_d_Neutres[i].ligne_1_alternat
+			tm_Neutres[i].alternat2	= tm_d_Neutres[i].ligne_2_alternat
+			tm_Neutres[i].alternat3	= tm_d_Neutres[i].ligne_3_alternat
+		}
+		i = i + 1
+	}
+NEXT k
+
+
+/*A Definir les colonnes de la table des mises au neutre PMV */
+tm_titres_Neutres = {
+	{ "FMC",		160 },
+	{ "Numéro",		60 },
+	{ "Clé",		30 },
+	{ "Début",		120 },
+	{ "Fin",		120 },
+	{ "Discontinu",		120 },
+	{ "PMV",		105 },
+	{ "Picto",		45 },
+	{ "Bandeau",		70 },
+	{ "Ligne 1",		140 },
+	{ "Ligne 2",		140 },
+	{ "Ligne 3",		140 },
+	{ "Cligno",		50 },
+	{ "Alternat 1",		140 },
+	{ "Alternat 2",		140 },
+	{ "Alternat 3",		140 }
+}
+
+
+/*A Afficher la table des mises au neutre PMV */
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)
+DB_DISPLAY@ (va_fenetre)
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Neutre", tm_Neutres, tm_titres_Neutres, NULL)
+DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Neutre", NULL)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lecture et affichage des commandes PMV predefinies d'une categorie.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNP_PMV_Commandes_Predefinies (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* va_fenetre          : Id. de la fenetre de saisie.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TNP_Neutre_PMV
+*
+* FONCTION
+*   Lit le fichier de configuration des commandes PMV predefinies
+*   correspondant a la selection actuelle de la liste des elements
+*   et renseigne la table des propositions de commande PMV.
+*
+--------------------------------------------------------------------------- */
+
+	VAR	tl_cmd_predef
+	VAR	vl_fichier
+	VAR	vl_code_picto, vl_i_picto
+	VAR	vl_i_elem, i
+
+vl_i_elem = DB_CTRL_GET_VALUE@ (va_fenetre, "BL_Elements")
+IF (vl_i_elem < 0) vl_i_elem = 0
+
+/*A Lire le ficher de configuration des commandes de la categorie */
+vl_fichier = CM_RAC_FIC_CMD_PMV ++ TRIM@ (lm_Elements[vl_i_elem]) ++ CM_SFX_FIC_CMD_PMV
+vl_fichier = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_PMV ++ vl_fichier
+
+tm_Cmd_Predefinies = { }
+tm_Picto_Cmd_Predefinies = { }
+IF FILE_EXISTS@ (vl_fichier)
+{
+	tl_cmd_predef = COM47_LireTable (vl_fichier, { "#" }, ",")
+
+	FOR i = 0  TO (ARRAY_SIZE@ (tl_cmd_predef) - 1)
+		vl_code_picto = tl_cmd_predef[i, 0]
+		vl_i_picto = COM45_IndexEnColonne (tm_Pictogrammes, 3, vl_code_picto)
+		IF (vl_i_picto >= 0) {
+			tm_Picto_Cmd_Predefinies[i] = { tm_Pictogrammes[vl_i_picto][1] }
+			lm_Code_Picto_Predef[i] = vl_code_picto
+		} ELSE {
+			tm_Picto_Cmd_Predefinies[i] = { }
+			lm_Code_Picto_Predef[i] = XDC_PICTO_PASPICTO
+		}
+
+		tm_Cmd_Predefinies[i] = ARRAY_DELETE@ (tl_cmd_predef[i], 0)
+	NEXT i
+}
+
+
+/*A Afficher la table de bibliotheque de commandes */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)
+DB_DISPLAY@ (va_fenetre)
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Proposition", tm_Cmd_Predefinies, tm_titres_Biblio, tm_Picto_Cmd_Predefinies)
+DB_TABLE_SET_NEW_TOP_ROW@ (va_fenetre, "TA_Proposition", 0)
+DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Proposition", NULL)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Met a jour la zone de saisie avec les donnees de mise au neutre d'un PMV.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNP_PMV_Afficher_Neutre (FORMAT TNP_Neutre_PMV va_neutre,
+                                    FORMAT TNP_Donnees_Neutre_PMV va_d_neutre,
+                                    va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* va_neutre           : Donnees de mise au neutre affichées d'un PMV ;
+* va_d_neutre         : Autres donnees de mise au neutre du PMV ;
+* va_fenetre          : Id. de la fenetre de saisie.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TNP_Neutre_PMVA
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	vl_i_typeJour
+
+IF (va_d_neutre.discontinu = XDC_VRAI) {
+	DB_CTRL_VALUE@ (va_fenetre, "BA_Discontinu", TRUE)
+	vl_i_typeJour = COM45_IndexEnColonne (tm_types_jour, TDO_CODE_LIBELLE, va_d_neutre.type_jour)
+	DB_CTRL_VALUE@ (va_fenetre, "BO_Type_Jour", vl_i_typeJour)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BO_Type_Jour", TRUE)
+} ELSE {
+	DB_CTRL_VALUE@ (va_fenetre, "BA_Discontinu", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BO_Type_Jour", FALSE)
+}
+
+DB_CTRL_VALUE@ (va_fenetre, "BS_Ligne1", va_neutre.ligne_1)
+DB_CTRL_VALUE@ (va_fenetre, "BS_Ligne2", va_neutre.ligne_2)
+DB_CTRL_VALUE@ (va_fenetre, "BS_Ligne3", va_neutre.ligne_3)
+
+DB_CTRL_VALUE@ (va_fenetre, "BS_Alternat1", va_neutre.alternat1)
+DB_CTRL_VALUE@ (va_fenetre, "BS_Alternat2", va_neutre.alternat2)
+DB_CTRL_VALUE@ (va_fenetre, "BS_Alternat3", va_neutre.alternat3)
+
+DB_CTRL_VALUE@ (va_fenetre, "BA_Clignotement", FALSE)
+DB_CTRL_VALUE@ (va_fenetre, "BA_Alternat", FALSE)
+IF (va_neutre.clignotement <> "") {
+	DB_CTRL_VALUE@ (va_fenetre, "BA_Clignotement", TRUE)
+} ELSE {
+	IF (TRIM@ (va_neutre.alternat1 ++ va_neutre.alternat2 ++ va_neutre.alternat3) <> "")
+	{
+		DB_CTRL_VALUE@ (va_fenetre, "BA_Alternat", TRUE)
+	}
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Definit la FMC a associer a une programmation de mise au neutre PMV.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNP_PMV_Fixer_FMC (va_numero_fmc, va_cle_fmc, va_type_fmc, va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* va_numero_fmc       : Numero de la Fmc ;
+* va_cle_fmc          : Cle de la Fmc ;
+* va_type_fmc         : Type de la Fmc ;
+* va_fenetre          : Id. de la fenetre a initialiser.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TNP_Neutre_PMV
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	vl_i_type
+
+
+/*A Si l'identifiant FMC ou le type est nul, effacer la selection actuelle */
+IF IS_NULL@ (va_numero_fmc) OR IS_NULL@ (va_cle_fmc) OR IS_NULL@ (va_type_fmc)
+{
+	vm_id_FMC.numero = NULL
+	vm_id_FMC.cle = NULL
+	DB_CTRL_TITLE@ (va_fenetre, "LI_Type_FMC", "")
+	DB_CTRL_TITLE@ (va_fenetre, "LI_Numero_FMC", "")
+	DB_CTRL_TITLE@ (va_fenetre, "LI_Cle_FMC", "")
+
+	RETURN (COM_OK)
+}
+
+
+vl_i_type = COM45_IndexEnColonne (tm_types_fmc, TDO_NUMERO_FMC, va_type_fmc)
+IF (vl_i_type < 0)
+{
+	INFO_MESSAGE@ ("Type FMC inconnu")
+	RETURN (COM_NOK)
+}
+
+
+vm_id_FMC.numero = va_numero_fmc
+vm_id_FMC.cle = va_cle_fmc
+vm_type_FMC = va_type_fmc
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Type_FMC", tm_types_fmc[vl_i_type].nom)
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Numero_FMC", va_numero_fmc)
+DB_CTRL_TITLE@ (va_fenetre, "LI_Cle_FMC", va_cle_fmc)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Ajoute la programmation de mise au neutre definie par les criteres saisis
+*  aux PMV selectionnes, si aucune de même type n'est définie pour le PMV.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNP_PMV_Ajouter_Progs_Neutre (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* va_fenetre          : Id. de la fenetre de saisie.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TNP_Neutre_PMV
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@	tl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+	VAR	FORMAT TNP_Neutre_PMV		vl_Neutre
+	VAR	FORMAT TNP_Donnees_Neutre_PMV	vl_d_Neutre
+
+	VAR	vl_date_debut, vl_date_fin
+	VAR	vl_H_debut, vl_H_fin, vl_H_debut_prog, vl_H_fin_prog
+	VAR	vl_ligne1, vl_ligne2, vl_ligne3
+	VAR	vl_numero_pmv
+	VAR	vl_i_typeFmc, vl_i_typeJour
+	VAR	vl_disc_prg, vl_tj_prg
+	VAR	vl_Maintenant
+	VAR	tl_select_pmv
+	VAR	vl_nb_ajouts
+	VAR	vl_cr, vl_cr_macro
+	VAR	i, j
+
+vl_cr_macro = COM_OK
+
+/*A Verifier qu'un PMV au moins a ete saisi */
+tl_select_pmv = DB_CTRL_GET_VALUE@ (va_fenetre, "BL_PMV")
+IF (ARRAY_SIZE@ (tl_select_pmv) = 0) {
+	INFO_MESSAGE@ ("Veuillez sélectionner un ou plusieurs PMV")
+	RETURN (COM_NOK)
+}
+
+
+/*A Verifier qu'une FMC a ete selectionnee */
+vl_i_typeFmc = COM45_IndexEnColonne (tm_types_fmc, TDO_NUMERO_FMC, vm_type_fmc)
+IF IS_NULL@ (vm_id_FMC.numero)  OR  IS_NULL@ (vm_id_FMC.cle)  OR  (vl_i_typeFmc < 0) {
+	INFO_MESSAGE@ ("Veuillez lier une FMC à la programmation des PMV")
+	RETURN (COM_NOK)
+}
+
+
+/*A Verifier que du texte a ete defini pour affichage */
+vl_ligne1 = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Ligne1")
+vl_ligne2 = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Ligne2")
+vl_ligne3 = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Ligne3")
+IF ( (TRIM@ (vl_ligne1) ++ TRIM@ (vl_ligne2) ++ TRIM@ (vl_ligne3)) = "")
+{
+	INFO_MESSAGE@ ("Veuillez saisir le texte à afficher sur les PMV")
+	RETURN (COM_NOK)
+}
+
+
+/*A Formater et verifier les dates de debut et fin saisies */
+vl_date_debut = COM23_Horodate (va_fenetre, "BS_Jour_Debut", "BS_Mois_Debut", "BS_Annee_Debut",
+					       "BS_Heure_Debut", "BS_Minute_Debut")
+vl_date_fin = COM23_Horodate (va_fenetre, "BS_Jour_Fin", "BS_Mois_Fin", "BS_Annee_Fin",
+					     "BS_Heure_Fin", "BS_Minute_Fin")
+
+vl_H_debut = (SUBSTRING@ (vl_date_debut, 12, 2) * 60)  +  SUBSTRING@ (vl_date_debut, 15, 2)
+vl_H_fin   = (SUBSTRING@ (vl_date_fin, 12, 2) * 60)  +  SUBSTRING@ (vl_date_fin, 15, 2)
+
+IF (IS_NULL@ (vl_date_debut)  OR  IS_NULL@ (vl_date_fin)) {
+	INFO_MESSAGE@ ("Veuillez saisir les dates de début et fin de la programmation")
+	RETURN (COM_NOK)
+}
+IF (COM17_Difference_Dates (vl_date_fin, vl_date_debut) < 0) {
+	INFO_MESSAGE@ ("Les dates de début et de fin sont incompatibles")
+	RETURN (COM_NOK)
+}
+
+vl_Maintenant = COM09_Date_Courante ()					' sans les secondes
+IF (COM17_Difference_Dates (vl_date_fin, vl_Maintenant) <= 0) {
+	INFO_MESSAGE@ ("Pas de programmation dans le passé S.V.P.")
+	RETURN (COM_NOK)
+}
+
+IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BA_Discontinu")) {
+	/* En mode discontinu, vérifier que l'heure de début est antérieure à l'heure de fin */
+	IF (vl_H_debut >= vl_H_fin)
+	{
+		DB_CURSOR_IN_ENTRY@ (va_fenetre, "BS_Heure_Debut", 1, -1)
+		INFO_MESSAGE@ ("Mode discontinu: les heures de début et fin DANS CET ORDRE doivent indiquer la période journalière")
+		RETURN (COM_NOK)
+	}
+}
+
+
+/*A Preparer les donnees communes aux programmations de tous les PMV */
+/*B Les numéro et libellé de PMV seront renseignés par la suite.     */
+vl_d_Neutre.numero_fmc	= vm_id_FMC.numero
+vl_d_Neutre.cle_fmc	= vm_id_FMC.cle
+vl_d_Neutre.type_fmc	= vm_type_fmc
+
+IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BA_Discontinu")) {
+	vl_d_Neutre.discontinu = XDC_VRAI
+	vl_i_typeJour = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Type_Jour")
+	vl_d_Neutre.type_jour = tm_types_jour[vl_i_typeJour].code
+} ELSE {
+	vl_d_Neutre.discontinu = XDC_FAUX
+	vl_d_Neutre.type_jour = XDC_JOUR_TOUS
+}
+
+/*B Le mode d'affichage est memorisé seulement dans la table des données */
+IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BA_Alternat")) {
+	vl_d_Neutre.clignotement = XDC_PMV_MODE_ALTERNE
+} ELSE IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BA_Clignotement")) {
+	vl_d_Neutre.clignotement = XDC_PMV_MODE_CLIGNO
+	vl_Neutre.clignotement = "X"
+} ELSE {
+	vl_d_Neutre.clignotement = XDC_PMV_MODE_NORMAL
+}
+
+/*B Les dates et les textes sont memorisés seulement dans les données affichées */
+vl_Neutre.type_fmc	= tm_types_fmc[vl_i_typeFmc].nom
+vl_Neutre.numero_fmc	= vm_id_FMC.numero
+vl_Neutre.cle_fmc	= vm_id_FMC.cle
+vl_Neutre.date_debut	= vl_date_debut
+vl_Neutre.date_fin	= vl_date_fin
+IF (vl_d_Neutre.discontinu = XDC_VRAI) {
+	vl_Neutre.discontinu = tm_types_jour[vl_i_typeJour].libelle
+} ELSE {
+	vl_Neutre.discontinu = CM_LIB_TLJ_CONTINU
+}
+vl_Neutre.libelle_pmv	= ""
+vl_Neutre.pictogramme	= DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Picto")
+vl_Neutre.bandeau	= DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Bandeau")
+vl_Neutre.ligne_1	= ITMA_TNP_PMV_Ligne_Centree (vl_ligne1)
+vl_Neutre.ligne_2	= ITMA_TNP_PMV_Ligne_Centree (vl_ligne2)
+vl_Neutre.ligne_3	= ITMA_TNP_PMV_Ligne_Centree (vl_ligne3)
+IF (vl_d_Neutre.clignotement = XDC_PMV_MODE_ALTERNE) {
+	vl_Neutre.alternat1 = ITMA_TNP_PMV_Ligne_Centree (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Alternat1"))
+	vl_Neutre.alternat2 = ITMA_TNP_PMV_Ligne_Centree (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Alternat2"))
+	vl_Neutre.alternat3 = ITMA_TNP_PMV_Ligne_Centree (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Alternat3"))
+} ELSE {
+	vl_Neutre.alternat1 = CM_LIGNE_VIDE
+	vl_Neutre.alternat2 = CM_LIGNE_VIDE
+	vl_Neutre.alternat3 = CM_LIGNE_VIDE
+}
+
+IF (TRIM@ (vl_Neutre.pictogramme) = "") {
+	vl_Neutre.pictogramme = XDC_PICTO_PASPICTO
+}
+
+
+/*A Verifier qu'aucun PMV selectionne n'est deja programme dans la periode */
+FOR i = 0  TO (ARRAY_SIZE@ (tl_select_pmv) - 1)
+	vl_numero_pmv = tm_PMV_site [tl_select_pmv[i]].numero
+	FOR j = 0  TO (ARRAY_SIZE@ (tm_Neutres) - 1)
+		IF (tm_d_Neutres[j].numero_pmv = vl_numero_pmv)  AND
+		   (COM17_Difference_Dates (vl_date_fin, tm_Neutres[j].date_debut) >= 0)  AND
+		   (COM17_Difference_Dates (tm_Neutres[j].date_fin, vl_date_debut) >= 0)
+		{
+			vl_H_debut_prog = (SUBSTRING@ (tm_Neutres[j].date_debut,12,2) * 60)  +  SUBSTRING@ (tm_Neutres[j].date_debut,15,2)
+			vl_H_fin_prog   = (SUBSTRING@ (tm_Neutres[j].date_fin, 12, 2) * 60)  +  SUBSTRING@ (tm_Neutres[j].date_fin, 15, 2)
+			vl_disc_prg = tm_d_Neutres[j].discontinu
+			vl_tj_prg = tm_d_Neutres[j].type_jour
+
+			IF ( ((vl_d_Neutre.discontinu = XDC_FAUX) AND (vl_disc_prg = XDC_FAUX))  OR
+			    (((vl_d_Neutre.discontinu = XDC_VRAI) AND (vl_disc_prg = XDC_VRAI) AND (vl_d_Neutre.type_jour = vl_tj_prg))  OR
+			     ((vl_d_Neutre.discontinu = XDC_FAUX) AND (vl_disc_prg = XDC_VRAI) AND (vl_tj_prg = XDC_JOUR_TOUS))  OR
+			     ((vl_d_Neutre.discontinu = XDC_VRAI) AND (vl_d_Neutre.type_jour = XDC_JOUR_TOUS) AND (vl_disc_prg = XDC_FAUX))
+			    )  AND
+			    ( (vl_H_debut <= vl_H_fin_prog)  AND  (vl_H_fin >= vl_H_debut_prog) )
+			   )
+			{
+				INFO_MESSAGE@ ("Une mise au neutre est déjà programmée dans cette période pour le PMV " ++
+						  tm_Neutres[j].libelle_pmv)
+				RETURN (COM_NOK)
+			}
+		}
+	NEXT j
+NEXT i
+
+
+/*A Pour chaque PMV selectionne */
+vl_nb_ajouts = 0
+FOR i = 0  TO (ARRAY_SIZE@ (tl_select_pmv) - 1)
+	vl_d_Neutre.numero_pmv = tm_PMV_site [tl_select_pmv[i]].numero
+	vl_Neutre.libelle_pmv = lm_Lib_PMV_site[tl_select_pmv[i]]
+
+	/*A Constituer les parametres de la commande de programmation du PMV */
+	tl_parametres = COM15_Parametres_Requete ( {
+		{ FALSE,	SYB#INT2_,		tm_PMV_site [tl_select_pmv[i]].numero },
+		{ FALSE,	SYB#INT1_,		tm_PMV_site [tl_select_pmv[i]].sitegestion },
+		{ FALSE,	SYB#DATETIME_,		vl_date_debut },
+		{ FALSE,	SYB#DATETIME_,		vl_date_fin },
+		{ FALSE,	SYB#INT1_,		vl_d_Neutre.type_jour },
+		{ FALSE,	SYB#BIT_,		vl_d_Neutre.discontinu },
+		{ FALSE,	SYB#INT4_,		vm_id_FMC.numero },
+		{ FALSE,	SYB#INT1_,		vm_id_FMC.cle },
+		{ FALSE,	SYB#CHAR_,		vl_Neutre.ligne_1 },
+		{ FALSE,	SYB#CHAR_,		vl_Neutre.ligne_2 },
+		{ FALSE,	SYB#CHAR_,		vl_Neutre.ligne_3 },
+		{ FALSE,	SYB#CHAR_,		vl_Neutre.alternat1 },
+		{ FALSE,	SYB#CHAR_,		vl_Neutre.alternat2 },
+		{ FALSE,	SYB#CHAR_,		vl_Neutre.alternat3 },
+		{ FALSE,	SYB#CHAR_,		vl_Neutre.pictogramme },
+		{ FALSE,	SYB#CHAR_,		vl_Neutre.bandeau },
+		{ FALSE,	SYB#INT1_,		vl_d_Neutre.clignotement },
+		{ FALSE,	SYB#INT1_,		vm_Site }
+	} )
+
+	vl_cr = COM05_SQL_Procedure (XZAT61_Programmer_Neutre_PMV, tl_parametres, vl_resultats, CM_MODULE)
+	IF (vl_cr = COM_OK)  AND  (vl_resultats.status = 0)
+	{
+		tm_Neutres = ARRAY_INSERT@ (tm_Neutres, vl_Neutre, 0)
+		tm_d_Neutres = ARRAY_INSERT@ (tm_d_Neutres, vl_d_Neutre, 0)
+		vl_nb_ajouts = vl_nb_ajouts + 1
+	}
+	ELSE IF (vl_resultats.status = XZAEC_FMC_ETAT_INC)
+	{
+		INFO_MESSAGE@ ("La FMC liée n'est pas dans l'état requis")
+		vl_cr_macro = COM_NOK
+		BREAK i
+	}
+	ELSE IF (vl_resultats.status = XDC_OBJ_EXISTE)
+	{
+		INFO_MESSAGE@ ("Une mise au neutre est déjà programmée dans cette période pour le PMV " ++
+				  lm_Lib_PMV_site[tl_select_pmv[i]])
+		vl_cr_macro = COM_NOK
+	}
+	ELSE
+	{
+		INFO_MESSAGE@ ("Erreur lors de la programmation du PMV " ++ lm_Lib_PMV_site[tl_select_pmv[i]])
+		vl_cr_macro = COM_NOK
+	}
+NEXT i
+
+
+/* Si un neutre programme a ete ajoutee, rafraichir la table affichee */
+IF (vl_nb_ajouts > 0)
+{
+	DB_TABLE_SET_DATA@ (va_fenetre, "TA_Neutre", tm_Neutres, tm_titres_Neutres, NULL)
+	DB_TABLE_SET_NEW_TOP_ROW@ (va_fenetre, "TA_Neutre", 0)
+	DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Neutre", NULL)
+
+	DB_CTRL_GRAYED@ (va_fenetre, "BP_Supprimer", TRUE)
+}
+
+
+RETURN (vl_cr_macro)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Supprime la programmation de mise au neutre definie par la ligne
+*  selectionnee dans la table des mises au neutre.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNP_PMV_Supprimer_Prog_Neutre (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* va_fenetre          : Id. de la fenetre de saisie.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TNP_Neutre_PMV
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@	tl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+	VAR	tl_select_neutre
+	VAR	vl_i_neutre, vl_i_pmv
+	VAR	vl_supprime
+	VAR	vl_cr, vl_cr_macro, vl_reponse
+
+vl_cr_macro = COM_OK
+
+/*A Si aucune mise au neutre n'est selectionnee alors il n'y rien a faire */
+tl_select_neutre = DB_TABLE_GET_SELECTIONS@ (va_fenetre, "TA_Neutre")
+IF (ARRAY_SIZE@ (tl_select_neutre) = 0) {
+	RETURN (COM_OK)
+}
+
+
+/*A Rechercher le PMV selectionne dans la liste des PMV pilotables */
+vl_i_neutre = tl_select_neutre[0]
+vl_i_pmv = COM45_IndexEnColonne (tm_PMV_site, COM_NUMERO_EQUIPEMENT, tm_d_Neutres[vl_i_neutre].numero_pmv)
+
+IF (vl_i_pmv < 0)
+{
+	INFO_MESSAGE@ ("Le PMV " ++ tm_Neutres[vl_i_neutre].libelle_pmv ++ " n'est pas pilotable.")
+	RETURN (COM_NOK)
+}
+
+
+/*A Demander l'annulation de la programmation selectionnee */
+vl_supprime = XDC_FAUX
+tl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#INT2_,	tm_d_Neutres[vl_i_neutre].numero_pmv },
+	{ FALSE,	SYB#INT1_,	tm_PMV_site[vl_i_pmv].sitegestion },
+	{ FALSE,	SYB#DATETIME_,	tm_Neutres[vl_i_neutre].date_debut },
+	{ FALSE,	SYB#INT1_,	tm_d_Neutres[vl_i_neutre].type_jour },
+	{ FALSE,	SYB#INT1_,	XDC_FAUX },
+	{ FALSE,	SYB#INT1_,	vm_Site }
+} )
+
+vl_cr = COM05_SQL_Procedure (XZAT62_Supprimer_Neutre_PMV, tl_parametres, vl_resultats, CM_MODULE)
+
+IF (vl_cr = COM_OK)
+{
+	IF (vl_resultats.status = 0)
+	{
+		vl_supprime = XDC_VRAI
+	}
+	ELSE IF (vl_resultats.status = XZAEC_FMC_NON_FIN)
+	{
+		/* Si la FMC n'est pas terminee, demander confirmation */
+		vl_reponse = YES_NO_PROMPT@ ("La FMC attachée n'est pas terminée." ++
+		                                " Voulez-vous tout de même supprimer cette mise au neutre ?")
+		IF (vl_reponse)
+		{
+			/* si elle est confirmee, redemander la suppression, cette fois forcee */
+			tl_parametres[4].data = XDC_VRAI
+			vl_cr = COM05_SQL_Procedure (XZAT62_Supprimer_Neutre_PMV, tl_parametres, vl_resultats, CM_MODULE)
+			IF (vl_cr = COM_OK)  AND  (vl_resultats.status = 0)
+			{
+				vl_supprime = XDC_VRAI
+			}
+			ELSE
+			{
+				vl_cr = COM_NOK
+			}
+		}
+	}
+	ELSE
+	{
+		vl_cr = COM_NOK
+	}
+}
+
+IF (vl_cr <> COM_OK)
+{
+	INFO_MESSAGE@ ("Impossible d'annuler la programmation du PMV " ++ tm_Neutres[vl_i_neutre].libelle_pmv)
+	vl_cr_macro = COM_NOK
+}
+
+
+/* Si une mise au neutre a ete supprimee, mettre a jour la table */
+IF (vl_supprime = XDC_VRAI)
+{
+	tm_Neutres = ARRAY_DELETE@ (tm_Neutres, vl_i_neutre)
+	tm_d_Neutres = ARRAY_DELETE@ (tm_d_Neutres, vl_i_neutre)
+	DB_TABLE_SET_DATA@ (va_fenetre, "TA_Neutre", tm_Neutres, tm_titres_Neutres, NULL)
+	DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Neutre", NULL)
+
+	DB_CTRL_GRAYED@ (va_fenetre, "BP_Supprimer", TRUE)
+}
+
+
+RETURN (vl_cr_macro)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Fonction utilitaire de formatage (centrage) d'une ligne a afficher.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ITMA_TNP_PMV_Ligne_Centree (va_ligne)
+
+	VAR	vl_ligne, vl_lgr_ligne
+	VAR	vl_prefixe
+
+vl_ligne = TRIM@ (va_ligne)
+vl_lgr_ligne = LEN@ (vl_ligne)
+
+IF (vl_lgr_ligne >= CM_LGR_LIG_PMV)
+{
+	RETURN (SUBSTRING@ (vl_ligne, 1, CM_LGR_LIG_PMV))
+}
+
+vl_prefixe = SUBSTRING@ (CM_LIGNE_VIDE, 1, (CM_LGR_LIG_PMV + 1 - vl_lgr_ligne) \ 2)
+
+RETURN (SUBSTRING@ (vl_prefixe ++ vl_ligne ++ CM_LIGNE_VIDE, 1, CM_LGR_LIG_PMV))
+
+ENDFUNCTION

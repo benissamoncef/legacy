@@ -1,0 +1,436 @@
+/*E*/
+/* Fichier : @(#)ITMA_TBP_Config.am          Release :         Date :
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR PASTRE
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Synthese des syntheses
+* 
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Hilmarcher 03/03/05: Creation v1.1 
+*
+*
+----------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "/users/gesconf/migrazur/XDMICG/inc/xdc_ax.h"
+INCLUDE "/users/gesconf/migrazur/XDMICG/inc/xzaec_ax.h"
+
+INCLUDE "../inc/ITMA_TAR.h"
+INCLUDE "../inc/ITMA_TFA.h"
+INCLUDE "../inc/ITMA_TFS.h"
+INCLUDE "../inc/ITMA_TFC.h"
+INCLUDE "../inc/ITMA_TAT.h"
+INCLUDE "../inc/ITMA_TAN_Escota.h"
+INCLUDE "../inc/xzao430sp.h"
+INCLUDE "../inc/xzao431sp.h"
+
+DEFINE C_MODULE "MTBP"
+
+/*A
+ * Nom des images digitalisees particularisant les elements
+ * --------------------------------------------------------
+ */
+
+DEFINE  C_PICTO_SELECTE         "pix_designer"
+DEFINE  C_PICTO_NON_SELECTE     NULL
+DEFINE  C_PICTO_COMMENTAIRE     "pix_separation"
+
+
+FORMAT LISTE_BOUCHONS
+		libelle,
+		veracite,
+		aut,
+		PR,
+		sens,
+		point_car,
+		num_point_car,
+		VR,
+		VM2,
+		VM1,
+		VL,
+		BAU,
+		type,
+		longueur,
+		sit
+
+
+VAR FORMAT LISTE_BOUCHONS vl_liste
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Affichage de la fenetre
+*
+*------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBP_Config
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+* ARGUMENTS EN SORTIE: 
+*
+* FONCTION:
+*
+----------------------------------------------------------------------------- */
+
+    VAR     vl_fenetreSaisie
+    VAR     vl_objet_selecte                    ' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes            ' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+    VAR     tl_titres
+    VAR     tl_listing_information, vl_nombreEnregistrements
+    VAR	    vl_select, i, j, vl_selected_row
+    VAR     vl_libelle,vl_veracite,vl_aut,vl_PR,vl_sens,vl_VR,vl_VM2,vl_VM1,vl_BAU,vl_VL,vl_type,vl_longueur,vl_sit
+    VAR 	FORMAT SQL_Procedure_Params@    vl_parametres
+    VAR 	FORMAT SQL_Procedure_Result@    vl_resultats
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "choix FMC"
+ * --------------------------------------------
+ */
+
+vl_fenetreSaisie = DB_LOAD@ ("ITMA_TBP_Config")
+DB_WINDOW_REMAIN@ (vl_fenetreSaisie, TRUE)
+
+DB_XPOS@ (vl_fenetreSaisie, 0)
+DB_YPOS@ (vl_fenetreSaisie, 93)
+
+/* activation de la liste des FMC */
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetreSaisie, "TA_liste_libelles", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetreSaisie, "TA_liste_libelles", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetreSaisie, "TA_liste_libelles", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetreSaisie, "TA_liste_libelles", TRUE)
+
+
+/* affichage a l'ecran de la boite de dialogue et interdit tout calcul */
+DB_DISPLAY_ONLY@(vl_fenetreSaisie,TRUE)
+DB_DISPLAY@(vl_fenetreSaisie)
+DB_CTRL_GRAYED@(vl_fenetreSaisie,"BP_supprimer",TRUE)
+DB_CTRL_GRAYED@(vl_fenetreSaisie,"BP_ajouter",TRUE)
+DB_CTRL_GRAYED@(vl_fenetreSaisie,"BP_modifier",TRUE)
+
+/* mise en place des colonnes de la table */
+tl_titres[0,0]="Libelle"
+tl_titres[0,1]=200
+tl_titres[1,0]="Veracite"
+tl_titres[1,1]=50
+tl_titres[2,0]="Aut"
+tl_titres[2,1]=50
+tl_titres[3,0]="PR"
+tl_titres[3,1]=50
+tl_titres[4,0]="Sens"
+tl_titres[4,1]=50
+tl_titres[5,0]="Pt car"
+tl_titres[5,1]=50
+tl_titres[6,0]="Num Pt car"
+tl_titres[6,1]=50
+tl_titres[7,0]="VR"
+tl_titres[7,1]=50
+tl_titres[8,0]="VM2"
+tl_titres[8,1]=50
+tl_titres[9,0]="VM1"
+tl_titres[9,1]=50
+tl_titres[10,0]="VL"
+tl_titres[10,1]=50
+tl_titres[11,0]="BAU"
+tl_titres[11,1]=50
+tl_titres[12,0]="Type"
+tl_titres[12,1]=50
+tl_titres[13,0]="longueur"
+tl_titres[13,1]=50
+tl_titres[14,0]="Site"
+tl_titres[14,1]=50
+DB_TABLE_SET_DATA@(vl_fenetreSaisie,"TA_liste_libelles",NULL,tl_titres,NULL)
+
+/* autorise tout calcul */
+DB_DISPLAY_ONLY@(vl_fenetreSaisie,FALSE)
+
+/* affichage de la liste des evts*/
+DB_TABLE_CLEAR_DATA@(vl_fenetreSaisie,"TA_liste_libelles",0,-1)
+DB_TABLE_SET_DATA@ ( vl_fenetreSaisie , "TA_liste_libelles" , NULL, NULL, NULL)
+DB_TABLE_SET_SELECTIONS@ (vl_fenetreSaisie ,"TA_liste_libelles" , NULL)
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+vl_parametres = null
+	
+	IF COM05_SQL_Procedure (XZA0430_Select_DEF_BOU,
+					vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@("erreur lors de l'exécution de la requete en base")
+		RETURN
+	}
+	ELSE
+		/* Récupération des résultats dans une liste */
+		vl_Liste = vl_resultats.select_results[0]
+
+		/* calcul du nombre d'enregistrements dans la liste */
+		vl_nombreEnregistrements =  ARRAY_SIZE@(vl_Liste)
+
+		/* mise en place de tous les enregistrements */
+		for i=0 to (vl_nombreEnregistrements-1)
+			tl_listing_information[i][0] = vl_liste[i].libelle
+			tl_listing_information[i][1] = vl_liste[i].veracite
+			tl_listing_information[i][2] = vl_liste[i].aut
+			tl_listing_information[i][3] = vl_liste[i].pr
+			tl_listing_information[i][4] = vl_liste[i].sens
+			tl_listing_information[i][5] = vl_liste[i].point_car
+			tl_listing_information[i][6] = vl_liste[i].num_point_car
+			tl_listing_information[i][7] = vl_liste[i].VR
+			tl_listing_information[i][8] = vl_liste[i].VM2
+			tl_listing_information[i][9] = vl_liste[i].VM1
+			tl_listing_information[i][10] = vl_liste[i].VL
+			tl_listing_information[i][11] = vl_liste[i].BAU
+			tl_listing_information[i][12] = vl_liste[i].type
+			tl_listing_information[i][13] = vl_liste[i].longueur
+			tl_listing_information[i][14] = vl_liste[i].sit
+		 	vl_selected_row[i] = 0
+		 next i
+
+	DB_TABLE_CLEAR_DATA@(vl_fenetreSaisie,"TA_liste_libelles",0,-1)
+	DB_TABLE_SET_DATA@ ( vl_fenetreSaisie , "TA_liste_libelles" , tl_listing_information, NULL, NULL)
+	DB_TABLE_SET_SELECTIONS@ (vl_fenetreSaisie ,"TA_liste_libelles" , NULL)
+
+WHILE vl_la_fenetre_est_active
+	DB_DISPLAY@ (vl_fenetreSaisie)
+	vl_objet_selecte = DB_EXIT_CTRL@(vl_fenetreSaisie)
+	
+	
+	CASE OF vl_objet_selecte
+		
+	CASE "TA_liste_libelles"
+		j=0
+		/* degrise le bouton synthèse */
+		DB_CTRL_GRAYED@(vl_fenetreSaisie,"BP_supprimer",FALSE)
+		DB_CTRL_GRAYED@(vl_fenetreSaisie,"BP_ajouter",FALSE)
+ 		DB_CTRL_GRAYED@(vl_fenetreSaisie,"BP_modifier",FALSE)      		
+
+		vl_select = DB_CTRL_GET_VALUE@ (vl_fenetreSaisie, "TA_liste_libelles")
+		i =  ARRAY_TO_STRING@(vl_select,MTAR_CAR_SEPAR)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_libelle",vl_liste[i].libelle)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_veracite",vl_liste[i].veracite)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_aut",vl_liste[i].aut)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_PR",vl_liste[i].pr)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_sens",vl_liste[i].sens)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_point_car",vl_liste[i].point_car)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_num_point_car",vl_liste[i].num_point_car)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_VR",vl_liste[i].VR)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_VM2",vl_liste[i].VM2)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_VM1",vl_liste[i].VM1)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_VL",vl_liste[i].VL)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_BAU",vl_liste[i].BAU)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_type",vl_liste[i].type)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_longueur",vl_liste[i].longueur)
+		DB_CTRL_VALUE@(vl_fenetreSaisie,"BS_sit",vl_liste[i].sit)
+
+	
+	CASE "BP_supprimer"
+		macro_commande_config(vl_fenetreSaisie,1)
+
+	CASE "BP_ajouter"
+		macro_commande_config(vl_fenetreSaisie,2)
+
+	CASE "BP_modifier"
+		macro_commande_config(vl_fenetreSaisie,3)	
+
+	CASE "BP_annuler"
+		vl_la_fenetre_est_active = FALSE
+		RETURN
+	ENDCASE
+	
+WEND
+
+ENDMACRO
+
+FUNCTION macro_commande_config(va_fenetreSaisie,va_appelant)
+	
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_lib,vl_veracite,vl_aut,vl_PR,vl_sens,vl_VR,vl_VM2,vl_VM1,vl_VL,vl_BAU
+	VAR vl_type,vl_longueur,vl_sit,vl_point_car,vl_num_point_car
+	VAR     tl_listing_information, vl_nombreEnregistrements
+	VAR     vl_select, i
+
+
+	vl_lib=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_libelle")
+	vl_veracite=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_veracite")
+	vl_aut=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_aut")
+	vl_PR=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_PR")
+	vl_sens=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_sens")
+	vl_point_car=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_point_car")
+	vl_num_point_car=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_num_point_car")
+	vl_VR=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_VR")
+	vl_VM2=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_VM2")
+	vl_VM1=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_VM1")
+	vl_VL=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_VL")
+	vl_BAU=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_BAU")
+	vl_type=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_type")
+	vl_longueur=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_longueur")
+	vl_sit=DB_CTRL_GET_VALUE@(va_fenetreSaisie,"BS_sit")
+
+	vl_parametres[0].type= SYB#CHAR_
+        vl_parametres[0].data= vl_lib
+        vl_parametres[0].output = FALSE
+
+        vl_parametres[1].type= SYB#INT4_
+        vl_parametres[1].data=vl_veracite
+        vl_parametres[1].output=FALSE
+
+        vl_parametres[2].type= SYB#INT4_
+        vl_parametres[2].data=vl_aut
+        vl_parametres[2].output=FALSE
+
+        vl_parametres[3].type= SYB#INT4_
+        vl_parametres[3].data=vl_PR
+        vl_parametres[3].output=FALSE
+
+        vl_parametres[4].type= SYB#INT4_
+        vl_parametres[4].data=vl_sens
+        vl_parametres[4].output=FALSE
+        
+	vl_parametres[5].type= SYB#INT4_
+        vl_parametres[5].data= vl_point_car
+        vl_parametres[5].output = FALSE
+
+        vl_parametres[6].type= SYB#INT4_
+        vl_parametres[6].data=vl_num_point_car
+        vl_parametres[6].output=FALSE
+
+        vl_parametres[7].type= SYB#INT4_
+        vl_parametres[7].data=vl_VR
+        vl_parametres[7].output=FALSE
+        
+	vl_parametres[8].type= SYB#INT4_
+        vl_parametres[8].data= vl_VM2
+        vl_parametres[8].output = FALSE
+
+        vl_parametres[9].type= SYB#INT4_
+        vl_parametres[9].data=vl_VM1
+        vl_parametres[9].output=FALSE
+
+        vl_parametres[10].type= SYB#INT4_
+        vl_parametres[10].data=vl_VL
+        vl_parametres[10].output=FALSE
+
+        vl_parametres[11].type= SYB#INT4_
+        vl_parametres[11].data=vl_BAU
+        vl_parametres[11].output = FALSE
+
+        vl_parametres[12].type= SYB#INT4_
+        vl_parametres[12].data=vl_type
+        vl_parametres[12].output=FALSE
+
+        vl_parametres[13].type= SYB#INT4_
+        vl_parametres[13].data=vl_longueur
+        vl_parametres[13].output=FALSE
+
+	vl_parametres[14].type= SYB#INT4_
+	vl_parametres[14].data=vl_sit
+	vl_parametres[14].output=FALSE
+
+	vl_parametres[15].type=SYB#INT4_
+	vl_parametres[15].data=va_appelant
+	vl_parametres[15].output=FALSE
+
+        IF COM05_SQL_Procedure (XZAO431_Admin_DEF_BOU,
+					vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@("erreur lors de l'exécution de la requete en base")
+		RETURN
+	}
+
+vl_parametres = null
+	
+	IF COM05_SQL_Procedure (XZA0430_Select_DEF_BOU,
+					vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@("erreur lors de l'exécution de la requete en base")
+		RETURN
+	}
+	ELSE
+	{	
+		/* Récupération des résultats dans une liste */
+		vl_Liste = vl_resultats.select_results[0]
+
+		/* calcul du nombre d'enregistrements dans la liste */
+		vl_nombreEnregistrements =  ARRAY_SIZE@(vl_Liste)
+
+		/* mise en place de tous les enregistrements */
+		for i=0 to (vl_nombreEnregistrements-1)
+			tl_listing_information[i][0] = vl_liste[i].libelle
+			tl_listing_information[i][1] = vl_liste[i].veracite
+			tl_listing_information[i][2] = vl_liste[i].aut
+			tl_listing_information[i][3] = vl_liste[i].pr
+			tl_listing_information[i][4] = vl_liste[i].sens
+			tl_listing_information[i][5] = vl_liste[i].point_car
+			tl_listing_information[i][6] = vl_liste[i].num_point_car
+			tl_listing_information[i][7] = vl_liste[i].VR
+			tl_listing_information[i][8] = vl_liste[i].VM2
+			tl_listing_information[i][9] = vl_liste[i].VM1
+			tl_listing_information[i][10] = vl_liste[i].VL
+			tl_listing_information[i][11] = vl_liste[i].BAU
+			tl_listing_information[i][12] = vl_liste[i].type
+			tl_listing_information[i][13] = vl_liste[i].longueur
+                        tl_listing_information[i][14] = vl_liste[i].sit
+		 next i
+
+	DB_TABLE_CLEAR_DATA@(va_fenetreSaisie,"TA_liste_libelles",0,-1)
+	DB_TABLE_SET_DATA@ ( va_fenetreSaisie , "TA_liste_libelles" , tl_listing_information, NULL, NULL)
+	DB_TABLE_SET_SELECTIONS@ (va_fenetreSaisie ,"TA_liste_libelles" , NULL)
+	}
+ENDFUNCTION
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

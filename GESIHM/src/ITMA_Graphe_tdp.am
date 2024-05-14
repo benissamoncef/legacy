@@ -1,0 +1,421 @@
+/*E*/
+/* Fichier : @(#)ITMA_Graphe_tdp.am	1.2      Release : 1.2        Date : 06/10/05
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE VUES * FICHIER ITMA_Graphe_tdp.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Hilmarcher	10/06/2005:	Creation pour temps de parcours multi-zones DEM468 v1.1
+* Claudel	18/01/2012:	Mise en place TdP etendus (DEM/1014)
+* Claudel	06/06/2012:	Correction zone 184040-185800 et 184040-185800 en recouvrement	v1.4
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzaec_ax.h"
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TDO.h"
+INCLUDE "../inc/ITMA_TAR.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xzaac_ax.h"
+INCLUDE "../../XDMICG/inc/xzaec_ax.h"
+INCLUDE "../inc/ITMA_TCV.h"
+INCLUDE "../inc/isyn_svu_applix_ax.h"
+
+INCLUDE "../inc/xzao432sp.h"
+
+DEFINE	C_MODULE	"MTMA"
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_Graphe_tdp
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : nï¿½ant
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR    vl_fenetre_Saisie	' Nom de la fenetre du module
+    VAR    vl_objet_selecte		' L'objet courant de la fenetre
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+    VAR     vl_liste_orig,vl_liste_dest,vl_liste_finale
+    VAR     vl_zone_origine,vl_zone_destination
+    VAR     vl_liste_num_dtp    
+    VAR	    i,j,vl_compteur,vl_compt
+    VAR     vl_l_arg, vl_l_arg_final,vl_fonction
+    VAR     vl_liste_autoroute, vl_liste_zones
+    VAR FORMAT SQL_Procedure_Params@    vl_parametres
+    VAR FORMAT SQL_Procedure_Result@    vl_resultats
+    VAR vl_jour, vl_mois, vl_annee, vl_horodate
+    VAR vl_index, vl_index_185800, vl_index_187500
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    RETURN
+}
+
+/*A
+ * Charger la fenetre de dialogue "SaisiePeriode"
+ * ----------------------------------------------
+ */
+vl_fenetre_Saisie = DB_LOAD@ ("ITMA_Graphe_tdp")
+
+DB_XPOS@ (vl_fenetre_Saisie, 0)
+DB_YPOS@ (vl_fenetre_Saisie, 93)
+DB_CTRL_DISPLAY@(vl_fenetre_Saisie,"BO_autoroute",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_Saisie,"BO_autoroute",TRUE)
+DB_CTRL_DISPLAY@(vl_fenetre_Saisie,"BO_zone_destination",FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_Saisie,"BO_zone_origine",TRUE)
+DB_CTRL_DISPLAY@(vl_fenetre_Saisie,"BO_zone_origine",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_Saisie,"BO_autoroute",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_Saisie,"BA_temps_reel",TRUE)
+
+/*A
+ * Rechercher les autoroutes
+ * -------------------------
+ */
+vl_parametres = NULL
+vl_parametres[0].type = SYB#INT4_
+vl_parametres[0].data = 0
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT4_
+vl_parametres[1].data = 0 
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT4_
+vl_parametres[2].data = 0
+vl_parametres[2].output = FALSE
+
+IF COM05_SQL_Procedure (XZAO432_Liste_Zones,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+        RETURN (COM_NOK)
+vl_liste_autoroute = vl_resultats.select_results[0]
+DB_CTRL_STRINGS@ (vl_fenetre_Saisie, "BO_autoroute", ARRAY_COLUMN@(vl_liste_autoroute,1))
+
+
+/*A
+ * Rechercher la zone origine
+ * ------------------------
+ */
+vl_parametres = NULL
+vl_parametres[0].type = SYB#INT4_
+vl_parametres[0].data = vl_liste_autoroute[DB_CTRL_GET_VALUE@ (vl_fenetre_Saisie,"BO_autoroute"),0] 
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT4_
+vl_parametres[1].data = 0 
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT4_
+vl_parametres[2].data = 0
+vl_parametres[2].output = FALSE
+
+IF COM05_SQL_Procedure (XZAO432_Liste_Zones,
+                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+vl_liste_orig = vl_resultats.select_results[0]
+DB_CTRL_STRINGS@ (vl_fenetre_Saisie, "BO_zone_origine", ARRAY_COLUMN@(vl_liste_orig,1))
+vl_liste_num_dtp = ARRAY_COLUMN@(vl_liste_orig,0)
+
+IF ARRAY_SIZE@(vl_liste_orig) = 0
+{
+	DB_CTRL_DISPLAY@(vl_fenetre_Saisie,"BO_zone_destination",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre_Saisie,"BO_zone_origine",FALSE)
+}
+ELSE
+{
+	DB_CTRL_DISPLAY@(vl_fenetre_Saisie,"BO_zone_destination",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre_Saisie,"BO_zone_origine",TRUE)
+}
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_Saisie)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_Saisie)
+
+    CASE OF vl_objet_selecte
+
+    CASE "BO_autoroute"
+		vl_parametres = NULL
+
+		vl_parametres[0].type = SYB#INT4_
+		vl_parametres[0].data = vl_liste_autoroute[DB_CTRL_GET_VALUE@ (vl_fenetre_Saisie,"BO_autoroute"),0]
+		vl_parametres[0].output = FALSE
+
+		vl_parametres[1].type = SYB#INT4_
+		vl_parametres[1].data = 0
+		vl_parametres[1].output = FALSE
+
+		vl_parametres[2].type = SYB#INT4_
+		vl_parametres[2].data = 0
+		vl_parametres[2].output = FALSE
+
+		IF COM05_SQL_Procedure (XZAO432_Liste_Zones,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+			RETURN(COM_NOK)
+
+		vl_liste_orig = vl_resultats.select_results[0]
+		DB_CTRL_STRINGS@ (vl_fenetre_Saisie, "BO_zone_origine", ARRAY_COLUMN@(vl_liste_orig,1))
+		vl_liste_num_dtp = ARRAY_COLUMN@(vl_liste_orig,0)
+		
+		IF ARRAY_SIZE@(vl_liste_orig) = 0
+		{
+			DB_CTRL_DISPLAY@(vl_fenetre_Saisie,"BO_zone_destination",FALSE)
+			DB_CTRL_DISPLAY@(vl_fenetre_Saisie,"BO_zone_origine",FALSE)
+		}
+		ELSE
+		{
+			DB_CTRL_DISPLAY@(vl_fenetre_Saisie,"BO_zone_destination",FALSE)
+			DB_CTRL_DISPLAY@(vl_fenetre_Saisie,"BO_zone_origine",TRUE)
+		}
+
+    CASE "BO_zone_origine"
+
+		DB_CTRL_DISPLAY@(vl_fenetre_Saisie,"BO_zone_destination",TRUE)
+		vl_zone_origine = vl_liste_orig[DB_CTRL_GET_VALUE@ (vl_fenetre_Saisie,"BO_zone_origine"),1]
+		
+		vl_parametres = NULL
+
+		vl_parametres[0].type = SYB#INT4_
+		vl_parametres[0].data = vl_liste_autoroute[DB_CTRL_GET_VALUE@ (vl_fenetre_Saisie,"BO_autoroute"),0]
+		vl_parametres[0].output = FALSE
+
+		vl_parametres[1].type = SYB#INT4_
+		vl_parametres[1].data = vl_liste_orig[DB_CTRL_GET_VALUE@ (vl_fenetre_Saisie,"BO_zone_origine"),0]
+		vl_parametres[1].output = FALSE
+
+		vl_parametres[2].type = SYB#INT4_
+		vl_parametres[2].data = 0
+		vl_parametres[2].output = FALSE
+		
+		IF COM05_SQL_Procedure (XZAO432_Liste_Zones,
+                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+			RETURN (COM_NOK)
+		vl_liste_dest = vl_resultats.select_results[0]
+		DB_CTRL_STRINGS@ (vl_fenetre_Saisie, "BO_zone_destination", ARRAY_COLUMN@(vl_liste_dest,1))
+		
+    CASE "BO_zone_destination"
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+    CASE "BP_ajout_zones"
+	vl_parametres = NULL
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = vl_liste_autoroute[DB_CTRL_GET_VALUE@ (vl_fenetre_Saisie,"BO_autoroute"),0] 
+	vl_parametres[0].output = FALSE
+	
+	vl_parametres[1].type = SYB#INT4_
+	vl_parametres[1].data = vl_liste_orig[DB_CTRL_GET_VALUE@ (vl_fenetre_Saisie,"BO_zone_origine"),0]
+	vl_parametres[1].output = FALSE
+	
+	vl_parametres[2].type = SYB#INT4_
+	vl_parametres[2].data = vl_liste_dest[DB_CTRL_GET_VALUE@ (vl_fenetre_Saisie,"BO_zone_destination"),0]
+	vl_parametres[2].output = FALSE
+
+	IF COM05_SQL_Procedure (XZAO432_Liste_Zones,
+		   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		RETURN (COM_NOK)
+
+	IF (ARRAY_SIZE@(vl_resultats.select_results[0])=0)
+ 	{
+		vl_parametres = NULL
+		vl_parametres[0].type = SYB#INT4_
+		vl_parametres[0].data = vl_liste_autoroute[DB_CTRL_GET_VALUE@ (vl_fenetre_Saisie,"BO_autoroute"),0] 
+		vl_parametres[0].output = FALSE
+	
+		vl_parametres[1].type = SYB#INT4_
+		vl_parametres[1].data = vl_liste_dest[DB_CTRL_GET_VALUE@ (vl_fenetre_Saisie,"BO_zone_destination"),0]
+		vl_parametres[1].output = FALSE
+	
+		vl_parametres[2].type = SYB#INT4_
+		vl_parametres[2].data = vl_liste_orig[DB_CTRL_GET_VALUE@ (vl_fenetre_Saisie,"BO_zone_origine"),0]
+		vl_parametres[2].output = FALSE
+
+		IF COM05_SQL_Procedure (XZAO432_Liste_Zones,
+		   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+			RETURN (COM_NOK)
+	}
+
+	vl_liste_zones = ARRAY_APPEND@(vl_liste_zones, vl_resultats.select_results[0])
+	
+	vl_index = 0
+	vl_index_185800 = -1
+	vl_index_187500 = -1
+	WHILE vl_index < ARRAY_SIZE@(vl_liste_zones)
+		if STRING_INDEX@(vl_liste_zones[vl_index][1],"184040") > 0 and STRING_INDEX@(vl_liste_zones[vl_index][1],"185800") > 0
+			vl_index_185800 = vl_index
+		if STRING_INDEX@(vl_liste_zones[vl_index][1],"184040") > 0 and STRING_INDEX@(vl_liste_zones[vl_index][1],"187500") > 0
+			vl_index_187500 = vl_index
+		vl_index = vl_index+1
+	WEND
+
+	if vl_index_185800>=0 and vl_index_187500>=0 and vl_index_185800 < (ARRAY_SIZE@(vl_liste_zones)-1)
+ 	{
+		/* on a les deux zones dans la liste et la zone 184040 Ã  185800 n'est pas la derniÃ¨re de la liste */
+		/* donc on a la 184040-187500 qui la recouvre, on supprime donc la 184040-185800 */
+		vl_liste_zones = ARRAY_DELETE@(vl_liste_zones, vl_index_185800)
+	}
+
+	IF (ARRAY_SIZE@(vl_liste_zones)>8)
+ 	{
+		INFO_MESSAGE@("8 zones maximum")
+		vl_liste_zones = SUBARRAY@(vl_liste_zones, 0, 8)
+	}
+	DB_CTRL_STRINGS@ (vl_fenetre_Saisie, "BL_liste_zones", ARRAY_COLUMN@(vl_liste_zones,1))
+
+    CASE "BP_vider_liste_zones"
+	WHILE ARRAY_SIZE@(vl_liste_zones)>0
+		vl_liste_zones = ARRAY_DELETE@(vl_liste_zones, 0)
+	WEND
+	DB_CTRL_STRINGS@ (vl_fenetre_Saisie, "BL_liste_zones", ARRAY_COLUMN@(vl_liste_zones,1))
+
+	CASE "BA_temps_reel"
+		IF (DB_CTRL_GET_VALUE@(vl_fenetre_Saisie,"BA_temps_reel") = TRUE)
+ 		{
+			DB_CTRL_GRAYED@(vl_fenetre_Saisie, "BS_jourDeb", TRUE)
+			DB_CTRL_GRAYED@(vl_fenetre_Saisie, "BS_moisDeb", TRUE)
+			DB_CTRL_GRAYED@(vl_fenetre_Saisie, "BS_anneeDeb", TRUE)
+			DB_CTRL_GRAYED@(vl_fenetre_Saisie, "BP_horodeb", TRUE)
+	    	}
+		ELSE
+ 		{
+			DB_CTRL_GRAYED@(vl_fenetre_Saisie, "BS_jourDeb", FALSE)
+			DB_CTRL_GRAYED@(vl_fenetre_Saisie, "BS_moisDeb", FALSE)
+			DB_CTRL_GRAYED@(vl_fenetre_Saisie, "BS_anneeDeb", FALSE)
+			DB_CTRL_GRAYED@(vl_fenetre_Saisie, "BP_horodeb", FALSE)
+	    	}
+	
+    CASE "BP_Valider"
+	IF (ARRAY_SIZE@(vl_liste_zones)>0)
+ 	{
+		/* controle de la date */
+		IF (DB_CTRL_GET_VALUE@(vl_fenetre_Saisie,"BA_temps_reel") = FALSE)
+		{
+
+			IF (DB_CTRL_GET_VALUE@(vl_fenetre_Saisie,"BS_jourDeb") = "" or 	DB_CTRL_GET_VALUE@(vl_fenetre_Saisie,"BS_moisDeb") = "" or 	DB_CTRL_GET_VALUE@(vl_fenetre_Saisie,"BS_anneeDeb") = "")
+			{
+			      /* recupere l'heure courante et la formate */
+	      		COM24_Afficher_Horodate 	(COM09_Date_Courante(),
+									vl_fenetre_Saisie,
+									"BS_jourDeb",
+									"BS_moisDeb",
+									"BS_anneeDeb",
+									"BS_heureDeb",
+									"BS_minuteDeb")
+			 	DB_CTRL_VALUE@(vl_fenetre_Saisie,"BS_heureDeb",0)	         				 
+				DB_CTRL_VALUE@(vl_fenetre_Saisie,"BS_minuteDeb",0) 
+	    		}
+		
+		      vl_horodate = COM23_Horodate (vl_fenetre_Saisie, 
+								"BS_jourDeb",
+								"BS_moisDeb",
+								"BS_anneeDeb",
+								"BS_heureDeb",
+								"BS_minuteDeb")
+			vl_horodate = vl_horodate++":00"
+    		}
+		ELSE
+			vl_horodate = "01/01/1900 00:00:00"
+	     vl_zone_destination=vl_liste_dest[DB_CTRL_GET_VALUE@(vl_fenetre_Saisie,"BO_zone_destination"),0]
+
+		vl_compteur = 0
+        	vl_l_arg = NULL
+		vl_l_arg_final = NULL
+		vl_liste_finale = NULL 
+
+		vl_fonction = CM_CARACT_TDP
+		i = 0
+		j = 0;
+		WHILE ( j < ARRAY_SIZE@(vl_liste_zones) )
+			vl_l_arg[i] = vl_liste_zones[j,0]
+			vl_l_arg[i+1] = vl_liste_zones[j,1]
+			i = i + 2
+			j = j + 1
+			vl_compteur = vl_compteur + 1
+		WEND
+		WHILE (i < 17)
+			vl_l_arg[i] = 0
+			vl_l_arg[i+1] = ""
+			i = i + 2
+		WEND
+		if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+		vl_l_arg[18] = vl_compteur 
+
+		/* Ajout horodate */
+		vl_l_arg[19] = vl_horodate
+
+		NEW_TASK@("COM54_ExecSynoptiqueFlash",vl_fonction,vl_compteur++"|"++vl_horodate++"|"++ARRAY_TO_STRING@(vl_l_arg,"|"))
+		IF NEW_TASK@ ("COM28_Exec_Synoptique",vl_fonction,vl_l_arg)<> COM_OK
+			RETURN (COM_NOK)
+    	}
+	ELSE
+		INFO_MESSAGE@("Vous devez selectionner au moins une zone !")
+
+    /* appui sur le bouton horohelp debut */
+    CASE "BP_horodeb"
+      /* recupere l'heure courante et la formate */
+      	COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre_Saisie,
+        "BS_jourDeb","BS_moisDeb","BS_anneeDeb","BS_heureDeb","BS_minuteDeb")
+	 	DB_CTRL_VALUE@(vl_fenetre_Saisie,"BS_heureDeb",0)	         				 
+		DB_CTRL_VALUE@(vl_fenetre_Saisie,"BS_minuteDeb",0) 
+
+    ENDCASE
+WEND
+
+endmacro

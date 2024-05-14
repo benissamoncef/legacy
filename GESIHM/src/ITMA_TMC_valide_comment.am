@@ -1,0 +1,123 @@
+/*E*/
+/* Fichier : 	$Id: ITMA_TMC_valide_comment.am,v 1.12 2020/11/03 17:44:53 pc2dpdy Exp $    Release : $Revision: 1.12 $        Date : $Date: 2020/11/03 17:44:53 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLE * FICHIER ITMA_TLE_Liste_Evenements.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* afficher la liste des evenements
+*
+*   Cf. DCG 2.4.44
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Torregrossa   10 Nov 1995 : Modif horohelp pour Applix version 4.1 (V1.27)
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+---------------------------------------------------------------------------- */
+include	"dbase_.am"
+include 	"../inc/ITMA_COM.h"
+include 	"../inc/ITMA_TDO.h"
+include	"../../XDMICG/inc/xdc_ax.h"
+include	"../inc/ITMA_TAR.h"
+include	"../../XDMICG/inc/xzic_ax.h"
+include	"../inc/xzae67sp.h"
+include	"../inc/ITMA_TMC.h"
+
+
+
+/*X*/
+/*------------------------------------------------------
+* SERVICE RENDU : 
+* sauve les commentaires
+*
+------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_valide_comment(FORMAT TMC_comment va_comment,va_horodate, FORMAT COM_Identifiant_FMC ta_num_evt)
+
+/*
+* ARGUMENTS EN ENTREE :
+* commentaire
+* horodate de validation
+*
+* ARGUMENTS EN SORTIE :
+* nouveau commentaire
+*
+* CODE RETOUR : 
+* aucun
+*
+*
+*
+---------------------------------------------------------*/
+VAR FORMAT sql_procedure_params@ param_in,vl_parametres
+var 	i
+var FORMAT sql_procedure_result@ vl_resultats
+VAR vl_horodate
+
+	/*A preparation des parametres de la requete*/
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = ta_num_evt.numero
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = ta_num_evt.cle
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = va_comment.numero
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#DATETIME_    
+	IF va_comment.validation=XDC_DATE_NULLE
+		vl_horodate=va_horodate
+	ELSE vl_horodate=va_comment.validation                   
+	vl_parametres[i].data = vl_horodate
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].data = va_comment.fin
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#CHAR_                       
+	vl_parametres[i].data = va_comment.texte
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+		vl_parametres[i].data = SYSTEM_VAR@(vg_numero_poste_surcharge)
+	ELSE
+		vl_parametres[i].data = SYSTEM_VAR@(vg_numero_poste)
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#CHAR_                       
+	vl_parametres[i].data = SYSTEM_VAR@(vg_nom_site)
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	/*A execution de la requete sql*/
+	IF (COM05_SQL_Procedure (XZAE67_Ecrire_Fiche_Commentaire,
+			   vl_parametres, vl_resultats, "MTMC") <> COM_OK)
+	{
+		INFO_MESSAGE@("Erreur dans la sauvegarde des commentaires")
+		 RETURN (COM_NOK)
+	}
+	ELSE IF vl_resultats.status <> COM_OK
+	{
+		INFO_MESSAGE@("Erreur dans la sauvegarde des commentaires")
+		 RETURN (COM_NOK)
+	}
+
+	RETURN (COM_OK)
+ENDMACRO

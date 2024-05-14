@@ -1,0 +1,224 @@
+/*E*/
+/* Fichier : $Id: ITMA_TAN_Modif_Fiche_Annuaire.am,v 1.11 2017/04/25 11:07:21 devgfi Exp $      Release : $Revision: 1.11 $        Date : $Date: 2017/04/25 11:07:21 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TAN * FICHIER ITMA_TAN_Modif_Fiche_Annuaire.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fiche annuaire.
+*
+*   Cf. DCG 2.4.27
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	15 Nov 1994	: Creation
+* Torregrossa	14 Fev 1994	: modif date nulle en XDC_DATE_NULLE (1.2)
+* Guilhou	21 nov 1996	: ajout radio 1.3 (DEM/1306)
+* ESCOTA	02 fev 1999     : ajout gestion sites responsable et concerne 1.4
+* Claudel       09 Jul 2007     : Suppression DY 1.5
+* JMG	31/10/07	: ajout adresse email 1.6
+* JPL	03/02/09	: Prise en compte de l'indicateur de suppression (DEM 834) 1.7
+* JMG   29/09/09        : SECTO DEM 887
+* JMG	23/03/17	: regionalisation 1.9
+* JPL	27/03/17	: Liste des sites lue en variable publique (regionalisation DEM 1173)  1.11
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TDO.h"
+INCLUDE "../inc/ITMA_TFA.h"
+INCLUDE "../inc/ITMA_TFC.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE "../inc/xzan11sp.h"
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Modifie les valeurs d'une fiche annauire.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TAN_Modif_Fiche_Annuaire (va_num_fiche, va_num_competence,
+					va_date_valid_com, va_module,va_fenetre,va_site_responsable)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_fiche      : Numero de la fiche annuaire a modifier ;
+*   va_num_competence : Numero de la competence associee a la fonction ;
+*   va_date_valid_com : Date de validite du commentaire ;
+*   va_module         : Nom du module appelant ;
+*   va_fenetre        : Id. de la fenetre contenant les valeurs a archiver.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+* va_site_responsable : site responsable
+*
+* CODE RETOUR         : COM_OK si l'execution est effectuee correctement ;
+*                       COM_QUITTE si une homonymie est trouvee ;
+*                       COM_NOK en cas d'erreur lors de l'execution.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFA_Fiche_Annuaire
+*
+* FONCTION
+*   Recupere les valeurs dans les champs de saisie de la fenetre dont
+*   l'identifiant est fourni et effectue en base de donnees les modifications
+*   de la fiche de numero indique en argument.
+*   Retourne un compte-rendu indiquant si les modifications ont ete apportees
+*   ou si une homonymie est trouvee.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR         vl_index,vm_l_districts,vm_l_sites
+
+
+vl_parametres[0].type = TFA_Numero_Fiche_Annuaire
+vl_parametres[0].data = va_num_fiche
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#CHAR_
+vl_parametres[1].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Nom")
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#CHAR_
+vl_parametres[2].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Fonction")
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = TFC_Numero_Competence
+vl_parametres[3].data = va_num_competence
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#CHAR_
+vl_parametres[4].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Adresse")
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = SYB#CHAR_
+vl_parametres[5].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Explication_Tel1")
+vl_parametres[5].output = FALSE
+
+vl_parametres[6].type = SYB#CHAR_
+vl_parametres[6].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Telephone1")
+vl_parametres[6].output = FALSE
+
+vl_parametres[7].type = SYB#CHAR_
+vl_parametres[7].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Explication_Tel2")
+vl_parametres[7].output = FALSE
+
+vl_parametres[8].type = SYB#CHAR_
+vl_parametres[8].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Telephone2")
+vl_parametres[8].output = FALSE
+
+vl_parametres[9].type = SYB#CHAR_
+vl_parametres[9].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Explication_Tel3")
+vl_parametres[9].output = FALSE
+
+vl_parametres[10].type = SYB#CHAR_
+vl_parametres[10].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Telephone3")
+vl_parametres[10].output = FALSE
+
+vl_parametres[11].type = SYB#CHAR_
+vl_parametres[11].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Explication_Fax")
+vl_parametres[11].output = FALSE
+
+vl_parametres[12].type = SYB#CHAR_
+vl_parametres[12].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Fax")
+vl_parametres[12].output = FALSE
+
+vl_parametres[13].type = SYB#CHAR_
+vl_parametres[13].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Explication_Bip")
+vl_parametres[13].output = FALSE
+
+vl_parametres[14].type = SYB#CHAR_
+vl_parametres[14].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Bip")
+vl_parametres[14].output = FALSE
+
+vl_parametres[15].type = TFA_Identifiant_Type_Bip
+vl_parametres[15].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Type_Bip")
+vl_parametres[15].output = FALSE
+
+vl_parametres[16].type = SYB#CHAR_
+vl_parametres[16].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Commentaire")
+vl_parametres[16].output = FALSE
+
+if va_date_valid_com = NULL
+	va_date_valid_com=XDC_DATE_NULLE
+vl_parametres[17].type = SYB#DATETIME_
+vl_parametres[17].data = va_date_valid_com
+vl_parametres[17].output = FALSE
+
+vl_parametres[18].type = SYB#CHAR_
+vl_parametres[18].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Tel_Commentaire")
+vl_parametres[18].output = FALSE
+
+vl_parametres[19].type = SYB#CHAR_
+vl_parametres[19].data = DB_CTRL_GET_VALUE@ (va_fenetre,"BS_radio")
+vl_parametres[19].output = FALSE
+
+vl_parametres[20].type = SYB#CHAR_
+vl_parametres[20].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Explication_radio")
+vl_parametres[20].output = FALSE
+
+vl_parametres[21].type = SYB#CHAR_
+vl_parametres[21].data = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Adresse_Email")
+vl_parametres[21].output = FALSE
+
+/*recherche du site responsable*/
+vm_l_sites=SYSTEM_VAR@(vg_les_districts)
+vl_index=DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Site_responsable")
+if vl_index=-1
+  vl_index=0
+vl_parametres[22].type = SYB#INT4_
+vl_parametres[22].data = vm_l_sites[vl_index][0]
+vl_parametres[22].output = FALSE
+
+/*recherche du site concerne*/
+vm_l_districts[0] = NULL, "Tous"
+vm_l_districts = ARRAY_APPEND@ (vm_l_districts, vm_l_sites)
+vl_index=DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Site_concerne")
+if vl_index=-1
+  vl_index=0
+vl_parametres[23].type = SYB#INT4_
+vl_parametres[23].data = vm_l_districts[vl_index][0]
+vl_parametres[23].output = FALSE
+
+vl_parametres[24].type = SYB#INT4_			' Statut: fiche modifiee
+vl_parametres[24].output = TRUE				' ou homonymie
+
+vl_parametres[25].type = SYB#INT1_
+IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BA_Supprime") = TRUE)
+	vl_parametres[25].data = XDC_VRAI
+ELSE
+	vl_parametres[25].data = XDC_FAUX
+vl_parametres[25].output = FALSE
+
+
+/*si je ne suis pas au CI*/
+if (SYSTEM_VAR@(vg_site)<>XDC_CI) {
+	/*je vais au CI*/
+	IF COM41_SQL_Procedure_Distante (XDC_CI,XZAN11_Modifier_Fiche_Annuaire,
+			  vl_parametres, vl_resultats, va_module) <> COM_OK
+	RETURN (COM_NOK)
+}
+else {
+IF COM05_SQL_Procedure (XZAN11_Modifier_Fiche_Annuaire,
+			   vl_parametres, vl_resultats, va_module) <> COM_OK
+    RETURN (COM_NOK)
+}
+
+va_site_responsable = vl_parametres[21].data
+IF vl_resultats.return_parameters[0] = XDC_OK
+    RETURN (COM_OK)
+ELSE RETURN (COM_QUITTE)
+
+ENDMACRO

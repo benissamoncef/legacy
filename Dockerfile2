@@ -1,0 +1,43 @@
+FROM docker-repo.vinci-autoroutes.com:18440/migrazur/legacy_migrazur:centos7.9_ems_v3
+
+# Install EPEL repository and required packages
+RUN yum -y install epel-release wget sudo && \
+    yum -y install erlang rabbitmq-server git gcc-c++ make perl zlib-devel
+
+# Install OpenSSL
+RUN wget --no-check-certificate https://www.openssl.org/source/openssl-1.1.1l.tar.gz && \
+    tar xzf openssl-1.1.1l.tar.gz && \
+    cd openssl-1.1.1l && \
+    ./config --prefix=/usr/local/openssl --openssldir=/usr/local/openssl shared zlib && \
+    make && \
+    make install && \
+    cd .. && \
+    rm -rf openssl-1.1.1l openssl-1.1.1l.tar.gz
+
+# Install CMake
+RUN yum -y remove cmake && \
+    yum -y install gcc-c++ && \
+    wget https://github.com/Kitware/CMake/releases/download/v3.21.3/cmake-3.21.3-Linux-x86_64.tar.gz && \
+    tar xzf cmake-3.21.3-Linux-x86_64.tar.gz -C /usr/local --strip-components=1 && \
+    rm cmake-3.21.3-Linux-x86_64.tar.gz
+
+# Install Git
+RUN yum -y install git
+
+# Set the PATH environment variable to include the CMake binary
+ENV PATH="/usr/local/bin:${PATH}"
+
+# Clone and build rabbitmq-c
+RUN mkdir -p ~/development && \
+    cd ~/development && \
+    git clone https://github.com/alanxz/rabbitmq-c.git && \
+    cd rabbitmq-c && \
+    git checkout v0.13.0 && \
+    export OPENSSL_ROOT_DIR=/usr/local/openssl && \
+    cmake -H. -Bbuild && \
+    cmake --build build && \
+    cmake --build build --target install && \
+    git submodule init && \
+    git submodule update
+
+CMD ["/bin/bash"]

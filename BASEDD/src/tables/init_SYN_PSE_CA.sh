@@ -1,0 +1,116 @@
+#!/bin/sh
+#################################################################################
+#
+# DESCRIPTION DU SCRIPT :
+# Initialise la talbe SYN_PSE sur CFT et CFG pour CNA
+#
+#################################################################################
+#
+#################################################################################
+# HISTORIQUE DES MODIFICATIONS :
+# GGY	23/11/23	: Creation
+#################################################################################
+
+echo "
+use CFT
+go
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 0, 1674, 249, 258000, 1)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 1, 1654, 243, 258260, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 2, 1631, 237, 258556, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 3, 1609, 231, 258840, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 4, 1583, 230, 259164, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 5, 1562, 234, 259430, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 6, 1538, 242, 259745, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 7, 1510, 255, 260129, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 8, 1486, 270, 260481, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 9, 1470, 285, 260754, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 10, 1447, 302, 261110, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 11, 1424, 317, 261452, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 12, 1400, 326, 261771, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 13, 1380, 333, 262035, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 14, 1359, 334, 262296, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 15, 1338, 329, 262564, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 16, 1320, 317, 262833, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 17, 1311, 304, 263030, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 18, 1297, 286, 263314, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 19, 1285, 276, 263508, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 20, 1265, 273, 263760, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 21, 1245, 275, 264010, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 22, 1215, 288, 264417, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 23, 1166, 310, 265086, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 24, 1135, 326, 265520, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 25, 1107, 340, 265910, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 26, 1084, 343, 266199, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 27, 1064, 339, 266453, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 28, 1036, 327, 266832, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 29, 996, 303, 267413, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 30, 964, 298, 267816, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 31, 928, 300, 268265, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 32, 883, 302, 268826, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 33, 843, 307, 269328, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 34, 803, 313, 269832, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 35, 769, 318, 270260, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 36, 729, 329, 270776, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 37, 691, 343, 271280, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 38, 658, 365, 271774, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 39, 625, 395, 272329, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 40, 565, 456, 273395, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 41, 458, 556, 275219, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 42, 361, 655, 276946, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 43, 327, 681, 277479, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 44, 312, 691, 277703, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 45, 303, 696, 277831, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 46, 293, 703, 278000, 1)
+go" | isql -Usa -Pzigramur -SSQL_CA
+
+echo "
+use CFG
+go
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 0, 1674, 249, 258000, 1)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 1, 1654, 243, 258260, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 2, 1631, 237, 258556, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 3, 1609, 231, 258840, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 4, 1583, 230, 259164, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 5, 1562, 234, 259430, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 6, 1538, 242, 259745, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 7, 1510, 255, 260129, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 8, 1486, 270, 260481, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 9, 1470, 285, 260754, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 10, 1447, 302, 261110, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 11, 1424, 317, 261452, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 12, 1400, 326, 261771, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 13, 1380, 333, 262035, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 14, 1359, 334, 262296, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 15, 1338, 329, 262564, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 16, 1320, 317, 262833, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 17, 1311, 304, 263030, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 18, 1297, 286, 263314, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 19, 1285, 276, 263508, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 20, 1265, 273, 263760, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 21, 1245, 275, 264010, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 22, 1215, 288, 264417, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 23, 1166, 310, 265086, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 24, 1135, 326, 265520, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 25, 1107, 340, 265910, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 26, 1084, 343, 266199, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 27, 1064, 339, 266453, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 28, 1036, 327, 266832, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 29, 996, 303, 267413, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 30, 964, 298, 267816, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 31, 928, 300, 268265, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 32, 883, 302, 268826, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 33, 843, 307, 269328, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 34, 803, 313, 269832, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 35, 769, 318, 270260, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 36, 729, 329, 270776, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 37, 691, 343, 271280, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 38, 658, 365, 271774, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 39, 625, 395, 272329, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 40, 565, 456, 273395, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 41, 458, 556, 275219, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 42, 361, 655, 276946, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 43, 327, 681, 277479, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 44, 312, 691, 277703, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 45, 303, 696, 277831, 0)
+insert into SYN_PSE (type_synoptique, autoroute, ordre, x, y, pr, pr_fixe) VALUES ('GENERALE', 101, 46, 293, 703, 278000, 1)
+go" | isql -Usa -Pzigramur -SSQL_CA

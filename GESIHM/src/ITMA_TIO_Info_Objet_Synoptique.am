@@ -1,0 +1,399 @@
+/*E*/
+/* Fichier : $Id: ITMA_TIO_Info_Objet_Synoptique.am,v 1.18 2021/10/29 12:00:05 pc2dpdy Exp $      Release : $Revision: 1.18 $        Date : $Date: 2021/10/29 12:00:05 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TIO * FICHIER ITMA_TIO_Info_Objet_Synoptique.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Information sur un objet synoptique.
+*
+*   Cf. DCG 2.4.40
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	09 Sep 1994	: Creation
+* Lecrivain	11 Oct 1994	: Remplacement droits fonction -> famille V1.3
+* Guilhou		14 oct 1994	: inclusion fichiers _ax.h			V1.5
+* Lecrivain	17 Oct 1994 : Traiter un "poke_" en verrouillage IHM       V1.6
+* Lecrivain	12 Dec 1994 : Interface differente appel depuis MSOP       V1.8
+* Noel		19 Dec 1994	: creation du fichier s'il n'existe pas et si
+*							l'opérateur a les droits.			V1.9
+* Noel		26 Jan 1996	: Conversion des identifiants d'objets 
+*							contenant des apostrophes ou des blancs	V1.12
+* Noel		01 Fev 1996	: Initialisation des fichiers d'info non encore créés
+*							(DEM665)				V1.13
+* Noel		29 Aou 1996	: Modification du path du repertoire de travail (DEM 1158) V1.14
+* PNI	21/09/2012 : traitement des fichier pdf DEM1051 v1.15 1.16
+* ABE	14/10/2021 : Ajout Configuration TOPS display pour appel fiche ecoulement DEM-SAE228 1.17
+* ABE	28/10/2021 : Ajout num écran du fichier tops dans la commande DEM-SAE228 1.18
+---------------------------------------------------------------------------- */
+
+INCLUDE	"errors_.am"
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE    "../../XDMICG/inc/xzic_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTIO"			' Nom du module
+
+
+
+/*A
+ * Localisation et nom des fichiers d'informations
+ * -----------------------------------------------
+ */
+
+DEFINE	C_REPERTOIRE_INFO	"../fichiers/inf/"
+DEFINE	C_REPERTOIRE_INFO_AS	"/fichiers/inf/"
+DEFINE	C_SUFFIXE_INFO		".inf"
+DEFINE	C_SUFFIXE_PDF		".pdf"
+
+DEFINE	C_REPERTOIRE_TMP	"/usr/tmp/"
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation des informations liees a un objet designable sur synoptique.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TIO_Info_Objet_Synoptique (va_appelant, va_arg1, va_arg2)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*
+*  . Appel depuis MSOP :
+*   va_arg1[]  Liste d'arguments :
+*    va_type_objet    : Type de l'objet sur lequel afficher les informations ;
+*    va_id_objet      : Identifiant de l'objet.
+*
+*  . Appel depuis autre module :
+*   va_type_objet     : Type de l'objet sur lequel afficher les informations ;
+*   va_id_objet       : Identifiant de l'objet.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MSOP sur selection d'un objet.
+*
+* FONCTION
+*   Construit le nom du fichier contenant les informations sur l'objet demande
+*   a partir de son type et son identifiant ;
+*   lit les informations depuis le fichier et les affiche ;
+*   si le profil de l'operateur le permet, autorise la saisie de modifications
+*   puis permet de valider ou ignorer les modifications.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_info			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_type_objet, vl_id_objet		' Valeurs des arguments
+	VAR		tl_id_objet			' Variable intermédiaire de conversion de 
+								 ' l'identifiant de l'objet
+    VAR     vl_nom_fichier_info			' Nom fichier decrivant l'objet
+    VAR     vl_fichier_info			' Chemin d'acces fichier complet
+    VAR     vl_fichier_pdf			' Chemin d'acces fichier complet
+    VAR     vl_fichier_tmp			' Fichier temporaire en ecriture
+    VAR     vl_t_texte				' Le texte saisi par l'operateur
+    VAR	    vl_num_ecran
+
+  VAR vl_fichier_tops
+  VAR vl_lignes
+  VAR vl_array
+  VAR vl_display_IPaddress
+  VAR vl_display_number
+  VAR vl_screen_number
+  VAR vl_display_cmd
+  VAR i
+  VAR vl_taille
+
+   /* Recherche du fichier TOPS pour recuperer l'adresse de laffichage distant */
+
+   vl_display_IPaddress="xxx"
+   vl_fichier_tops = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_ADM ++ "TOPS_" ++ SYSTEM_VAR@(vg_poste) ++ ".txt"
+   if FILE_EXISTS@(vl_fichier_tops)
+   {
+   	OPEN_ASCII_FILE@ (vl_fichier_tops,"r")
+        vl_lignes = READ_ASCII_FILE@(vl_fichier_tops)
+        vl_taille = ARRAY_SIZE@(vl_lignes) -1
+        for i = 0 to vl_taille
+        	if (SUBSTRING@(vl_lignes[i],1,1) <> "#" )
+	        {
+		        if (SUBSTRING@(vl_lignes[i],1,8) = "display1")
+			{
+				vl_array = ARRAY_FROM_STRING@(vl_lignes[i],"\t")
+				vl_display_IPaddress= vl_array[1]
+				vl_display_number = vl_array[2]
+				vl_screen_number = vl_array[3]								
+			}
+		}
+	next i
+	CLOSE_FILE@(vl_fichier_tops)
+    }
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    IF ERROR_NUMBER@() <> ERR#ERR_FEENOENT_
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Informations sur objet synoptique"
+ * ------------------------------------------------------
+ */
+
+vl_fenetre_info = DB_LOAD@ ("ITMA_TIO")
+DB_WINDOW_REMAIN@ (vl_fenetre_info, TRUE)
+
+DB_XPOS@ (vl_fenetre_info, 930)
+DB_YPOS@ (vl_fenetre_info, 140)
+
+COM02_Attacher_Aide (vl_fenetre_info, "ITMA_TIO_Info_Objet_Synoptique")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_info, vl_les_messages_acceptes)
+
+
+/*A
+ * Initialiser la visualisation (informations sur l'objet, droits de modif.)
+ * -------------------------------------------------------------------------
+ */
+
+IF SUBSTRING@ (va_appelant, 6, 3) = "SOP" {
+    vl_type_objet = va_arg1[0]
+    vl_id_objet = va_arg1[1]
+} ELSE {
+    vl_type_objet = va_arg1
+    vl_id_objet = va_arg2
+}
+
+/* Supprimer les blancs */
+tl_id_objet = ARRAY_FROM_STRING@(vl_id_objet, " ")
+vl_id_objet = ARRAY_TO_STRING@(tl_id_objet, "_")
+
+
+/* Supprimer les apostrophes */
+tl_id_objet = ARRAY_FROM_STRING@(vl_id_objet, "'")
+vl_id_objet = ARRAY_TO_STRING@(tl_id_objet, "_")
+
+vl_nom_fichier_info = vl_type_objet ++ "_" ++ vl_id_objet ++ C_SUFFIXE_INFO
+
+/* SI c'est l'administrateur alors c'est le répertoire de travail qui est utilisé */
+
+IF COM04_Operateur_A_Le_Droit_De (XDC_FAM_DEVEL_CONFIG)
+	vl_fichier_info = XDC_PATHTRAV ++ C_REPERTOIRE_INFO_AS ++ vl_nom_fichier_info
+ELSE
+	vl_fichier_info = C_REPERTOIRE_INFO ++ vl_nom_fichier_info
+
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+   {
+	TIO_Init_Info_Objet (vl_fenetre_info, vl_fichier_info)
+   }
+ELSE
+   {
+    vl_fichier_pdf= C_REPERTOIRE_INFO ++ vl_type_objet ++ "_" ++ vl_id_objet ++ C_SUFFIXE_PDF
+
+	if (FILE_EXISTS@(vl_fichier_pdf))
+	{
+        /* determiner l'ecran ou afficher les schemas d'ecoulement */
+        vl_num_ecran = 1
+        IF (SYSTEM_VAR@ (vg_numero_display) = XDC_ECRAN_UNIQUE) {
+                vl_num_ecran = 0
+        }
+
+	/* On construit le display avec le display TOPS si il existe */
+        if (vl_display_IPaddress <> "xxx")
+        {
+                vl_display_cmd = "DISPLAY=" ++ vl_display_IPaddress ++ ":" ++ vl_display_number ++ "." ++ vl_screen_number
+        }
+        else
+        {
+                vl_display_cmd = "DISPLAY=:0." ++ vl_num_ecran
+        }
+
+	SHELL_COMMAND@ (FORMAT@ ("%s ; evince %s &",vl_display_cmd,vl_fichier_pdf))
+	TIO_Init_Info_Objet (vl_fenetre_info, vl_fichier_info)
+/*	EXIT@()*/
+	}
+	else
+	{
+	TIO_Init_Info_Objet (vl_fenetre_info, vl_fichier_info)
+	}
+   }
+   
+
+
+/*A
+ * Definir les caracteristiques des objets graphiques ;
+ * visualiser le bouton "Valider" seulement si l'operateur en a le droit
+ * ---------------------------------------------------------------------
+ */
+
+DB_CTRL_TITLE@ (vl_fenetre_info, "LI_Objet", UPPERCASE@(vl_type_objet))
+
+DB_CTRL_DISPLAY@ (vl_fenetre_info, "BP_Valider",
+		  COM04_Operateur_A_Le_Droit_De (XDC_FAM_DEVEL_CONFIG))
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_info)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_info)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_info)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur choix "Valider", ecrire sur fichier le texte modifie et quitter
+     * -------------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	vl_la_fenetre_est_active = FALSE
+	vl_t_texte = DB_EDITBOX_GET_DATA@ (vl_fenetre_info, "BE_Info_Objet")
+	vl_fichier_tmp = C_REPERTOIRE_TMP ++ vl_nom_fichier_info
+	WRITE_ASCII_FILE@ (vl_fichier_tmp, vl_t_texte)
+	MOVE_FILE@ (vl_fichier_tmp, XDC_PATHTRAV ++ C_REPERTOIRE_INFO_AS)
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TIO_Init_Info_Objet (va_fenetre, va_fichier)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_fichier        : Nom du fichier contenant les informations a visualiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_TIO_Info_Objet_Synoptique
+*
+* FONCTION
+*   Initialise les informations sur l'objet demande.
+*
+---------------------------------------------------------------------------- */
+
+VAR     vl_t_texte				' Texte des informations (table)
+VAR	tl_info					' texte d'info d'init du fichier
+
+
+/*A Si le fichier n'existe pas alors creer le fichier  
+ *-----------------------------------------------------------
+*/
+
+if NOT(FILE_EXISTS@(va_fichier))
+	/*B le fichier est vide pour l'administrateur */
+	if COM04_Operateur_A_Le_Droit_De (XDC_FAM_DEVEL_CONFIG)
+		WRITE_ASCII_FILE@(va_fichier,  NULL)
+
+	else
+	{
+	/*B sinon, le remplir avec un texte de rédaction ultérieure */
+		tl_info[0]="Rédaction ultérieure."
+		WRITE_ASCII_FILE@ (va_fichier, tl_info)
+	}
+
+
+/*A
+ * Lire le contenu du fichier, puis l'afficher
+ * -------------------------------------------
+ */
+
+vl_t_texte = READ_ASCII_FILE@ (va_fichier)
+
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                ' a la boite d'edition
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_EDITBOX_SET_DATA@ (va_fenetre, "BE_Info_Objet", vl_t_texte)
+
+ENDMACRO

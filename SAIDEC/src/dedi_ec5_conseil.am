@@ -1,0 +1,251 @@
+/*E*/
+/* Fichier : $Id: dedi_ec5_conseil.am,v 1.1 1995/05/24 10:15:48 gesconf Exp $	      Release : $Revision: 1.1 $        Date : $Date: 1995/05/24 10:15:48 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec5_conseil.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* element conseil dans message trafic FM
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	02 fev 1995	: Creation						V1.1
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+DEFINE	CAR_SEPAR_DEF			"$"
+
+FORMAT dedi_expression
+	type,
+	expression
+
+
+VAR FORMAT dedi_expression tm_expr
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* element conseil dans message trafic FM
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec5_conseil ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_selection
+var tl_pokes
+var vl_indice
+var tl_data
+
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec5_conseil")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,5)
+DB_YPOS@(vl_fenetre,72)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec5_conseil_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton modifier*/
+		CASE "BP_modifier"
+			/*A si un element est bien selectionne*/
+			IF (vl_selection++"")<>null
+			{
+				/*A nouvelle expression associee au type*/
+				tm_expr[vl_selection].expression=DB_CTRL_GET_VALUE@(vl_fenetre,
+													"BS_expression")
+
+				/*A met a jour la table*/
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_types",tm_expr,0)
+
+				/*A reselectionne l'element dans la table*/
+				vl_indice[0]=vl_selection
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_types",vl_indice)
+			}
+
+		/*A choix d'un type dans la table*/
+		CASE "TA_types"
+			/*A indice du type choisi*/
+			vl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,vl_evt)
+			vl_selection=vl_selection[0]
+
+			/*A affiche les valeurs de ce type pour modif*/
+			DB_CTRL_TITLE@(vl_fenetre,"LI_type",
+								tm_expr[vl_selection].type)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_expression",
+								tm_expr[vl_selection].expression)
+			DB_CURSOR_IN_ENTRY@(vl_fenetre,"BS_expression",TRUE)
+
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			IF (ec5_conseil_valide(vl_fenetre)=TRUE)
+				RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec5_conseil_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_titres
+VAR tl_data
+VAR vl_indice
+
+	/*A lecture du fichier de config*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_CONSEIL_TFM)
+
+	/*A formatte les donnees*/	
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tm_expr[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+												DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+	/*A affiche la liste des objectifs*/
+	tl_titres[0][0] = "Evénement"
+	tl_titres[0][1] = 250
+	tl_titres[1][0] = "Expression"
+	tl_titres[1][1] = 800
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_types", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_types",TRUE)
+
+	DB_TABLE_SET_DATA@(va_fenetre,"TA_types",tm_expr,tl_titres)
+
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec5_conseil_valide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	/*A formatte les donnees de la table*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_expr)-1)
+		tl_data[vl_indice]=ARRAY_TO_STRING@(tm_expr[vl_indice],
+											DEDI_CAR_SEPAR)
+	NEXT vl_indice
+	
+	/*A sauvegarde dans le fichier*/
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_CONSEIL_TFM,tl_data)
+	RETURN (TRUE)
+ENDMACRO
+
+
+

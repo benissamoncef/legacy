@@ -1,0 +1,523 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCM_Creer_Alarme.am,v 1.13 1995/11/21 18:51:52 gaborit Exp $      Release : $Revision: 1.13 $        Date : $Date: 1995/11/21 18:51:52 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TCM * FICHIER ITMA_TCM_Creer_Alarme.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Creation manuelle d'une alarme.
+*
+*   Cf. DCG 2.4.18
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 07 Nov 1994 : Creation				   V1.1
+* Lecrivain 04 Dec 1994 : Constantes de type en entree de Sybase   V1.3
+* Guilhou   27 dec 1994 : repositionnement				V1.4
+* Guilhou   06 jan 1995 : horodate creation d'alarmes avec secondes	V1.5
+	 				   reprise IHM
+* Lecrivain 09 Jan 1995 : Correction (reset table avant 2eme affichage)  V1.6
+* Lecrivain 27 Fev 1995 : Ajout de la saisie du commentaire               V1.12
+* Torregrossa 21 Nov 1995 : Ajout code d'erreur sur creation d'alarme      V1.13
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TCM.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xzamc_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"../inc/xzam03sp.h"
+INCLUDE	"../inc/xzam07sp.h"
+
+
+
+DEFINE	C_MODULE	"MTCM"			' Nom du module
+
+
+
+VAR vm_l_types_equip				' Liste des types d'equipements
+VAR FORMAT COM_Donnees_Equipements vm_l_equip	' Liste des equipements
+VAR vm_l_types_alarmes				' Liste des types d'alarmes
+VAR vm_l_etats					' Liste des etats equipements
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Creation manuelle d'une alarme.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCM_Creer_Alarme (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de Maintenir -> Agir -> Creer une alarme dans MTMT
+*
+* FONCTION
+*   Lit et affiche la liste des equipements et la liste des types d'alarmes.
+*   Permet a l'operateur de saisir un commentaire et de creer une alarme
+*   d'un type donne pour un equipement donne.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_alarme			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR FORMAT COM_Identifiant_Alarme vl_alarme ' Alarme creee
+    VAR FORMAT COM_Localisation vl_localisation	' Localisation equipement
+    VAR     vl_site				' Site de recherche equipements
+
+    VAR     vl_index				' Rang de l'item selecte
+    VAR     vl_type_alarme			' Index type alarme choisi
+    VAR     vl_etat				' Index etat equipement choisi
+    VAR     vl_comment				' Commentaire saisi
+    VAR     tl_equip
+    VAR vl_indice
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Etat de Poste"
+ * ----------------------------------
+ */
+
+vl_fenetre_alarme = DB_LOAD@ ("ITMA_TCM")
+DB_WINDOW_REMAIN@ (vl_fenetre_alarme, TRUE)
+
+DB_XPOS@ (vl_fenetre_alarme, 0)
+DB_YPOS@ (vl_fenetre_alarme, 93)
+COM27_Agrandir_Fenetre (vl_fenetre_alarme, COM_LARGEUR_FMC, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre_alarme, "ITMA_TCM_Creer_Alarme")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_alarme, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_alarme, "BL_Types_Equipements", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre_alarme, "BL_Types_Equipements", -1)
+
+DB_CTRL_VALUE@ (vl_fenetre_alarme, "BO_Type_Alarme", 0)
+
+DB_CTRL_VALUE@ (vl_fenetre_alarme, "BO_Etat_Alarme", 0)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_alarme, "TA_equipement", TRUE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_alarme, "TA_equipement", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_alarme, "TA_equipement", FALSE)
+
+DB_CTRL_GRAYED@ (vl_fenetre_alarme, "BP_Valider", TRUE)
+
+
+/*A
+ * Initialiser les donnees a visualiser (listes equipements et types alarmes)
+ * --------------------------------------------------------------------------
+ */
+
+vl_site = SYSTEM_VAR@ (vg_site)
+IF vl_site = XDC_CI
+    vl_site = NULL
+
+IF TCM_Init_Types_Equip_Et_Alarme (vl_fenetre_alarme) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_alarme)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_alarme)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_alarme)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur selection d'un type d'equipement,
+     * rechercher les equipements du type selectionne
+     * ----------------------------------------------
+     */
+
+    CASE "BL_Types_Equipements"
+	MACRO_WINS_BUSY@()
+	vl_index = DB_CTRL_GET_VALUE@(vl_fenetre_alarme, "BL_Types_Equipements")
+
+	/*si la requete s'est bien passe*/
+	IF ITMA_COM_Lire_Equipements (vm_l_types_equip[vl_index], vl_site,
+					0, XDC_EQT_NON_HS, 0, 0,
+					vm_l_equip, C_MODULE) = COM_OK
+	{
+	    vl_alarme.num_type_equip = vm_l_types_equip[vl_index]
+
+	    /*A afficher la liste des equipements*/
+	    tl_equip = NULL
+	    FOR vl_indice = 0 TO ARRAY_SIZE@(vm_l_equip) - 1
+		IF vm_l_equip[vl_indice].autoroute = NULL
+		    tl_equip[vl_indice, 0] = vm_l_equip[vl_indice].nom
+		ELSE {
+		    vl_localisation.NumAuto = vm_l_equip[vl_indice].autoroute
+		    vl_localisation.PR = vm_l_equip[vl_indice].PR
+		    vl_localisation.sens_circulation =vm_l_equip[vl_indice].sens
+		    tl_equip[vl_indice, 0] = COM10_Localisation(vl_localisation)
+		}
+	    NEXT vl_indice
+
+	    DB_TABLE_CLEAR_DATA@ (vl_fenetre_alarme, "TA_equipement", 0, -1)
+	    DB_TABLE_SET_NEW_DATA@(vl_fenetre_alarme,"TA_equipement",tl_equip,0)
+	    DB_TABLE_SET_SELECTIONS@ (vl_fenetre_alarme, "TA_equipement", NULL)
+	    DB_CTRL_GRAYED@ (vl_fenetre_alarme, "BP_Valider", TRUE)
+	}
+
+
+    /*A
+     * Sur selection d'un equipement autoriser l'action "Valider"
+     * ----------------------------------------------------------
+     */
+
+    CASE "TA_equipement"
+	DB_CTRL_GRAYED@ (vl_fenetre_alarme, "BP_Valider", FALSE)
+
+
+    /*A
+     * Sur choix "Valider", enregistrer la nouvelle alarme et terminer
+     * ---------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	DB_CTRL_GRAYED@ (vl_fenetre_alarme, "BP_Valider", TRUE)
+	vl_index = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_alarme, "TA_equipement")
+	vl_index = vl_index[0]
+	vl_alarme.num_equip = vm_l_equip[vl_index].numero
+
+	vl_type_alarme = DB_CTRL_GET_VALUE@(vl_fenetre_alarme, "BO_Type_Alarme")
+	vl_alarme.num_type_alarme = vm_l_types_alarmes[vl_type_alarme]
+
+	vl_etat = DB_CTRL_GET_VALUE@ (vl_fenetre_alarme, "BO_Etat_Alarme")
+
+	IF TCM_Enregistrer_Alarme (vl_alarme, vm_l_etats[vl_etat]) = COM_OK {
+	    vl_comment = DB_CTRL_GET_VALUE@(vl_fenetre_alarme, "BS_Commentaire")
+	    IF vl_comment <> ""
+		TCM_Commenter_Alarme (vl_alarme, vl_comment)
+	    vl_la_fenetre_est_active = FALSE
+	}
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les listes des types d'equipements et des types d'alarmes.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCM_Init_Types_Equip_Et_Alarme (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCM_Creer_Alarme
+*
+* FONCTION
+*   Lit dans l'environnement la liste des types d'equipements et value la liste
+*   a l'ecran ; value les listes des types d'alarmes et d'etats alarmes.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_l_types_equip			' Types equipements affiches
+    VAR     vl_l_types_alarmes			' Types alarmes affiches
+    VAR     vl_l_etats				' Etats equipements affiches
+    VAR     tl_titres				' Titres colonnes de la table
+
+
+/*A
+ * Valuer la liste des types d'equipements
+ * ---------------------------------------
+ */
+
+vl_l_types_equip = SYSTEM_VAR@ (vg_les_types_equipement)
+vm_l_types_equip = ARRAY_COLUMN@ (vl_l_types_equip, TDO_NUMERO_TYPE_EQUIP)
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Types_Equipements",
+		     ARRAY_COLUMN@ (vl_l_types_equip, TDO_NOM_TYPE_EQUIP))
+
+
+
+/*A
+ * Valuer la liste des types d'alarmes
+ * -----------------------------------
+ */
+
+vm_l_types_alarmes = XZAMC_MANUELLE_MINEURE,
+			XZAMC_MANUELLE_MAJEURE,
+			XZAMC_MANUELLE_CRITIQUE
+
+vl_l_types_alarmes = XZAMC_MANUELLE_MINEURE_NOM,
+			XZAMC_MANUELLE_MAJEURE_NOM,
+			XZAMC_MANUELLE_CRITIQUE_NOM
+DB_CTRL_STRINGS@ (va_fenetre, "BO_Type_Alarme", vl_l_types_alarmes)
+
+
+/*A
+ * Valuer la liste des etats alarme
+ * --------------------------------
+ */
+
+vm_l_etats = TCM_ETAT_ACTIVE, TCM_ETAT_INACTIVE
+
+vl_l_etats = TCM_LIB_ETAT_ACTIVE, TCM_LIB_ETAT_INACTIVE
+DB_CTRL_STRINGS@ (va_fenetre, "BO_Etat_Alarme", vl_l_etats)
+
+
+/*A
+ * Definir les titres des colonnes de la table
+ * -------------------------------------------
+ */
+
+tl_titres[0] = "Désignation", 255
+tl_titres[1] = "", 0
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)			' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)				'  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_equipement", NULL, tl_titres)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Enregistre la creation d'une nouvelle alarme.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCM_Enregistrer_Alarme (FORMAT COM_Identifiant_Alarme va_alarme, va_etat)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_alarme         : Identifiant de l'alarme ;
+*   va_etat           : Etat de l'alarme.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCM_Creer_Alarme
+*
+* FONCTION
+*   Execute simplement la requete SGBD adequate pour creer l'alarme.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_msg
+
+
+vl_parametres[0].type = SYB#DATETIME_
+vl_parametres[0].data = COM09_Date_Courante (TRUE)
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Type_Equip
+vl_parametres[1].data = va_alarme.num_type_equip
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Equipement
+vl_parametres[2].data = va_alarme.num_equip
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = TCM_Identifiant_Type_Alarme
+vl_parametres[3].data = va_alarme.num_type_alarme
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#BIT_
+vl_parametres[4].data = va_etat
+vl_parametres[4].output = FALSE
+
+IF COM05_SQL_Procedure (XZAM07_Ajout_Alarme,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK {
+    RETURN (COM_NOK)
+}
+ELSE IF vl_resultats.status <> COM_OK
+{
+	CASE OF vl_resultats.status
+		CASE XDC_ARG_INV
+			vl_msg = "Arguments de requete invalides pour la création de l'alarme"
+		CASE XDC_ACT_REFUSEE
+			vl_msg = "Pas de création d'alarme sur un équipement HS"
+		DEFAULT
+			vl_msg = "Erreur à la création de l'alarme"
+	ENDCASE
+	INFO_MESSAGE@(vl_msg)
+	
+	RETURN (COM_NOK)
+}
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Archive le commentaire de la fiche alarme.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCM_Commenter_Alarme (FORMAT COM_Identifiant_Alarme va_alarme, va_texte)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_alarme         : Identifiant de l'alarme ;
+*   va_texte          : Texte du commentaire.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCM_Creer_Alarme
+*
+* FONCTION
+*   Execute la requete adequate pour archiver le commentaire indique pour
+*   l'alarme d'identifiant indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TCM_Identifiant_Type_Alarme
+vl_parametres[0].data = va_alarme.num_type_alarme
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Type_Equip
+vl_parametres[1].data = va_alarme.num_type_equip
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Equipement
+vl_parametres[2].data = va_alarme.num_equip
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#CHAR_
+vl_parametres[3].data = va_texte
+vl_parametres[3].output = FALSE
+
+
+IF COM05_SQL_Procedure (XZAM03_Ecrire_Fiche_Alarme,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+RETURN (COM_OK)
+
+ENDMACRO

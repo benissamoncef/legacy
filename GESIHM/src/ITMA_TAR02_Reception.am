@@ -1,0 +1,242 @@
+/*E*/
+/* Fichier : $Id: ITMA_TAR02_Reception.am,v 1.24 2019/09/06 11:20:45 devgtie Exp $      Release : $Revision: 1.24 $        Date : $Date: 2019/09/06 11:20:45 $
+********************************************************************************
+* STERIA	* PROJET MIGRAZUR		*   
+********************************************************************************
+* MODULE: MTAR			* FICHIER ITMA_TAR02_Reception.am
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 29/09/94
+********************************************************************************
+* DESCRIPTION DU MODULE: 
+* crée la tache de reception ITMA_TAR02_Reception
+* cree un serveur de connexion pour la socket reception
+*
+* REFERENCES AU DCG: 
+*
+********************************************************************************
+* HISTORIQUE DES MODIFICATIONS:
+*
+* JM. GUILHOU 28/09/94 : Creation                                         V1.1
+* Lecrivain   12/12/94 : Modif. interface lors d'une demande de NEWTASK   V1.7
+* Lecrivain   02/05/95 : Plus de suppression brutale de tache sur NEWTASK V1.17
+* Torregrossa 10/11/95 : Ajout un controle sur la validite des messages recus 	V1.18
+* Torregrossa 08/12/95 : Ajout un controle sur la validite des messages recus 	V1.19
+* Torregrossa 17/01/96 : Suppression de l'envoi de newtask pour ITMA_TAA remplacer par
+*                        sendpoke                                               V1.20
+* Niepceron	04/03/05	: Ajout du sendpoke pour fermeture ITMA_TCA DEM434 v1.21
+* PNI		15/12/14	: ajout traitement du KEEPALIVE DEM1116 v1.22
+* JMG		24.06/19	; ajout COM_INFOMESSAGE DEM1338 ODI-C 1.23
+* RGR		29/08/19	: Keep Alive DEM1331 1.24
+*******************************************************************************/
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE    "../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+
+DEFINE	C_MODULE	"MTAR"
+
+/*******************************************************************************
+* MODULE: MTAR			* FONCTION: ITMA_TAR02_Reception
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 29/09/94
+********************************************************************************
+* DESCRIPTION DE LA FONCTION:
+* cree la socket de reception et attend les messages
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TAR02_Reception(va_sock)
+* 
+*
+* PARAMETRES EN ENTREE: 
+* va_sock :numero de socket
+* PARAMETRES EN SORTIE: 
+*
+* VALEUR RENDUE: 	
+*
+* CONDITION D'ERREUR: neant
+*
+* CONDITION LIMITES: neant
+*
+********************************************************************************
+* ALGORITHME: 
+*******************************************************************************/
+MACRO ITMA_TAR02_Reception(va_sock)
+
+	VAR vl_channel,vl_message
+	VAR vl_params,vl_nom,vl_lancement
+	VAR vl_valeur
+	VAR vl_task,vl_indice
+	VAR tl_args
+	VAR vl_ficheOuverte
+	VAR vl_messageOuvert
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+
+	ON ERROR
+	{
+		COM01_Trace (COM_WARNING, ERROR_FILE@()++" : "++ERROR_STRING@()++"(ligne "++ERROR_LINE@()++") : "++"Fin module de réception\n")
+		EXIT_ALL@()
+	}
+	
+	/*rend la main a l'appelant*/
+	DELAY@(0)
+
+	/*init*/
+	vl_ficheOuverte=FALSE
+	vl_messageOuvert=FALSE
+	SET_SYSTEM_VAR@(vg_canal_SGBD,null)
+
+	/*cree un serveur de connexion pour la socket de reception*/
+	vl_channel=SOCKET_OPEN_SERVER@(va_sock,-1,2)
+	SET_SYSTEM_VAR@(vg_socket_recep,vl_channel)
+
+
+	/*un client vient de se connecter*/
+	printf@("client connecte en reception\n")
+
+	/*boucle infinie de reception de message*/
+	WHILE 1
+	   /*reception d'un message*/
+	   vl_message=SOCKET_READ@(vl_channel,-1)
+	   IF IS_NULL@(vl_message)
+		COM01_Trace (COM_DEBUG1, "le message est null")
+	   ELSE IF (IS_ARRAY@(vl_message) = TRUE) 
+	   {
+		COM01_Trace (COM_DEBUG1, ARRAY_TO_STRING@ (vl_message, "//") ++ "//\n")
+
+		/*suivant le code du message*/
+		CASE OF vl_message[0]
+			/*send poke*/
+			CASE COM_SENDPOKE
+				/* test la validite du message */
+				IF ARRAY_SIZE@(vl_message) < 3
+					COM01_Trace (COM_WARNING,"Le message SENDPOKE  " ++ ARRAY_TO_STRING@ (vl_message, "//") ++ " est invalide\n")
+				ELSE {
+					/*efface les deux premiers elements du message*/
+					vl_params=ARRAY_DELETE@(vl_message,0)
+					vl_params=ARRAY_DELETE@(vl_params,0)
+
+					/*si c'est le poke FIN DE TACHE envoye par la tache relais*/
+					IF (vl_message[1]=MTAR_MSG_QUIT)
+					{
+						COM01_Trace (COM_WARNING, "Message de fin recu\n")
+
+						/*ferme le serveur de connexion*/
+						SOCKET_CLOSE_CHANNEL@(SYSTEM_VAR@(vg_socket_envoi))
+						SOCKET_CLOSE_CHANNEL@(SYSTEM_VAR@(vg_socket_recep))
+
+						/*bye*/
+						EXIT_ALL@()
+					}
+					ELSE IF (vl_message[1]=COM_CANAL_KEEP_ALIVE_TIMER)
+					{
+						IF (SYSTEM_VAR@ (vg_canal_SGBD) <> NULL) /*exec XZAC999 pour faire du flux axnet*/
+						{
+						  vl_parametres[0].type = SYB#INT4_
+						  vl_parametres[0].data = SYSTEM_VAR@(vg_site)
+						  vl_parametres[0].output = FALSE
+
+						   COM05_SQL_Procedure ("XZAC999", vl_parametres, vl_resultats, C_MODULE)
+						}
+						
+					}
+					ELSE					
+					{
+						/*envoi du poke*/
+						DB_SEND_POKE@(vl_message[1],vl_params)
+					}
+				}
+
+
+			/*new task*/
+			CASE COM_NEWTASK
+				/* test la validite du message */
+				IF ARRAY_SIZE@(vl_message) < 4
+					COM01_Trace (COM_WARNING,"Le message NEWTASK  " ++ ARRAY_TO_STRING@ (vl_message, "//") ++ " est invalide\n")
+				ELSE {
+					/* Recupere le mode de lancement, le
+					 * nom de la tache et les arguments */
+					vl_lancement=vl_message[1]
+					vl_nom=vl_message[2]
+					vl_params=ARRAY_FROM_STRING@(vl_message[3],MTAR_CAR_SEPAR)
+
+					/* si la tache existe deja*/
+					vl_task=TASK_LIST@()
+					vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(vl_task,1), vl_nom)
+					IF (vl_indice >= 0) AND 
+					  (SUBSTRING@(vl_nom,1,14)="ITMA_TMC_Fiche")
+					{
+						INFO_MESSAGE@(COM_LIB_FMC_OUVERTE)
+						vl_ficheOuverte=TRUE
+					}
+					ELSE IF (vl_indice >= 0) AND 
+					  (SUBSTRING@(vl_nom,1,13)<>"ITMA_TMT_Menu")
+					{	
+						/* Envoi du sendpoke pour ferm. ITMA_TCA DEM434 */
+						IF (SUBSTRING@(vl_nom,1,8)="ITMA_TCA")
+						{
+							DB_SEND_POKE@(COM_CANAL_MTCA_FIN,TRUE)
+							vl_messageOuvert=FALSE
+							 vl_ficheOuverte=FALSE
+						}
+						ELSE
+						{	
+						INFO_MESSAGE@(COM_LIB_DEJA_OUVERTE)
+						vl_ficheOuverte=TRUE
+						}
+					}
+					ELSE IF (vl_indice=-1)
+					{
+						vl_messageOuvert=FALSE
+						vl_ficheOuverte=FALSE
+					}
+
+					IF ARRAY_SIZE@(vl_params) < 1
+						COM01_Trace (COM_WARNING,"Les paramètres  pour le message NEWTASK  " ++ ARRAY_TO_STRING@ (vl_message, "//") ++ " sont manquants\n")
+					ELSE IF (vl_ficheOuverte=FALSE) AND (SUBSTRING@(vl_nom,1,8)<>"ITMA_TAA")
+				{
+						/* Distingue le 1 argument (appelant) et les autres */
+						tl_args=ARRAY_DELETE@(vl_params,0)
+
+						/* si mode synchrone*/
+						IF (vl_lancement=1)	
+							/*lance la tache*/	
+							PEND_FOR_NEW_TASK@(vl_nom,vl_params[0],tl_args)
+						/*sinon si mode asynchrone*/
+						ELSE
+							/*lance la tache*/
+							NEW_TASK@(vl_nom,vl_params[0],tl_args)
+					}			
+				}			
+
+
+			/*ecrire var ctx*/
+			CASE COM_SETVARCTX
+				IF ARRAY_SIZE@(vl_message) < 4
+					COM01_Trace (COM_WARNING,"Le message SETVARCTX  " ++ ARRAY_TO_STRING@ (vl_message, "//") ++ " est invalide\n")
+				ELSE 
+					/*affecte la valeur a la system var*/
+					SET_SYSTEM_VAR@(vl_message[1], vl_message[3])
+
+
+			CASE COM_INFOMESSAGE
+				INFO_MESSAGE@(vl_message[1])
+
+			/*lire var ctx*/
+			CASE COM_GETVARCTX
+				/*efface le code du message*/
+				vl_params=ARRAY_DELETE@(vl_message,0)
+
+				/*recupere la valeur de la system var*/
+				vl_valeur=SYSTEM_VAR@(vl_message[0])
+
+				/*renvoie le message au coupleur via GCENVA*/
+				/*A ECRIRE*/
+				'DB_SEND_POKE@(PK_SOC_ENVOI,
+		ENDCASE
+	   }
+	   ELSE COM01_Trace (COM_DEBUG1, "Le message n'est pas un tableau\n")
+	WEND
+ENDMACRO

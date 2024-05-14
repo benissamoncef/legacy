@@ -1,0 +1,1025 @@
+/*E*/
+/* Fichier : 	$Id: ITMA_TLE_Liste_Evenements.am,v 1.46 2016/08/17 08:15:50 gesconf Exp $    Release : $Revision: 1.46 $        Date : $Date: 2016/08/17 08:15:50 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLE * FICHIER ITMA_TLE_Liste_Evenements.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* afficher la liste des evenements
+*
+*   Cf. DCG 2.4.44
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou   08 Nov 1994 : Creation					V1.1
+* Guilhou   19 dec 1994 : correction evt cause			V1.3
+* Guilhou   23 dec 1994 : formatage horodates recues de la base	V1.4
+* Guilhou   30 dec 1994 : ajout gene travaux			V1.5
+* Lecrivain 08 Fev 1995 : Controles validite dates et Pr, ajout option "Tous"
+*                         pour les districts, suppression de boutons      V1.11
+* Lecrivain 09 Fev 1995 : Suppression "Graphe Trafic", ajout impression   V1.12
+* Lecrivain 20 Fev 1995 : Mise a jour du format d'impression              V1.15
+* Lecrivain 24 Avr 1995 : Sens de circulation correct pour un evt. cause  V1.17
+* Lecrivain 04 Mai 1995 : Plus de tete de bouchon proposee en type FMC    V1.18
+* Torregrossa 30 Jun 1995 : Inhiber boutons qd appele par TMC             V1.19
+* Guilhou   31 Aou 1995 : suppression libelle sens				V1.21
+* Noel	    21 Sep 1995 : Introduction de la procedure commune d'impression	V1.23
+* Gaborit   02 oct 1995 : test evenement termine avant calcul efficacite (1.24)
+* Torregrossa   06 oct 1995 : test coherence de debut et de fin pour critere de 
+*                             recherche + correction sur critere de recherche 
+*                             geographique (1.25)
+* Torregrossa   10 oct 1995 : suppression de la notion de evenement ou operation 
+*                             pour la recherche des fmc (1.26) 
+* Torregrossa   10 Nov 1995 : Modif horohelp pour Applix version 4.1 (V1.27)
+* Torregrossa   17 Nov 1995 : Modif sens inconnu par non précisé (V1.28)
+* Torregrossa   17 Jan 1996 : Inversion automatique de PR debut et PR fin si PR debut > PRfin (V1.31)
+* Torregrossa   22 Jan 1996 : Modif Impression (V1.32-1.33) 
+* Torregrossa   24 Jan 1996 : Modif interface d'appel efficacite (V1.34) 
+* Torregrossa   06 Fev 1996 : Ajout possibilite de sélectionner plusieurs types de 
+*                             FMC et revue impression pour cette modif (V1.36-1.37) 
+* Torregrossa	08 fev 1996 : Modif libéllé clé en site                       V1.38
+* Niepceron	25 mar 1997 : Ajout de la fam  XDC_FAM_HISTO_PEAGE pour dégrisé la sunthèse V1.39
+* Niepceron	03 Jul 1998 : Connexion a SQL_HIS si date historique (dem/1699) v1.40
+* Niepceron	23 FEv 1999 : Ajout "autre reseau" dans la liste des districts (dem/1723) 1.41
+* Niepceron	19 Mar 1999 : griser Efficacite pour autres réseaux 1.42
+* Niepceron	04 jan 2008 : ajout secteurs 1.44
+* Niepceron	04 jan 2016 : ajout region 1.45
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xzaec_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../inc/xzae01sp.h"
+INCLUDE	"../inc/isyn_svu_applix_ax.h"
+
+
+DEFINE	C_MODULE			"MTLE"			' Nom du module
+
+DEFINE	C_MODELE_LST_EVTS	"ITMA_TLE_Liste_Evts"	' Nom du modele
+DEFINE	C_SOUS_REP_MODELES	COM_SOUS_REP_IHM		' Repertoire des modeles
+
+/*A
+ * Valeur maximale du type FMC dans le premier groupe de criteres
+ * --------------------------------------------------------------
+ */
+
+DEFINE  C_MAX_CRITERE_FMC_1     30
+DEFINE	C_NOM_DISTRICT_ANC "Cote d'Azur","Var Esterel","Provence","Val Durance"
+DEFINE	C_NO_DISTRICT_ANC 15,16,17,18
+
+/*critere de selection*/
+FORMAT TMC_evt
+	autoroute,
+	pr1,
+	pr2,
+	sens,
+	district,
+	debut,
+	fin,
+	operation,
+	type
+
+/*evenement selectionne*/
+FORMAT TMC_liste_evt
+	cle,
+	numero,
+	type,
+	autoroute,
+	pr,
+	sens,
+	heure,
+	heure_fin
+
+FORMAT	TMC_Evenement
+	numero,					' Numero evenement
+	enrichisseur,				' Poste enrichisseur (3 car)
+	type,					' Type evenement (25 car)
+	date_debut,				' Date debut (16 car)
+	localisation,				' Localisation event. (28 car)
+	FORMAT COM_Intitule_FMC info_evt	' Informations evenement
+
+/*var globales*/
+VAR tm_districts,tm_districts_anc,tm_nom_districts_anc, tm_autoroutes,tm_types_fmc,tm_sens
+VAR tm_liste_fmc
+VAR FORMAT TMC_evt vm_evt
+VAR FORMAT TMC_liste_evt tm_liste_evt
+VAR FORMAT TMC_liste_evt tm_liste_evt_old
+
+/*criteres de recherche*/
+VAR vm_crit_district
+VAR vm_crit_horodate
+
+VAr vm_appel_fmc
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la liste des evenements en consultation de l'ecran synoptique
+*-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLE_Liste_Evenements (va_appelant,va_args)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_appelant	: macro appelante
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_OK -> confirmation
+				  XDC_NOK -> annulation
+*
+* CONDITION D'UTILISATION
+*   MTAP
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR tl_message
+	VAR vl_appelant,vl_sel
+	VAR tl_numero_fiche
+	VAR vl_pr_deb, vl_pr_fin, vl_pr
+	VAR vl_indice,tl_selections
+	VAR tl_args,vl_index
+	VAR tl_heading
+	VAR FORMAT sql_procedure_params@ vl_parametres
+	VAR FORMAT sql_procedure_result@ vl_resultats
+	VAR FORMAT TMC_liste_evt tl_evt
+	VAR FORMAT TMC_Evenement tl_cause
+	VAR vl_string, vl_tableau
+	VAR FORMAT TDO_Horo_Eclatee	vl_horodate
+	VAR tl_num,tl_lib,tl_menu
+	VAR vl_numFenetre,vl_numBouton
+	VAR tl_argumentsRpc
+	VAR vl_fichier, vl_texte
+	VAR vl_criteres_FMC_1, vl_criteres_FMC_2
+	VAR FORMAT COM_Intitule_FMC tl_libelle
+	VAR FORMAT COM_Localisation tl_localisation
+	VAR vl_site
+	VAR vl_taille
+
+	VAR vl_ligne_selectionnee
+	VAR tl_lignes_pendant_click
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A recuperer l'appelant*/
+vl_appelant=SUBSTRING@ (va_appelant, 6, 3)
+
+/*A initialisation des criteres de recherche*/
+vm_crit_horodate=0
+vm_crit_district=0
+
+/*A
+ * Charger la fenetre "Liste des evenements"
+ * -----------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TLE")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TLE_Liste_Evenements")
+
+/*A je note l'appelant*/
+IF (vl_appelant="TMC")
+{
+	vm_appel_fmc=TRUE
+}
+ELSE
+	vm_appel_fmc=FALSE
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+/*A configurer les controles dans la boite de dialogue*/
+
+/*A recupere les types de fiche main courante et les affiche*/
+/*A supprime le type "tete de bouchon" */
+tm_types_fmc = SYSTEM_VAR@("vg_les_types_FMC")
+vl_index=ARRAY_INDEX@ (ARRAY_COLUMN@(tm_types_fmc,0), XZAEC_FMC_TeteBouchon)
+tm_types_fmc = ARRAY_DELETE@ (tm_types_fmc, vl_index)
+
+tl_num=ARRAY_COLUMN@(tm_types_fmc,TDO_NUMERO_FMC)
+tl_num=ARRAY_INSERT@(tl_num,null,0)
+tl_lib=ARRAY_COLUMN@(tm_types_fmc,TDO_NOM_FMC)
+tl_lib=ARRAY_INSERT@(tl_lib,"Tous",0)
+DB_CTRL_STRINGS@(vl_fenetre,"BL_types_fmc",tl_lib)
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BL_types_fmc",TRUE)
+vl_tableau[0]= 0
+DB_CTRL_VALUE@(vl_fenetre,"BL_types_fmc",vl_tableau)
+
+/*A recupere la liste des autoroutes et les affiche*/
+tm_autoroutes=SYSTEM_VAR@("vg_toutes_les_autoroutes")
+DB_CTRL_STRINGS@(vl_fenetre,"BL_autoroute",
+					ARRAY_COLUMN@(tm_autoroutes,TDO_NOM_AUTOROUTE))
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BL_autoroute",TRUE)
+
+
+/*A recupere la liste des districts et les affiche*/
+tm_districts=SYSTEM_VAR@("vg_les_districts")
+tm_districts=ARRAY_INSERT@(tm_districts,null,0)
+tm_districts_anc=15,16,17,18
+tm_nom_districts_anc="Cote d'Azur","Var Esterel","Provence","Val Durance"
+tm_districts[0][TDO_NUMERO_DISTRICT]=0
+tm_districts[0][TDO_NOM_DISTRICT]="Tous"
+vl_taille=ARRAY_SIZE@(tm_districts)
+tm_districts[vl_taille][TDO_NUMERO_DISTRICT]=99
+tm_districts[vl_taille][TDO_NOM_DISTRICT]="Autres réseaux"
+
+DB_CTRL_STRINGS@(vl_fenetre,"BL_district",
+					ARRAY_COLUMN@(tm_districts,TDO_NOM_DISTRICT))
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BL_district",TRUE)
+DB_CTRL_VALUE@(vl_fenetre,"BL_district",0)
+DB_CTRL_STRINGS@(vl_fenetre,"BL_district_anc",tm_nom_districts_anc)
+					
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BL_district_anc",TRUE)
+DB_CTRL_VALUE@(vl_fenetre,"BL_district_anc",0)
+
+/*A recupere les sens de circulation et les affiche*/
+tl_menu[0]= XDC_SENS_INCONNU,XDC_LIB_SENS_NON_PREC
+tl_menu[1]= XDC_SENS_SUD, XDC_LIB_SENS_SUD
+tl_menu[2]= XDC_SENS_NORD,XDC_LIB_SENS_NORD
+DB_CTRL_STRINGS@(vl_fenetre,"BO_sens",ARRAY_COLUMN@(tl_menu,TDO_NOM_SENS))
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BO_sens",TRUE)
+
+tm_sens=SYSTEM_VAR@ (vg_les_sens_circulation)
+
+/*A activer les boites de saisie*/
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_pr_debut", COM_CHIFFRES ++ ".,")
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_pr_fin", COM_CHIFFRES ++ ".,")
+
+DB_CTRL_TYPING_RETURN@(vl_fenetre,"BS_pr_fin",TRUE)
+DB_CTRL_TYPING_RETURN@(vl_fenetre,"BS_pr_debut",TRUE)
+
+/*A initialiser les criteres de selection*/
+vm_evt.operation=XDC_PAS_TYP_FMC
+vm_evt.autoroute=XDC_AUT_INCONNUE
+vm_evt.sens=XDC_SENS_INCONNU
+vm_evt.district=0
+vm_evt.type=NULL
+
+/*A suivant l'appelant*/
+
+/*A suivant les droits de l'operateur*/
+IF (COM04_Operateur_A_Le_Droit_De(XDC_FAM_VISU_EXPLOITATION)=TRUE) OR
+	(COM04_Operateur_A_Le_Droit_De(XDC_FAM_HISTO_PEAGE)=TRUE)
+	DB_CTRL_GRAYED@(vl_fenetre,"BP_synthese_evt",FALSE)
+ELSE
+	DB_CTRL_GRAYED@(vl_fenetre,"BP_synthese_evt",TRUE)
+
+/*Appel depuis les synoptiques*/
+IF (vl_appelant="SOP")
+{
+	/*je grise tous les boutons autre que rechercher et graphe trafic*/
+	DB_CTRL_GRAYED@(vl_fenetre,"BP_synthese_evt",TRUE)
+
+	/*je memorise num de bouton et de fenetre*/
+	vl_numBouton=va_args[0]
+	vl_numFenetre=va_args[1]
+}	
+ELSE IF (vl_appelant="TMC")
+{
+	/*je grise tous les boutons autre que rechercher*/
+	DB_CTRL_GRAYED@(vl_fenetre,"BP_synthese_evt",TRUE)
+	DB_CTRL_GRAYED@(vl_fenetre,"BP_efficacite",TRUE)
+	DB_CTRL_GRAYED@(vl_fenetre,"BP_imprimer",TRUE)
+}
+
+/*A activer les boutons de criteres*/
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BO_crit_temporel",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BO_crit_district_auto",TRUE)
+
+/*A activer la liste des fiches fmc */
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_liste_fmc",TRUE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@(vl_fenetre,"TA_liste_fmc",FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_liste_fmc", FALSE)
+
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*A colonnes de la table*/
+tl_heading[0,0]="Site"
+tl_heading[0,1]=50
+tl_heading[1,0]="Numéro"
+tl_heading[1,1]=80
+tl_heading[2,0]="Type"
+tl_heading[2,1]=255
+tl_heading[3,0]="Autoroute"
+tl_heading[3,1]=80
+tl_heading[4,0]="PR"
+tl_heading[4,1]=50
+tl_heading[5,0]="Sens"
+tl_heading[5,1]=130
+tl_heading[6,0]="Horodate début"
+tl_heading[6,1]=130
+tl_heading[7,0]="Horodate fin"
+tl_heading[7,1]=130
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_liste_fmc",NULL,tl_heading,NULL)
+
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> COM_ERR_VAL_INVAL
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A  boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A  afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A  suivant l'evenement */
+	CASE OF vl_exit_value
+
+		/*A on recoit un poke*/
+		CASE "poke_"
+			/*A  suivant le poke*/
+			CASE OF DB_GET_POKE@(vl_fenetre)
+				/*A poke de fin*/
+				CASE COM_CANAL_FIN
+					/*A bye*/
+					RETURN (COM_NOK)
+			ENDCASE
+
+
+		/*A appui sur le bouton quitter*/
+		CASE "BP_quitter"
+			/*A bye*/
+			RETURN
+
+
+		/*A appui sur le bouton horohelp debut*/
+		CASE "BP_horohelp_debut"
+			/*A recupere l'heure courante et la formate*/
+			COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre,
+				"BS_j_debut","BS_m_debut","BS_a_debut",
+				"BS_h_debut","BS_mi_debut")
+
+		/*A appui sur le bouton horohelp fin*/
+		CASE "BP_horohelp_fin"
+			/*A recupere l'heure courante et la formate*/
+			COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre,
+				"BS_j_fin","BS_m_fin","BS_a_fin",
+				"BS_h_fin","BS_mi_fin")
+
+		/*A choix d'un secteur*/
+		CASE "BL_district"
+			/*B recupere l'indice de la selection et le memorise*/
+			vl_sel=DB_CTRL_GET_VALUE@(vl_fenetre,"BL_district")
+			vm_evt.district=tm_districts[vl_sel][TDO_NUMERO_DISTRICT]
+
+		/*A choix d'un district*/
+		CASE "BL_district_anc"
+			/*B recupere l'indice de la selection et le memorise*/
+			vl_sel=DB_CTRL_GET_VALUE@(vl_fenetre,"BL_district_anc")
+			vm_evt.district=tm_districts_anc[vl_sel]
+
+
+		/*A choix d'un sens*/
+		CASE "BO_sens"
+			vl_sel=DB_CTRL_GET_VALUE@(vl_fenetre,vl_exit_value)
+			vm_evt.sens=tl_menu[vl_sel][TDO_NUMERO_SENS]
+
+		/*A choix d'une autoroute*/
+		CASE "BL_autoroute"
+			/*B recupere l'indice de la selection et le memorise*/
+			vl_sel=DB_CTRL_GET_VALUE@(vl_fenetre,"BL_autoroute")
+			vm_evt.autoroute=tm_autoroutes[vl_sel][TDO_NUMERO_AUTOROUTE]
+
+		/*A lancement de la recherche*/
+		CASE "BP_rechercher"
+		   MACRO_WINS_BUSY@()
+
+		   /*B recupere l'indice de la selection et le memorise */	
+		   vl_sel = NULL
+		   vl_sel = DB_CTRL_GET_VALUE@(vl_fenetre,"BL_types_fmc")
+
+		   IF NOT IS_ARRAY@(vl_sel) OR IS_NULL@(vl_sel)
+				INFO_MESSAGE@("Sélectionner un type de FMC")	
+		   ELSE 
+		   {
+
+			/*B calcul du critere de type FMC */
+			vl_criteres_FMC_1 = 0
+			vl_criteres_FMC_2 = 0
+			vm_evt.type = NULL
+			FOR vl_indice = 0  TO ARRAY_SIZE@ (vl_sel) - 1
+				/* tous les types sont selectionnes */
+				IF tl_num[vl_sel[vl_indice]] = NULL
+				{
+					vl_criteres_FMC_1 = XDC_TOUS_TYP_FMC
+					vl_criteres_FMC_2 = XDC_TOUS_TYP_FMC
+					vm_evt.type = XDC_TOUS_TYP_FMC
+					vl_indice = ARRAY_SIZE@ (vl_sel)-1
+				}
+				ELSE IF tm_types_fmc[vl_sel[vl_indice]-1][TDO_NUMERO_FMC] > C_MAX_CRITERE_FMC_1
+					vl_criteres_FMC_2 = vl_criteres_FMC_2 + 2  ^ 
+								(tm_types_fmc[vl_sel[vl_indice] - 1][TDO_NUMERO_FMC] - 
+								C_MAX_CRITERE_FMC_1 - 1)
+				ELSE	vl_criteres_FMC_1 = vl_criteres_FMC_1 + 2 ^ 
+								(tm_types_fmc[vl_sel[vl_indice] - 1][TDO_NUMERO_FMC] - 1)
+
+			NEXT vl_indice
+
+			/*B si on est en critere de recherche horodatee*/
+			IF (vm_crit_horodate=1)
+			{
+				/*B recupere et formatte heure de debut*/
+				vm_evt.debut=COM23_Horodate(vl_fenetre,
+									"BS_j_debut", "BS_m_debut", "BS_a_debut",
+									"BS_h_debut", "BS_mi_debut")
+
+				/*B recupere heure de fin et la formatte*/
+				vm_evt.fin=COM23_Horodate(vl_fenetre,
+									"BS_j_fin", "BS_m_fin", "BS_a_fin",
+									"BS_h_fin", "BS_mi_fin")
+
+				IF IS_NULL@(vm_evt.debut) OR IS_NULL@(vm_evt.fin) {
+					ERROR@(COM_ERR_DATE_INVAL,
+						"Saisir la date de début et de fin pour la recherche")
+	 			}
+				ELSE IF (COM17_Difference_Dates(vm_evt.debut, vm_evt.fin) > 0){
+					ERROR@(COM_ERR_DATE_INVAL,
+						"La date de fin doit être supérieure à celle de début")
+
+      				/* controle de date pour recul dans le passe selon le poste */
+info_message("test")
+     				 IF (COM50_Verifie_Recul_Dates(vm_evt.debut, vm_evt.fin)) = XDC_NOK
+                                             ERROR@ (COM_ERR_DATE_INVAL, "LES REQUETES LANCEES A PARTIR DE CE POSTE NE PERMETTENT PAS D'ACCEDER A DES DONNEES ANTERIEURES A 1 AN (cnil)")
+ 				}
+ 			}
+			ELSE
+			{
+				vm_evt.debut=COM09_Date_Courante ()
+				vm_evt.fin = vm_evt.debut
+			}
+     				 IF (COM50_Verifie_Recul_Dates(vm_evt.debut, vm_evt.fin)) = XDC_NOK
+                                             ERROR@ (COM_ERR_DATE_INVAL, "LES REQUETES LANCEES A PARTIR DE CE POSTE NE PERMETTENT PAS D'ACCEDER A DES DONNEES ANTERIEURES A 1 AN (cnil)")
+
+			/*B tester la coherence des criteres de selection */
+			CASE OF (DB_CTRL_GET_VALUE@(vl_fenetre,"BO_crit_district_auto"))
+				/*A recherche par secteur*/
+				CASE 0
+				vl_sel=DB_CTRL_GET_VALUE@(vl_fenetre,"BL_district")
+				IF vl_sel < 0
+					ERROR@(COM_ERR_VAL_INVAL, "Choisir une Region")
+				vl_pr_deb = XDC_PR_INCONNU
+				vl_pr_fin = XDC_PR_INCONNU
+
+				/*A recherche par autoroute*/
+				CASE 1
+				IF vm_evt.autoroute = XDC_AUT_INCONNUE
+					ERROR@(COM_ERR_VAL_INVAL, "Choisir une autoroute")
+
+				vl_pr_deb = COM26_Valeur_PR(vl_fenetre,"BS_pr_debut")
+				vl_pr_fin = COM26_Valeur_PR(vl_fenetre,"BS_pr_fin")
+
+				IF (vl_pr_deb = XDC_PR_INCONNU) OR (vl_pr_fin = XDC_PR_INCONNU)
+					ERROR@(COM_ERR_VAL_INVAL, "Saisir les pr de début et de fin")
+				ELSE IF vl_pr_deb > vl_pr_fin
+				{
+					/* Inverser les pr si pr debut n'est pas inferieure ou egale a pr fin */
+					vl_pr = vl_pr_fin
+					vl_pr_fin = vl_pr_deb
+					vl_pr_deb = vl_pr
+				}
+				/*A recherche par district*/
+				CASE 2
+				vl_sel=DB_CTRL_GET_VALUE@(vl_fenetre,"BL_district_anc")
+				IF vl_sel < 0
+					ERROR@(COM_ERR_VAL_INVAL, "Choisir un district")
+				vl_pr_deb = XDC_PR_INCONNU
+				vl_pr_fin = XDC_PR_INCONNU
+
+			ENDCASE
+
+			vl_indice=0
+
+			/*B autoroute*/
+			vl_parametres[vl_indice].type = SYB#INT4_     
+			vl_parametres[vl_indice].data=vm_evt.autoroute
+			vl_parametres[vl_indice].output = FALSE
+			vl_indice=vl_indice+1
+
+			/*B pr debut*/
+			vl_parametres[vl_indice].type = SYB#INT4_     
+			vl_parametres[vl_indice].data = vl_pr_deb 
+			vl_parametres[vl_indice].output = FALSE
+			vl_indice=vl_indice+1
+
+			/*B pr fin*/
+			vl_parametres[vl_indice].type = SYB#INT4_     
+			vl_parametres[vl_indice].data = vl_pr_fin
+			vl_parametres[vl_indice].output = FALSE
+			vl_indice=vl_indice+1
+
+			/*B sens*/
+			vl_parametres[vl_indice].type = SYB#INT4_     
+			vl_parametres[vl_indice].data=vm_evt.sens
+			vl_parametres[vl_indice].output = FALSE
+			vl_indice=vl_indice+1
+
+			/*B district*/
+			vl_parametres[vl_indice].type = SYB#INT4_     
+			vl_parametres[vl_indice].data=vm_evt.district
+			vl_parametres[vl_indice].output = FALSE
+			vl_indice=vl_indice+1
+
+			/*B horodate debut*/
+			vl_parametres[vl_indice].type = SYB#DATETIME_     
+			vl_parametres[vl_indice].data=vm_evt.debut
+			vl_parametres[vl_indice].output = FALSE
+			vl_indice=vl_indice+1
+
+			/*B horodate fin*/
+			vl_parametres[vl_indice].type = SYB#DATETIME_     
+			vl_parametres[vl_indice].data=vm_evt.fin
+			vl_parametres[vl_indice].output = FALSE
+			vl_indice=vl_indice+1
+
+			/*! la notion de evenement ou operation ne doit pas etre utilisee */
+			vm_evt.operation=XDC_PAS_TYP_FMC
+			vl_parametres[vl_indice].type = SYB#INT4_     
+			vl_parametres[vl_indice].data=vm_evt.operation
+			vl_parametres[vl_indice].output = FALSE
+			vl_indice=vl_indice+1
+
+			/*B type*/
+			vl_parametres[vl_indice].type = SYB#INT4_     
+			vl_parametres[vl_indice].data = vl_criteres_FMC_1
+			vl_parametres[vl_indice].output = FALSE
+			vl_indice=vl_indice+1
+
+			vl_parametres[vl_indice].type = SYB#INT4_     
+			vl_parametres[vl_indice].data = vl_criteres_FMC_2
+			vl_parametres[vl_indice].output = FALSE
+			vl_indice=vl_indice+1
+
+			/*B execution de la requete Sybase*/
+			 vl_site = SYSTEM_VAR@(vg_site)
+
+			IF (vm_crit_horodate=1) and ( COM50_DateHistorique(vm_evt.debut)) and ( vl_site = XDC_CI )
+			{
+			IF COM41_SQL_Procedure_HIS (XZAE01_Liste_Evts,vl_parametres,vl_resultats,
+											 C_MODULE) <> COM_OK
+			{
+				IF (vl_resultats.status=XDC_ARG_INV)
+					INFO_MESSAGE@("Critères sélectionnés invalides")
+				ELSE
+					INFO_MESSAGE@("Erreur lors de la lecture des événements en base")
+			}
+			}
+			ELSE
+			{
+			IF COM05_SQL_Procedure (XZAE01_Liste_Evts,vl_parametres,vl_resultats,
+											 C_MODULE) <> COM_OK
+			{
+				IF (vl_resultats.status=XDC_ARG_INV)
+					INFO_MESSAGE@("Critères sélectionnés invalides")
+				ELSE
+					INFO_MESSAGE@("Erreur lors de la lecture des événements en base")
+			}
+			}
+
+			/*B recuperer les evts selectionnes et les formater*/
+			tm_liste_evt=vl_resultats.select_results[0]
+
+			tl_evt=tm_liste_evt
+			FOR vl_indice=0 TO (ARRAY_SIZE@(tm_liste_evt)-1)
+				/*B horodate*/
+				tl_evt[vl_indice].heure=COM18_Date_SGBD_Formatee(
+											tl_evt[vl_indice].heure)
+				tl_evt[vl_indice].heure_fin=COM18_Date_SGBD_Formatee(
+											tl_evt[vl_indice].heure_fin)
+
+				/*B autoroute*/
+				vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(
+									tm_autoroutes,TDO_NUMERO_AUTOROUTE),
+								tm_liste_evt[vl_indice].autoroute)
+			
+				IF (vl_index<>-1)
+					tl_evt[vl_indice].autoroute=
+							tm_autoroutes[vl_index][TDO_NOM_AUTOROUTE]
+	
+				vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(
+									tm_sens,TDO_NUMERO_SENS),
+								tm_liste_evt[vl_indice].sens)	
+				IF (vl_index<>-1)
+					tl_evt[vl_indice].sens=tm_sens[vl_index][TDO_NOM_SENS]
+				ELSE 
+					tl_evt[vl_indice].sens=tm_sens[0][TDO_NOM_SENS]
+
+				/*B type*/
+				vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(
+										tm_types_fmc,TDO_NUMERO_FMC),
+								tm_liste_evt[vl_indice].type)
+				IF (vl_index<>-1)
+					tl_evt[vl_indice].type=tm_types_fmc[vl_index][TDO_NOM_FMC]
+			NEXT vl_indice
+
+			/*B affichage de la liste des evts*/
+			DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_liste_fmc",0,-1)
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_liste_fmc",tl_evt,0)
+			IF (vm_evt.district=99) or (vl_appelant="TMC")
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_efficacite",TRUE)
+			ELSE
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_efficacite",FALSE)
+
+
+ 		   }
+
+		/*A choix d'un critere de recherche geographique*/
+		CASE "BO_crit_district_auto"
+			/*A suivant la valeur choisie*/
+			CASE OF (DB_CTRL_GET_VALUE@(vl_fenetre,vl_exit_value))
+				/*A recherche par secteur*/
+				CASE 0
+					/*A afficher la liste des districts et effacer les autres controles*/
+					DB_CTRL_DISPLAY@(vl_fenetre,"BL_district",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"LI_district",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"LI_district_anc",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BL_district_anc",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BL_autoroute",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"LI_autoroute",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr_debut",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr_fin",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens",FALSE)
+					DB_CTRL_VALUE@(vl_fenetre,"BL_district",-1)
+
+					/*A initialiser les criteres de recherche*/
+					vm_evt.autoroute=XDC_AUT_INCONNUE
+					vm_evt.sens=0
+					vm_evt.district=null
+					
+				/*A recherche par autoroute*/
+				CASE 1
+					/*A afficher la liste des autoroutes et effacer les autres controles*/
+					DB_CTRL_DISPLAY@(vl_fenetre,"BL_district",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BL_district_anc",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"LI_district_anc",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"LI_district",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BL_autoroute",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"LI_autoroute",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr_debut",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr_fin",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens",TRUE)
+					DB_CTRL_VALUE@(vl_fenetre,"BL_autoroute",-1)
+					DB_CTRL_VALUE@(vl_fenetre,"BS_pr_debut",null)
+					DB_CTRL_VALUE@(vl_fenetre,"BS_pr_fin",null)
+					DB_CTRL_VALUE@(vl_fenetre,"BO_sens",0)
+
+					/*A initialiser les criteres de recherche*/
+					vm_evt.district=null
+					vm_evt.autoroute=XDC_AUT_INCONNUE
+					vm_evt.sens=0
+				/*A recherche par district*/
+				CASE 2
+					/*A afficher la liste des districts et effacer les autres controles*/
+					DB_CTRL_DISPLAY@(vl_fenetre,"BL_district_anc",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BL_district",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"LI_district_anc",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"LI_district",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BL_autoroute",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"LI_autoroute",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr_debut",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr_fin",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens",FALSE)
+					DB_CTRL_VALUE@(vl_fenetre,"BL_district_anc",-1)
+
+					/*A initialiser les criteres de recherche*/
+					vm_evt.autoroute=XDC_AUT_INCONNUE
+					vm_evt.sens=0
+					vm_evt.district=null
+			ENDCASE
+			
+		/*A choix d'un critere de recherche temporel*/
+		CASE "BO_crit_temporel"
+			/*A suivant le valeur choisie*/
+			CASE OF  (DB_CTRL_GET_VALUE@(vl_fenetre,vl_exit_value))
+				/*A temps reel*/
+				CASE 0
+					/*A effacer  les boites de saisie horodates debut et fin*/
+					DB_CTRL_DISPLAY@(vl_fenetre,"BP_horohelp_debut",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BP_horohelp_fin",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_j_debut",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_m_debut",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_a_debut",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_h_debut",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_mi_debut",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_j_fin",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_m_fin",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_a_fin",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_h_fin",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_mi_fin",FALSE)
+					vm_crit_horodate=0
+
+				/*A horodate*/
+				CASE 1
+					/*A afficher les boites de saisie horodates debut et fin*/
+					DB_CTRL_DISPLAY@(vl_fenetre,"BP_horohelp_debut",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BP_horohelp_fin",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_j_debut",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_m_debut",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_a_debut",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_h_debut",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_mi_debut",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_j_fin",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_m_fin",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_a_fin",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_h_fin",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_mi_fin",TRUE)
+					vm_crit_horodate=1
+			ENDCASE
+
+			/*initialiser les criteres de recherche*/
+			vm_evt.debut=XDC_DATE_NULLE
+			vm_evt.fin=XDC_DATE_NULLE
+
+
+		/*A choix d'un element dans la liste des fiches */
+		CASE "TA_liste_fmc"
+			tm_liste_evt_old = tm_liste_evt
+
+			/*A recupere la fiche choisie*/
+			vl_sel=DB_TABLE_GET_SELECTIONS@(vl_fenetre,vl_exit_value)
+			vl_sel=vl_sel[0]
+
+			tl_evt=tm_liste_evt[vl_sel]
+
+			/*A si appel de MTMC ou MTHE*/
+			IF (vl_appelant="TMC"  OR  vl_appelant="THE"  OR  vl_appelant="SOP")
+			{
+				/*A retourner numero et libelle de la fiche*/
+				tl_cause.numero=tl_evt.numero
+				tl_cause.info_evt.IdFMC.numero=tl_evt.numero
+				tl_cause.info_evt.IdFMC.cle=tl_evt.cle
+
+				tl_cause.info_evt.numtype=tl_evt.type
+				tl_cause.info_evt.localisation.numauto=tl_evt.autoroute
+				tl_cause.info_evt.localisation.pr=tl_evt.pr
+				tl_cause.info_evt.localisation.sens_circulation=tl_evt.sens
+				tl_cause.info_evt.date=COM18_Date_SGBD_Formatee(tl_evt.heure)
+
+				IF vl_appelant="SOP"
+				{
+			/*parametres RPC*/
+			tl_argumentsRpc[0]=COM11_Libelle_FMC(tl_cause.info_evt)
+			tl_argumentsRpc[1]=COM18_Date_SGBD_Formatee(tl_evt.heure)++":00"
+			tl_argumentsRpc[2]=COM18_Date_SGBD_Formatee(tl_evt.heure_fin)++":00"
+			tl_argumentsRpc[3]=vl_numBouton
+			tl_argumentsRpc[4]=vl_numFenetre
+			TLE_libelle(tl_argumentsRpc)
+			RETURN
+				}
+
+				RETURN (tl_cause)
+			}
+			
+
+		/*A appui sur le bouton synthese*/
+		CASE "BP_synthese_evt"
+			MACRO_WINS_BUSY@()
+
+			/*A recupere la fiche choisie*/
+			vl_sel=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_liste_fmc")
+
+			/*vl_sel=vl_exit_data*/
+			vl_sel=vl_sel[0]
+
+			IF ((vl_sel++"")=null)
+			/*IF ((vl_ligne_selectionnee++"")=null)*/
+			{		
+				BEEP@()
+					INFO_MESSAGE@ ("Choisir d'abord un événement")
+			}		
+			ELSE
+			{		
+				tl_numero_fiche[0]=tm_liste_evt[vl_sel][1]
+				tl_numero_fiche[1]=tm_liste_evt[vl_sel][0]
+
+								/*tl_numero_fiche[0]=tl_lignes_pendant_click[vl_ligne_selectionnee][1]
+				tl_numero_fiche[1]=tl_lignes_pendant_click[vl_ligne_selectionnee][0]*/
+
+				/*A demande l'affichage de la symthese*/
+				PEND_FOR_NEW_TASK@("ITMA_TSE_Synthese_Evt","ITMA_TLE_Liste_Evenements",
+					tl_numero_fiche,tm_liste_evt[vl_sel].type)
+			}
+
+
+		/*A appui sur le bouton efficacite*/
+		CASE "BP_efficacite"
+			/*A recupere la fiche choisie*/
+			vl_sel=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_liste_fmc")
+			vl_sel=vl_sel[0]
+
+			IF ((vl_sel++"")=null)
+			{		
+				BEEP@()
+				INFO_MESSAGE@ ("Choisir d'abord un événement")
+			}
+			ELSE IF ((tm_liste_evt[vl_sel].heure_fin=null) or (tm_liste_evt[vl_sel].heure=null))
+			{
+				BEEP@()
+				INFO_MESSAGE@ ("Le calcul d'efficacité se fait sur un événement terminé")
+			}
+			ELSE
+			{		
+				/* info de l'evenement selectionne */
+				tl_localisation.sens_circulation = tm_liste_evt[vl_sel][5]
+				tl_localisation.NumAuto= tm_liste_evt[vl_sel][3]
+				tl_localisation.PR = tm_liste_evt[vl_sel][4]
+
+				tl_libelle.IdFMC.numero = tm_liste_evt[vl_sel][1]
+				tl_libelle.IdFMC.cle = tm_liste_evt[vl_sel][0]
+				tl_libelle.Numtype = tm_liste_evt[vl_sel][2]
+				tl_libelle.localisation = tl_localisation
+				tl_libelle.date = COM18_Date_SGBD_Formatee( tm_liste_evt[vl_sel].heure)
+
+				tl_numero_fiche[0]=tm_liste_evt[vl_sel][1]
+				tl_numero_fiche[1]=tm_liste_evt[vl_sel][0]
+				tl_numero_fiche[2]=COM11_Libelle_FMC(tl_libelle)
+
+				/*A demande l'affichage de la symthese*/
+				PEND_FOR_NEW_TASK@("ITMA_TTS_Efficacite",
+								"ITMA_TLE_Liste_Evenements",
+								tl_numero_fiche)
+			}
+
+
+		/*A appui sur le bouton "Imprimer"*/
+		CASE "BP_imprimer"
+			vl_texte = DB_TABLE_GET_DATA@(vl_fenetre,"TA_liste_fmc")
+			IF IS_NULL@(vl_texte)
+				INFO_MESSAGE@("Pas d'événements à imprimer")
+			ELSE IF ARRAY_SIZE@(vl_texte) = 0
+				INFO_MESSAGE@("Pas d'événements à imprimer")
+			ELSE {
+				MACRO_WINS_BUSY@()
+
+				/*A ecrire le texte dans un fichier*/
+				WP_APPLICATION_DLG@(NULL, TRUE)
+				WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+							C_SOUS_REP_MODELES ++ C_MODELE_LST_EVTS ++ ".aw")
+
+				WP_SET_DOC_VAR@("horodate_debut",vm_evt.debut)
+				WP_SET_DOC_VAR@("horodate_fin",vm_evt.fin)
+	
+				/*B afficher le district selectionne */
+				vl_string=NULL
+info_message@(vm_evt.district)
+				IF (vm_evt.district<>NULL){
+					/*B tester la coherence des criteres de selection */
+					CASE OF (DB_CTRL_GET_VALUE@(vl_fenetre,"BO_crit_district_auto"))
+					/*A recherche par secteur*/
+						CASE 0
+					vl_string = tm_districts[ DB_CTRL_GET_VALUE@(vl_fenetre,
+									 "BL_district")][TDO_NOM_DISTRICT]
+
+					/*A recherche par district*/
+						CASE 2
+					vl_string = tm_nom_districts_anc[DB_CTRL_GET_VALUE@(vl_fenetre, 			         "BL_district_anc")]
+
+					ENDCASE
+
+
+	              	}
+	              	ELSE vl_string="Tous"
+info_message@(vl_string)
+
+				WP_SET_DOC_VAR@("districts",vl_string)
+	
+				/*B afficher les types de fmc selectionnes */
+				vl_sel = DB_CTRL_GET_VALUE@(vl_fenetre,"BL_types_fmc")
+				vl_tableau = NULL
+				IF (NOT IS_NULL@(vl_sel) AND IS_ARRAY@(vl_sel))
+				{
+					IF (vm_evt.type<>XDC_TOUS_TYP_FMC) {
+						FOR vl_indice = 0  TO ARRAY_SIZE@ (vl_sel) - 1
+							vl_tableau[vl_indice] = tm_types_fmc[vl_sel[vl_indice]-1] [TDO_NOM_FMC]
+						NEXT vl_indice
+					} ELSE vl_tableau[0]="Tous"
+				}
+				ELSE vl_tableau[0]="Néant"
+				WP_SET_DOC_VAR@("types_fmc",vl_tableau)
+	
+				IF (vm_evt.autoroute>XDC_AUT_INCONNUE)	{				
+					vl_string = tm_autoroutes[ DB_CTRL_GET_VALUE@(vl_fenetre,
+									 "BL_autoroute")][TDO_NOM_AUTOROUTE]
+					WP_SET_DOC_VAR@("autoroute",vl_string)
+					WP_SET_DOC_VAR@("PR_debut",COM31_Libelle_PR(vl_pr_deb)++ " à ")
+					WP_SET_DOC_VAR@("PR_fin",COM31_Libelle_PR(vl_pr_fin))
+					WP_SET_DOC_VAR@("sens",tl_menu[ DB_CTRL_GET_VALUE@( vl_fenetre,
+											 "BO_sens")][TDO_NUMERO_SENS])
+				}
+
+				vl_tableau=NULL
+				FOR vl_indice=0 TO ARRAY_SIZE@(vl_texte)-1
+					vl_tableau[vl_indice]= FORMAT@("%s   %6s  %-24s  %-4s   %-6s   %-21s  %-19s    %-19s", vl_texte[vl_indice][0], vl_texte[vl_indice][1], 
+							vl_texte[vl_indice][2],vl_texte[vl_indice][3], 
+							vl_texte[vl_indice][4],vl_texte[vl_indice][5],
+							vl_texte[vl_indice][6],vl_texte[vl_indice][7])
+				NEXT vl_indice
+				WP_SET_DOC_VAR@("Evenements",vl_tableau)
+
+				vl_fichier = C_MODELE_LST_EVTS ++ "_" ++
+							SYSTEM_VAR@(vg_numero_poste)
+				COM36_Imprimer_Texte(vl_fichier)
+			}
+	ENDCASE
+WEND
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  retourne au synoptique le libelle de l'evenement
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLE_libelle (va_argumentsRpc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_statut
+
+ITMA_TPC_init_connection("", CM_Socket_RPC)
+
+ITMA_TPC_appel_fct(CM_CARACT_EVT, va_argumentsRpc, vl_statut)
+
+ITMA_TPC_fin_connection ()
+
+RETURN (COM_OK)
+
+ENDMACRO

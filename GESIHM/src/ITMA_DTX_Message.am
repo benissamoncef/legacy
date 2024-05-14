@@ -1,0 +1,440 @@
+/* Fichier : $Id: ITMA_DTX_Message.am,v 1.2 2005/06/28 08:47:27 gesconf Exp $      Release : $Revision: 1.2 $        Date : $Date: 2005/06/28 08:47:27 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TMA * FICHIER ITMA_DTX_Message.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Liste des messages TFM venant de DATEX *
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG	13/02/04	creation 1.0 (SAGA)
+* JMG	27/06/05	Suppression dimensionnement fenetre 1.1 (SAGA/DEM473)
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+
+INCLUDE	"../inc/xzai04sp.h"
+INCLUDE	"../inc/xzai05sp.h"
+INCLUDE	"../inc/xzai06sp.h"
+INCLUDE	"../inc/xzac44sp.h"
+INCLUDE	"../inc/xzae111sp.h"
+INCLUDE	"../inc/xzai501sp.h"
+
+
+DEFINE	C_MODULE	"MDTX"			' Nom du module
+
+
+
+/*A
+ * Noms des images digitalisees particularisant
+ * un message diffuse, non diffuse et a supprimer
+ * ----------------------------------------------
+ */
+
+DEFINE	C_PICTO_DIFFUSE		NULL
+DEFINE	C_PICTO_NON_DIFFUSE	"pix_designer"
+DEFINE	C_PICTO_A_SUPPRIMER	"pix_croix"
+
+
+
+DEFINE	TMA_MAX_PERIODE 3600
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	DTX_Message_TFM
+	partenaire,				
+	reference,
+	nb_diffusions,
+	date_diffusion,
+	supprime,
+	texte
+
+/*A
+ * Description du format des donnees lues en base
+ * ----------------------------------------------
+ */
+
+FORMAT  DTX_Donnees_Message_TFM
+	partenaire,				
+	reference,
+	message1,
+	message2,
+	nb_diffusions,
+	date_diffusion,
+	supprime
+	
+
+VAR FORMAT DTX_Message_TFM vm_t_msg		' Table des messages affichee
+VAR	vm_l_picto				' Noms des pictogrammes
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation des messages a diffuser et du nombre de diffusions
+*  precedentes.
+*  
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_DTX_Message (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   A l'initialisation du poste (si le profil le permet).
+*
+* FONCTION
+*   Lit en base de donnees puis affiche la liste des messages TFM DATEX.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_msg_TFM			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_select				' Selection(s) dans la table
+    VAR FORMAT DTX_Message_TFM vl_ligne		' Donnees de la ligne selectee
+    VAR     vl_date                             ' Date sous forme de chaine
+    VAR     vl_fichier, vl_message, tl_args
+    VAR     vl_i
+    
+    VAR     vl_l_texte                                  ' Message(liste chaines)
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Messages animateur TFM"
+ * -------------------------------------------
+ */
+
+vl_fenetre_msg_TFM = DB_LOAD@ ("ITMA_DTX")
+DB_WINDOW_REMAIN@ (vl_fenetre_msg_TFM, TRUE)
+
+DB_XPOS@ (vl_fenetre_msg_TFM, 0)
+DB_YPOS@ (vl_fenetre_msg_TFM, 93)
+/*DB_WIDTH@ (vl_fenetre_msg_TFM, 1264)*/
+
+COM02_Attacher_Aide (vl_fenetre_msg_TFM, "ITMA_DTX_Message")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_msg_TFM, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_DISPLAY@ (vl_fenetre_msg_TFM, "ID_Liste_Modifiee", FALSE)
+
+
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre_msg_TFM, "TA_Msg_Diffuser", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_msg_TFM, "TA_Msg_Diffuser", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_msg_TFM, "TA_Msg_Diffuser", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_msg_TFM, "TA_Msg_Diffuser", TRUE)
+
+
+DB_CTRL_FONT@(vl_fenetre_msg_TFM, "BE_Message", "-adobe-courier-bold-r-normal--24-240-75-75-m-150-iso8859-1")
+
+
+/*A
+ * Initialiser la visualisation (liste des messages)
+ * -------------------------------------------------
+ */
+
+IF DTX_Init_Visualisation (vl_fenetre_msg_TFM) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    
+    DB_DISPLAY@ (vl_fenetre_msg_TFM)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_msg_TFM)
+
+    /*A
+     * Apres toute action operateur, effacer le pictogramme de changement
+     * ------------------------------------------------------------------
+     */
+
+    DB_CTRL_DISPLAY@ (vl_fenetre_msg_TFM, "ID_Liste_Modifiee", FALSE)
+
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre_msg_TFM)
+	CASE COM_CANAL_FIN
+	    vl_la_fenetre_est_active = FALSE
+	ENDCASE
+
+    /*A
+     * Sur selection d'un message mettre a jour la date,
+     * lire le texte du message a diffuser et l'afficher
+     * -------------------------------------------------
+     */
+
+    CASE "TA_Msg_Diffuser"
+
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_msg_TFM, "TA_Msg_Diffuser")
+	vl_i = vl_select[0]
+
+	DB_EDITBOX_SET_DATA@ (vl_fenetre_msg_TFM, "BE_Message", vm_t_msg[vl_i].texte)
+
+   CASE "BP_fermer"
+	vl_la_fenetre_est_active = FALSE	
+    ENDCASE
+ WEND
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO DTX_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMA_Msg_Animateur_TFM
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_t_titres				' Titres colonnes de la table
+    VAR     vl_t_msg				' Table messages (vide)
+
+
+/*A
+ * Definition des titres des colonnes de la table
+ * ----------------------------------------------
+ */
+
+vl_t_titres[0] = "Partenaire",		100	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Reference",		420
+vl_t_titres[2] = "Nb diffusions",		100
+vl_t_titres[3] = "Première diffusion",	175
+vl_t_titres[4] = "", 0
+
+
+/*A
+ * Valuer les titres de la table a afficher
+ * ----------------------------------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@(va_fenetre, "TA_Msg_Diffuser", vl_t_msg, vl_t_titres)
+
+
+/*A
+ * Valuer ensuite les donnees de la table
+ * --------------------------------------
+ */
+
+RETURN (DTX_Init_Liste_Messages (va_fenetre))
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des messages a diffuser ;
+*  met en evidence les messages dont le nombre de diffusions est 0.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO DTX_Init_Liste_Messages (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TMA_Init_Visualisation      a l'initialisation ;
+*   ITMA_TMA_Msg_Animateur_TFM	sur signal de modification dans la liste.
+*
+* FONCTION
+*   (re)initialise les valeurs de la liste des messages a diffuser.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT DTX_Donnees_Message_TFM	vl_data
+
+    VAR FORMAT TDO_District		vl_les_districts
+    VAR					vl_numeros_districts
+    VAR FORMAT TDO_Type_FMC		vl_les_types_FMC
+    VAR					vl_numeros_FMC
+
+    VAR FORMAT SQL_Procedure_Result@	vl_resultats
+    VAR     vl_event, vl_district
+    VAR     i
+    VAR     vl_memo_evenement,vl_numero_ligne,vl_select,vl_i
+
+/*REPERE1*/
+
+
+vl_select = DB_TABLE_GET_SELECTIONS@ (va_fenetre, "TA_Msg_Diffuser")
+vl_i = vl_select[0]
+
+
+IF COM05_SQL_Procedure (XZAI501_Liste_Messages_Datex,
+			   NULL, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+/*A
+ * Effacer les structures de donnees (pour reinitialisation)
+ * ---------------------------------------------------------
+ */
+
+vm_t_msg = NULL
+vm_l_picto = NULL
+
+
+vl_les_districts = SYSTEM_VAR@ (vg_les_districts)
+vl_numeros_districts = ARRAY_COLUMN@ (vl_les_districts, TDO_NUMERO_DISTRICT)
+vl_les_types_FMC = SYSTEM_VAR@ (vg_les_types_FMC)
+vl_numeros_FMC = ARRAY_COLUMN@ (vl_les_types_FMC, TDO_NUMERO_FMC)
+
+vl_data = vl_resultats.select_results[0]
+vl_I = -1
+FOR I = 0  TO ARRAY_SIZE@ (vl_data) - 1
+    vm_t_msg[i].partenaire     = vl_data[i].partenaire
+    vm_t_msg[i].reference      = vl_data[i].reference
+    vm_t_msg[i].date_diffusion = vl_data[i].date_diffusion
+    vm_t_msg[i].nb_diffusions  = vl_data[i].nb_diffusions
+    vm_t_msg[i].supprime       = vl_data[i].supprime
+    vm_t_msg[i].texte          = vl_data[i].message1 ++ vl_data[i].message2
+
+    IF vl_data[i].supprime
+	vm_l_picto[i] = C_PICTO_A_SUPPRIMER, NULL
+    ELSE IF vl_data[i].nb_diffusions = 0
+	vm_l_picto[i] = C_PICTO_NON_DIFFUSE, NULL
+    ELSE vm_l_picto[i] = C_PICTO_DIFFUSE, NULL
+NEXT i
+
+
+/*A
+ * (re)initialiser la table affichee
+ * ---------------------------------
+ */
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_Msg_Diffuser", 0, -1)
+DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_Msg_Diffuser", vm_t_msg, 0)
+DB_TABLE_MARKER_PIXMAPS@(va_fenetre, "TA_Msg_Diffuser", 0, vm_l_picto)
+
+/* REPERE1 */
+/* on repointe sur le meme evenement */
+if vl_I >= 0 
+{
+  /*INFO_MESSAGE@("ON SELECTIONNE")*/
+  DB_TABLE_SET_SELECTIONS@(va_fenetre, "TA_Msg_Diffuser",vl_select)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+

@@ -1,0 +1,363 @@
+/*E*/
+/* Fichier : %W%    Release : %I%      Date : %G%
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TTR * FICHIER ITMA_TRAU_bascul_troncon.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Transmettre une alerte
+*
+*   Cf. DCG 2.4.66
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG	19/08/16	creation
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE    "../inc/xzao910sp.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+
+DEFINE	C_MODULE	"MTTR"			' Nom du module
+
+DEFINE	C_CI	"CI"
+DEFINE	C_LOC	"LOC"
+
+DEFINE  C_PICTO_OK      "pix_ok"
+DEFINE  C_PICTO_HS      "pix_croix"
+
+VAR     vm_l_picto                              ' Noms des pictogrammes
+
+FORMAT T_scenario
+	libelle,
+	zone1,
+	site1,
+	zone2,
+	site2,
+	zone3,
+	site3
+
+VAR FORMAT T_scenario vm_l_scenarios
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* permet de transmettre une alerte
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRAU_bascul_troncon (va_appelant,va_horodate,va_type_eqt,va_num_eqt,va_type_alerte,va_texte,va_reference)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_numero	: numero de la fiche main courante
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR tl_retour,tl_poke_data
+	VAR vl_numero_fiche,vl_libelle_fiche
+	VAR vl_heading,vl_table_data
+	VAR vl_indice,vl_sel,vl_index,vl_numero_poste,vl_numero_site
+	VAR FORMAT TDO_Poste_Operateur tl_postes
+	VAR FORMAT TDO_District	tl_districts
+	VAR vl_pos_district
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_cmd
+	VAR vl_msg
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Lier ..."
+ * ----------------------------------
+ */
+vl_fenetre = DB_LOAD@ ("ITMA_TRAU")
+DB_XPOS@(vl_fenetre,460)
+DB_YPOS@(vl_fenetre,105)
+
+
+/*COM02_Attacher_Aide (vl_fenetre, "ITMA_TRAU_bascul_troncon")*/
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+tl_messages_acceptes[1] = COM_CANAL_TRAU_BASCUL
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+init_scenarios()
+
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+vl_heading=NULL
+vl_table_data=NULL
+vl_heading[0,0]="libelle"
+vl_heading[0,1]=400
+vl_heading[1,0]="zone"
+vl_heading[1,1]=200
+vl_heading[2,0]="etat"
+vl_heading[2,1]=100
+vl_heading[3,0]="site"
+vl_heading[3,1]=400
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_troncon",tl_districts,vl_heading,NULL)
+
+vl_sel[0]=0
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_troncon",vl_sel)
+
+DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre,"TA_troncon",25)
+
+DB_CTRL_STRINGS@(vl_fenetre,"BO_scenarios",ARRAY_COLUMN@(vm_l_scenarios,0))
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BO_scenarios",TRUE)
+
+/*recupere les donnees en base*/
+get_troncons(vl_fenetre)
+DB_CTRL_VALUE@(vl_fenetre,"BO_scenarios",0)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre, "BP_appliquer", TRUE)
+/*A
+ * active les tables des sites et des postes operateurs*/
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_troncon",TRUE)
+
+if SYSTEM_VAR@(vg_site) <> XDC_CI
+{
+DB_CTRL_DISPLAY@(vl_fenetre,"BO_scenarios",FALSE)
+DB_CTRL_DISPLAY@(vl_fenetre,	"BP_appliquer",FALSE)
+}
+
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+
+
+/*A
+ * le bouton Quitte est choisi par defaut
+ */
+DB_CTRL_DEFAULT_BUTTON@(vl_fenetre,"BP_quitter",TRUE)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		CASE "poke_"
+		  CASE OF  DB_GET_POKE@ (vl_fenetre)
+			CASE COM_CANAL_FIN
+				RETURN (COM_QUITTE)
+
+			CASE COM_CANAL_TRAU_BASCUL
+MACRO_WINS_BUSY@()
+DELAY@(5)
+				/*recharge les etats des troncons*/
+				get_troncons(vl_fenetre)
+		ENDCASE
+
+		CASE "BP_quitter"
+			/*A Bye*/
+			RETURN (COM_QUITTE)
+
+		CASE "BP_rafraichir"
+				/*recharge les etats des troncons*/
+				get_troncons(vl_fenetre)
+
+		/*A choix d'un scenario dans la table*/
+		CASE "BP_appliquer"
+			vl_sel=DB_CTRL_GET_VALUE@(vl_fenetre,"BO_scenarios")
+
+			/*envoie la commande a terau du site concerne*/
+			/*MTAR_FCT_XZEU11*/
+			vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEU11, vm_l_scenarios[vl_sel].site1 ++ "|" ++ vm_l_scenarios[vl_sel].zone1
+							++ "|"	++  "O"
+			DB_SEND_POKE@(COM_CANAL_TAR01,vl_msg)
+			if (vm_l_scenarios[vl_sel].zone2 <> NULL) {
+			vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEU11, vm_l_scenarios[vl_sel].site2 ++ "|" ++ vm_l_scenarios[vl_sel].zone2
+							++ "|"	++  "O"
+DB_SEND_POKE@(COM_CANAL_TAR01,vl_msg)
+			}
+			if (vm_l_scenarios[vl_sel].zone3 <> NULL) {
+			vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEU11, vm_l_scenarios[vl_sel].site3 ++ "|" ++ vm_l_scenarios[vl_sel].zone3
+							++ "|"	++  "O"
+			DB_SEND_POKE@(COM_CANAL_TAR01,vl_msg)
+			}
+	ENDCASE
+WEND
+ENDMACRO
+
+
+
+
+
+
+FUNCTION init_scenarios()
+vm_l_scenarios[9].libelle="A51"
+vm_l_scenarios[9].zone1="Z_VDD_A51"
+vm_l_scenarios[9].site1=XDC_DP
+vm_l_scenarios[9].zone2=NULL
+vm_l_scenarios[9].zone3=NULL
+vm_l_scenarios[8].libelle="A8 Aix - St Max"
+vm_l_scenarios[8].zone1="Z_PRO_A8"
+vm_l_scenarios[8].site1=XDC_DP
+vm_l_scenarios[8].zone2=NULL
+vm_l_scenarios[8].zone3=NULL
+
+vm_l_scenarios[7].libelle="A52+A50+A520+A501"
+vm_l_scenarios[7].zone1="Z_PRO_A5x"
+vm_l_scenarios[7].site1=XDC_DP
+vm_l_scenarios[7].zone2=NULL
+vm_l_scenarios[7].zone3=NULL
+
+
+vm_l_scenarios[6].libelle="PRO"
+vm_l_scenarios[6].zone1="Z_VDD_A51"
+vm_l_scenarios[6].site1=XDC_DP
+vm_l_scenarios[6].zone2="Z_PRO_A8"
+vm_l_scenarios[6].site2=XDC_DP
+vm_l_scenarios[6].zone3="Z_PRO_A5x"
+vm_l_scenarios[6].site3=XDC_DP
+vm_l_scenarios[5].libelle="A8 St Max - Mandelieu"
+vm_l_scenarios[5].zone1="Z_VAE_A8"
+vm_l_scenarios[5].site1=XDC_VC
+vm_l_scenarios[5].zone2=NULL
+vm_l_scenarios[5].zone3=NULL
+vm_l_scenarios[4].libelle="A57"
+vm_l_scenarios[4].zone1="Z_VAE_A57"
+vm_l_scenarios[4].site1=XDC_VC
+vm_l_scenarios[4].zone2=NULL
+vm_l_scenarios[4].zone3=NULL
+vm_l_scenarios[1].libelle="A8 Mandelieu - St Isidore"
+vm_l_scenarios[1].zone1="Z_CAZ_MAND"
+vm_l_scenarios[1].site1=XDC_VC
+vm_l_scenarios[1].zone2=NULL
+vm_l_scenarios[1].zone3=NULL
+vm_l_scenarios[2].libelle="A8 St Isidore - Italie+A500"
+vm_l_scenarios[2].zone1="Z_CAZ_NICE"
+vm_l_scenarios[2].site1=XDC_VC
+vm_l_scenarios[2].zone2=NULL
+vm_l_scenarios[2].zone3=NULL
+vm_l_scenarios[3].libelle="VES"
+vm_l_scenarios[3].zone1="Z_VAE_A8"
+vm_l_scenarios[3].site1=XDC_VC
+vm_l_scenarios[3].zone2="Z_VAE_A57"
+vm_l_scenarios[3].site2=XDC_VC
+vm_l_scenarios[3].zone3=NULL
+vm_l_scenarios[0].libelle="CAZ"
+vm_l_scenarios[0].zone1="Z_CAZ_NICE"
+vm_l_scenarios[0].site1=XDC_VC
+vm_l_scenarios[0].zone2="Z_CAZ_MAND"
+vm_l_scenarios[0].site2=XDC_VC
+vm_l_scenarios[0].zone3=NULL
+ENDFUNCTION
+
+
+MACRO get_troncons(va_fenetre)
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR tl_data
+VAR tl_data2
+VAR vl_indice
+
+/*recupere les donnees en base*/
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data ="CFG"
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].output = FALSE
+if SYSTEM_VAR@(vg_site) = XDC_CI
+vl_parametres[1].data= NULL
+else
+vl_parametres[1].data= SYSTEM_VAR@(vg_site)
+
+IF COM05_SQL_Procedure (XZAO910_Liste_Troncons_RAU,vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+    INFO_MESSAGE@("Erreur lors de la lecture en base des troncons RAU")
+	    RETURN (COM_NOK)
+}
+tl_data=vl_resultats.select_results[0]
+vm_l_picto=null
+
+
+for vl_indice = 0 TO ARRAY_SIZE@(tl_data) -1
+  tl_data2[vl_indice]=tl_data[vl_indice]
+  tl_data2[vl_indice][0]=tl_data[vl_indice][1]
+  tl_data2[vl_indice][1]=tl_data[vl_indice][0]
+  if tl_data[vl_indice][2]="CI" {
+    if (SYSTEM_VAR@(vg_site)=XDC_CI)
+      vm_l_picto[vl_indice]=C_PICTO_OK,NULL
+    else
+      vm_l_picto[vl_indice]=C_PICTO_HS,NULL
+  }
+  else {
+     if (SYSTEM_VAR@(vg_site)=XDC_CI)
+      vm_l_picto[vl_indice]=C_PICTO_HS,NULL
+     else
+       vm_l_picto[vl_indice]=C_PICTO_OK,NULL
+  }
+NEXT vl_indice
+DB_TABLE_MARKER_PIXMAPS@(va_fenetre, "TA_troncon", 0, vm_l_picto)
+DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_troncon", tl_data2, 0)
+ENDMACRO

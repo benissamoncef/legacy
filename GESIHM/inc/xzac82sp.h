@@ -1,0 +1,1 @@
+DEFINE	XZAC82_Commande_PMVA		"XZAC82"

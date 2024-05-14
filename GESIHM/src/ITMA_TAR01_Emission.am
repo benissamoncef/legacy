@@ -1,0 +1,154 @@
+/* Fichier : $Id: ITMA_TAR01_Emission.am,v 1.17 2010/12/16 16:47:35 pc2dpdy Exp $      Release : $Revision: 1.17 $        Date : $Date: 2010/12/16 16:47:35 $
+********************************************************************************
+* STERIA	* PROJET MIGRAZUR		*   
+********************************************************************************
+* MODULE: MTAR			* FICHIER ITMA_TAR01_Emission.am
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 27/09/94
+********************************************************************************
+* DESCRIPTION DU MODULE: 
+* crée la tache de reception ITMA_TAR02_Reception
+* cree un serveur de connexion pour la socket envoi
+*
+* REFERENCES AU DCG: 
+*
+********************************************************************************
+* HISTORIQUE DES MODIFICATIONS:
+*
+* JM.Guilhou		28/09/94		Creation	  			V1.1 
+* Guilhou		16/12/94		parametre numero display		V1.5
+* Guilhou		27 Sep 1995	Taille de boite de dialogue reduite a 0		V1.?
+* Torregrossa		25 Oct 1995	Modif ordre des parametres de lancement d'applix lus
+*                                       pour version applix 4.1				V1.15
+* Torregrossa		11 Dec 1995	Ajout install de la bureautique en .elo (1.5)
+* JMG    10/02/10        : portage Linux DEM/934
+*******************************************************************************/
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE    "../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+
+/*******************************************************************************
+* MODULE: ITMA			* FONCTION: ITMA_TAR01_Emission
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 29/09/94
+********************************************************************************
+* DESCRIPTION DE LA FONCTION:
+* lance la tache de reception et cree la socket d'envoi
+* attend les messages a envoyer a la tache relais
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TAR01_Emission()
+* 
+*
+* PARAMETRES EN ENTREE: 
+*
+* PARAMETRES EN SORTIE: 
+*
+* VALEUR RENDUE: 	
+*
+* CONDITION D'ERREUR: neant
+*
+* CONDITION LIMITES: neant
+*
+********************************************************************************
+* ALGORITHME: 
+*******************************************************************************/
+MACRO ITMA_TAR01_Emission
+
+	VAR vl_channel,vl_message
+	VAR vl_liste_codes
+	VAR vl_dbox,vl_exit_value
+	VAR vl_sock
+	VAR tl_args
+	VAR vl_fonction_c
+
+
+'	ON ERROR
+'	{
+'		printf@("Erreur majeure serveur de socket : " ++ ERROR_STRING@() ++ "\n")
+'		EXIT_ALL@()
+'	}
+
+set_system_var@ (vg_simuler_trace, TRUE)
+	/*installe les modules communs*/
+	INSTALL_FILE@("ITMA_COM.elo")
+	INSTALL_FILE@("ITMA_TBR_Bureautique.elo")
+
+	/*charge les macros d'interface avec la tache relais*/
+	ITMA_TIR()
+
+	/*recupere la ligne de commande (numero de socket)*/
+	tl_args=COMMAND_LINE_OPTIONS@()
+	SET_SYSTEM_VAR@(vg_numero_display,tl_args[6])
+	vl_sock=tl_args[5]
+
+
+	/*lance la tache ITMA_TAR02_Reception*/
+	NEW_TASK@("ITMA_TAR02_Reception",vl_sock+1)
+
+	/*cree un serveur de connexion pour la socket d'envoi*/
+	vl_channel=SOCKET_OPEN_SERVER@(vl_sock,-1,2)
+	SET_SYSTEM_VAR@(vg_socket_envoi,vl_channel)
+
+	/*un client vient de se connecter*/
+	printf@("client connecte pour l'emission\n")
+
+	/*charge une BD vide pour pouvoir recevoir des pokes*/
+	vl_dbox=DB_LOAD@("ITMA_TAR")
+	DB_WIDTH@(vl_dbox,0)
+	DB_HEIGHT@(vl_dbox,0)
+
+
+	/*liste des pokes que l'on peut recevoir*/
+	vl_liste_codes[0]=COM_CANAL_FIN
+	vl_liste_codes[1]=MTAR_MSG_FIN_TACHE
+	vl_liste_codes[2]=COM_CANAL_TAR01
+	DB_ACCEPT_POKES@(vl_dbox,vl_liste_codes)
+
+	/*lance la tache ITMA_TIME*/
+	NEW_TASK@("ITMA_TIME")
+
+	/*boucle infinie de traitement des evenements*/	
+	WHILE 1
+		DB_DISPLAY@(vl_dbox)
+
+		/*attente d'un poke*/
+		vl_exit_value=DB_EXIT_CTRL@(vl_dbox)
+
+		IF (vl_exit_value="poke_")
+		{
+			/*suivant le poke recu*/
+			CASE OF DB_GET_POKE@(vl_dbox)
+				/*poke d'envoi d'un message sur la socket*/
+				CASE COM_CANAL_TAR01
+					/*recupere les donnees du message et les envoit*/
+					vl_message=DB_GET_POKE_DATA@(vl_dbox)
+					IF (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+					SOCKET_RPC_WRITE@(vl_channel,0,vl_message)
+					ELSE
+					SOCKET_WRITE_ASCII@(vl_channel, ARRAY_TO_STRING@(vl_message, "~"))
+					DELAY@(0.5)
+
+				/*poke de fin de tache envoye par MTMT*/
+				/*poke de fin de tache envoye par un autre module*/
+				CASE MTAR_MSG_FIN_TACHE
+				CASE COM_CANAL_FIN
+					/*je previens la tache relais cote C*/
+					vl_message[0]=MTAR_MSG_FIN_TACHE
+					IF (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+					SOCKET_RPC_WRITE@(vl_channel,0,vl_message)
+					ELSE
+					SOCKET_WRITE_ASCII@(vl_channel, ARRAY_TO_STRING@(vl_message, "~"))
+
+					/*je ferme les sockets*/
+					SOCKET_CLOSE_CHANNEL@(SYSTEM_VAR@(vg_socket_recep))
+					SOCKET_CLOSE_CHANNEL@(SYSTEM_VAR@(vg_socket_envoi))
+
+			ENDCASE
+		}
+	WEND
+ENDMACRO

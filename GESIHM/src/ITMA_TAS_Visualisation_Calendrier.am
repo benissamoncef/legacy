@@ -1,0 +1,1296 @@
+/*E*/
+/* Fichier : $Id: ITMA_TAS_Visualisation_Calendrier.am,v 1.9 2009/07/08 17:02:26 gesconf Exp $     Release : $Revision: 1.9 $        Date : $Date: 2009/07/08 17:02:26 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TAS * FICHIER ITMA_TAS_Visualisation_Calendrier.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* gestion du calendrier
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou    15 nov 1996 : Creation	(DEM/1306)			V1.1
+* Guilhou 05 dec 1996 : si date debut periode<date courante on la force (DEM/1306) 1.2
+* Vathelot 06 dec 1996 : Correction pour compilation avant livraison
+* Guilhou 10 dec 1996 : correction appel a COM36 (DEM/1306) 		1.4
+* Guilhou 16 dec 1996 : affichage des numeros des jours 1.7
+* Torregrossa 17 dec 1996 : Correction nom de proc appel pour XZAN;44 1.8
+* JPL	06/07/09 : Gestion des barres de menu personnalisees Applix et leur id. 1.9
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TBR.h"
+INCLUDE	"../inc/ITMA_TFC.h"
+INCLUDE	"../inc/ITMA_TFA.h"
+INCLUDE    "../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+INCLUDE    "../../XDMICG/inc/xzanc.h"
+INCLUDE "../inc/xzan10sp.h"
+INCLUDE "../inc/xzan31sp.h"
+INCLUDE "../inc/xzan32sp.h"
+INCLUDE "../inc/xzan39sp.h"
+INCLUDE "../inc/xzan40sp.h"
+INCLUDE "../inc/xzan41sp.h"
+INCLUDE "../inc/xzan42sp.h"
+INCLUDE "../inc/xzan43sp.h"
+INCLUDE "../inc/xzan44sp.h"
+
+DEFINE C_MODULE	"MTAS"			' Nom du module
+
+DEFINE	C_REP_MOD		"fichiers/syn/"
+
+DEFINE	C_LIB_JOUR	"lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche"
+
+DEFINE	C_ZOOM_SEMAINE		1
+DEFINE	C_ZOOM_MOIS		2
+DEFINE	C_ZOOM_ANNEE		3
+
+
+DEFINE	C_MOD_SEMAINE	"astreintes_semaine.as"
+DEFINE	C_MOd_MOIS	"astreintes_mois.as"
+DEFINE	C_MOD_ANNEE	"astreintes_annee.as"
+
+DEFINE	C_MOD_IMPRESSION "ITMA_TAS_ss.as"
+
+
+
+FORMAT	TLS_Astreintes
+	type_astreinte,
+	sous_type_astreinte,
+	district,
+	zone_geo,
+	interlocuteur
+
+format BORDERS_INFO_
+	format SS_LINE_ATTRS OUTLINE,
+	format SS_LINE_ATTRS TOP,
+	format SS_LINE_ATTRS BOT,
+	format SS_LINE_ATTRS LEFT,
+	format SS_LINE_ATTRS RIGHT,
+	format SS_SHADE_ATTRS SHADING
+
+format SS_LINE_ATTRS
+	STYLE,
+	COLOR
+
+format SS_SHADE_ATTRS
+	STYLE,
+	FGCOLOR,
+	BGCOLOR
+
+
+FORMAT TAS_Calendrier
+	horodebut,
+	horofin,
+	nom,
+	jour_debut,
+	mois_debut,
+	annee_debut,
+	heure_debut,
+	minute_debut,
+	jour_fin,
+	mois_fin,
+	annee_fin,
+	heure_fin,
+	minute_fin,
+	numero
+
+
+
+FORMAT TAS_impression
+	sous_type,
+	district,
+	debut,
+	fin,
+	nom,
+	tel1,
+	comment1,
+	tel2,
+	comment2,
+	tel3,
+	comment3
+
+
+VAR 	vm_taskid
+VAR	vm_zoom
+VAR	vm_debut
+VAR	vm_fin
+
+VAR FORMAT TDO_Type_Astreinte vm_l_types_astreintes	 ' Liste types astr.
+VAR FORMAT TDO_District vm_l_districts 			' Liste districts
+VAR FORMAT TAS_Calendrier vm_calendrier
+VAR FORMAT TFA_Interlocuteur vm_l_interlocuteurs         ' Liste interlocuteurs
+VAR FORMAT TLS_Astreintes vm_t_competences
+VAR FORMAT TAS_Calendrier vm_periode
+
+VAR	vm_num_comp
+VAR FORMAT TDO_Type_Astreinte vm_type_astreinte
+VAR	vm_sous_type_astreinte
+VAR FORMAT TDO_District vm_district
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gestion du calendrier
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TAS_Visualisation_Calendrier (va_appelant,va_num_comp,
+					FORMAT TLS_Astreintes va_competences)
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_id
+VAR vl_modele
+VAR vl_menu
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*
+* ouverture du spreadsheet
+*/
+vl_ID = null
+
+SET_SYSTEM_VAR@(vg_debut, null)
+SET_SYSTEM_VAR@(vg_fin, null)
+
+/* Mise en place de la barre de menu */
+vl_menu = ITMA_TBR_Menu_Appli_Applix (TBR_MENU_SS_AST)
+
+vm_taskid = SS_APPLICATION_DLG@ (vl_menu, FALSE)
+SET_SYSTEM_VAR@(vg_task_id, vm_taskid)
+
+SS_LOAD_FILE@(SYSTEM_VAR@(vg_repertoire_migrazur)++C_REP_MOD ++ C_MOD_SEMAINE)
+SS_SAVE_AS@("/tmp/"++C_MOD_SEMAINE,1,2,2)
+
+SET_SYSTEM_VAR@(vg_zoom, C_ZOOM_SEMAINE)
+SET_SYSTEM_VAR@(vg_appelant, va_appelant)
+SET_SYSTEM_VAR@(vg_num_comp, va_num_comp)
+SET_SYSTEM_VAR@("vg_competences_ini",va_competences)
+
+PEND_FOR_NEW_TASK@("TAS_dates")
+/*
+CASE OF (SUBSTRING@(va_appelant, 1,8))
+	CASE "ITMA_TLS"
+		PEND_FOR_NEW_TASK@("TAS_Lecture_Calendrier",
+			va_num_comp,
+			va_competences,XDC_FAUX)
+		
+	CASE "ITMA_TAS"
+		PEND_FOR_NEW_TASK@("TAS_Lecture_Calendrier",
+			va_num_comp,
+			va_competences,XDC_VRAI)
+ENDCASE
+
+	NEW_TASK@("TAS_semaine",SYSTEM_VAR@(vg_debut),SYSTEM_VAR@(vg_fin))
+*/
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* choix de la periode de visualisation des astreintes
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_dates()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_fenetre
+VAR vl_evt
+VAR tl_pokes
+VAR vl_la_fenetre_est_active
+VAR vl_installer_traitement_erreur
+VAR vl_debut,vl_fin
+VAR vl_courante
+
+ON ERROR {
+	ERROR_BOX@
+	RETURN
+}
+
+vl_fenetre=DB_LOAD@("ITMA_TAS_periode")
+DB_WINDOW_REMAIN@(vl_fenetre,TRUE)
+
+
+/*A
+* Traitements en cas d'erreur durant la visualisation :
+* informer l'operateur et selon la nature et la gravite
+* de l'erreur la tracer ou non, continuer ou abandonner
+* -----------------------------------------------------
+*/
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+  vl_installer_traitement_erreur = FALSE
+
+  ON ERROR {
+    ERROR_BOX@
+    vl_installer_traitement_erreur = TRUE
+  }
+WEND
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+	DB_DISPLAY@(vl_fenetre)
+
+	vl_evt=DB_EXIT_CTRL@(vl_fenetre)
+
+	CASE OF (vl_evt)
+		CASE "BP_quitter"
+			vl_la_fenetre_est_active=FALSE
+
+		CASE "BP_valider"
+			vl_debut=COM23_Horodate (vl_fenetre,
+					"BS_jour_debut",
+					"BS_mois_debut",
+					"BS_annee_debut",
+					"BS_heure_debut",
+					"BS_minute_debut")
+			
+			vl_fin=COM23_Horodate (vl_fenetre,
+					"BS_jour_fin",
+					"BS_mois_fin",
+					"BS_annee_fin",
+					"BS_heure_fin",
+					"BS_minute_fin")
+
+			vl_courante=COM09_Date_Courante()
+
+			if (COM17_Difference_Dates(vl_debut,vl_courante) < 0)
+			  vl_debut=vl_courante
+
+			vm_debut=vl_debut
+			vm_fin=vl_fin
+
+			SET_SYSTEM_VAR@(vg_debut, vm_debut)
+			SET_SYSTEM_VAR@(vg_fin, vm_fin)
+
+CASE OF (SUBSTRING@(SYSTEM_VAR@(vg_appelant), 1,8))
+	CASE "ITMA_TLS"
+		/*un tableau de competences est passe en argument*/
+		/*lecture des calendriers*/
+		PEND_FOR_NEW_TASK@("TAS_Lecture_Calendrier",
+			SYSTEM_VAR@(vg_num_comp),
+			SYSTEM_VAR@("vg_competences_ini"),XDC_FAUX)
+		
+	CASE "ITMA_TAS"
+		/*une seule competence est passee an argument*/
+		/*lecture du calendrier*/
+		PEND_FOR_NEW_TASK@("TAS_Lecture_Calendrier",
+			SYSTEM_VAR@(vg_num_comp),
+			SYSTEM_VAR@("vg_competences_ini"),XDC_VRAI)
+ENDCASE
+
+			/*affichage pour la periode*/
+			CASE OF SYSTEM_VAR@(vg_zoom)
+				CASE C_ZOOM_SEMAINE
+					vl_la_fenetre_est_active=FALSE
+					NEW_TASK@("TAS_semaine",vl_debut,vl_fin)
+
+				CASE C_ZOOM_MOIS
+					vl_la_fenetre_est_active=FALSE
+					NEW_TASK@("TAS_mois",vl_debut,vl_fin)
+
+				CASE C_ZOOM_ANNEE
+					vl_la_fenetre_est_active=FALSE
+					NEW_TASK@("TAS_annee",vl_debut,vl_fin)
+			ENDCASE
+
+		CASE "BP_debut"
+			COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre,
+					"BS_jour_debut",
+					"BS_mois_debut",
+					"BS_annee_debut",
+					"BS_heure_debut",
+					"BS_minute_debut")
+
+		CASE "BP_fin"
+			COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre,
+					"BS_jour_fin",
+					"BS_mois_fin",
+					"BS_annee_fin",
+					"BS_heure_fin",
+					"BS_minute_fin")
+	ENDCASE
+WEND
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* choix du zoom en semaine 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_semaine(va_debut,va_fin)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_indice,vl_index
+VAR tl_fenetres
+VAR tl_type_collage
+VAR j,vl_col,vl_col_next
+vAR vl_range
+VAR tl_jours
+VAR vl_formule,tl_data
+VAR FORMAT TAS_Calendrier tl_calendrier
+VAR vl_decalage
+VAR vl_debut,vl_fin
+VAR tl_liste
+
+tl_fenetres=LIST_OF_WINDOWS@()
+vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tl_fenetres, 3), SYSTEM_VAR@(vg_task_id))
+
+SELECT_WINDOW@(tl_fenetres[vl_indice][0],TRUE)
+
+SS_LOAD_FILE@(SYSTEM_VAR@(vg_repertoire_migrazur)++C_REP_MOD ++ C_MOD_SEMAINE)
+SS_SAVE_AS@("/tmp/"++C_MOD_SEMAINE,1,2,2)
+
+SET_SYSTEM_VAR@(vg_zoom, C_ZOOM_SEMAINE)
+
+SS_SET_SHEET@("B")
+SS_CALC@(0,0,NULL,NULL)
+/*tl_type_collage[0]=0
+tl_type_collage[1]=-1
+SS_PASTE_SPECIAL@("BA2", tl_type_collage)*/
+
+tl_calendrier=SYSTEM_VAR@(vg_calendrier)
+vm_t_competences=SYSTEM_VAR@("vg_competences")
+vl_debut=SYSTEM_VAR@(vg_debut)
+vl_fin=SYSTEM_VAR@(vg_fin)
+
+if (vl_debut=null) {
+  INFO_MESSAGE@("Saisissez d'abord une periode de visualisation")
+  return
+}
+
+SS_PUT_CELL@("b:B1", SUBSTRING@(vl_debut, 1,2))
+SS_PUT_CELL@("b:B2", SUBSTRING@(vl_debut, 4,2))
+SS_PUT_CELL@("b:B3", SUBSTRING@(vl_debut, 7,4))
+
+/*recuperation des libelles des jours*/
+TAS_Libelles_Periodes(vl_debut,1,tl_jours)
+
+vl_decalage=0
+for vl_index=0 to (ARRAY_SIZE@(tl_calendrier)-1)
+  vm_calendrier=tl_calendrier[vl_index]
+
+	vl_col=SS_COL_STRING@(vl_index+1+vl_decalage)
+	  SS_PUT_CELL@("B:"++vl_col++"12",vm_t_competences[vl_index].type_astreinte)
+	  SS_PUT_CELL@("B:"++vl_col++"13",vm_t_competences[vl_index].sous_type_astreinte)
+	  SS_PUT_CELL@("B:"++vl_col++"14",vm_t_competences[vl_index].district)
+
+	for vl_indice=0 to (ARRAY_SIZE@(vm_calendrier)-1)
+	  vl_col=SS_COL_STRING@(vl_indice+1+vl_decalage)
+
+ 	  SS_PUT_CELL@("B:"++vl_col++"15", vm_calendrier[vl_indice].jour_debut)
+	  SS_PUT_CELL@("B:"++vl_col++"16", vm_calendrier[vl_indice].mois_debut)
+	  SS_PUT_CELL@("B:"++vl_col++"17", vm_calendrier[vl_indice].annee_debut)
+  	  SS_PUT_CELL@("B:"++vl_col++"18", vm_calendrier[vl_indice].heure_debut)
+ 	  SS_PUT_CELL@("B:"++vl_col++"19", vm_calendrier[vl_indice].minute_debut)
+ 	  SS_PUT_CELL@("B:"++vl_col++"21", vm_calendrier[vl_indice].jour_fin)
+ 	  SS_PUT_CELL@("B:"++vl_col++"22", vm_calendrier[vl_indice].mois_fin)
+ 	  SS_PUT_CELL@("B:"++vl_col++"23", vm_calendrier[vl_indice].annee_fin)
+ 	  SS_PUT_CELL@("B:"++vl_col++"24", vm_calendrier[vl_indice].heure_fin)
+ 	  SS_PUT_CELL@("B:"++vl_col++"25", vm_calendrier[vl_indice].minute_fin)
+
+ 	  vl_formule="+DATE("++vl_col++"17;"++vl_col++"16;"++vl_col
+			++"15)+TEMPS("++vl_col++"18;"++vl_col++"19;0)"
+ 	  SS_PUT_CELL@("B:"++vl_col++"20",vl_formule)
+ 	  SS_PUT_CELL@("B:"++vl_col++"26","+DATE("++vl_col++"23;"++vl_col++"22;"++vl_col
+			++"21)+TEMPS("++vl_col++"24;"++vl_col++"25;0)")
+
+   		vl_col_next=SS_COL_STRING@(vl_indice+2+vl_decalage)
+		vl_range=SS_RANGE@(vl_indice+1+vl_decalage, 27, 
+									vl_indice+1+vl_decalage,54,1)
+		SS_COPY@(vl_range)
+		SS_PASTE@("B:"++vl_col_next++"28", NULL, FALSE)
+	next vl_indice
+
+	vl_decalage=ARRAY_SIZE@(vm_calendrier)+vl_decalage
+next vl_index
+
+/* calculer */
+SS_CALC@(1,0,NULL,NULL)
+SS_RECALC@()
+
+/*recuperation des donnees calculees*/
+vl_range=SS_RANGE@(1, 27, vl_decalage, 54,1)
+SS_COPY@(vl_range)
+tl_data=ELF_GET_CLIPBOARD@()
+
+SS_SET_SHEET@("A")
+tl_liste=C_LIB_JOUR
+for vl_indice=0 to (ARRAY_SIZE@(tl_jours)-1)
+	vl_col=SS_COL_STRING@((4*vl_indice)+3)
+  SS_PUT_CELL@("A:"++vl_col++"2", 
+	tl_liste[tl_jours[vl_indice][0]-1+0]++" "++tl_jours[vl_indice][1])
+next vl_indice
+
+SS_PUT_CELL@("A:A1", "Visualisation des astreintes a partir du "
+			++SUBSTRING@(vl_debut,1,10))
+
+/*dessin du calendrier*/
+TAS_dessiner(tl_data)
+
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* choix du zoom en mois 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_mois()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_indice,vl_index
+VAR tl_fenetres
+VAR tl_type_collage
+VAR j,vl_col,vl_col_next
+vAR vl_range
+VAR vl_formule,tl_data
+VAR FORMAT TAS_Calendrier tl_calendrier
+VAR vl_decalage
+VAR vl_debut,vl_fin
+VAR tl_jours
+
+tl_fenetres=LIST_OF_WINDOWS@()
+vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tl_fenetres, 3), SYSTEM_VAR@(vg_task_id))
+
+SELECT_WINDOW@(tl_fenetres[vl_indice][0],TRUE)
+
+SS_LOAD_FILE@(SYSTEM_VAR@(vg_repertoire_migrazur)++C_REP_MOD ++ C_MOD_MOIS)
+SS_SAVE_AS@("/tmp/"++C_MOD_MOIS,1,2,2)
+
+SET_SYSTEM_VAR@(vg_zoom, C_ZOOM_MOIS)
+
+SS_SET_SHEET@("B")
+SS_CALC@(0,0,NULL,NULL)
+/*tl_type_collage[0]=0
+tl_type_collage[1]=-1
+SS_PASTE_SPECIAL@("BA2", tl_type_collage)*/
+
+tl_calendrier=SYSTEM_VAR@(vg_calendrier)
+vm_t_competences=SYSTEM_VAR@(vg_competences)
+
+/*recupere horodates de debut et de fin de la periode de visualisation*/
+vl_debut=SYSTEM_VAR@(vg_debut)
+vl_fin=SYSTEM_VAR@(vg_fin)
+
+if (vl_debut=null) {
+  INFO_MESSAGE@("Saisissez une periode de visualisation")
+  return
+}
+
+SS_PUT_CELL@("B:B1", SUBSTRING@(vl_debut, 1,2))
+SS_PUT_CELL@("B:B2", SUBSTRING@(vl_debut, 4,2))
+SS_PUT_CELL@("B:B3", SUBSTRING@(vl_debut, 7,4))
+
+/*recuperation des libelles des jours*/
+TAS_Libelles_Periodes(vl_debut,2,tl_jours)
+
+vl_decalage=0
+/*boucle sur les competences*/
+for vl_index=0 to (ARRAY_SIZE@(tl_calendrier)-1)
+  vm_calendrier=tl_calendrier[vl_index]
+
+	vl_col=SS_COL_STRING@(vl_index+1+vl_decalage)
+	  SS_PUT_CELL@("B:"++vl_col++"12",vm_t_competences[vl_index].type_astreinte)
+	  SS_PUT_CELL@("B:"++vl_col++"13",vm_t_competences[vl_index].sous_type_astreinte)
+	  SS_PUT_CELL@("B:"++vl_col++"14",vm_t_competences[vl_index].district)
+
+	/*boucle sur les periodes*/
+	for vl_indice=0 to (ARRAY_SIZE@(vm_calendrier)-1)
+	  vl_col=SS_COL_STRING@(vl_indice+1+vl_decalage)
+
+ 	  SS_PUT_CELL@("B:"++vl_col++"15", vm_calendrier[vl_indice].jour_debut)
+	  SS_PUT_CELL@("B:"++vl_col++"16", vm_calendrier[vl_indice].mois_debut)
+	  SS_PUT_CELL@("B:"++vl_col++"17", vm_calendrier[vl_indice].annee_debut)
+  	  SS_PUT_CELL@("B:"++vl_col++"18", vm_calendrier[vl_indice].heure_debut)
+ 	  SS_PUT_CELL@("B:"++vl_col++"19", vm_calendrier[vl_indice].minute_debut)
+ 	  SS_PUT_CELL@("B:"++vl_col++"21", vm_calendrier[vl_indice].jour_fin)
+ 	  SS_PUT_CELL@("B:"++vl_col++"22", vm_calendrier[vl_indice].mois_fin)
+ 	  SS_PUT_CELL@("B:"++vl_col++"23", vm_calendrier[vl_indice].annee_fin)
+ 	  SS_PUT_CELL@("B:"++vl_col++"24", vm_calendrier[vl_indice].heure_fin)
+ 	  SS_PUT_CELL@("B:"++vl_col++"25", vm_calendrier[vl_indice].minute_fin)
+
+ 	  vl_formule="+DATE("++vl_col++"17;"++vl_col++"16;"++vl_col
+			++"15)+TEMPS("++vl_col++"18;"++vl_col++"19;0)"
+ 	  SS_PUT_CELL@("B:"++vl_col++"20",vl_formule)
+ 	  SS_PUT_CELL@("B:"++vl_col++"26","+DATE("++vl_col++"23;"++vl_col++"22;"++vl_col
+			++"21)+TEMPS("++vl_col++"24;"++vl_col++"25;0)")
+
+   		vl_col_next=SS_COL_STRING@(vl_indice+2+vl_decalage)
+		vl_range=SS_RANGE@(vl_indice+1+vl_decalage, 27, 
+									vl_indice+1+vl_decalage,60,1)
+		SS_COPY@(vl_range)
+		SS_PASTE@("B:"++vl_col_next++"28", NULL, FALSE)
+	next vl_indice
+
+	vl_decalage=ARRAY_SIZE@(vm_calendrier)+vl_decalage
+next vl_index
+
+/* calculer */
+SS_CALC@(1,0,NULL,NULL)
+SS_RECALC@()
+
+/*recuperation des donnees calculees*/
+vl_range=SS_RANGE@(1, 27, vl_decalage, 60,1)
+SS_COPY@(vl_range)
+tl_data=ELF_GET_CLIPBOARD@()
+
+SS_SET_SHEET@("A")
+for vl_indice=0 to (ARRAY_SIZE@(tl_jours)-1)
+   vl_col=SS_COL_STRING@(vl_indice+3)
+  SS_PUT_CELL@("A:"++vl_col++"2", tl_jours[vl_indice][0]+0)
+next vl_indice
+
+SS_PUT_CELL@("A:A1", "Visualisation des astreintes a partir du "
+			++SUBSTRING@(vl_debut,1,10))
+
+/*dessin du calendrier*/
+TAS_dessiner(tl_data)
+
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* choix du zoom en annee 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_annee()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_indice,vl_index
+VAR tl_fenetres
+VAR tl_type_collage
+VAR j,vl_col,vl_col_next
+vAR vl_range
+VAR vl_formule,tl_data
+VAR FORMAT TAS_Calendrier tl_calendrier
+VAR vl_decalage
+VAR vl_debut,vl_fin
+VAR tl_jours
+	VAR    FORMAT  SQL_Procedure_Params@ vl_parametres
+	VAR    FORMAT  SQL_Procedure_Result@ vl_resultats
+VAR vl_date
+
+tl_fenetres=LIST_OF_WINDOWS@()
+vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tl_fenetres, 3), SYSTEM_VAR@(vg_task_id))
+
+SELECT_WINDOW@(tl_fenetres[vl_indice][0],TRUE)
+
+SS_LOAD_FILE@(SYSTEM_VAR@(vg_repertoire_migrazur)++C_REP_MOD ++ C_MOD_ANNEE)
+SS_SAVE_AS@("/tmp/"++C_MOD_ANNEE,1,2,2)
+
+SET_SYSTEM_VAR@(vg_zoom, C_ZOOM_ANNEE)
+
+SS_SET_SHEET@("B")
+SS_CALC@(0,0,NULL,NULL)
+/*tl_type_collage[0]=0
+tl_type_collage[1]=-1
+SS_PASTE_SPECIAL@("BA2", tl_type_collage)*/
+
+tl_calendrier=SYSTEM_VAR@(vg_calendrier)
+vm_t_competences=SYSTEM_VAR@(vg_competences)
+
+/*recupere horodates de debut et de fin de la periode de visualisation*/
+vl_debut=SYSTEM_VAR@(vg_debut)
+vl_fin=SYSTEM_VAR@(vg_fin)
+
+if (vl_debut=null) {
+  INFO_MESSAGE@("Saisissez une periode de visualisation")
+  return
+}
+				vl_parametres[0].type=SYB#DATETIME_
+				vl_parametres[0].data=vl_debut
+				vl_parametres[0].output=FALSE
+
+				vl_parametres[1].type=SYB#DATETIME_
+				vl_parametres[1].data=vl_debut
+				vl_parametres[0].output=FALSE
+
+				vl_parametres[2].type=SYB#INT1_
+				vl_parametres[2].data=4
+				vl_parametres[2].output=FALSE
+
+				vl_parametres[3].type=SYB#DATETIME_
+				vl_parametres[3].output=TRUE
+
+				vl_parametres[4].type=SYB#DATETIME_
+				vl_parametres[4].output=TRUE
+
+				if COM05_SQL_Procedure(XZAN43_Delta_Horodates,vl_parametres,
+							vl_resultats,C_MODULE) =COM_NOK  
+					RETURN (COM_NOK)
+vl_date=COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[0])
+
+SS_PUT_CELL@("B:B1", SUBSTRING@(vl_date, 1,2))
+SS_PUT_CELL@("B:B2", SUBSTRING@(vl_date, 4,2))
+SS_PUT_CELL@("B:B3", SUBSTRING@(vl_date, 7,4))
+
+/*recuperation des numeros des semaines*/
+TAS_Libelles_Periodes(vl_date,3,tl_jours)
+
+vl_decalage=0
+/*boucle sur les competences*/
+for vl_index=0 to (ARRAY_SIZE@(tl_calendrier)-1)
+  vm_calendrier=tl_calendrier[vl_index]
+
+	vl_col=SS_COL_STRING@(vl_index+1+vl_decalage)
+	  SS_PUT_CELL@("B:"++vl_col++"12",vm_t_competences[vl_index].type_astreinte)
+	  SS_PUT_CELL@("B:"++vl_col++"13",vm_t_competences[vl_index].sous_type_astreinte)
+	  SS_PUT_CELL@("B:"++vl_col++"14",vm_t_competences[vl_index].district)
+
+	/*boucle sur les periodes*/
+	for vl_indice=0 to (ARRAY_SIZE@(vm_calendrier)-1)
+	  vl_col=SS_COL_STRING@(vl_indice+1+vl_decalage)
+
+ 	  SS_PUT_CELL@("B:"++vl_col++"15", vm_calendrier[vl_indice].jour_debut)
+	  SS_PUT_CELL@("B:"++vl_col++"16", vm_calendrier[vl_indice].mois_debut)
+	  SS_PUT_CELL@("B:"++vl_col++"17", vm_calendrier[vl_indice].annee_debut)
+  	  SS_PUT_CELL@("B:"++vl_col++"18", vm_calendrier[vl_indice].heure_debut)
+ 	  SS_PUT_CELL@("B:"++vl_col++"19", vm_calendrier[vl_indice].minute_debut)
+ 	  SS_PUT_CELL@("B:"++vl_col++"21", vm_calendrier[vl_indice].jour_fin)
+ 	  SS_PUT_CELL@("B:"++vl_col++"22", vm_calendrier[vl_indice].mois_fin)
+ 	  SS_PUT_CELL@("B:"++vl_col++"23", vm_calendrier[vl_indice].annee_fin)
+ 	  SS_PUT_CELL@("B:"++vl_col++"24", vm_calendrier[vl_indice].heure_fin)
+ 	  SS_PUT_CELL@("B:"++vl_col++"25", vm_calendrier[vl_indice].minute_fin)
+
+ 	  vl_formule="+DATE("++vl_col++"17;"++vl_col++"16;"++vl_col
+			++"15)+TEMPS("++vl_col++"18;"++vl_col++"19;0)"
+ 	  SS_PUT_CELL@("B:"++vl_col++"20",vl_formule)
+ 	  SS_PUT_CELL@("B:"++vl_col++"26","+DATE("++vl_col++"23;"++vl_col++"22;"++vl_col
+			++"21)+TEMPS("++vl_col++"24;"++vl_col++"25;0)")
+
+   		vl_col_next=SS_COL_STRING@(vl_indice+2+vl_decalage)
+		vl_range=SS_RANGE@(vl_indice+1+vl_decalage, 27, 
+									vl_indice+1+vl_decalage,80,1)
+		SS_COPY@(vl_range)
+		SS_PASTE@("B:"++vl_col_next++"28", NULL, FALSE)
+	next vl_indice
+
+	vl_decalage=ARRAY_SIZE@(vm_calendrier)+vl_decalage
+next vl_index
+
+/* calculer */
+SS_CALC@(1,0,NULL,NULL)
+SS_RECALC@()
+
+/*recuperation des donnees calculees*/
+vl_range=SS_RANGE@(1, 27, vl_decalage, 80,1)
+SS_COPY@(vl_range)
+tl_data=ELF_GET_CLIPBOARD@()
+
+SS_SET_SHEET@("A")
+for vl_indice=0 to (ARRAY_SIZE@(tl_jours)-1)
+   vl_col=SS_COL_STRING@(vl_indice+3)
+    if (tl_jours[vl_indice][0]+0=53)
+		tl_jours[vl_indice][0]=1
+  SS_PUT_CELL@("A:"++vl_col++"2", "'"++tl_jours[vl_indice][0]++"")
+next vl_indice
+
+SS_PUT_CELL@("A:A1", "Visualisation des astreintes a partir du "
+			++SUBSTRING@(vl_debut,1,10))
+
+/*dessin du calendrier*/
+TAS_dessiner(tl_data)
+
+
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* init
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_Lecture_Calendrier(va_num_comp,
+				FORMAT TLS_Astreintes va_competence,va_une_competence)
+/*
+* ARGUMENTS EN ENTREE :
+*		va_fenetre		Identifiant de la fenetre d'affichage.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*	Afficher la liste des machines du site.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_indice
+VAR 	tl_data
+VAR	tl_date
+VAR tl_calendrier
+VAR tl_interlocuteurs
+VAR vl_comp,vl_index
+VAR tl_competences
+
+
+vl_comp=null
+vl_index=0
+
+IF (SYSTEM_VAR@(vg_debut)=null)  {
+  INFO_MESSAGE@("Saisissez d'abord une periode de visualisation")
+  RETURN
+}
+
+/*cas d'une seule competence*/
+if (va_une_competence=XDC_VRAI){
+  tl_data=TAS_Lecture_Base(va_num_comp)
+	tl_calendrier[0]=tl_data[0]
+	tl_interlocuteurs[0]=tl_data[1]
+	tl_competences[0]=va_competence
+}
+else {
+  for vl_indice=0 to (ARRAY_SIZE@(va_competence)-1)
+    	tl_data=null
+	if (vl_comp<>va_num_comp[vl_indice]) {
+
+		tl_data=TAS_Lecture_Base(va_num_comp[vl_indice])
+		tl_interlocuteurs[vl_index]=tl_data[1]
+		tl_calendrier[vl_index]=tl_data[0]
+		vl_comp=va_num_comp[vl_indice]
+		tl_competences[vl_index]=va_competence[vl_indice]
+		vl_index=vl_index+1
+	}
+  next vl_indice
+}
+SET_SYSTEM_VAR@(vg_calendrier, tl_calendrier)
+SET_SYSTEM_VAR@(vg_interlocuteurs, tl_interlocuteurs)
+
+SET_SYSTEM_VAR@(vg_competences, tl_competences)
+
+SET_SYSTEM_VAR@(vg_toutes_competences, va_competence)
+RETURN (COM_OK)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* init
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_Lecture_Base (va_num_comp)
+
+/*
+* ARGUMENTS EN ENTREE :
+*		va_fenetre		Identifiant de la fenetre d'affichage.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*	Afficher la liste des machines du site.
+*
+---------------------------------------------------------------------------- */
+VAR	FORMAT	SQL_Procedure_Params@ vl_parametres
+VAR	FORMAT	SQL_Procedure_Result@ vl_resultats
+VAR	vl_indice
+VAR 	tl_data
+VAR	tl_date
+VAR tl_retour
+
+/*lecture du calendrier*/
+vl_parametres=null
+vm_calendrier=null
+vm_l_interlocuteurs=null
+
+vl_parametres[0].type = TFC_Numero_Competence
+vl_parametres[0].data = va_num_comp
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#DATETIME_
+vl_parametres[1].data = SYSTEM_VAR@(vg_debut)
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#DATETIME_
+vl_parametres[2].data = SYSTEM_VAR@(vg_fin)
+vl_parametres[2].output = FALSE
+
+IF COM05_SQL_Procedure (XZAN44_ListeAstreintesCompetence,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+      RETURN (COM_NOK)
+
+tl_data=vl_resultats.select_results[0]
+for vl_indice=0 to (ARRAY_SIZE@(tl_data)-1)
+  vm_calendrier[vl_indice].numero=tl_data[vl_indice][2]
+  vm_calendrier[vl_indice].nom=tl_data[vl_indice][3]
+
+  tl_date=COM19_Date_SGBD_Eclatee(tl_data[vl_indice][0])
+  vm_calendrier[vl_indice].jour_debut=tl_date[0]
+  vm_calendrier[vl_indice].mois_debut=tl_date[1]
+  vm_calendrier[vl_indice].annee_debut=tl_date[2]
+  vm_calendrier[vl_indice].heure_debut=tl_date[3]
+  vm_calendrier[vl_indice].minute_debut=tl_date[4]
+
+  tl_date=COM19_Date_SGBD_Eclatee(tl_data[vl_indice][1])
+  vm_calendrier[vl_indice].jour_fin=tl_date[0]  
+  vm_calendrier[vl_indice].mois_fin=tl_date[1]
+  vm_calendrier[vl_indice].annee_fin=tl_date[2]
+  vm_calendrier[vl_indice].heure_fin=tl_date[3]
+  vm_calendrier[vl_indice].minute_fin=tl_date[4]
+
+  vm_calendrier[vl_indice].horodebut=COM18_Date_SGBD_Formatee(tl_data[vl_indice][0])
+  vm_calendrier[vl_indice].horofin=COM18_Date_SGBD_Formatee(tl_data[vl_indice][1])
+next vl_indice
+
+/*recherches des interlocuteurs competents*/
+vl_parametres=null
+vl_resultats=null
+vl_parametres[0].type = TFC_Numero_Competence
+vl_parametres[0].data = va_num_comp
+vl_parametres[0].output = FALSE
+IF COM05_SQL_Procedure (XZAN31_Rech_Interlo_Competents,
+		       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+  RETURN (COM_NOK)
+
+vm_l_interlocuteurs = vl_resultats.select_results[0]
+
+tl_retour=null
+tl_retour[0]=vm_calendrier
+tl_retour[1]=vm_l_interlocuteurs
+return (tl_retour)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* init
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_Dessiner(ta_data)
+
+/*
+* ARGUMENTS EN ENTREE :
+*		va_fenetre		Identifiant de la fenetre d'affichage.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*	Afficher la liste des machines du site.
+*
+---------------------------------------------------------------------------- */
+
+VAR FORMAT BORDERS_INFO_ BINFO
+VAR vl_indice,vl_index
+VAR tl_data
+VAR FORMAT TLS_Astreintes tl_competences
+VAR tl_num_comp
+vAR vl_comp
+var tl_resultats
+var tl_calendrier
+var vl_decalage
+var vl_col
+var vl_taille,vl_semaine
+var vl_boucle
+
+vl_comp=null
+vl_index=0
+vl_decalage=0
+vl_boucle=0
+
+BINFO = null    ' clear from prior usage
+        BINFO.OUTLINE.STYLE = -1
+        BINFO.OUTLINE.COLOR = ""
+        BINFO.TOP.STYLE = 0
+        BINFO.TOP.COLOR = "WorkArea Foreground"
+        BINFO.BOT.STYLE = 0
+        BINFO.BOT.COLOR = "WorkArea Foreground"
+        BINFO.LEFT.STYLE = 1
+        BINFO.LEFT.COLOR = "WorkArea Foreground"
+        BINFO.RIGHT.STYLE = 0
+        BINFO.RIGHT.COLOR = "WorkArea Foreground"
+        BINFO.SHADING.STYLE = 4
+
+SS_SET_SHEET@("A")
+tl_data=ta_data
+
+vm_t_competences=SYSTEM_VAR@(vg_competences)
+tl_calendrier=SYSTEM_VAR@(vg_calendrier)
+vl_semaine=ARRAY_SIZE@(tl_data)
+
+/*boucle sur toutes les competences*/
+for vl_index=0 to (ARRAY_SIZE@(tl_calendrier)-1)
+  vm_calendrier=tl_calendrier[vl_index]
+	vl_taille=ARRAY_SIZE@(vm_calendrier)
+
+	/*boucle sur toutes les periodes de chaque competence*/
+	for vl_indice=vl_decalage to vl_decalage+vl_taille-1
+
+		/*boucle sur tous les bouts de journee*/
+		for vl_boucle=0 to vl_semaine-1
+			tl_resultats[vl_index][vl_boucle]=
+				tl_resultats[vl_index][vl_boucle]+
+				tl_data[vl_boucle][vl_indice]
+		next vl_boucle
+	next vl_indice
+
+	vl_decalage=vl_decalage+vl_taille
+next vl_index
+
+for vl_indice=0 to (ARRAY_SIZE@(tl_resultats)-1)
+   SS_PUT_CELL@("A:A"++(vl_indice+3),vm_t_competences[vl_indice].type_astreinte)
+   SS_PUT_CELL@("A:B"++(vl_indice+3),vm_t_competences[vl_indice].sous_type_astreinte)
+   SS_PUT_CELL@("A:C"++(vl_indice+3),vm_t_competences[vl_indice].district)
+
+  for vl_index=0 to (ARRAY_SIZE@(tl_resultats[vl_indice])-1)
+	if (SYSTEM_VAR@(vg_zoom)<>C_ZOOM_SEMAINE)
+	  BINFO.LEFT.STYLE = 1
+	else if (SYSTEM_VAR@(vg_zoom)=C_ZOOM_SEMAINE) and (((vl_index+4) MOD 4) = 0)
+	  BINFO.LEFT.STYLE = 1
+	else
+	  BINFO.LEFT.STYLE = 0
+
+	if (tl_resultats[vl_indice][vl_index]+0>0) {
+	  	if (vl_indice MOD 2) = 0 {
+		  BINFO.SHADING.FGCOLOR="Vert"
+			  BINFO.SHADING.BGCOLOR="Vert"
+		}
+	      	else {
+		      BINFO.SHADING.FGCOLOR="Vert 75"
+		      BINFO.SHADING.BGCOLOR="Vert 75"
+		}
+	}
+	else {
+		BINFO.SHADING.FGCOLOR=""
+		BINFO.SHADING.BGCOLOR=""
+	}
+     	SS_SET_BORDERS@(SS_COORDINATE@(vl_index+3,vl_indice+2,0),BINFO)
+  next vl_index
+next vl_indice
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* init
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_Libelles_Periodes(va_horodate,va_mode,ta_libelles)
+
+/*
+* ARGUMENTS EN ENTREE :
+*		va_fenetre		Identifiant de la fenetre d'affichage.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*	Afficher la liste des machines du site.
+*
+---------------------------------------------------------------------------- */
+VAR	FORMAT	SQL_Procedure_Params@ vl_parametres
+VAR	FORMAT	SQL_Procedure_Result@ vl_resultats
+
+vl_parametres[0].type = SYB#DATETIME_
+vl_parametres[0].data = va_horodate
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_mode
+vl_parametres[1].output = FALSE
+
+IF COM05_SQL_Procedure (XZAN42_Libelles_Periodes,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+      RETURN (COM_NOK)
+
+ta_libelles = vl_resultats.select_results[0]
+return (COM_OK)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* choix du zoom en mois 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_imprimer()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR FORMAT TAS_Calendrier tl_calendrier
+VAR FORMAT TLS_Astreintes tl_competences
+VAR FORMAT TAS_impression tl_impression
+VAR vl_taille
+VAR vl_indice,vl_index
+VAR vl_nb_periodes
+VAR vl_boucle,vl_data
+VAR vl_range
+
+tl_competences=SYSTEM_VAR@(vg_competences)
+tl_calendrier=SYSTEM_VAR@(vg_calendrier)
+vl_taille=0
+vl_index=0
+vl_nb_periodes=0
+vl_boucle=0
+
+vl_parametres[0].type = TFA_Numero_Fiche_Annuaire       ' Numero fiche a lire
+vl_parametres[0].data = 0
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#CHAR_                       ' Nom interlocuteur
+vl_parametres[1].output = TRUE
+
+vl_parametres[2].type = SYB#CHAR_                       ' Fonction
+vl_parametres[2].output = TRUE
+
+vl_parametres[3].type = TFC_Numero_Competence           ' Numero competence
+vl_parametres[3].output = TRUE
+
+vl_parametres[4].type = SYB#CHAR_                       ' Adresse
+vl_parametres[4].output = TRUE
+
+vl_parametres[5].type = SYB#CHAR_                       ' Explications Tel1
+vl_parametres[5].output = TRUE
+
+vl_parametres[6].type = SYB#CHAR_                       ' Telephone 1
+vl_parametres[6].output = TRUE
+
+vl_parametres[7].type = SYB#CHAR_                       ' Explications Tel2
+vl_parametres[7].output = TRUE
+
+vl_parametres[8].type = SYB#CHAR_                       ' Telephone 2
+vl_parametres[8].output = TRUE
+
+vl_parametres[9].type = SYB#CHAR_                       ' Explications Tel3
+vl_parametres[9].output = TRUE
+
+vl_parametres[10].type = SYB#CHAR_                      ' Telephone 3
+vl_parametres[10].output = TRUE
+
+vl_parametres[11].type = SYB#CHAR_                      ' Explications Fax
+vl_parametres[11].output = TRUE
+
+vl_parametres[12].type = SYB#CHAR_                      ' Fax
+vl_parametres[12].output = TRUE
+
+vl_parametres[13].type = SYB#CHAR_                      ' Explications Bip
+vl_parametres[13].output = TRUE
+
+vl_parametres[14].type = SYB#CHAR_                      ' Bip
+vl_parametres[14].output = TRUE
+
+vl_parametres[15].type = TFA_Identifiant_Type_Bip       ' Type Bip
+vl_parametres[15].output = TRUE
+
+vl_parametres[16].type = SYB#CHAR_                      ' Commentaire
+vl_parametres[16].output = TRUE
+
+vl_parametres[17].type = SYB#DATETIME_                  ' Validite commentaire
+vl_parametres[17].output = TRUE
+
+vl_parametres[18].type = SYB#CHAR_                      ' Telephone commentaire
+vl_parametres[18].output = TRUE
+
+/*calcule la taille du tableau a imprimer*/
+for vl_indice=0 to (ARRAY_SIZE@(tl_competences)-1)
+  vl_taille=ARRAY_SIZE@(tl_calendrier[vl_indice])
+
+	/*recup des competences*/
+	for vl_index=vl_boucle to (vl_boucle+vl_taille-1)
+  		tl_impression[vl_index].sous_type=
+					tl_competences[vl_indice].sous_type_astreinte
+  		tl_impression[vl_index].district=
+					tl_competences[vl_indice].district
+	next vl_index
+
+	/*recup des interlocuteurs*/
+	for vl_index=0 to vl_taille-1
+		tl_impression[vl_index+vl_boucle].debut=
+					tl_calendrier[vl_indice][vl_index].horodebut
+	
+		tl_impression[vl_index+vl_boucle].fin=
+					tl_calendrier[vl_indice][vl_index].horofin
+		tl_impression[vl_index+vl_boucle].nom=
+			tl_calendrier[vl_indice][vl_index].nom
+
+		/*lecture de la fiche annuaire*/
+		vl_resultats=null		
+		vl_parametres[0].data = tl_calendrier[vl_indice][vl_index].numero
+
+		IF COM05_SQL_Procedure (XZAN10_Lire_Fiche_Annuaire,
+                           vl_parametres, vl_resultats, "ITMA_TAS") <> COM_OK
+    			RETURN (COM_NOK)
+
+		vl_data = vl_resultats.return_parameters
+
+		tl_impression[vl_index+vl_boucle].tel1=trim@(vl_data[5])
+		tl_impression[vl_index+vl_boucle].comment1=trim@(vl_data[4])
+		tl_impression[vl_index+vl_boucle].tel2=trim@(vl_data[7])
+		tl_impression[vl_index+vl_boucle].comment2=trim@(vl_data[6])
+		tl_impression[vl_index+vl_boucle].tel3=trim@(vl_data[9])
+		tl_impression[vl_index+vl_boucle].comment3=trim@(vl_data[8])
+	next vl_index
+
+	vl_boucle=vl_boucle+vl_taille
+next vl_indice
+
+/*ouverture du traitement de texte en tache de fond*/
+SS_LOAD_FILE@(SYSTEM_VAR@(vg_repertoire_migrazur)++C_REP_MOD++C_MOD_IMPRESSION)
+
+/*on remplit le document*/
+vl_range=SS_RANGE@(0,3,10,ARRAY_SIZE@(tl_impression)+2)
+SS_PUT_RANGE@(vl_range,tl_impression)
+
+SS_PUT_CELL@("A:F1", tl_competences[0].type_astreinte)
+SS_PUT_CELL@("A:F2", "du "++SYSTEM_VAR@(vg_debut)++" au "++SYSTEM_VAR@(vg_fin))
+
+/*impression du fichier*/
+ENDMACRO
+

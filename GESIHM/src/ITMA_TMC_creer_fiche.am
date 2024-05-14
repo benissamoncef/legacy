@@ -1,0 +1,152 @@
+/*E*/
+/*Fichier : $Id: ITMA_TMC_creer_fiche.am,v 1.11 1998/01/06 17:47:03 gaborit Exp $      Release : $Revision: 1.11 $        Date : $Date: 1998/01/06 17:47:03 $
+------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------
+* MODULE MTMC * FICHIER ITMA_TMC_Fiche_Main_Courante.am
+------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Fiche de consultation et de mise a jour des operations
+* et evenements.
+*
+*  Cf. DCG §2.4.52
+*
+------------------------------------------------------
+* HISTORIQUE :
+*
+* Torregrossa	15 Nov  1995  : Ajout controle sur date debut et debut prevu 1.9
+* Verdier	09 aout 1996  : Maj suite modif xzae08 (DEM76)
+*  C.T.		09 dec 1997	: Modif appel XZAE08 pour PCniveau 2 (1531)
+------------------------------------------------------*/
+
+include	"dbase_.am"
+include 	"../inc/ITMA_COM.h"
+include 	"../inc/ITMA_TDO.h"
+include	"../../XDMICG/inc/xdc_ax.h"
+include	"../inc/ITMA_TAR.h"
+include	"../../XDMICG/inc/xzic_ax.h"
+include	"../inc/xzae08sp.h"
+
+
+/*X*/
+/*------------------------------------------------------
+* SERVICE RENDU : 
+* cree une fiche main courante autre que bouchon
+*
+------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_creer_fiche(va_type,va_mode,va_debut,va_debut_prevu,va_site_creation, va_degrade)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE :
+*
+* CODE RETOUR : 
+* aucun
+*
+*
+*
+---------------------------------------------------------*/
+
+	VAR FORMAT SQL_Procedure_Params@	vl_parametres	
+	VAR FORMAT SQL_Procedure_Result@	vl_resultats
+	VAR tl_retour
+	VAR vl_indice
+
+	IF NOT IS_NULL@(va_debut_prevu) AND  NOT IS_NULL@(va_debut)
+	{
+		INFO_MESSAGE@("Une FMC ne peut pas être créée en prévision avec une date de début renseignée")
+		tl_retour[0]=COM_NOK
+   	 	RETURN (tl_retour)
+	}
+
+	/*! cree en base la fiche*/
+	vl_indice=0
+	vl_parametres[vl_indice].type = SYB#INT4_     		vl_parametres[vl_indice].data=va_type
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+		vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste_surcharge)
+	ELSE
+		vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste)
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_     
+
+	/*! si la fiche est en prevision*/
+	IF (va_mode=XDC_FMC_ETAT_PREV)
+	{
+		vl_parametres[vl_indice].data= XDC_NON
+		vl_parametres[vl_indice-1].data= null
+	}
+	ELSE
+	{
+		vl_parametres[vl_indice].data= XDC_OUI
+	}
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+	
+	vl_parametres[vl_indice].type = SYB#DATETIME_     
+	vl_parametres[vl_indice].data= va_debut
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+	
+	vl_parametres[vl_indice].type = SYB#DATETIME_     
+	vl_parametres[vl_indice].data= va_debut_prevu
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+	
+	vl_parametres[vl_indice].type = SYB#INT2_     
+	vl_parametres[vl_indice].data= va_site_creation
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+	
+	vl_parametres[vl_indice].type = SYB#INT2_     
+/*
+	IF	(SYSTEM_VAR@(vg_comm_CI) <> XDC_OK) AND 
+	(SYSTEM_VAR@(vg_type_machine) = XDC_TYPE_PCNIVEAU2) 
+ 		vl_parametres[vl_indice].data= XDC_OUI
+	else
+ 		vl_parametres[vl_indice].data= XDC_NON
+*/
+	vl_parametres[vl_indice].data= va_degrade
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+	
+	vl_parametres[vl_indice].type = SYB#INT4_     
+	vl_parametres[vl_indice].output = TRUE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_     
+	vl_parametres[vl_indice].output = TRUE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_     
+	vl_parametres[vl_indice].output = TRUE
+
+	IF COM05_SQL_Procedure (XZAE08_Creer_Fiche_MC,
+		   vl_parametres, vl_resultats, "MTMC") <> COM_OK
+	{
+		INFO_MESSAGE@("Impossible de créer la fiche en base")
+		tl_retour[0]=COM_NOK
+   	 	RETURN (tl_retour)
+	}
+
+	/*B memorise le numero et la cle de la tete*/
+	tl_retour[1]=vl_resultats.return_parameters
+	
+	/*B retourne ces valeurs*/	
+	tl_retour[0]=COM_OK
+	RETURN (tl_retour)
+ENDMACRO
+

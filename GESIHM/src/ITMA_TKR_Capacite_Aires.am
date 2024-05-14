@@ -1,0 +1,605 @@
+/*E*/
+/* Fichier : $Id: ITMA_TKR_Capacite_Aires.am,v 1.6 1996/01/29 17:07:40 gaborit Exp $      Release : $Revision: 1.6 $        Date : $Date: 1996/01/29 17:07:40 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TKR * FICHIER ITMA_TKR_Capacite_Aires.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*  Liste des aires situees sur une autoroute choisie par l'operateur et entre
+*  deux aires ou deux valeurs de PR.
+*  Calcul de la capacite totale en VL et en PL.
+*
+*  Non decrit dans le DCG
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain  16 Mar 1995 : Creation                                       V1.1
+* Lecrivain  04 Avr 1995 : Visualisation du sens de circulation           V1.3
+* Torregrossa  10 Oct 1995 : Correction de la liste retournee lors PR amont 
+*                            egal a PR aval                               V1.4
+* Torregrossa  24 Nov 1995 : Prise en compte du sens de l'A57		V1.5 
+* Torregrossa  29 Jan 1996 : Ajout impression 	                	V1.6 
+---------------------------------------------------------------------------- */
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+
+
+
+DEFINE	C_MODULE				"MTKR"			' Nom du module
+DEFINE	C_MODELE_CAP_AIRES		"ITMA_TKR_Capacite_Aires"	' Nom du modele
+
+
+
+/*A
+ * Definition des libelles de messages affiches
+ * --------------------------------------------
+ */
+
+DEFINE	C_LIB_SAISIR_PR		"Veuillez saisir un PR amont et un PR aval"
+
+
+
+VAR	vm_autoroute				' Numero de l'autoroute selectee
+
+VAR FORMAT TDO_Aire vm_t_aires_auto		' Table des aires de l'autoroute
+
+VAR FORMAT TDO_Autoroute vm_les_autoroutes	' Table des autoroutes
+VAR FORMAT TDO_Aire vm_les_aires		' Les aires (non supprimees)
+
+VAR	vm_sens_calcul_aires	' sens utilise pour le calcul des capacites
+VAR	vm_numero_poste		' numero du poste operateur
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualise les aires d'une autoroute situees entre deux aires choisies ou
+*  entre deux PR saisis, ainsi que leurs capacites en VL et PL.
+*  Calcule et affiche les capacites totales.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TKR_Capacite_Aires (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*   Permet a l'operateur de choisir dans la liste des aires d'une autoroute
+*   soit une aire de debut et une aire de fin, soit un PR de debut et de fin.
+*   Calcule ensuite puis affiche les capacites totales en VL et PL des aires
+*   situees sur l'itineraire ainsi defini.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_PR_amont, vl_PR_aval		' Valeurs de PR saisies
+    VAR     vl_select
+    VAR     tl_capacites
+    VAR   FORMAT TDO_Aire  tl_tableau
+    VAR     vl_fichier
+    VAR     i
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (COM_NOK)
+}
+
+
+/*A
+ * memoriser le numero du poste operateur
+ * --------------------------------------
+ */
+vm_numero_poste=SYSTEM_VAR@(vg_numero_poste)
+
+/*A
+ * Charger la fenetre "Capacite Aires"
+ * -----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TKR")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_FMC, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TKR_Capacite_Aires")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_PR_Amont", COM_CHIFFRES ++ ".,")
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_PR_Aval", COM_CHIFFRES ++ ".,")
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Autoroutes", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Autoroutes", -1)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "TA_Aire_Amont", TRUE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_Aire_Amont", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_Aire_Amont", FALSE)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "TA_Aire_Aval", TRUE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_Aire_Aval", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_Aire_Aval", FALSE)
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_Aires", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_Aires", FALSE)
+
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider", TRUE)
+
+
+/*A
+ * Initialiser la visualisation (listes des autoroutes)
+ * ----------------------------------------------------
+ */
+IF TKR_Init_Visualisation (vl_fenetre) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_VAL_INVAL
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur selection d'une autoroute, afficher la liste de ses aires
+     * -------------------------------------------------------------
+     */
+
+    CASE "BL_Autoroutes"
+	vl_select = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Autoroutes")
+	TKR_Aires_Autoroute (vl_fenetre, vm_les_autoroutes[vl_select].numero)
+
+	DB_TABLE_CLEAR_DATA@ (vl_fenetre, "TA_Aires", 0, -1)
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider", FALSE)
+
+
+    /*A
+     * Sur selection d'une aire, afficher le PR correspondant
+     * ------------------------------------------------------
+     */
+
+    CASE "TA_Aire_Amont"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Aire_Amont")
+	DB_CTRL_VALUE@ (vl_fenetre, "BS_PR_Amont",
+			    TRIM@ (vm_t_aires_auto[vl_select[0]].PR_entree))
+
+    CASE "TA_Aire_Aval"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Aire_Aval")
+	DB_CTRL_VALUE@ (vl_fenetre, "BS_PR_Aval",
+			    TRIM@ (vm_t_aires_auto[vl_select[0]].PR_entree))
+
+
+    /*A
+     * Sur choix "Valider", verifier qu'un PR amont et aval sont saisis
+     * puis rechercher et afficher les aires situees entre ces deux PR
+     * ----------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	vl_PR_amont = COM26_Valeur_PR (vl_fenetre, "BS_PR_Amont")
+	vl_PR_aval = COM26_Valeur_PR (vl_fenetre, "BS_PR_Aval")
+
+	IF vl_PR_amont = XDC_PR_INCONNU {
+	    BEEP@
+	    INFO_MESSAGE@ (C_LIB_SAISIR_PR)
+	    DB_CURSOR_IN_ENTRY@ (vl_fenetre, "BS_PR_Amont", FALSE)
+	} ELSE IF vl_PR_aval = XDC_PR_INCONNU {
+	    BEEP@
+	    INFO_MESSAGE@ (C_LIB_SAISIR_PR)
+	    DB_CURSOR_IN_ENTRY@ (vl_fenetre, "BS_PR_Aval", FALSE)
+	} ELSE
+	    TKR_Calcul_Capacites (vl_fenetre, vl_PR_amont/1000, vl_PR_aval/1000,
+					vm_les_autoroutes[DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Autoroutes")].sens	)
+
+    /*A
+     * Sur choix "Imprimer", imprimer les capacites des aires affichées
+     * ----------------------------------------------------------------
+     */
+
+    CASE "BP_imprimer"
+	tl_tableau = DB_TABLE_GET_DATA@(vl_fenetre, "TA_Aires")
+	IF ARRAY_SIZE@(tl_tableau) > 0 {
+		WP_APPLICATION_DLG@(NULL, TRUE)
+		WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+				COM_SOUS_REP_IHM ++ C_MODELE_CAP_AIRES ++ ".aw")
+
+		vl_select = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Autoroutes")
+		WP_SET_DOC_VAR@ ("Autoroute", vm_les_autoroutes[vl_select].nom)
+		vl_PR_amont = COM26_Valeur_PR (vl_fenetre, "BS_PR_Amont")
+		vl_PR_aval = COM26_Valeur_PR (vl_fenetre, "BS_PR_Aval")
+		IF vl_PR_amont<>NULL
+			WP_SET_DOC_VAR@ ("PR_Amont", COM31_Libelle_PR (vl_PR_amont))
+		IF vl_PR_aval<>NULL
+			WP_SET_DOC_VAR@( "PR_Aval",COM31_Libelle_PR (vl_PR_aval))
+
+		tl_capacites=NULL
+		FOR i=0 TO ARRAY_SIZE@(tl_tableau) - 1
+			tl_capacites[i] = tl_tableau[i].nom, tl_tableau[i].PR_entree,
+				 tl_tableau[i].capacite_VL, tl_tableau[i].capacite_PL
+		NEXT i
+		WP_SET_DOC_VAR@("Aires", tl_capacites)
+
+         vl_fichier = C_MODELE_CAP_AIRES ++ "_" ++  vm_numero_poste
+
+           COM36_Imprimer_Texte(vl_fichier)
+	} ELSE
+		INFO_MESSAGE@("Liste des capacités des aires est vide : pas d'impression")
+
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation (liste des autoroutes, titres colonnes tables).
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TKR_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TKR_Capacite_Aires
+*
+* FONCTION
+*   Initialise les valeurs de la liste des autoroutes avec les donnees figurant
+*   dans le module global.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TDO_Aire vl_t_aires		' Liste complete des aires
+    VAR     vl_t_titres				' Titres colonnes table
+    VAR     i, j
+
+
+/*A
+ * Lire la liste des autoroutes et valuer les libelles a l'ecran
+ * -------------------------------------------------------------
+ */
+
+vm_les_autoroutes = SYSTEM_VAR@ (vg_les_autoroutes)
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Autoroutes",
+		    ARRAY_COLUMN@ (vm_les_autoroutes, TDO_NOM_AUTOROUTE))
+
+
+/*A
+ * Lire la liste des aires et ignorer celles qui ont ete supprimees
+ * ----------------------------------------------------------------
+ */
+
+vl_t_aires = SYSTEM_VAR@ (vg_les_aires)
+
+j = 0
+FOR i = 0  TO ARRAY_SIZE@ (vl_t_aires) - 1
+    IF NOT vl_t_aires[i].supprime {
+	vm_les_aires[j] = vl_t_aires[i]
+	vm_les_aires[j].PR_entree = COM31_Libelle_PR (vm_les_aires[j].PR_entree)
+	j = j + 1
+    }
+NEXT i
+
+
+/*A
+ * Definir les titres des colonnes des tables
+ * ------------------------------------------
+ */
+
+vl_t_titres[0] = "Numero",	0	' Titre colonne et taille en pixels
+vl_t_titres[1] = "Nom",		236
+vl_t_titres[2] = "Abbrev",	0
+vl_t_titres[3] = "Autoroute",	0
+vl_t_titres[4] = "PR Entrée",	70
+vl_t_titres[5] = "PR Sortie",	0
+vl_t_titres[6] = "Sens",	38
+vl_t_titres[7] = "", 0
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)			' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)				'  aux objets tables
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Aire_Amont", NULL, vl_t_titres)
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Aire_Aval", NULL, vl_t_titres)
+
+
+vl_t_titres[4] = "PR",		52
+
+vl_t_titres[6] = "Sens",	0
+vl_t_titres[7] = "VL",		41
+vl_t_titres[8] = "PL",		41
+vl_t_titres[9] = "", 0
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Aires", NULL, vl_t_titres)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Value les listes des aires "amont" et "aval" de la fenetre indiquee avec
+*  la liste des aires de l'autoroute indiquee.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TKR_Aires_Autoroute (va_fenetre, va_autoroute)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_autoroute      : Id. de l'autoroute dont on selectionne les aires.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TKR_Capacite_Aires
+*
+* FONCTION
+*   Initialise les valeurs des listes d'aires "amont" et "aval" en extrayant
+*   de la liste complete des aires celles situees sur l'autoroute indiquee.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_noms_aires		' Liste des noms affichee
+    VAR     i, j
+
+
+vm_t_aires_auto = NULL
+
+/*A
+ * Extraire les aires de l'autoroute indiquee
+ * ------------------------------------------
+ */
+
+j = 0
+FOR i = 0  TO ARRAY_SIZE@ (vm_les_aires) - 1
+    IF vm_les_aires[i].autoroute = va_autoroute {
+	vm_t_aires_auto[j] = vm_les_aires[i]
+	j = j + 1
+    }
+NEXT i
+
+
+/*A
+ * Valuer les tables des aires et annuler les selections
+ * -----------------------------------------------------
+ */
+
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_Aire_Amont", 0, -1)
+DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_Aire_Amont", vm_t_aires_auto, 0)
+DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Aire_Amont", NULL)
+
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_Aire_Aval", 0, -1)
+DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_Aire_Aval", vm_t_aires_auto, 0)
+DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Aire_Aval", NULL)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Affiche les aires situees entre deux PR amont et aval et leurs capacites.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TKR_Calcul_Capacites (va_fenetre, va_PR_amont, va_PR_aval, va_sens_inverse)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a valuer ;
+*   va_PR_amont       : Valeur du PR amont ;
+*   va_PR_aval        : Valeur du PR aval.
+*   va_sens_inverse  : sens de l'autoroute inverse ou non.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TKR_Capacite_Aires
+*
+* FONCTION
+*   Extrait de la liste des aires de l'autoroute selectionnee celles dont le PR
+*   d'entree est situe entre les deux PR indiques.
+*   Calcule et affiche leurs capacites totales en VL et PL.
+*
+---------------------------------------------------------------------------- */
+
+	VAR		vl_PR_inf, vl_PR_sup		' Les valeurs de PR ordonnees
+	VAR		vl_sens					' Sens de circulation induit
+    VAR FORMAT TDO_Aire vl_t_aires			' Table des aires recherchees
+	VAR		vl_capacite_VL, vl_capacite_PL	' Leurs capacites calculees
+	VAR		vl_select, vl_sens_aire_amont, vl_sens_aire_aval
+	VAR		i, j
+
+/*A
+ * Determiner le sens de circulation defini par les deux PR
+ * --------------------------------------------------------
+ */
+
+IF va_PR_amont < va_PR_aval {
+    vl_PR_inf = va_PR_amont
+    vl_PR_sup = va_PR_aval
+
+	IF va_sens_inverse > 0
+		vl_sens = XDC_SENS_SUD
+	ELSE	vl_sens = XDC_SENS_NORD
+} ELSE IF va_PR_amont > va_PR_aval {
+    vl_PR_inf = va_PR_aval
+    vl_PR_sup = va_PR_amont
+
+	IF va_sens_inverse > 0
+		vl_sens = XDC_SENS_NORD
+	ELSE	vl_sens = XDC_SENS_SUD
+} ELSE {
+	vl_PR_inf = va_PR_aval
+	vl_PR_sup = va_PR_amont
+
+	vl_select = DB_TABLE_GET_SELECTIONS@(va_fenetre,"TA_Aire_Amont")
+	vl_sens_aire_amont = vm_t_aires_auto[vl_select[0]].sens_circul
+	vl_select = DB_TABLE_GET_SELECTIONS@(va_fenetre,"TA_Aire_Aval")
+	vl_sens_aire_aval = vm_t_aires_auto[vl_select[0]].sens_circul
+
+	IF vl_sens_aire_amont = vl_sens_aire_aval
+		vl_sens = vl_sens_aire_amont
+	ELSE	vl_sens = XDC_SENS_INCONNU
+}
+vm_sens_calcul_aires = vl_sens
+
+/*A
+ * Extraire les aires situees entre les deux PR et dans le sens defini
+ * (dans le cas ou le sens n'est pas defini, la liste des aires retournee 
+ * prend en compte les 2 sens)
+ * -------------------------------------------------------------------
+ */
+
+vl_capacite_VL = 0
+vl_capacite_PL = 0
+
+j = 0
+FOR i = 0  TO ARRAY_SIZE@ (vm_t_aires_auto) - 1
+    IF (vm_t_aires_auto[i].sens_circul = vl_sens OR vl_sens = XDC_SENS_INCONNU) AND
+       vm_t_aires_auto[i].PR_entree >= vl_PR_inf  AND
+       vm_t_aires_auto[i].PR_entree <= vl_PR_sup {
+	vl_t_aires[j] = vm_t_aires_auto[i]
+	vl_capacite_VL = vl_capacite_VL + vl_t_aires[j].capacite_VL
+	vl_capacite_PL = vl_capacite_PL + vl_t_aires[j].capacite_PL
+	j = j + 1
+    }
+NEXT i
+
+
+/*A
+ * Afficher les aires selectees et leurs capacites
+ * -----------------------------------------------
+ */
+
+i = ARRAY_SIZE@ (vl_t_aires) + 1
+vl_t_aires[i].nom = "CAPACITE TOTALE :"
+vl_t_aires[i].capacite_VL = vl_capacite_VL
+vl_t_aires[i].capacite_PL = vl_capacite_PL
+
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_Aires", 0, -1)
+DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_Aires", vl_t_aires, 0)
+i[0] = i
+DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Aires", i)
+
+
+RETURN (COM_OK)
+
+ENDMACRO

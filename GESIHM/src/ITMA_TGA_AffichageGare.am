@@ -1,0 +1,847 @@
+/*E*/
+/* Fichier : $Id: ITMA_TGA_AffichageGare.am,v 1.20 2020/11/03 17:38:58 pc2dpdy Exp $	Release : $Revision: 1.20 $       Date : $Date: 2020/11/03 17:38:58 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TFO * FICHIER ITMA_TGA_AffichageGare.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*	Description d'un Affichage en gare
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Noel      02 Nov 1994 : Creation					V1.1
+* Guilhou   26 Dec 1994 : Modif evenement lie                             V1.3
+* Lecrivain 10 Mar 1995 : Message de 5 lignes de 50 caracteres            V1.7
+* Torregrossa 11 Sep 1995       : Ajout controle sur dates V1.8
+* Torregrossa 12 Oct 1995       : Modif liste des gares par la liste des peages V1.9
+* Torregrossa 18 Oct 1995       : Suppression mise en commentaire sur valider V1.10
+* Torregrossa 25 Oct 1995       : modif lecture action via FMC            V1.11
+* Torregrossa 08 Jan 1996       : Ajout controle sur lien fmc non effectue V1.12
+* Guilhou	17 sep 1996 	: modif gestion lien cause pour applix 4.2	V1.13
+* Guilhou	28nov 1996	: acces distant au CI depuis pc simplifie (DEM/1298) 1.14
+* Guilhou		03 oct 1997	: liste FMC cause a le m look que liste des FMC a traiter (ana/65) 1.15
+* Niepceron	30/06/98		: coupure à 50 car de chaque ligne pour eviter erreur en base 1.16
+* ESCOTA        12/01/99        : EVOL1 : Ce n'est plus l'horodate de fin qui est mise a jour par defaut mais 
+					  l'horodate de debut de prise en compte par le peagiste 1.17
+* Guilhou	24/02/00	: SAE29 affichage sur plusieurs gares 1.18
+* Hilmarcher    08/08/05        : Ajout d'une bibliotheque de messages predefinis pour affichage DEM489 v1.19
+* LCL   	22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"../../XDMICG/inc/xzac37sp.h"
+INCLUDE	"../../XDMICG/inc/xzac17sp.h"
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+DEFINE	C_ERR_IHM                  1
+
+DEFINE	C_LIB_LIER_FMC			"Lier d'abord un événement à l'intervention"
+
+DEFINE	C_MODULE	"MTGA"		' Nom du module
+DEFINE  REP_CONFIG              "../fichiers/"
+
+VAR		vm_appelant			' Nom du module appelant
+
+VAR		vm_NumAction 		' Numéro de l'action traitée
+VAR		vm_NumFMC			' Numero de la fiche main courante liee
+VAR		vm_CleFMC			' Cle de la fiche main courante liee
+VAR		vm_CleAction		' Cle de l'action
+
+VAR		vm_gare				' Gare si appelant est MTMT
+
+VAR		vm_horodate_lancement	' Horodate de lancement de l'action
+								'	(de validation a la creation)
+VAR		tm_liste_causes
+
+VAR		vm_simplifie
+var             vm_table_proposition    ' libellés du tableau des proposition
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Description d'un affichage en gare.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TGA_AffichageGare (va_appelant, va_parametres)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_parametres        : Nom de la macro Applix ayant invoquee la presente ou
+*					 chaine d'arguments envoyee par MSOP ou MTMC à decoder.
+*
+*					Cette chaine est constituee de :
+*								IdAppelant, caractere separateur,
+*								NumFMC, caractere separateur,
+*								CleFMC, caractere separateur,
+*								NumAction, caractere separateur,
+*								CleAction.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+*  	Appele depuis MSOP sur selection de l'objet gare
+*	Appele depuis la liste des actions realisees dans MTMC
+*	Appele depuis le menu principal MTMT
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR     vl_installer_traitement_erreur
+	VAR		vl_fenetre_AffichageGare		' identifiant de la fenetre
+	VAR		vl_la_fenetre_est_active		'pour sortir de la boucle principale
+	VAR		vl_objet_selecte				' identifiant d'un objet selectionne
+
+	VAR FORMAT COM_Intitule_FMC vl_FMC		' Intitule d'une FMC
+	VAR		vl_libelle						' Libelle de la FMC
+
+	VAR FORMAT TDO_Gare	vl_liste_gares	' Liste des gares du reseau
+	VAR		vl_liste_BO					' tableau intermediaire d'init d'un BO
+	VAR		tl_data, tl_titres, tl_retour
+	VAR		vl_horodate
+	VAR		vl_Status
+	VAR		vl_site
+	VAR		i, j
+	VAR 		vl_fichier,vl_tpm,vl_tpm2,vl_ele_propo
+	VAR		vl_rang, vl_lecture 
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (COM_NOK)
+}
+
+
+/*A definir d'ou vient l'activation de la BD */
+vm_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+
+/*si calcul au PC simplifie*/
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  vm_simplifie=TRUE
+else
+  vm_simplifie=FALSE
+
+/*A
+ * Charger la fenetre "Affichage en gare"
+ * --------------------------------------
+ */
+
+vl_fenetre_AffichageGare = DB_LOAD@ ("ITMA_TGA_AffichageGare")
+DB_WINDOW_REMAIN@ (vl_fenetre_AffichageGare, TRUE)
+
+DB_XPOS@ (vl_fenetre_AffichageGare, 0)
+DB_YPOS@ (vl_fenetre_AffichageGare, 93)
+DB_WIDTH@ (vl_fenetre_AffichageGare, COM_LARGEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre_AffichageGare, "ITMA_TGA_AffichageGare")
+
+
+/*A Initialiser le choix des peages des gares et des echangeurs du reseau */
+vl_site = SYSTEM_VAR@(vg_site)
+vl_liste_gares = SYSTEM_VAR@(vg_les_peages)
+
+IF vl_site = XDC_CI
+{
+	FOR i = 0 TO  ARRAY_SIZE@ (vl_liste_gares) - 1
+		vl_liste_BO[i] = vl_liste_gares[i].nom
+	NEXT i
+} ELSE {
+	j=0
+	FOR i = 0 TO  ARRAY_SIZE@ (vl_liste_gares) - 1
+		IF vl_liste_gares[i].district = vl_site {
+			vl_liste_BO[j] = vl_liste_gares[i].nom
+			j = j+1
+		}
+	NEXT i
+}
+DB_CTRL_STRINGS@ (vl_fenetre_AffichageGare, "BL_liste_gares", vl_liste_BO)
+
+DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre_AffichageGare,"TA_proposition",24)
+DB_TABLE_ALLOW_COLUMN_RESIZING@(vl_fenetre_AffichageGare,"TA_proposition",True)
+
+DB_DISPLAY_ONLY@(vl_fenetre_AffichageGare,TRUE)
+DB_DISPLAY@(vl_fenetre_AffichageGare)
+
+tl_titres[0,0] = "Ligne 1"
+tl_titres[0,1] = 200
+tl_titres[1,0]  = "Ligne 2"
+tl_titres[1,1] = 200
+tl_titres[2,0] = "Ligne 3"
+tl_titres[2,1] = 150
+tl_titres[3,0] = "Ligne 4"
+tl_titres[3,1] = 150
+tl_titres[4,0] = "Ligne 5"
+tl_titres[4,1] = 150
+DB_TABLE_SET_DATA@(vl_fenetre_AffichageGare,"TA_proposition" ,NULL,tl_titres,NULL)
+
+DB_DISPLAY_ONLY@(vl_fenetre_AffichageGare,FALSE)
+
+DB_TABLE_CLEAR_DATA@(vl_fenetre_AffichageGare,"TA_proposition",0,-1)
+DB_TABLE_SET_DATA@ ( vl_fenetre_AffichageGare,"TA_proposition" , NULL, NULL, NULL)
+DB_TABLE_SET_SELECTIONS@ (vl_fenetre_AffichageGare,"TA_proposition" , NULL)
+
+vl_fichier = REP_CONFIG ++ "pmv/Config_Element_Gare.cfg"
+if FILE_EXISTS@(vl_fichier)
+{
+	vl_tpm2 = READ_ASCII_FILE@(vl_fichier)
+        for i = 0 to ARRAY_SIZE@(vl_tpm2)-1
+                vl_tpm = array_from_string@(vl_tpm2[i],",")
+                for j = 0 to array_size@(vl_tpm)-1
+                        vl_ele_propo[i,j] = TRIM@(TABS_TO_SPACES@(vl_tpm[j]))
+                next j
+        next i
+
+        vm_table_proposition            = ""
+        for i = 0 to ARRAY_SIZE@(vl_ele_propo)-1
+                vm_table_proposition[i,0]       = vl_ele_propo[i,0]
+                vm_table_proposition[i,1]       = vl_ele_propo[i,1]
+                vm_table_proposition[i,2]       = vl_ele_propo[i,2]
+                vm_table_proposition[i,3]       = vl_ele_propo[i,3]
+		vm_table_proposition[i,4]       = vl_ele_propo[i,4]
+        next i
+
+        DB_TABLE_SET_NEW_TOP_ROW@(vl_fenetre_AffichageGare,"TA_proposition",0)
+	DB_TABLE_SET_DATA@(vl_fenetre_AffichageGare ,
+                                        "TA_proposition",
+                                        vm_table_proposition,
+                                       tl_titres,
+				       NULL)
+}
+
+/*A si appel depuis MSOP ou MTMC */
+IF vm_appelant = "MSOP"  OR  vm_appelant = "MTMC"
+{
+	vm_NumFMC = va_parametres[0]
+	vm_CleFMC = va_parametres[1]
+	vm_NumAction = va_parametres[2]
+	vm_CleAction = va_parametres[3]
+
+	/*B Initialiser le libelle de la FMC liee, la localisation et le message */
+
+	IF ITMA_COM_Lire_Evenement (vm_NumFMC, vm_CleFMC, vl_FMC, C_MODULE) = COM_OK
+		vl_libelle = COM11_Libelle_FMC (vl_FMC)
+
+	DB_CTRL_DISPLAY@(vl_fenetre_AffichageGare, "BL_liste_gares", FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre_AffichageGare, "LI_gare", FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre_AffichageGare, "LI_gare_de", TRUE)
+
+
+	IF TGA_init_action (vl_fenetre_AffichageGare,
+							vm_NumAction, vm_CleAction) <> COM_OK
+		RETURN (COM_NOK)
+}
+ELSE
+/*A ESCOTA : EVOL1 */
+/*A Sinon initialiser l'horodate de debut et l'horodate de prise en compte par le peagiste */
+{
+	vm_NumFMC = NULL
+	vm_CleFMC = NULL
+	vm_CleAction = NULL
+	vm_NumAction = NULL
+
+	vl_horodate = COM09_Date_Courante ()
+	COM24_Afficher_Horodate (vl_horodate, vl_fenetre_AffichageGare,
+								"BS_jour_debut_affichage",
+								"BS_mois_debut_affichage",
+								"BS_annee_debut_affichage",
+								"BS_heure_debut_affichage",
+								"BS_minute_debut_affichage")
+
+	COM24_Afficher_Horodate (vl_horodate, vl_fenetre_AffichageGare,
+								"BS_jour_debut_cr_peagiste",
+								"BS_mois_debut_cr_peagiste",
+								"BS_annee_debut_cr_peagiste",
+								"BS_heure_debut_cr_peagiste",
+								"BS_minute_debut_cr_peagiste")
+}
+
+DB_CTRL_TITLE@ (vl_fenetre_AffichageGare, "LI_FMC_liee", vl_libelle)
+
+
+if (vm_simplifie)
+  DB_CTRL_DISPLAY@(vl_fenetre_AffichageGare,"BP_valider",FALSE)
+	
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_DISPLAY@ (vl_fenetre_AffichageGare)
+
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_AffichageGare)
+    IF SYSTEM_VAR@ (vg_verrou) vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+	CASE "BP_quitter"
+		if (vm_simplifie) {
+			SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+			SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+		}	
+		vl_la_fenetre_est_active = FALSE
+
+
+  	/*B appui sur le bouton lier fmc*/
+    CASE "BP_lier_fmc"
+		MACRO_WINS_BUSY@()
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+							"ITMA_TGA_Affichage_Gare")
+
+		tm_liste_causes=tl_data[0]
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vl_fenetre_AffichageGare,"TA_Evenements",TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_AffichageGare,"TA_Evenements",TRUE)
+		DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre_AffichageGare, "TA_Evenements", 25)		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+		DB_TABLE_SET_DATA@(vl_fenetre_AffichageGare,"TA_Evenements",tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_AffichageGare, "TA_Evenements", 0, tl_data[2])
+
+
+	/*B selection d'un element dans la liste des fiches a traiter*/
+  	CASE "TA_Evenements"
+		MACRO_WINS_BUSY@()
+		tl_retour=ITMA_COM_Validite_Cause("ITMA_TGA_AffichageGare",
+								vl_fenetre_AffichageGare,
+								tm_liste_causes)
+		vm_NumFMC = tl_retour[0][0]
+		vm_CleFMC = tl_retour[0][1]
+		vl_libelle = tl_retour[1]
+		DB_CTRL_TITLE@ (vl_fenetre_AffichageGare, "LI_FMC_liee", vl_libelle)
+
+
+    /*A bouton aide a la composition de l'horodate debut affichage*/
+    CASE "BP_horodebut_plan"
+		COM24_Afficher_Horodate(COM09_Date_Courante(), vl_fenetre_AffichageGare,
+								"BS_jour_debut_affichage",
+								"BS_mois_debut_affichage",
+								"BS_annee_debut_affichage",
+								"BS_heure_debut_affichage",
+								"BS_minute_debut_affichage")
+
+
+    /*A bouton aide a la composition de l'horodate fin affichage*/
+    CASE "BP_horofin_plan"
+		COM24_Afficher_Horodate(COM09_Date_Courante(), vl_fenetre_AffichageGare,
+								"BS_jour_fin_affichage",
+								"BS_mois_fin_affichage",
+								"BS_annee_fin_affichage",
+								"BS_heure_fin_affichage",
+								"BS_minute_fin_affichage")
+
+
+    /*A bouton aide a la composition de l'horodate debut peage*/
+    CASE "BP_horodebut_peage"
+		COM24_Afficher_Horodate(COM09_Date_Courante(), vl_fenetre_AffichageGare,
+								"BS_jour_debut_cr_peagiste",
+								"BS_mois_debut_cr_peagiste",
+								"BS_annee_debut_cr_peagiste",
+								"BS_heure_debut_cr_peagiste",
+								"BS_minute_debut_cr_peagiste")
+
+    /*A bouton aide a la composition de l'horodate fin peage*/
+    CASE "BP_horofin_peage"
+		COM24_Afficher_Horodate(COM09_Date_Courante(), vl_fenetre_AffichageGare,
+								"BS_jour_fin_cr_peagiste",
+								"BS_mois_fin_cr_peagiste",
+								"BS_annee_fin_cr_peagiste",
+								"BS_heure_fin_cr_peagiste",
+								"BS_minute_fin_cr_peagiste")
+
+
+    /*A
+     * Sur choix "Valider", mettre en base les valeurs saisies et terminer
+	 * -------------------------------------------------------------------
+     */
+
+    CASE "BP_valider"
+          IF vm_NumFMC = NULL
+               ERROR@ (C_ERR_IHM, C_LIB_LIER_FMC)
+
+		vl_Status = TGA_Valider_action (vl_fenetre_AffichageGare)
+		IF vl_Status = COM_OK
+			vl_la_fenetre_est_active = FALSE
+    
+    CASE "BP_message"
+                vl_lecture = DB_TABLE_GET_SELECTIONS@(vl_fenetre_AffichageGare,"TA_proposition")
+		vl_rang = vl_lecture[0]
+		vl_lecture= DB_TABLE_GET_DATA@(vl_fenetre_AffichageGare,"TA_proposition")
+		DB_CTRL_VALUE@(vl_fenetre_AffichageGare,"BS_Message1",vl_lecture[vl_rang,0])
+		DB_CTRL_VALUE@(vl_fenetre_AffichageGare,"BS_Message2",vl_lecture[vl_rang,1])
+		DB_CTRL_VALUE@(vl_fenetre_AffichageGare,"BS_Message3",vl_lecture[vl_rang,2])
+		DB_CTRL_VALUE@(vl_fenetre_AffichageGare,"BS_Message4",vl_lecture[vl_rang,3])
+		DB_CTRL_VALUE@(vl_fenetre_AffichageGare,"BS_Message5",vl_lecture[vl_rang,4])
+
+    
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les objets de la boite de dialogue qui decrivent l'action
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TGA_init_action (va_fenetre, va_NumAction, va_CleAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        	: Id. de la fenetre ;
+*	va_NumAction		: Numero de l'action ;
+*	va_CleAction		: Cle de l'action.
+*
+* ARGUMENTS EN SORTIE :
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGA_AffichageGare
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+VAR		vl_indice					' indice des parametres passes à XZAC37
+VAR     vl_horodate, vl_message
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+/*A positionner les parametres d'appel de la requete BDD */
+vl_indice = 0
+/*B Numero de l'action */
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = va_NumAction
+vl_parametres[vl_indice].output = FALSE
+
+/*B Cle de l'action */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#INT1_
+vl_parametres[vl_indice].data = va_CleAction
+vl_parametres[vl_indice].output = FALSE
+
+/*A positionner les parametres de retour de la requete BDD */
+
+/*B Nom de la gare */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#CHAR_
+vl_parametres[vl_indice].data = 0
+vl_parametres[vl_indice].output = TRUE
+
+/*! Horodate de debut d'affichage */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#DATETIME_
+vl_parametres[vl_indice].data = " "
+vl_parametres[vl_indice].output = TRUE
+
+/*! Horodate de fin d'affichage */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#DATETIME_
+vl_parametres[vl_indice].data = " "
+vl_parametres[vl_indice].output = TRUE
+
+/*B Message */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#CHAR_
+vl_parametres[vl_indice].data = ""
+vl_parametres[vl_indice].output = TRUE
+
+/*! Horodate de lancement*/
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#DATETIME_
+vl_parametres[vl_indice].data = " "
+vl_parametres[vl_indice].output = TRUE
+
+/*! Horodate de fin prise en compte peagiste */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#DATETIME_
+vl_parametres[vl_indice].data = " "
+vl_parametres[vl_indice].output = TRUE
+
+/*B Operateur */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#INT2_
+vl_parametres[vl_indice].data = 0
+vl_parametres[vl_indice].output = TRUE
+
+/*! Horodate succes */
+vl_indice = vl_indice +1
+vl_parametres[vl_indice].type = SYB#DATETIME_
+vl_parametres[vl_indice].data = " "
+vl_parametres[vl_indice].output = TRUE
+
+
+/*A Appeler la procedure stockee XZAC37_Lire_Affichage_Gare */
+
+if (vm_simplifie) {
+	IF COM39_SQL_Procedure_PCS (XZAC37_Lire_Affichage_Gare,
+						vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@ ("Probleme XZAC37_Lire_Affichage_Gare")
+		SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+		SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+		RETURN (COM_NOK)
+	}
+}
+else {
+	IF COM05_SQL_Procedure (XZAC37_Lire_Affichage_Gare,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@ ("Probleme XZAC37_Lire_Affichage_Gare")
+		RETURN (COM_NOK)
+	}
+}
+
+/*A Recuperer les parametres de retour de procedure et initialiser la BD*/
+/*B Nom de la gare de peage */
+vm_gare = vl_resultats.return_parameters[0]
+DB_CTRL_TITLE@ (va_fenetre, "LI_gare_de", "Gare de : " ++ vm_gare)
+
+/*B Horodate de debut */
+vl_horodate = COM18_Date_SGBD_Formatee (vl_resultats.return_parameters[1])
+COM24_Afficher_Horodate (vl_horodate, va_fenetre,
+							"BS_jour_debut_affichage",
+							"BS_mois_debut_affichage",
+							"BS_annee_debut_affichage",
+							"BS_heure_debut_affichage",
+							"BS_minute_debut_affichage")
+
+/* Horodate de fin */
+vl_horodate = COM18_Date_SGBD_Formatee (vl_resultats.return_parameters[2])
+COM24_Afficher_Horodate (vl_horodate, va_fenetre,
+							"BS_jour_fin_affichage",
+							"BS_mois_fin_affichage",
+							"BS_annee_fin_affichage",
+							"BS_heure_fin_affichage",
+							"BS_minute_fin_affichage")
+
+/*! Horodate d'action peagiste fin */
+vl_horodate = COM18_Date_SGBD_Formatee (vl_resultats.return_parameters[5])
+COM24_Afficher_Horodate (vl_horodate, va_fenetre,
+							"BS_jour_fin_cr_peagiste",
+							"BS_mois_fin_cr_peagiste",
+							"BS_annee_fin_cr_peagiste",
+							"BS_heure_fin_cr_peagiste",
+							"BS_minute_fin_cr_peagiste")
+
+/*! Horodate d'action peagiste debut */
+vl_horodate = COM18_Date_SGBD_Formatee (vl_resultats.return_parameters[7])
+COM24_Afficher_Horodate (vl_horodate, va_fenetre,
+							"BS_jour_debut_cr_peagiste",
+							"BS_mois_debut_cr_peagiste",
+							"BS_annee_debut_cr_peagiste",
+							"BS_heure_debut_cr_peagiste",
+							"BS_minute_debut_cr_peagiste")
+
+/*B Le message */
+vl_message = vl_resultats.return_parameters[3]
+DB_CTRL_VALUE@ (va_fenetre, "BS_Message1", SUBSTRING@ (vl_message, 1, 50))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Message2", SUBSTRING@ (vl_message, 51, 50))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Message3", SUBSTRING@ (vl_message, 101, 50))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Message4", SUBSTRING@ (vl_message, 151, 50))
+DB_CTRL_VALUE@ (va_fenetre, "BS_Message5", SUBSTRING@ (vl_message, 201, 50))
+
+/*B horodate de lancement */
+vm_horodate_lancement = COM18_Date_SGBD_Formatee (vl_resultats.return_parameters[4])
+
+RETURN (COM_OK)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Valider une fiche affichage en gare
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TGA_Valider_action (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        	: Id. de la fenetre
+*	va_NumAction		: numero de l'action
+*	va_CleAction		: Cle de l'action
+*
+* ARGUMENTS EN SORTIE :
+*
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGA_AffichageGare
+*
+* FONCTION
+*
+* Recuperer les donnees de la fiche
+*
+---------------------------------------------------------------------------- */
+
+VAR		vl_indice, vl_indiceGare
+VAR		vl_liste
+VAR		vl_option
+VAR		vl_Status
+VAR		vl_HoroPlanDeb, vl_HoroPlanFin, vl_HoroFin, vl_HoroDeb
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+/*A Initialisation des arguments entree de la procedure stockée */
+vl_indice = 0
+/*B Numero de la fiche main courante */
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = vm_NumFMC
+	vl_parametres[vl_indice].output = FALSE
+
+/*B Cle de la fiche main courante */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#INT1_
+	vl_parametres[vl_indice].data = vm_CleFMC
+	vl_parametres[vl_indice].output = FALSE
+
+/*B Numero de l'action */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = vm_NumAction
+	vl_parametres[vl_indice].output = FALSE
+
+/*B Numero du site d'appartenance */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#INT1_
+	vl_parametres[vl_indice].data = SYSTEM_VAR@ (vg_site)+0
+	vl_parametres[vl_indice].output = FALSE
+
+/*B Nom de la gare */
+	vl_indice = vl_indice + 1
+	vl_indiceGare = vl_indice
+	vl_parametres[vl_indice].type = SYB#CHAR_
+	vl_parametres[vl_indice].output = FALSE
+
+/*! Horodate affichage planifie de debut */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].data = COM23_Horodate (va_fenetre,
+													"BS_jour_debut_affichage",
+													"BS_mois_debut_affichage",
+													"BS_annee_debut_affichage",
+													"BS_heure_debut_affichage",
+													"BS_minute_debut_affichage")
+	vl_parametres[vl_indice].output = FALSE
+	vl_HoroPlanDeb = vl_parametres[vl_indice].data
+
+/*! Horodate affichage planifie de fin */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].data = COM23_Horodate (va_fenetre,
+													"BS_jour_fin_affichage",
+													"BS_mois_fin_affichage",
+													"BS_annee_fin_affichage",
+													"BS_heure_fin_affichage",
+													"BS_minute_fin_affichage")
+	vl_parametres[vl_indice].output = FALSE
+	vl_HoroPlanFin = vl_parametres[vl_indice].data
+
+/*B Le message de l'affichette */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#CHAR_
+	vl_parametres[vl_indice].data =
+		FORMAT@ ("%50s%50s%50s%50s%50s",
+					SUBSTRING@ (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Message1"), 1,50),
+					SUBSTRING@ (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Message2"), 1,50),
+					SUBSTRING@ (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Message3"), 1,50),
+					SUBSTRING@ (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Message4"), 1,50),
+					SUBSTRING@ (DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Message5"), 1,50))
+	vl_parametres[vl_indice].output = FALSE
+
+/*! Horodate de lancement de l'action (création) */
+	/*B si creation de l'action recuperer l'horodate courante */
+	vl_indice = vl_indice + 1
+	IF vm_appelant = "MTMT"
+			vm_horodate_lancement = COM09_Date_Courante ()
+
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].data = vm_horodate_lancement
+	vl_parametres[vl_indice].output = FALSE
+
+	/*! Horodate d'action peagiste fin */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].data = COM23_Horodate (va_fenetre,
+													"BS_jour_fin_cr_peagiste",
+													"BS_mois_fin_cr_peagiste",
+													"BS_annee_fin_cr_peagiste",
+													"BS_heure_fin_cr_peagiste",
+													"BS_minute_fin_cr_peagiste")
+	vl_parametres[vl_indice].output = FALSE
+	vl_HoroFin = vl_parametres[vl_indice].data
+
+	/*B Numero de l'operateur */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#INT2_
+	vl_parametres[vl_indice].data = SYSTEM_VAR@ (vg_numero_operateur)
+	vl_parametres[vl_indice].output = FALSE
+
+	/*! Horodate d'action péagiste début */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].data = COM23_Horodate (va_fenetre,
+												"BS_jour_debut_cr_peagiste",
+												"BS_mois_debut_cr_peagiste",
+												"BS_annee_debut_cr_peagiste",
+												"BS_heure_debut_cr_peagiste",
+												"BS_minute_debut_cr_peagiste")
+	vl_parametres[vl_indice].output = FALSE
+
+      vl_HoroDeb = vl_parametres[vl_indice].data
+
+     /*A
+      * controle la coherence des dates
+      * -------------------------------
+      */
+     vl_Status = COM_OK
+     IF ( NOT IS_NULL@(vl_HoroFin)) AND (vl_Status = COM_OK)
+     	IF ( IS_NULL@(vl_HoroDeb))
+      	{
+                INFO_MESSAGE@("L'horodate de début doit etre saisie avant celle de fin")
+                vl_Status = COM_NOK
+      	}
+      	ELSE IF (COM17_Difference_Dates(vl_HoroFin,vl_HoroDeb)<0)
+      	{
+                INFO_MESSAGE@("L'horodate de fin doit être supérieure à l'horodate de début")
+                vl_Status = COM_NOK
+           }
+
+     IF ( NOT IS_NULL@(vl_HoroPlanFin)) AND (vl_Status = COM_OK)
+      	IF ( IS_NULL@(vl_HoroPlanDeb))
+           {
+                INFO_MESSAGE@("L'horodate de début de planification doit etre saisie avant celle de fin de planification")
+                vl_Status = COM_NOK
+            }
+            ELSE IF (COM17_Difference_Dates(vl_HoroPlanFin,vl_HoroPlanDeb)<0)
+            {
+                INFO_MESSAGE@("L'horodate de fin de planification doit être supérieure à l'horodate de début de planification")
+                vl_Status = COM_NOK
+            }
+     IF vl_Status = COM_NOK
+                RETURN (COM_NOK)
+
+/*A Initialisation des arguments sortie de la procedure stockée */
+
+/*B Numero d'action */
+	vl_indice = vl_indice + 1
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = 0
+	vl_parametres[vl_indice].output = TRUE
+
+/*B Site local */
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#CHAR_
+        vl_parametres[vl_indice].data = SYSTEM_VAR@(vg_nom_site)
+        vl_parametres[vl_indice].output = FALSE
+
+	/* SAE29*/
+	/* traitement du cas plusieurs gares*/
+	IF vm_appelant = "MSOP"  OR  vm_appelant = "MTMC"
+	{
+	        vl_parametres[vl_indiceGare].data = vm_gare
+
+		/*A Appeler la procedure de mise en base XZAC17_Ecrire_Affichage_Gare */
+		IF COM05_SQL_Procedure (XZAC17_Ecrire_Affichage_Gare,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK {
+			RETURN (COM_NOK)
+		}
+		vm_NumAction = vl_resultats.return_parameters[0]
+		RETURN (COM_OK)
+	}
+	ELSE
+	{
+		/*recupere la liste des gares choisies*/
+		vl_option = DB_CTRL_GET_VALUE@ (va_fenetre, "BL_liste_gares")
+		IF ARRAY_SIZE@(vl_option) = 0
+		{
+			INFO_MESSAGE@("Choisir un péage")
+			RETURN (COM_NOK)
+		}
+		vl_liste = DB_CTRL_GET_STRINGS@ (va_fenetre, "BL_liste_gares")
+
+		for vl_indice=0 to (ARRAY_SIZE@(vl_option)-1)
+			vl_parametres[vl_indiceGare].data = vl_liste[vl_option[vl_indice]]
+
+			/*A Appeler la procedure de mise en base XZAC17_Ecrire_Affichage_Gare */
+			IF COM05_SQL_Procedure (XZAC17_Ecrire_Affichage_Gare,
+						vl_parametres, vl_resultats, C_MODULE) <> COM_OK {
+   				RETURN (COM_NOK)
+			}
+		next vl_indice
+		vm_NumAction = vl_resultats.return_parameters[0] 
+
+		RETURN (COM_OK)
+	}
+ENDFUNCTION

@@ -1,0 +1,285 @@
+/*E*/
+/* Fichier : $Id: ITMA_TUE_Utilisation_Equip.am,v 1.10 2012/07/04 18:05:55 pc2dpdy Exp $      Release : $Revision: 1.10 $        Date : $Date: 2012/07/04 18:05:55 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TUE * FICHIER ITMA_TUE_Utilisation_Equip.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Utilisation d'un equipement.
+*
+*   Cf. DCG 2.4.69
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	08 Nov 1994 : Creation                                     V1.1
+* Lecrivain	13 Dec 1994 : Changement d'interface (liste d'arguments)   V1.3
+* Charles		20 Jan 1995 : Changementposition de la fenetre	      V1.4
+* Mismer  	26 Aou 1996 : Modif non macro consulation PMV  (DEM/1162)	V1.5
+* Guilhou	16 sep 1996 : ne rien faire sur PC simplifie (RADT)	V1.6
+* Mismer  	05 Nov 1996 : Modif non macro consulation NAV  (DEM/1228)	V1.7
+* Mismer  	29 Jan 1998 : Ajout macro consulation FAC,FAU,PAL  (DEM/1539)	V1.8
+* JMG		11/10/05 : ajout PMVA BAF BAD			1.9
+* JMG	20/11/012	: ajout PRV 1.10
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"../inc/xzat09sp.h"
+
+
+
+DEFINE	C_MODULE	"MTUE"			' Nom du module
+
+
+
+/*A
+ * Description du format des donnees lues en base
+ * ----------------------------------------------
+ */
+
+FORMAT	TUE_Evenement
+	priorite,
+	numero,
+	cle
+
+
+VAR     vm_l_evenements				' Liste des evenements affichee
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Affichage de l'utilisation d'un equipement (PMV, NAV, Tunnel ou Echangeur).
+*  Visualisation de la liste des evenements en attente d'utilisation de cet
+*  equipement.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TUE_Utilisation_Equip (va_appelant, va_l_args)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_appelant       : Nom de la macro Applix ayant invoque la presente ;
+*   va_l_args liste d'arguments :
+*    va_num_type_equip : Numero du type de l'equipement ;
+*    va_num_equip      : Numero de l'equipement.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation par MSOP.
+*
+* FONCTION
+*   Lit en base de donnees puis affiche la liste des evenements en attente
+*   d'utilisation de l'equipement d'identifiant indique.
+*   Invoque selon le type de l'equipement MTPM, MTNA, MTTU ou MTEC pour
+*   visualiser les details sur l'equipement.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_equip			' Nom de la fenetre du module
+
+    VAR     va_num_type_equip, va_num_equip	' Arguments
+
+    VAR     vl_macro_equip			' Nom module de visu. equipement
+
+
+/*A
+ * Traitements en cas d'erreur : informer
+ * l'operateur, tracer l'erreur et abandonner
+ * ------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*au PC simplifie*/
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  RETURN
+
+/*A
+ * Verifier la validite des arguments (valeurs numeriques)
+ * -------------------------------------------------------
+ */
+
+va_num_type_equip = va_l_args[0] + 0
+va_num_equip = va_l_args[1] + 0
+
+
+/*A
+ * Charger la fenetre "Liste evenements equipement"
+ * ------------------------------------------------
+ */
+
+vl_fenetre_equip = DB_LOAD@ ("ITMA_TUE")
+
+DB_XPOS@ (vl_fenetre_equip, 0)
+DB_YPOS@ (vl_fenetre_equip, 735)
+
+
+/*A
+ * Initialiser la visualisation (liste des evenements)
+ * ---------------------------------------------------
+ */
+
+IF TUE_Init_Liste_Equipements (vl_fenetre_equip,
+				  va_num_type_equip, va_num_equip) <> COM_OK
+    RETURN
+
+
+/*A
+ * Visualiser la fenetre
+ * ---------------------
+ */
+
+DB_DISPLAY_ONLY@ (vl_fenetre_equip, TRUE)
+DB_DISPLAY@ (vl_fenetre_equip)
+
+
+/*A
+ * Appeler le module de visualisation de l'equipement
+ * --------------------------------------------------
+ */
+
+CASE OF va_num_type_equip
+CASE XDC_EQT_PMV
+    vl_macro_equip = "ITMA_TPM_etat_PMV"
+
+CASE XDC_EQT_NAV
+    vl_macro_equip = "ITMA_TNA_consultation_NAV"
+
+CASE XDC_EQT_FAU
+    vl_macro_equip = "ITMA_TNA_consultation_NAV"
+
+CASE XDC_EQT_FAC
+    vl_macro_equip = "ITMA_TNA_consultation_NAV"
+
+CASE XDC_EQT_PAL
+    vl_macro_equip = "ITMA_TPP_consultation_PAL"
+
+CASE XDC_EQT_PMVA
+    vl_macro_equip = "ITMA_TPMVA_etat_PMVA"
+CASE XDC_EQT_PRV
+     vl_macro_equip = "ITMA_TPRV_etat_PRV"
+
+CASE XDC_EQT_BAF
+    vl_macro_equip = "ITMA_TBAF_consultation_BAF"
+
+CASE XDC_EQT_BAD
+    vl_macro_equip = "ITMA_TBAD_consultation_BAD"
+
+CASE XDC_EQT_TUB
+    vl_macro_equip = XDC_MACRO_MTTU
+
+CASE XDC_EQT_ECH
+    vl_macro_equip = XDC_MACRO_MTEC
+ENDCASE
+
+PEND_FOR_NEW_TASK@ (vl_macro_equip, "ITMA_TUE_Utilisation_Equip", va_num_equip)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TUE_Init_Liste_Equipements (va_fenetre, va_num_type_equip, va_num_equip)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_num_type_equip : Numero du type de l'equipement ;
+*   va_num_equip      : Numero de l'equipement.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TUE_Utilisation_Equip
+*
+* FONCTION
+*   Lit en base de donnees et affiche la liste des evenements en attente
+*   d'utilisation de l'equipement d'identifiant indique en argument.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TUE_Evenement vl_l_evt			' Evenements equipement
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR FORMAT COM_Intitule_FMC vl_FMC
+    VAR     i
+
+
+/*A
+ * Lire en base de donnees la liste d'evenements pour l'equipement
+ * ---------------------------------------------------------------
+ */
+
+vl_parametres[0].type = COM_Identifiant_Equipement
+vl_parametres[0].data = va_num_equip
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Type_Equip
+vl_parametres[1].data = va_num_type_equip
+vl_parametres[1].output = FALSE
+
+IF COM05_SQL_Procedure (XZAT09_File_Attente,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+vl_l_evt = vl_resultats.select_results[0]
+
+
+/*A
+ * Pour chaque evenement, lire ses informations
+ * detaillees et constituer son libelle
+ * --------------------------------------------
+ */
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_l_evt) - 1
+    IF ITMA_COM_Lire_Evenement (vl_l_evt[i].numero, vl_l_evt[i].cle, vl_FMC,
+				   C_MODULE) = COM_OK
+	vm_l_evenements[i] = COM11_Libelle_FMC (vl_FMC)
+    ELSE vm_l_evenements[i] = NULL
+NEXT i
+
+
+/*A
+ * Valuer la liste d'evenements a afficher
+ * ---------------------------------------
+ */
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_FMC", vm_l_evenements)
+DB_CTRL_VALUE@ (va_fenetre, "BL_FMC", -1)
+
+
+RETURN (COM_OK)
+
+ENDMACRO

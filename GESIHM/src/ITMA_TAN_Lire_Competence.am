@@ -1,0 +1,100 @@
+/*E*/
+/* Fichier : $Id: ITMA_TAN_Lire_Competence.am,v 1.3 1996/12/05 13:19:13 verdier Exp $      Release : $Revision: 1.3 $        Date : $Date: 1996/12/05 13:19:13 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TAN * FICHIER ITMA_TAN_Lire_Competence.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Fiche annuaire, fiche competence, fiche astreinte.
+*
+*   Cf. DCG 2.4.27, 2.4.28, 2.4.32
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	20 Oct 1994	: Creation
+* Guilhou	15 nov 1996	: refonte complete de la gestion des astreintes (DEM/1306) 1.2
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TFC.h"
+INCLUDE "../inc/ITMA_TFS.h"
+
+INCLUDE "../inc/xzan22sp.h"
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit les informations sur la competence de numero indique.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TAN_Lire_Competence (va_num_comp, va_module,
+				   FORMAT TFC_Competence va_competence)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_comp       : Numero de la competence a lire ;
+*   va_module         : Nom du module appelant.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_competence     : Informations de competence lues en base.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFA_Fiche_Annuaire
+*   ITMA_TFC_Fiche_Competence
+*   ITMA_TFS_Fiche_Astreinte
+*
+* FONCTION
+*   Lit en base de donnees les informations sur la competence de numero
+*   indique en argument.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TFC_Numero_Competence		' Numero competence
+vl_parametres[0].data = va_num_comp
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFS_Numero_Type_Astreinte	' Type astreinte
+vl_parametres[1].output = TRUE
+
+vl_parametres[2].type = TFS_District_Astreinte		' District astreinte
+vl_parametres[2].output = TRUE
+
+vl_parametres[3].type = TFC_Sous_Type_Astreinte
+vl_parametres[3].output = TRUE
+
+vl_parametres[4].type = TFS_District_Astreinte
+vl_parametres[4].output = TRUE
+
+IF COM05_SQL_Procedure (XZAN22_Lire_Competence,
+			   vl_parametres, vl_resultats, va_module) <> COM_OK
+    RETURN (COM_NOK)
+
+
+va_competence.num_type_astreinte  = vl_resultats.return_parameters[0]
+va_competence.num_district_astreinte = vl_resultats.return_parameters[1]
+va_competence.sous_type = vl_resultats.return_parameters[2]
+va_competence.site_responsable = vl_resultats.return_parameters[3]
+
+va_competence.l_zones_geo = vl_resultats.select_results[0]
+
+RETURN (COM_OK)
+
+ENDMACRO

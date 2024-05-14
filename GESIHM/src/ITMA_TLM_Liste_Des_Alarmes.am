@@ -1,0 +1,1651 @@
+/*E*/
+/*Fichier :  $Id: ITMA_TLM_Liste_Des_Alarmes.am,v 1.41 2021/05/03 13:53:00 pc2dpdy Exp $     Release : $Revision: 1.41 $        Date : $Date: 2021/05/03 13:53:00 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLM * FICHIER ITMA_TLM_Liste_Des_Alarmes.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Liste des alarmes en cours ;
+* acquittement d'alarmes selectionnees par l'operateur.
+*
+*   Cf. DCG 2.4.47
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 07 Sep 1994	: Creation
+* Lecrivain 17 Oct 1994	: Traiter un "poke_" en verrouillage IHM           V1.3
+* Lecrivain 08 Nov 1994	: Constantes d'etats communes avec MTCM            V1.4
+* Lecrivain 23 Dec 1994 : Changement localisation des fichiers pictogrammes V1.5
+* Lecrivain 27 Dec 1994 : Redimensionnement de la fenetre                 V1.5
+* Lecrivain 09 Jan 1995 : Mise en place appel main courante maintenance   V1.6
+* Lecrivain 21 Fev 1995 : Affichage DT                                    V1.10
+* Lecrivain 29 Mar 1995 : Affichage des equipements different       V1.12, 1.13
+* Lecrivain 28 Avr 1995 : Affichage montre a la lecture des alarmes        1.14
+* Guilhou	31 jui 1995 : tri sur les types d'équipements			1.15
+* Torregrossa	29 Aou 1995 : mise a jour de dt					1.16
+* Guilhou 11 Sep 1995	: correction suppression					1.18
+* Torregrossa	23 Oct 1995 : modif test code retour XZAM05			1.19
+* Torregrossa	25 Jan 1995 : degrisage du bouton pris connaissance sur 
+*                             selection de tous les types et d'acquitter 
+*                           global			1.20
+* Torregrossa	22 avr 1996 : ajout eqt fax dans menu autre		1.21
+* Guilhou	06 mai 1996 : passage du numero d'operateur sur acquittement 1.22 DEM/919
+* Guilhou	19 sep 1996 : plus de supprimer en mode degrade sur PC simplifie (RADT) 1.23
+* Mismer	27 Nov 1996 : Modif filtre type d'equip autre pour METEO (DEM/1232) 	1.24
+* Mismer	27 Nov 1996 : Mise a jour historique de la version 1.24 (DEM/1232)	1.24
+* Guilhou	26 mai 1997 : marche si famille exploitation 				1.26
+* Niepceron	24 jun 1997 : acces si pas poste peage 1.27 (DEM/1429 suite)
+* Torregrossa	19 jan 1998 : ajout des nouveaux eqt (1538)		1.28
+* Torregrossa	24 fev 1998 : correction rech PAL,FAC,FAU (1538)		1.29
+* Hilmarcher    22 aout 2005: Creation tri par alarme OU designation DEM498 v1.30
+* JMG		11/10/05 : ajout PMVA BAF BAD					1.31
+* JBL		Nov 2007 : DEM 665
+* JMG		15/09/09	 : FACTIS 1.33
+* JMG           29/09/09   : FACTIS DEM 914
+* JMG		25/05/12	:  regulation DEM 1016
+* JPL		03/01/12 : Criteres de criticite et activite fournis a xzam06 (lie a DEM 1057)  1.35
+* JMG		24/02/14 : animation temps reel sur alarme critique 1.36
+* JMG		29/09/14 : FACTIS SEND_POKE sur tout le site 1.37
+* JMG		29/12/14 : date dernier changement FACTIS  1.38
+* JMG		28/11/16 : SAGA 1.39
+* PNI		16/12/16 : Suppression du filtrage des autoroutes Escota DEM1207
+*  JMG           03/03/17 :  SAGA DEM1191
+* LCL		09/04/18 : Ajout controleurs de feux CTRL_FEUX 1.42 DEM1284
+* PNI		07/09/20	: Ajout site et dégroupage pour XZAM06 SAE-164 1.14
+* CGR		13/01/21	: Ajout IMU DEM-SAE155 1.41
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TCM.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+
+
+INCLUDE	"GESIHM/inc/xzam04sp.h"
+INCLUDE	"GESIHM/inc/xzam05sp.h"
+INCLUDE	"GESIHM/inc/xzam08sp.h"
+INCLUDE	"GESIHM/inc/xzam06sp.h"
+
+
+
+DEFINE	C_MODULE	"MTLM"			' Nom du module
+
+
+
+/*A
+ * Definition des libelles des messages affiches
+ * ---------------------------------------------
+ */
+
+DEFINE	C_LIB_DEJA_ACQUITTEE	"L'une des alarmes est déjà acquittée"
+
+
+
+/*A
+ * Valeurs affichees dans les champs d'etat
+ * ----------------------------------------
+ */
+
+DEFINE	C_ALARME_ACQUITTEE	"oui"
+DEFINE	C_ALARME_NON_ACQUITTEE	"non"
+
+DEFINE	C_ALARME_MAJEURE	"majeure"
+DEFINE	C_ALARME_MINEURE	"mineure"
+DEFINE	C_ALARME_CRITIQUE	"critique"
+
+DEFINE	C_DEMANDE_TRAVAUX	"oui"
+DEFINE	C_NON_DEMANDE_TRAVAUX	"non"
+
+DEFINE	C_NOM_EQT_AUTRE	"Autre"
+
+DEFINE	C_CRITIQUE 	0
+DEFINE	C_MAJEURE	1
+DEFINE  C_MINEURE	2
+DEFINE  C_TOUTES 	3
+
+DEFINE	C_ACTIVE	0
+DEFINE  C_INACTIVE	1
+DEFINE  C_TOUTES_ETAT	2
+
+DEFINE	CM_NOM_FICHIER	"alarmes_critiques"
+
+/*A
+ * Images digitalisees indiquant la prise de connaissance
+ * ------------------------------------------------------
+ */
+
+DEFINE	C_PICTO_NON_VUE		"pix_designer_gris"
+DEFINE	C_PICTO_VUE		"pix_designer"
+DEFINE  C_PICTO_BOUTON		"pix_designer_rouge"
+
+
+/*A
+ * Description du format des donnees alarmes affichees
+ * ---------------------------------------------------
+ */
+
+FORMAT	TLM_Alarme
+        type_equip,				' Type de l'equipement (25 car)
+        designation,				' Nom ou localisation equipement
+        date,					' Date changt. d'etat (16 car)
+        date_dernier_chgt,			' Date changt. d'etat (16 car)
+        nombre,					' Nombre d'apparitions
+        acquittee,				' Acquittee ? (oui ou non)
+        etat,					' Active / Inactive
+        libelle,				' Libelle de l'alarme (25 car)
+        urgence,				' mineure / majeure / critique
+	travaux,					' Demande de travaux (oui / non)
+	operateur,				'nom de l operateur qui acquitte
+	position,			 ' position de l'alarme dans la liste
+	animation_bouton
+
+/*A
+ * Description du format des donnees equipements affichees
+ * -------------------------------------------------------
+ */
+
+FORMAT	TLM_Equipement
+	type,
+	designation
+
+
+
+/*A
+ * Description du format des donnees internes
+ *  ET conservees entre deux visualisations
+ * ------------------------------------------
+ */
+
+FORMAT	TLM_Info_Alarmes
+	FORMAT COM_Identifiant_Alarme id_alarme,
+	nombre,
+	pris_connaissance
+
+
+
+/*A
+ * Description du format des donnees lues en base
+ * ----------------------------------------------
+ */
+
+FORMAT	TLM_Donnees_Alarmes
+	numero_type_alarme,
+	nom_type_alarme,
+	mineure,
+	majeure,
+	critique,
+	numero_type_equip,
+	numero_equip,
+	nom_equip,
+	date_1ere_apparition,
+	date_changement,
+	nb_apparitions,
+	etat,
+	travaux,
+	autoroute,
+	PR,
+	sens,
+	operateur_acquit,
+	nom_operateur,
+	animation_bouton
+
+
+VAR FORMAT TLM_Alarme vm_t_alarmes		' Table des alarmes affichee
+VAR	vm_l_picto				' Noms des pictogrammes associes
+
+VAR FORMAT TLM_Alarme	tm_data
+VAR FORMAT TLM_Alarme	tm_ex_data
+VAR FORMAT TLM_Alarme	tm_ex_alarmes
+
+VAR FORMAT TLM_Info_Alarmes tm_dataInfo		' Table des infos internes
+VAR 					tm_dataPicto
+VAR 					tm_ex_dataPicto
+VAR 					tm_ex_picto
+
+VAR FORMAT TLM_Info_Alarmes vm_t_info		' Table des infos internes
+VAR FORMAT TLM_Info_Alarmes tm_ex_info		' Table des infos internes
+VAR FORMAT TLM_Info_Alarmes tm_ex_datainfo		' Table des infos internes
+
+
+VAR FORMAT COM_Identifiant_Equip vm_l_equip	' Liste equipements pour choix
+VAR	vm_l_urgence				' Niveaux d'urgence pour choix
+VAR vm_l_urgence_tous
+
+VAR FORMAT TLM_Equipement vl_t_equip	' Liste equipements en alarme
+
+
+VAR FORMAT TDO_Type_Equipement vm_les_types_equip
+VAR	vm_l_types_equip			' Identifiants types equipements
+VAR	vm_l_nom_type_equip		       ' Identifiants noms types equipements
+
+VAR	tm_filtres			'filtres d'affichage sur les types d equipements
+VAR	vm_filtre				'filtre positionne ?
+
+VAR	tm_criteres_tri			'Valeurs de criteres de tri a utiliser
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation des alarmes en cours dans l'ordre chronologique ;
+*  mise en evidence des changements depuis la derniere consultation.
+*  Acquittement des alarmes.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLM_Liste_Des_Alarmes (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de Maintenir -> Surveiller -> liste d'alarmes  dans MTMS
+*
+* FONCTION
+*   Lit en base de donnees puis affiche la liste des alarmes en cours en
+*   mettant en evidence les changements par rapport a la derniere consultation.
+*   Permet a l'operateur de choisir des alarmes dans la liste affichee puis
+*   d'en effectuer l'acquittement, avec mise a jour de la base de donnees.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_alm			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_select				' Alarme(s) selectee(s)
+    VAR     vl_l_equip				' Equipement(s) selecte(s)
+    VAR     vl_urgence				' Niveau d'urgence selecte
+
+    VAR     vl_t_ligne				' Table d'une alarme (m.a.j.)
+    VAR     vl_num_type_equip, vl_num_equip
+    VAR     vl_deja_acquittee
+    VAR     vl_statut,vl_TypeAutre
+    VAR     i, j
+	VAR vl_index,vl_indice,vl_id_filtre
+	VAR vl_indexAlarme
+	VAR vl_filtre,tl_data
+	VAR vl_NumDT, vl_cmd
+	VAR vl_alarmes_non_supprimees
+	VAR vl_tri                              ' vl_tri=0 si tri par alarme 
+						' vl_tri=1 si tri par designation
+
+	VAR vl_type_eqt
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+if COM04_Operateur_A_Le_Droit_De(XDC_FAM_HISTO_PEAGE) 
+{
+     COM01_Trace(0," Appel par un utilisateur non autorisé")
+  RETURN(COM_OK)
+}
+
+/*A
+ * Charger la fenetre "Alarmes"
+ * ----------------------------
+ */
+
+vl_fenetre_alm = DB_LOAD@ ("ITMA_TLM")
+DB_WINDOW_REMAIN@ (vl_fenetre_alm, TRUE)
+
+DB_XPOS@ (vl_fenetre_alm, 0)
+DB_YPOS@ (vl_fenetre_alm, 93)
+
+COM02_Attacher_Aide (vl_fenetre_alm, "ITMA_TLM_Liste_Des_Alarmes")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_MTMT_ALM
+DB_ACCEPT_POKES@ (vl_fenetre_alm, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre_alm, "TA_Alarmes", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_alm, "TA_Alarmes", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_alm, "TA_Alarmes", FALSE)
+DB_CTRL_MULTI_SELECT@ (vl_fenetre_alm, "TA_Alarmes", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_alm, "TA_Alarmes", TRUE)
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_alm, "TA_Equipements", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_alm, "TA_Equipements", FALSE)
+DB_CTRL_MULTI_SELECT@ (vl_fenetre_alm, "TA_Equipements", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_alm, "TA_Equipements", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_alm, "BR_radio", TRUE )
+
+DB_CTRL_GRAYED@(vl_fenetre_alm,"BP_Acquitt_Global",TRUE)			
+DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Selection", TRUE)
+DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Main_Courante", TRUE)
+
+/* en mode degrade, ne plus supprimer sur pc simplifie*/
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  if (SYSTEM_VAR@(vg_comm_CI)<>COM_OK)
+    DB_CTRL_GRAYED@(vl_fenetre_alm,"BP_supprimer",TRUE)
+
+/*DEM498*/
+vl_tri = DB_CTRL_GET_VALUE@ (vl_fenetre_alm, "BR_radio")
+
+/*FACTIS*/
+if (SUBSTRING@(va_appelant,1,4) = "ISYN") {
+  DB_CTRL_VALUE@(vl_fenetre_alm,"BO_Criticite",C_CRITIQUE)
+  DB_CTRL_VALUE@(vl_fenetre_alm,"BO_activite",C_ACTIVE)
+}
+else {
+  DB_CTRL_VALUE@(vl_fenetre_alm,"BO_activite",C_TOUTES_ETAT)
+  DB_CTRL_VALUE@(vl_fenetre_alm,"BO_Criticite",C_TOUTES)
+}
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_alm,"BO_Criticite",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_alm,"BO_activite",TRUE)
+
+/*A
+ * Initialiser la visualisation (liste des alarmes)
+ * ------------------------------------------------
+ */
+IF TLM_Init_Visualisation (vl_fenetre_alm,vl_tri) <> COM_OK
+    RETURN (COM_NOK)
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_alm)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_alm)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_alm)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+
+	CASE COM_CANAL_MTMT_ALM
+	MACRO_WINS_BUSY@ ()
+	vl_tri = DB_CTRL_GET_VALUE@ (vl_fenetre_alm, "BR_radio")
+	TLM_Init_Liste_Alarmes (vl_fenetre_alm, vl_tri, FALSE, NULL)
+	DB_CTRL_VALUE@ (vl_fenetre_alm, "BO_type", 0)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Pris_Connaissance", FALSE)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Global", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Selection", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Main_Courante", TRUE)
+	DB_CTRL_GRAYED@(vl_fenetre_alm,"BP_supprimer",TRUE)
+
+
+        ENDCASE
+
+	CASE "BR_radio"
+		vl_tri = DB_CTRL_GET_VALUE@ (vl_fenetre_alm, "BR_radio")
+		vl_index=DB_CTRL_GET_VALUE@(vl_fenetre_alm,"BO_type")
+		IF (vl_index <> 9) /*choix autre*/
+		{
+			vl_type_eqt=null
+			j=0
+			FOR i=1 TO  (ARRAY_SIZE@(tm_filtres[vl_index]) -1)
+				vl_type_eqt[j] = vm_les_types_equip[ARRAY_INDEX@(vm_l_nom_type_equip,tm_filtres[vl_index][i])].numero
+				j = j+1
+			NEXT i
+			MACRO_WINS_BUSY@ ()
+			TLM_Init_Liste_Alarmes (vl_fenetre_alm, vl_tri, FALSE, vl_type_eqt)
+		}
+		ELSE /*appel a la proc avec type_eqt1 =XDC_DEBUT_TYPEQT_GTCRENOVEE*/
+		{
+			vl_type_eqt=null
+			vl_type_eqt[0]=XDC_DEBUT_TYPEQT_GTCRENOVEE
+			MACRO_WINS_BUSY@ ()
+			TLM_Init_Liste_Alarmes (vl_fenetre_alm, vl_tri, FALSE, vl_type_eqt)
+		}
+	/*A
+	* sur sélection d'un type d'équipement
+	* il faut filtrer la liste des alarmes 
+	* et autoriser la sélection multiple
+	* sauf si le choix est Tous */
+	CASE "BO_type"
+		MACRO_WINS_BUSY@ ()		
+		vl_index=DB_CTRL_GET_VALUE@(vl_fenetre_alm,vl_objet_selecte)
+
+		/*A si le choix est Tous*/
+		IF (vl_index=0)
+		{
+			vl_tri = DB_CTRL_GET_VALUE@ (vl_fenetre_alm, "BR_radio")
+			vl_type_eqt=null
+			j=0
+			FOR i=1 TO  (ARRAY_SIZE@(tm_filtres[vl_index]) -1)
+				vl_type_eqt[j] = vm_les_types_equip[ARRAY_INDEX@(vm_l_nom_type_equip,tm_filtres[vl_index][i])].numero
+				j = j+1
+			NEXT i
+			MACRO_WINS_BUSY@ ()
+			TLM_Init_Liste_Alarmes (vl_fenetre_alm, vl_tri, FALSE, vl_type_eqt)
+			
+			/*A reafficher la liste complete des alarmes*/
+			DB_TABLE_CLEAR_DATA@ (vl_fenetre_alm, "TA_Alarmes", 0, -1)
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre_alm, "TA_Alarmes", vm_t_alarmes, 0)
+			DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_alm, "TA_Alarmes", 0, vm_l_picto)
+
+			DB_TABLE_CLEAR_DATA@ (vl_fenetre_alm, "TA_Equipements", 0, -1)
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre_alm,"TA_Equipements",vl_t_equip,0)
+
+			vm_l_urgence=vm_l_urgence_tous
+			DB_CTRL_STRINGS@ (vl_fenetre_alm, "BO_Urgence", vm_l_urgence)
+
+			DB_TABLE_SET_SELECTIONS@ (vl_fenetre_alm, "TA_Equipements", NULL)
+			DB_CTRL_VALUE@ (vl_fenetre_alm, "BO_Urgence", 0)
+			vm_filtre=FALSE
+			DB_CTRL_GRAYED@ (vl_fenetre_alm,"BP_supprimer",TRUE)
+			tm_dataInfo=vm_t_info
+			tm_data=vm_t_alarmes
+			tm_dataPicto=vm_l_picto
+
+			DB_CTRL_GRAYED@ (vl_fenetre_alm,"BP_Pris_Connaissance",FALSE)
+			DB_CTRL_GRAYED@ (vl_fenetre_alm,"BP_Acquitt_Global",TRUE)			
+		}
+		/*A si le choix est Autre */
+		IF (tm_filtres[vl_index][0] = C_NOM_EQT_AUTRE)
+		{
+			tm_data=null
+			tm_dataPicto=null
+			tm_dataInfo=null
+			vl_indexAlarme=0
+			
+			vl_type_eqt=null
+			vl_type_eqt[0]=XDC_DEBUT_TYPEQT_GTCRENOVEE
+			MACRO_WINS_BUSY@ ()
+			TLM_Init_Liste_Alarmes (vl_fenetre_alm, vl_tri, FALSE, vl_type_eqt)
+
+			/*parcourt la liste des alarmes*/
+			/*
+			FOR vl_indice=0 TO (ARRAY_SIZE@(vm_t_alarmes)-1)
+				vl_TypeAutre = TRUE
+				FOR vl_id_filtre=1 TO (ARRAY_SIZE@(tm_filtres)-2)
+					FOR vl_filtre=1 TO
+						 (ARRAY_SIZE@(tm_filtres[vl_id_filtre])-1)
+						IF (vm_t_alarmes[vl_indice].type_equip=
+									tm_filtres[vl_id_filtre][vl_filtre])
+						{
+							vl_TypeAutre = FALSE
+						}
+					NEXT vl_filtre			
+				NEXT vl_id_filtre			
+				IF ( vl_TypeAutre )
+				{
+					tm_data[vl_indexAlarme]=vm_t_alarmes[vl_indice]
+					tm_data[vl_indexAlarme].position=vl_indice
+					tm_dataInfo[vl_indexAlarme]=vm_t_info[vl_indice]
+					tm_dataPicto[vl_indexAlarme]= vm_l_picto[vl_indice]
+					vl_indexAlarme=vl_indexAlarme+1
+
+   			 		IF ARRAY_INDEX@ (vm_l_urgence, 
+								vm_t_alarmes[vl_indice].urgence) < 0
+					vm_l_urgence[ARRAY_SIZE@ (vm_l_urgence)] = 
+									vm_t_alarmes[vl_indice].urgence
+					DB_CTRL_STRINGS@ (vl_fenetre_alm, "BO_Urgence", 
+													vm_l_urgence)
+				}
+			NEXT vl_indice
+
+			DB_TABLE_CLEAR_DATA@ (vl_fenetre_alm, "TA_Alarmes", 0, -1)
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre_alm, "TA_Alarmes", tm_data, 0)
+			DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_alm,"TA_Alarmes",0, tm_dataPicto)
+			*/
+
+			tl_data=null
+			vl_indexAlarme=0
+			/*parcourt la liste des equipements*/
+			FOR vl_indice=0 TO (ARRAY_SIZE@(vm_t_alarmes)-1)
+				/*pour chaque alarme,verifier si elle n'est pas dans le filtre*/
+				vl_TypeAutre = FALSE
+				FOR vl_id_filtre=1 TO (ARRAY_SIZE@(tm_filtres)-1)
+					FOR vl_filtre=1 TO
+						 (ARRAY_SIZE@(tm_filtres[vl_id_filtre])-1)
+						IF (vm_t_alarmes[vl_indice].type_equip=
+									tm_filtres[vl_id_filtre][vl_filtre])
+						{
+							vl_TypeAutre = TRUE
+						}
+					NEXT vl_filtre			
+				NEXT vl_id_filtre			
+				IF ( vl_TypeAutre )
+				{
+					tl_data[vl_indexAlarme]=vl_t_equip[vl_indice]
+					vl_indexAlarme=vl_indexAlarme+1
+				}
+			NEXT vl_indice
+			DB_TABLE_CLEAR_DATA@ (vl_fenetre_alm, "TA_Equipements", 0, -1)
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre_alm,"TA_Equipements",tl_data,0)
+
+			DB_TABLE_SET_SELECTIONS@ (vl_fenetre_alm, "TA_Equipements", NULL)
+			DB_CTRL_VALUE@ (vl_fenetre_alm, "BO_Urgence", 0)
+			vm_filtre=TRUE
+			DB_CTRL_GRAYED@ (vl_fenetre_alm,"BP_supprimer",FALSE)
+			DB_CTRL_GRAYED@ (vl_fenetre_alm,"BP_Pris_Connaissance",TRUE)
+			DB_CTRL_GRAYED@ (vl_fenetre_alm,"BP_Acquitt_Global",TRUE)			
+		}
+
+		
+		/*A sinon je filtre*/
+		IF (tm_filtres[vl_index][0] <> C_NOM_EQT_AUTRE) AND (vl_index<>0)
+		{
+			tm_data=null
+			tm_dataPicto=null
+			tm_dataInfo=null
+			vl_indexAlarme=0
+
+			vl_tri = DB_CTRL_GET_VALUE@ (vl_fenetre_alm, "BR_radio")
+			vl_indice=DB_CTRL_GET_VALUE@(vl_fenetre_alm,"BO_type")
+			vl_type_eqt=null
+			j=0
+			FOR i=1 TO  (ARRAY_SIZE@(tm_filtres[vl_indice]) -1)
+			
+				vl_type_eqt[j] = vm_les_types_equip[ARRAY_INDEX@(vm_l_nom_type_equip,tm_filtres[vl_indice][i])].numero
+				j = j+1
+			NEXT i
+			MACRO_WINS_BUSY@ ()
+			TLM_Init_Liste_Alarmes (vl_fenetre_alm, vl_tri, FALSE, vl_type_eqt)
+			
+			/*parcourt la liste des alarmes*/
+			/*MISE EN COMMM !!!!!!!!!!!   FOR vl_indice=0 TO (ARRAY_SIZE@(vm_t_alarmes)-1)
+				FOR vl_filtre=1 TO (ARRAY_SIZE@(tm_filtres[vl_index])-1)
+					IF (vm_t_alarmes[vl_indice].type_equip=
+									tm_filtres[vl_index][vl_filtre])
+					{
+						tm_data[vl_indexAlarme]=vm_t_alarmes[vl_indice]
+						tm_data[vl_indexAlarme].position=vl_indice
+
+						tm_dataInfo[vl_indexAlarme]=vm_t_info[vl_indice]
+						tm_dataPicto[vl_indexAlarme]=vm_l_picto[vl_indice]
+
+						vl_indexAlarme=vl_indexAlarme+1
+
+   			 			IF ARRAY_INDEX@ (vm_l_urgence, 
+							vm_t_alarmes[vl_indice].urgence) < 0
+						vm_l_urgence[ARRAY_SIZE@ (vm_l_urgence)] = 
+									vm_t_alarmes[vl_indice].urgence
+						DB_CTRL_STRINGS@ (vl_fenetre_alm, "BO_Urgence", 
+													vm_l_urgence)
+					}
+				NEXT vl_filtre			
+			NEXT vl_indice
+			DB_TABLE_CLEAR_DATA@ (vl_fenetre_alm, "TA_Alarmes", 0, -1)
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre_alm, "TA_Alarmes", tm_data, 0)
+			DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_alm,"TA_Alarmes",0, tm_dataPicto)
+			FIN MISE EN COMMMMMMMMM !!!!!!!!!!*/
+
+
+			tl_data=null
+			vl_indexAlarme=0
+			/*parcourt la liste des equipements*/
+			FOR vl_indice=0 TO (ARRAY_SIZE@(vl_t_equip)-1)
+				/*pour chaque evt, je regarde s'il est dans le filtre*/
+				FOR vl_filtre=1 TO (ARRAY_SIZE@(tm_filtres[vl_index])-1)
+					IF (vl_t_equip[vl_indice].type=
+									tm_filtres[vl_index][vl_filtre])
+					{
+						tl_data[vl_indexAlarme]=vl_t_equip[vl_indice]
+						vl_indexAlarme=vl_indexAlarme+1
+					}
+				NEXT vl_filtre			
+			NEXT vl_indice
+			DB_TABLE_CLEAR_DATA@ (vl_fenetre_alm, "TA_Equipements", 0, -1)
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre_alm,"TA_Equipements",tl_data,0)
+
+			DB_TABLE_SET_SELECTIONS@ (vl_fenetre_alm, "TA_Equipements", NULL)
+			DB_CTRL_VALUE@ (vl_fenetre_alm, "BO_Urgence", 0)
+			vm_filtre=TRUE
+			DB_CTRL_GRAYED@ (vl_fenetre_alm,"BP_supprimer",FALSE)
+			DB_CTRL_GRAYED@ (vl_fenetre_alm,"BP_Pris_Connaissance",TRUE)
+			DB_CTRL_GRAYED@ (vl_fenetre_alm,"BP_Acquitt_Global",TRUE)			
+		}
+
+    /*A
+     * Sur choix "Quitter", memoriser dans l'environnement
+     * les informations sur les alarmes en cours
+     * ---------------------------------------------------
+     */
+
+    CASE "BP_Quitter"
+	reinit_alarmes_critiques()
+	vl_cmd = MTAR_MSG_EXEC, 1, MTAR_FCT_FACTIS,"0"
+	DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+	vl_cmd=""
+	vl_cmd[0]=0
+	DB_SEND_POKE@(COM_CANAL_MTMT_ALARME, vl_cmd)
+	vl_la_fenetre_est_active = FALSE
+	SET_SYSTEM_VAR@ (vg_liste_alarmes, vm_t_info)
+
+    CASE "BO_Criticite"
+    CASE "BO_activite"
+	MACRO_WINS_BUSY@ ()
+	vl_tri = DB_CTRL_GET_VALUE@ (vl_fenetre_alm, "BR_radio")
+	TLM_Init_Liste_Alarmes (vl_fenetre_alm, vl_tri, FALSE, NULL)
+	DB_CTRL_VALUE@ (vl_fenetre_alm, "BO_type", 0)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Pris_Connaissance", FALSE)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Global", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Selection", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Main_Courante", TRUE)
+	DB_CTRL_GRAYED@(vl_fenetre_alm,"BP_supprimer",TRUE)
+
+    CASE "BP_exporter"
+	ALM_exporter(vl_fenetre_alm, DB_TABLE_GET_DATA@(vl_fenetre_alm,"TA_Alarmes"))
+
+    /*A
+     * Sur choix "Alarmes En Cours", reinitialiser la visualisation
+     * ------------------------------------------------------------
+     */
+
+    CASE "BP_Alarmes_En_Cours"
+	MACRO_WINS_BUSY@ ()
+	vl_tri = DB_CTRL_GET_VALUE@ (vl_fenetre_alm, "BR_radio")
+	TLM_Init_Liste_Alarmes (vl_fenetre_alm, vl_tri, FALSE, NULL)
+	DB_CTRL_VALUE@ (vl_fenetre_alm, "BO_type", 0)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Pris_Connaissance", FALSE)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Global", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Selection", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Main_Courante", TRUE)
+	DB_CTRL_GRAYED@(vl_fenetre_alm,"BP_supprimer",TRUE)
+
+    /*A
+     * Sur choix "Pris Connaissance", marquer toutes les alarmes en cours
+     * ------------------------------------------------------------------
+     */
+
+    CASE "BP_Pris_Connaissance"
+	MACRO_WINS_BUSY@ ()
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Pris_Connaissance", TRUE)
+
+	FOR i = 0  TO ARRAY_SIZE@ (vm_t_alarmes) - 1
+	    vm_t_info[i].pris_connaissance = TRUE
+	    vm_l_picto[i] = { C_PICTO_VUE }
+	NEXT i
+	DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_alm, "TA_Alarmes", 0, vm_l_picto)
+
+
+    /*A
+     * Sur selection d'alarmes, autoriser l'acquittement
+     * -------------------------------------------------
+     */
+
+    CASE "TA_Alarmes"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_alm, "TA_Alarmes")
+	vl_select = ARRAY_SIZE@ (vl_select)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Selection", vl_select = 0)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Main_Courante", vl_select <> 1)
+
+
+    /*A
+     * Sur selection d'equipements, autoriser l'acquittement global
+	* sauf si un filtre est positionne
+     * ------------------------------------------------------------
+     */
+
+    CASE "TA_Equipements"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_alm, "TA_Equipements")
+	IF (vm_filtre=FALSE)
+		DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Global",
+			    ARRAY_SIZE@ (vl_select) = 0)
+
+
+    /*A
+     * Sur choix "Acquitter Selection", acquitter les alarmes selectionnees
+     * --------------------------------------------------------------------
+     */
+
+    CASE "BP_Acquitt_Selection"
+	MACRO_WINS_BUSY@ ()
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Selection", TRUE)
+
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_alm, "TA_Alarmes")
+	vl_deja_acquittee = FALSE
+	FOR i = 0  TO ARRAY_SIZE@ (vl_select) - 1
+	    j = vl_select[i]
+	    IF tm_data[j].acquittee = C_ALARME_ACQUITTEE
+		vl_deja_acquittee = TRUE
+	    ELSE IF TLM_Acquitter_Alarme (tm_dataInfo[j].id_alarme) = COM_OK {
+		tm_data[j].acquittee = C_ALARME_ACQUITTEE
+		tm_data[j].operateur = SYSTEM_VAR@(vg_operateur)	
+		vl_t_ligne[0] = tm_data[j]
+		vm_t_alarmes[tm_data[j].position].acquittee=C_ALARME_ACQUITTEE
+		vm_t_alarmes[tm_data[j].position].operateur=SYSTEM_VAR@(vg_operateur)
+		DB_TABLE_SET_NEW_DATA@ (vl_fenetre_alm, "TA_Alarmes",
+					   vl_t_ligne, j)
+	    }
+	NEXT i
+	IF vl_deja_acquittee {
+	    BEEP@ ()
+	    INFO_MESSAGE@ (C_LIB_DEJA_ACQUITTEE)
+	}
+
+
+    /*A
+     * Sur choix "Acquitter Global", acquitter les alarmes concernees
+     * -------------------------------------------------------------
+     */
+    CASE "BP_Acquitt_Global"
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Global", TRUE)
+	vl_l_equip = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_alm, "TA_Equipements")
+	vl_urgence = DB_CTRL_GET_VALUE@ (vl_fenetre_alm, "BO_Urgence")
+
+	/*A
+	 * et pour chaque alarme en cours non deja acquittee,
+	 * si son niveau d'urgence est celui choisi (ou aucun choisi)
+	 * ----------------------------------------------------------
+	 */
+	FOR i = 0  TO ARRAY_SIZE@ (vm_t_alarmes) - 1
+	    IF vm_t_alarmes[i].acquittee <> C_ALARME_ACQUITTEE  AND
+		  (vl_urgence = 0  OR
+		   vm_t_alarmes[i].urgence = vm_l_urgence[vl_urgence]) {
+
+		/*A
+		 * et l'equipement en alarme est parmi ceux choisis, l'acquitter
+		 * -------------------------------------------------------------
+		 */
+
+		vl_num_type_equip = vm_t_info[i].id_alarme.num_type_equip
+		vl_num_equip = vm_t_info[i].id_alarme.num_equip
+		j = 0
+		WHILE j < ARRAY_SIZE@ (vl_l_equip)  AND
+			 (vl_num_type_equip <> vm_l_equip[vl_l_equip[j]].type OR
+			  vl_num_equip <> vm_l_equip[vl_l_equip[j]].numero)
+		    j = j + 1
+		WEND
+
+		IF j < ARRAY_SIZE@ (vl_l_equip){
+		  IF TLM_Acquitter_Alarme (vm_t_info[i].id_alarme) = COM_OK {
+			vm_t_alarmes[i].acquittee = C_ALARME_ACQUITTEE
+			vm_t_alarmes[i].operateur = SYSTEM_VAR@(vg_operateur)
+			vl_t_ligne[0] = vm_t_alarmes[i]
+			DB_TABLE_SET_NEW_DATA@ (vl_fenetre_alm,"TA_Alarmes",
+						   vl_t_ligne, i)
+		   }
+	      }
+	    }
+	NEXT i
+
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Selection", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Main_Courante", TRUE)
+
+
+    /*A
+     * Sur choix "Main Courante Maintenance", invoquer le module
+     * en lui transmettant l'identifiant de l'alarme selectionnee
+     * ----------------------------------------------------------
+     */
+
+    CASE "BP_Main_Courante"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_alm, "TA_Alarmes")
+	vl_select = vl_select[0]
+	vl_statut = PEND_FOR_NEW_TASK@ ("ITMA_TMN_Main_Cour_Maintenance",
+					"ITMA_TLM_Liste_Des_Alarmes",
+					tm_dataInfo[vl_select].id_alarme,
+					tm_data[vl_select].type_equip,
+					tm_data[vl_select].designation,
+					tm_data[vl_select].libelle,
+					tm_data[vl_select].etat,
+					tm_data[vl_select].urgence,
+					tm_data[vl_select].acquittee,
+					tm_data[vl_select].operateur)
+
+	/*A
+	 * et sur compte-rendu "Supprime", supprimer l'alarme de la liste
+	 * --------------------------------------------------------------
+	 */
+
+	IF vl_statut[0] = COM_SUPPRIME {
+	  vm_t_alarmes = ARRAY_DELETE@ (vm_t_alarmes, tm_data[vl_select].position)
+	    vm_t_info = ARRAY_DELETE@ (vm_t_info, tm_data[vl_select].position)
+	    vm_l_picto = ARRAY_DELETE@ (vm_l_picto, tm_data[vl_select].position)
+
+	    tm_data = ARRAY_DELETE@ (tm_data, vl_select)
+	    tm_dataInfo = ARRAY_DELETE@ (tm_dataInfo, vl_select)
+	    tm_dataPicto = ARRAY_DELETE@ (tm_dataPicto, vl_select)
+
+	    DB_TABLE_CLEAR_DATA@ (vl_fenetre_alm, "TA_Alarmes", 0, -1)
+	    DB_TABLE_SET_NEW_DATA@ (vl_fenetre_alm, "TA_Alarmes",tm_data,0)
+	    DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre_alm, "TA_Alarmes",0,tm_dataPicto)
+
+	    DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Acquitt_Selection", TRUE)
+	    DB_CTRL_GRAYED@ (vl_fenetre_alm, "BP_Main_Courante", TRUE)
+	}
+
+	/*A
+	 * et sur compte-rendu "Valide", afficher la presence de demande de travaux
+	 * ------------------------------------------------------------------------
+	 */
+
+	IF vl_statut[0] = COM_VALIDE {
+	    tm_data[vl_select].travaux = C_DEMANDE_TRAVAUX
+		vm_t_alarmes[tm_data[vl_select].position].travaux = C_DEMANDE_TRAVAUX
+
+	    DB_TABLE_CLEAR_DATA@ (vl_fenetre_alm, "TA_Alarmes", 0, -1)
+	  DB_TABLE_SET_NEW_DATA@ (vl_fenetre_alm, "TA_Alarmes",tm_data,0)
+	    DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre_alm, "TA_Alarmes",0,tm_dataPicto)
+	    DB_TABLE_SET_SELECTIONS@ (vl_fenetre_alm, "TA_Alarmes", null)
+	}
+
+	/*A appui sur le bouton supprimer*/
+	CASE "BP_supprimer"
+		/* en mode degrade, ne plus supprimer sur pc simplifie*/
+		if (SYSTEM_VAR@(vg_type_machine)<>XDC_TYPEM_PCS) OR 
+		   ( (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) and (SYSTEM_VAR@(vg_comm_CI)=COM_OK)) {
+		MACRO_WINS_BUSY@()
+		vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_alm, "TA_Alarmes")
+
+		tm_ex_data=tm_data
+		tm_ex_datapicto=tm_dataPicto
+		tm_ex_datainfo=tm_dataInfo
+
+		tm_ex_alarmes=vm_t_alarmes
+		tm_ex_picto=vm_l_picto
+		tm_ex_info=vm_t_info
+
+		vl_alarmes_non_supprimees = NULL
+		FOR vl_indice=0 TO (ARRAY_SIZE@(vl_select)-1)
+			/*si l'alarme est inactive*/
+			IF (tm_data[vl_select[vl_indice]].etat<>TCM_LIB_ETAT_ACTIVE)
+			{
+				/*je la supprime*/
+				TLM_Supprimer_Alarme(vl_fenetre_alm,
+					tm_dataInfo[vl_select[vl_indice]].id_alarme,
+					tm_data[vl_select[vl_indice]].position)
+			}
+			ELSE 
+			{
+				IF NOT IS_NULL@(vl_alarmes_non_supprimees)
+					vl_alarmes_non_supprimees = vl_alarmes_non_supprimees ++ ", "
+				vl_alarmes_non_supprimees = vl_alarmes_non_supprimees ++ 
+							tm_data[vl_select[vl_indice]].type_equip ++ 
+							" "++tm_data[vl_select[vl_indice]].designation 
+			}
+		NEXT vl_indice
+		IF NOT IS_NULL@(vl_alarmes_non_supprimees)
+			INFO_MESSAGE@("Les alarmes actives ne sont pas supprimées : "++vl_alarmes_non_supprimees)
+
+		tm_data=tm_ex_data
+		tm_dataPicto=tm_ex_datapicto
+		tm_dataInfo=tm_ex_datainfo
+
+		vm_t_alarmes=tm_ex_alarmes
+		vm_l_picto=tm_ex_picto
+		vm_t_info=tm_ex_info
+
+		DB_TABLE_CLEAR_DATA@ (vl_fenetre_alm, "TA_Alarmes", 0, -1)
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre_alm, "TA_Alarmes", tm_data, 0)
+		DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_alm,"TA_Alarmes",0, tm_dataPicto)
+		}
+		else {
+		  INFO_MESSAGE@(C_LIB_PERTE_CI)
+		  DB_CTRL_GRAYED@(vl_fenetre_alm,"BP_supprimer",TRUE)
+		}
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les titres des colonnes de la table des alarmes ;
+*  lit ensuite une premiere fois la liste des alarmes en cours.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLM_Init_Visualisation (va_fenetre,va_tri)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*   va_tri            : si tri = 0: tri par alarme (comme avant)
+*                       si tri = 1: tri par designation
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLM_Liste_Des_Alarmes
+*
+* FONCTION
+*   Initialise les titres des colonnes de la table des alarmes.
+*   Lit ensuite les alarmes en cours et les affiche.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_t_titres				' Titres colonnes de la table
+    VAR	    vl_indice
+	VAR		i
+	VAR 	j
+
+/*A Initialiser les valeurs de criteres de tri */
+tm_criteres_tri = {
+	"URGENCE",
+	"EQUIPEMENT"
+}
+
+
+/*A
+ * Lire dans l'environnement les types d'equipements
+ * -------------------------------------------------
+ */
+
+vm_les_types_equip = SYSTEM_VAR@ (vg_les_types_equipement)
+vm_l_nom_type_equip = ARRAY_COLUMN@ (vm_les_types_equip, TDO_NOM_TYPE_EQUIP)
+vm_l_types_equip = ARRAY_COLUMN@ (vm_les_types_equip, TDO_NUMERO_TYPE_EQUIP)
+
+
+/* A
+* definition des filtres possibles*/
+tm_filtres[0][0]="Tous"
+tm_filtres[1][0]="PMV - PICTO"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_PMV)
+tm_filtres[1][1]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_PCT)
+tm_filtres[1][2]= vm_les_types_equip[vl_indice].nom
+tm_filtres[2][0]="RADT"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_RAD)
+tm_filtres[2][1]= vm_les_types_equip[vl_indice].nom
+tm_filtres[3][0]="DAI - Analyseur"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_DAI)
+tm_filtres[3][1]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_ANA)
+tm_filtres[3][2]= vm_les_types_equip[vl_indice].nom
+tm_filtres[4][0]="PAU - PIRAU"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_RAU)
+tm_filtres[4][1]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_PAU)
+tm_filtres[4][2]= vm_les_types_equip[vl_indice].nom
+tm_filtres[5][0]="Mini GTC - ETOR"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_GTC)
+tm_filtres[5][1]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_TOR)
+tm_filtres[5][2]= vm_les_types_equip[vl_indice].nom
+tm_filtres[6][0]="BRA - Module BRA - Ferm. ACcès - Ferm. AUtoroute"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_NAV)
+tm_filtres[6][1]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_MOD)
+tm_filtres[6][2]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_FAC)
+tm_filtres[6][3]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_FAU)
+tm_filtres[6][4]= vm_les_types_equip[vl_indice].nom
+tm_filtres[7][0]="Panneau d'alerte"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_PAL)
+tm_filtres[7][1]= vm_les_types_equip[vl_indice].nom
+tm_filtres[8][0]="GTC Nice - Tunnel - Echangeur - Panneaux GTC"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_NIC)
+tm_filtres[8][1]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_TUB)
+tm_filtres[8][2]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_ECH)
+tm_filtres[8][3]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_PAN)
+tm_filtres[8][4]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_CPT)
+tm_filtres[8][5]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_FAV)
+tm_filtres[8][6]= vm_les_types_equip[vl_indice].nom
+
+/* GTC renovee */
+j = 7
+FOR i=XDC_DEBUT_TYPEQT_GTCRENOVEE TO 255
+	vl_indice = ARRAY_INDEX@(vm_l_types_equip, i)
+	IF (vl_indice <> -1)
+	{
+		tm_filtres[8][j]= vm_les_types_equip[vl_indice].nom
+		j = j + 1
+	}
+NEXT i
+/* Fin GTC renovee */
+
+tm_filtres[9][0]="PMVA"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_PMVA)
+tm_filtres[9][1]= vm_les_types_equip[vl_indice].nom
+tm_filtres[10][0]="BAF - Module BAF"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_BAF)
+tm_filtres[10][1]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_MODBAF)
+tm_filtres[10][2]= vm_les_types_equip[vl_indice].nom
+tm_filtres[11][0]="BAD - Module BAD"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_BAD)
+tm_filtres[11][1]= vm_les_types_equip[vl_indice].nom
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_MODBAD)
+tm_filtres[11][2]= vm_les_types_equip[vl_indice].nom
+tm_filtres[12][0]="PRV"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_PRV)
+tm_filtres[12][1]= vm_les_types_equip[vl_indice].nom
+tm_filtres[13][0]="SAGA"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_SAGA)
+tm_filtres[13][1]= vm_les_types_equip[vl_indice].nom
+tm_filtres[14][0]="CFE"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_CFE)
+tm_filtres[14][1]= vm_les_types_equip[vl_indice].nom
+tm_filtres[15][0]="IMU"
+vl_indice = ARRAY_INDEX@(vm_l_types_equip,XDC_EQT_IMU)
+tm_filtres[15][1]= vm_les_types_equip[vl_indice].nom
+
+
+tm_filtres[16][0]= C_NOM_EQT_AUTRE
+DB_CTRL_STRINGS@ (va_fenetre,"BO_type",ARRAY_COLUMN@(tm_filtres,0))
+DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre,"BO_type",TRUE)
+
+/*A
+ * Definir les titres des colonnes de la table
+ * des alarmes et de celle des equipements
+ * -------------------------------------------
+ */
+
+vl_t_titres[0] = "Type équipement", 260		' Titre colonne,taille en pixels
+vl_t_titres[1] = "Désignation",	90
+vl_t_titres[2] = "Date 1e apparition", 120
+vl_t_titres[3] = "Date dernier chgt.", 120
+vl_t_titres[4] = "Nombre",	55
+vl_t_titres[5] = "Acquittée",	60
+vl_t_titres[6] = "Etat",	70
+vl_t_titres[7] = "Libellé",	200
+vl_t_titres[8] = "Urgence",	56
+vl_t_titres[9] = "DT", 28
+vl_t_titres[10] = "Operateur", 200
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Alarmes", NULL, vl_t_titres)
+
+
+vl_t_titres[0] = "Type équipement", 255		' Titre colonne,taille en pixels
+vl_t_titres[1] = "Désignation",	237
+vl_t_titres[2] = "", 0
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Equipements", NULL, vl_t_titres)
+
+MACRO_WINS_BUSY@ ()
+RETURN (TLM_Init_Liste_Alarmes (va_fenetre, va_tri, TRUE, NULL))
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  (re)initialise la liste des alarmes en cours ;
+*  met en evidence les changements par rapport a la derniere consultation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLM_Init_Liste_Alarmes (va_fenetre, va_tri, va_activation, va_type_eqt)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_tri            : si tri = 0: tri par alarme (comme avant)
+*                       si tri = 1: tri par designation
+*   va_activation     : Indicateur signifiant l'activation du module.
+*   va_type_eqt       : tableau des numeros des types eqts si filtre sinon null
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TLM_Init_Visualisation      une premiere fois a l'activation du module ;
+*   ITMA_TLM_Liste_Des_Alarmes  sur commande de reinitialisation de la liste.
+*
+* FONCTION
+*   Initialise les valeurs de la liste des alarmes, ainsi que les listes des
+*   equipements en alarme et des niveaux d'urgence pour selection d'alarmes
+*   a acquitter.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TLM_Donnees_Alarmes vl_data
+    VAR FORMAT TLM_Info_Alarmes vl_ex_alarmes
+
+    VAR FORMAT TDO_Autoroute	tl_autoroutes
+    VAR     tl_num_autoroutes, tl_noms_autoroutes
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+    VAR     vl_i_criticite, vl_val_criticite
+    VAR     vl_i_activite, vl_val_activite
+
+    VAR     vl_type, i, j, vl_site
+
+/*B Lire dans l'environnement les autoroutes (pour designation equipements) */
+tl_autoroutes = SYSTEM_VAR@ (vg_toutes_les_autoroutes)
+FOR i = 0  TO (ARRAY_SIZE@ (tl_autoroutes) - 1)
+		tl_num_autoroutes[i] = tl_autoroutes[i].numero
+		tl_noms_autoroutes[i] = tl_autoroutes[i].nom
+NEXT i
+
+
+/*B Determiner les criteres de recherche saisis */
+vl_i_criticite = DB_CTRL_GET_VALUE@(va_fenetre,"BO_Criticite")
+CASE OF vl_i_criticite
+CASE C_CRITIQUE	
+	vl_val_criticite = XDC_EQT_CRITIQUE
+CASE C_MAJEURE	
+	vl_val_criticite = XDC_EQT_MAJEUR
+CASE C_MINEURE	
+	vl_val_criticite = XDC_EQT_MINEUR
+DEFAULT
+	vl_val_criticite = XDC_EQT_MINEUR + XDC_EQT_MAJEUR + XDC_EQT_CRITIQUE
+ENDCASE
+
+vl_i_activite = DB_CTRL_GET_VALUE@(va_fenetre,"BO_activite")
+CASE OF vl_i_activite
+CASE C_ACTIVE
+	vl_val_activite = "A"
+CASE C_INACTIVE
+	vl_val_activite = "I"
+DEFAULT
+	vl_val_activite = "T"
+ENDCASE
+
+
+/*A
+ * Lire en base de donnees la liste des alarmes en cours
+ * -----------------------------------------------------
+ */
+
+vl_parametres[0].type = TCM_Identifiant_Type_Alarme	' Type alarme (toutes)
+vl_parametres[0].data = NULL
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT4_			' Criticite
+vl_parametres[1].data = vl_val_criticite
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#CHAR_			' Etat d'activite
+vl_parametres[2].data = vl_val_activite
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Identifiant_Equipement	' Numero equip. (tous)
+vl_parametres[3].data = NULL
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#CHAR_
+vl_parametres[4].data = tm_criteres_tri[va_tri]
+vl_parametres[4].output = FALSE
+
+vl_site = SYSTEM_VAR@(vg_site)
+
+vl_parametres[5].type = SYB#INT4_
+vl_parametres[5].data = vl_site
+vl_parametres[5].output = FALSE
+j=6
+IF (va_type_eqt[0] <> NULL)
+{
+	FOR i=0 TO (ARRAY_SIZE@(va_type_eqt) -1)
+		vl_parametres[j].type = COM_Identifiant_Type_Equip	' Type equipement (tous)
+		vl_parametres[j].data = va_type_eqt[i]
+		vl_parametres[j].output = FALSE
+		j = j+1
+	NEXT i
+}
+/*
+ELSE
+{
+	FOR i=0 TO 3
+		vl_parametres[j].type = COM_Identifiant_Type_Equip
+		vl_parametres[j].data = NULL
+		vl_parametres[j].output = FALSE
+		j = j + 1
+	NEXT i
+}
+*/
+IF COM05_SQL_Procedure (XZAM06_Lire_Liste_Alarmes,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * A l'activation du module, lire dans l'environnement
+ * la liste des PRECEDENTES alarmes visualisees ;
+ * sur mise a jour, la liste courante devient la precedente
+ * --------------------------------------------------------
+ */
+
+IF va_activation
+    vl_ex_alarmes = SYSTEM_VAR@ (vg_liste_alarmes)
+ELSE vl_ex_alarmes = vm_t_info
+
+/*A
+ * Effacer les structures de donnees (pour reinitialisation) ;
+ * placer un element "Toutes" dans la liste des niveaux d'alarmes
+ * --------------------------------------------------------------
+ */
+
+vm_t_alarmes = NULL
+vm_t_info = NULL
+vm_l_picto = NULL
+
+vm_l_equip = NULL
+
+/*A
+ * Pour chacune des alarmes actuellement en cours
+ * ----------------------------------------------
+ */
+
+vl_data = vl_resultats.select_results[0]
+
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+    vl_type = ARRAY_INDEX@ (vm_l_types_equip, vl_data[i].numero_type_equip)
+    IF vl_type >= 0
+	vm_t_alarmes[i].type_equip = vm_les_types_equip[vl_type].nom
+
+    IF (vl_data[i].autoroute = NULL) {
+	vm_t_alarmes[i].designation = vl_data[i].nom_equip
+    } ELSE {
+	j = ARRAY_INDEX@ (tl_num_autoroutes, vl_data[i].autoroute)
+	vm_t_alarmes[i].designation = FORMAT@ ("%s-%d-%5.3f",
+	                                          tl_noms_autoroutes[j], vl_data[i].sens, vl_data[i].PR / 1000)
+    }
+
+    vm_t_alarmes[i].date = vl_data[i].date_1ere_apparition
+    vm_t_alarmes[i].date_dernier_chgt = vl_data[i].date_changement
+    vm_t_alarmes[i].nombre = vl_data[i].nb_apparitions
+    vm_t_alarmes[i].position = i
+
+
+    IF vl_data[i].operateur_acquit = NULL {
+	vm_t_alarmes[i].acquittee = C_ALARME_NON_ACQUITTEE
+	vm_t_alarmes[i].operateur=null
+    }
+    ELSE {
+	vm_t_alarmes[i].acquittee = C_ALARME_ACQUITTEE
+	vm_t_alarmes[i].operateur=vl_data[i].nom_operateur
+    }
+    vm_t_alarmes[i].animation_bouton = vl_data[i].animation_bouton
+
+    IF vl_data[i].etat = TCM_ETAT_ACTIVE
+	vm_t_alarmes[i].etat = TCM_LIB_ETAT_ACTIVE
+    ELSE vm_t_alarmes[i].etat = TCM_LIB_ETAT_INACTIVE
+
+    vm_t_alarmes[i].libelle = vl_data[i].nom_type_alarme
+
+    IF vl_data[i].critique = XDC_VRAI
+	vm_t_alarmes[i].urgence = C_ALARME_CRITIQUE
+    ELSE IF vl_data[i].majeure = XDC_VRAI
+	vm_t_alarmes[i].urgence = C_ALARME_MAJEURE
+    ELSE IF vl_data[i].mineure = XDC_VRAI
+	vm_t_alarmes[i].urgence = C_ALARME_MINEURE
+
+    IF vl_data[i].travaux = NULL
+	vm_t_alarmes[i].travaux = C_NON_DEMANDE_TRAVAUX
+    ELSE vm_t_alarmes[i].travaux = C_DEMANDE_TRAVAUX
+
+    vm_t_info[i].id_alarme.num_type_alarme = vl_data[i].numero_type_alarme
+    vm_t_info[i].id_alarme.num_type_equip = vl_data[i].numero_type_equip
+    vm_t_info[i].id_alarme.num_equip = vl_data[i].numero_equip
+    vm_t_info[i].nombre = vl_data[i].nb_apparitions
+
+    /*A
+     * si l'alarme apparaissait lors de la precedente visualisation
+     * avec les memes caracteristiques alors reporter ses attributs ;
+     * sinon la marquer "non pris connaissance" et la mettre en evidence
+     * -----------------------------------------------------------------
+     */
+
+    vm_t_info[i].pris_connaissance = FALSE
+    j = 0
+    WHILE j < ARRAY_SIZE@ (vl_ex_alarmes)  AND
+	     (vl_data[i].numero_type_alarme <>
+		 vl_ex_alarmes[j].id_alarme.num_type_alarme  OR
+	      vl_data[i].numero_type_equip <>
+		 vl_ex_alarmes[j].id_alarme.num_type_equip  OR
+	      vl_data[i].numero_equip <> vl_ex_alarmes[j].id_alarme.num_equip)
+	j = j + 1
+    WEND
+    IF j < ARRAY_SIZE@ (vl_ex_alarmes)
+	IF vl_data[i].nb_apparitions = vl_ex_alarmes[j].nombre
+	    vm_t_info[i].pris_connaissance = vl_ex_alarmes[j].pris_connaissance
+
+
+    IF vm_t_info[i].pris_connaissance
+	vm_l_picto[i] = { C_PICTO_VUE }
+    ELSE vm_l_picto[i] = { C_PICTO_NON_VUE }
+
+	/*icone rouge pour les alarmes animant le bouton*/
+	if (vl_data[i].animation_bouton = XDC_VRAI)
+		vm_l_picto[i] = { C_PICTO_BOUTON }
+
+
+	/*A
+	** Construire la liste des equipements en alarmes
+	** ----------------------------------------------
+	*/
+
+    j = 0
+    WHILE j < ARRAY_SIZE@ (vm_l_equip)  AND
+	     (vl_data[i].numero_type_equip <> vm_l_equip[j].type  OR
+	      vl_data[i].numero_equip <> vm_l_equip[j].numero)
+	j = j + 1
+    WEND
+    IF j = ARRAY_SIZE@ (vm_l_equip) {
+	vm_l_equip[j].type = vl_data[i].numero_type_equip
+	vm_l_equip[j].numero = vl_data[i].numero_equip
+
+	vl_t_equip[j].type = vm_t_alarmes[i].type_equip
+	vl_t_equip[j].designation = vm_t_alarmes[i].designation
+    }
+NEXT i
+
+
+/*A
+** Construire la liste des niveaux d'urgence des alarmes visualisees
+** -----------------------------------------------------------------
+*/
+
+vm_l_urgence = { "Toutes" }
+CASE OF vl_i_criticite
+CASE C_CRITIQUE	
+	vm_l_urgence[ARRAY_SIZE@ (vm_l_urgence)] = C_ALARME_CRITIQUE
+CASE C_MAJEURE	
+	vm_l_urgence[ARRAY_SIZE@ (vm_l_urgence)] = C_ALARME_MAJEURE
+CASE C_MINEURE	
+	vm_l_urgence[ARRAY_SIZE@ (vm_l_urgence)] = C_ALARME_MINEURE
+DEFAULT
+	vm_l_urgence = ARRAY_APPEND@ (vm_l_urgence,
+	                                 { C_ALARME_CRITIQUE, C_ALARME_MAJEURE, C_ALARME_MINEURE })
+ENDCASE
+vm_l_urgence_tous=vm_l_urgence
+
+
+/*A
+** (re)initialiser les tables et les listes affichees
+** --------------------------------------------------
+*/
+
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_Alarmes", 0, -1)
+DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_Alarmes", vm_t_alarmes, 0)
+DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_Alarmes", 0, vm_l_picto)
+
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_Equipements", 0, -1)
+DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_Equipements", vl_t_equip, 0)
+
+DB_CTRL_STRINGS@ (va_fenetre, "BO_Urgence", vm_l_urgence)
+
+DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Equipements", NULL)
+DB_CTRL_VALUE@ (va_fenetre, "BO_Urgence", 0)
+/*DB_CTRL_VALUE@ (va_fenetre, "BO_type", 0)*/
+vm_filtre=FALSE
+
+tm_data=vm_t_alarmes
+tm_dataPicto=vm_l_picto
+tm_dataInfo=vm_t_info
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Acquitte une alarme.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLM_Acquitter_Alarme (FORMAT COM_Identifiant_Alarme va_alarme)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_alarme         : Identifiant de l'alarme a acquitter.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLM_Liste_Des_Alarmes
+*
+* FONCTION
+*   Execute simplement la requete d'acquittement de l'alarme indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TCM_Identifiant_Type_Alarme
+vl_parametres[0].data = va_alarme.num_type_alarme
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Type_Equip
+vl_parametres[1].data = va_alarme.num_type_equip
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Equipement
+vl_parametres[2].data = va_alarme.num_equip
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Identifiant_Equipement
+vl_parametres[3].data = SYSTEM_VAR@(vg_numero_operateur)
+vl_parametres[3].output = FALSE
+
+IF COM05_SQL_Procedure (XZAM04_Acquitter_Fiche_Alarme,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Supprime une fiche alarme.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLM_Supprimer_Alarme (va_fenetre,FORMAT COM_Identifiant_Alarme va_alarme,va_position)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_alarme         : Identifiant de l'alarme.
+*	va_position	: position de l'alarme dans la liste
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLM_Liste_Des_Alarmes
+*
+* FONCTION
+*   Execute la requete adequate pour supprimer l'alarme d'identifiant indique.
+*
+---------------------------------------------------------------------------- */
+
+    	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR tl_data,vl_indice,vl_index
+
+vl_parametres[0].type = TCM_Identifiant_Type_Alarme
+vl_parametres[0].data = va_alarme.num_type_alarme
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Type_Equip
+vl_parametres[1].data = va_alarme.num_type_equip
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Equipement
+vl_parametres[2].data = va_alarme.num_equip
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#BIT_
+vl_parametres[3].data = XDC_VRAI
+vl_parametres[3].output = FALSE
+
+IF COM05_SQL_Procedure (XZAM05_Supprimer_Fiche_Alarme,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+	INFO_MESSAGE@("Probleme dans la suppression de l'alarme")
+    RETURN (COM_NOK)
+}
+ELSE IF vl_resultats.status = XDC_ACT_REFUSEE
+{
+	INFO_MESSAGE@("L'alarme "++ tm_ex_data[va_position].type_equip++ ", "++ tm_ex_data[va_position].designation ++ " ne peut pas être supprimé")
+    RETURN (COM_OK)
+}
+
+
+/*suppression dans les listes filtrees*/
+vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_ex_data,9),va_position)
+IF (vl_index<>-1){
+	tm_ex_data=ARRAY_DELETE@(tm_ex_data,vl_index)
+	tm_ex_dataInfo=ARRAY_DELETE@(tm_ex_dataInfo,vl_index)
+	tm_ex_dataPicto=ARRAY_DELETE@(tm_ex_dataPicto,vl_index)
+}
+
+/*suppression dans les listes non filtrees*/
+vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_ex_alarmes,9),va_position)
+IF (vl_index<>-1){
+	tm_ex_alarmes=ARRAY_DELETE@(tm_ex_alarmes,vl_index)
+	tm_ex_picto=ARRAY_DELETE@(tm_ex_picto,vl_index)
+	tm_ex_info=ARRAY_DELETE@(tm_ex_info,vl_index)
+}
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+MACRO ALM_exporter(va_fenetre,  ta_alarmes)
+VAR     vl_ligne_debut, vl_ligne_fin
+VAR     vl_colonne_debut, vl_colonne_fin
+VAR     tl_cmts, tl_cch_inverses
+VAR     vl_date, vl_jour, vl_mois, vl_annee, vl_heure, vl_minute, vl_seconde
+VAR     vl_fichier
+VAR     vl_cmd, tl_cr_cmd
+
+vl_date = COM09_Date_Courante (TRUE)
+vl_seconde = TRUE
+COM14_Valeurs_Horodate (vl_date, vl_jour, vl_mois, vl_annee, vl_heure, vl_minute, vl_seconde)
+
+vl_fichier = FORMAT@ ("%s-%s%s%s_%s%s%s.xls", CM_NOM_FICHIER, 
+		 vl_annee, vl_mois, vl_jour, vl_heure, vl_minute, vl_seconde)
+		 vl_fichier = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO ++ vl_fichier
+
+/* Ouvrir le tableur*/
+vl_ligne_debut = 0
+vl_ligne_fin = vl_ligne_debut + ARRAY_SIZE@(ta_alarmes)-1
+vl_colonne_debut = 0
+vl_colonne_fin = vl_colonne_debut + ARRAY_SIZE@(ta_alarmes)-1
+SS_APPLICATION_DLG@ (NULL, TRUE)
+SS_PUT_RANGE@ (SS_RANGE@ (vl_colonne_debut, vl_ligne_debut, vl_colonne_fin, vl_ligne_fin), ta_alarmes)
+/* Ecrire le document dans le fichier au format EXCEL */
+SS_SAVE_AS@ (vl_fichier, 14)
+SS_EXIT@ ()
+
+ENDMACRO
+
+
+MACRO reinit_alarmes_critiques()
+    	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR tl_data,vl_indice,vl_index
+
+for vl_indice  = 0 TO ARRAY_SIZE@(vm_t_info)-1
+if (vm_t_alarmes[vl_indice].animation_bouton=XDC_VRAI) {
+vl_parametres[0].type = TCM_Identifiant_Type_Alarme
+vl_parametres[0].data = vm_t_info[vl_indice].id_alarme.num_type_alarme
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Type_Equip
+vl_parametres[1].data = vm_t_info[vl_indice].id_alarme.num_type_equip
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Equipement
+vl_parametres[2].data = vm_t_info[vl_indice].id_alarme.num_equip
+vl_parametres[2].output = FALSE
+IF COM05_SQL_Procedure (XZAM08_Reinit_Alarme_Critique,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+	INFO_MESSAGE@("Probleme dans la suppression de l'alarme")
+    RETURN (COM_NOK)
+}
+}
+NEXT vl_indice
+
+ENDMACRO

@@ -1,0 +1,1697 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCA_rapide.am,v 1.18 2019/09/06 17:03:09 devgtie Exp $        Release : $Revision: 1.18 $        Date : $Date: 2019/09/06 17:03:09 $
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR PASTRE
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE  MTCA * FICHIER ITMA_TCA_rapide.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*  Pilotage permanent rapide des cameras.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JPL		14/10/10 : Creation (DEM 949)  1.1
+* JPL		31/01/11 : Version complete testee sur secteur VE (DEM 949)  1.2
+* JPL		01/02/11 : Pictogramme plus representatif si aucun magneto (DEM 949)  1.3
+* JPL		01/02/11 : Etendre traitement pokes, securiser verification camera (DEM 949)  1.4
+* JPL		02/02/11 : Sur secteurs, chercher le code camera en donnees locales (DEM 949)  1.5
+* JPL		02/02/11 : Le Pr decroit/croit avec les boutons Precedente/Suivante sur A57 aussi (DEM 949)  1.6
+* JPL		02/02/11 : Valider la saisie et affecter la camera sur frappe d'un retour chariot (DEM 949)  1.7
+* JPL		16/02/11 : Modifications mineures  1.8
+* JPL		14/03/11 : Interpreter la saisie comme un PR ; exploiter les donnees publiques (DEM 976)  1.9
+* JPL		18/03/11 : Dans une commande camera, fournir son site de gestion et non le site local  1.10
+* JPL		18/03/11 : Proposer 6 moniteurs au CI comme sur les secteurs  1.11
+* JPL		22/03/11 : Afficher le code du site; le fournir a la commande d'affectation camera / moniteur  1.12
+* JMG		05/12/11 : linux
+* PNI 	16/10/12        : recalage de la position de la fenetre pour ecran 16/9 Linux 1.14
+* JPL	xx/02/17	: Affectation: code camera et site local; numero moniteur = rang sur le site  (DEM 1189)  1.15
+* JPL	23/03/27	: Changement du terme Secteur en Region (DEM 1173)  1.16
+* PNI	07/07/17	: utilisation du sens fourni pour recherhe caméra + suppression des 600m rajouter autour du point PR 1.17
+* PNI   06/09/19        : DEM1345 - Ajout d'une icone caméra dans l'IHM FMC                                                  1.18
+-------------------------------------------------------------------------------
+*/
+
+/*A
+** Description des modules à inclures
+** ----------------------------------
+*/
+
+INCLUDE "dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+INCLUDE	"XDMICG/inc/xzevc_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+
+INCLUDE	"GESIHM/inc/xzao13sp.h"
+INCLUDE	"GESIHM/inc/xzao18sp.h"
+
+
+
+/*A
+** Description des constantes générales
+** ------------------------------------
+*/
+
+DEFINE	CM_MODULE	"MTCAR"				' Nom du module
+
+
+DEFINE	CM_NB_MONITEURS		6			' Nombre de moniteurs sur secteur
+DEFINE	CM_NB_MONITEURS_CI	8			' Nombre de moniteurs au CI
+
+
+DEFINE	CM_MONIT_CHOISI		"BP_Moniteur_Actif"	' Racine des noms de moniteurs
+DEFINE	CM_MONIT_NON_CHOISI	"BP_Moniteur"		' selectionnes ou non
+
+
+DEFINE	CM_AUTOROUTE_AUCUNE	(-1)			' Aucune autoroute selectionnee
+
+DEFINE	CM_CAMERA_AUCUNE	(-1)			' Aucune camera selectionnee
+
+DEFINE	CM_MAGNETO_AUCUN	(-1)			' Aucun magnetoscope selectionne
+
+
+DEFINE	CM_DIRECTION_PRECEDENT	(-1)			' Valeurs de direction pour navigation
+DEFINE	CM_DIRECTION_SUIVANT	(1)			' Valeurs de direction pour navigation
+
+
+
+/*A
+** Declaration des donnees globales du module
+** ------------------------------------------
+*/
+
+/* Donnees de configuration */
+
+VAR	FORMAT TDO_District	tm_sites		' Liste des secteurs
+
+VAR	FORMAT TDO_Autoroute	tm_autoroutes		' Liste des autoroutes du secteur
+
+VAR	FORMAT TDO_Equipement	tm_cameras		' Liste des cameras de l'autoroute
+
+VAR	tm_moniteurs					' Liste des identifiants des moniteurs
+
+VAR	FORMAT TDO_Equipement	tm_magnetoscopes
+
+VAR	vm_site						' Numero du site local
+VAR	vm_code_site					' Code du site local
+
+VAR	vm_nombre_moniteurs				' Nombre de moniteurs (= numero max.) selon le site
+
+VAR	vm_macro_fenetre_camera				' Nom de la macro de pilotage camera detaille, selon le site
+
+
+/* Donnees dynamiques */
+
+VAR	vm_autoroute					' Numero de l'autoroute visualisee
+VAR	vm_i_autoroute					' Rang de l'autoroute dans la liste
+
+VAR	vm_i_camera					' Rang de la camera selectionnee
+VAR	vm_code_camera					' Code de la camera selectionnee
+
+
+VAR	vm_i_moniteur					' Rang (de 1 a n) du moniteur selectionne
+
+
+VAR	vm_i_magneto					' Rang du magnetoscope selectionne
+
+VAR	vm_magneto_enreg				' Numero du magnetoscope active
+VAR	vm_camera_enreg					' Numero de la camera enregistree
+VAR	vm_moniteur_enreg				' Numero du moniteur actif a l'enregistrement
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+* Choix des cameras a piloter et controle des affectations de ces cameras
+* aux moniteurs video.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCA_rapide (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro ayant invoque la presente.
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* FONCTION :
+*
+*  Affiche de maniere permanente a l'ecran la fenetre de choix
+*  et de controle d'affectation des cameras.
+*  Permet de choisir la camera la plus pertinente a associer a un evenement
+*  ou a une alerte.
+*
+----------------------------------------------------------------------------- */
+
+	VAR	vl_fenetre
+	VAR	vl_objet_selecte			' L'objet courant de la fenetre
+	VAR	tl_les_messages_acceptes		' Pour reception de signaux
+	VAR	vl_la_fenetre_est_active
+	VAR	vl_installer_traitement_erreur
+
+	VAR	vl_i_autoroute, vl_autoroute
+	VAR	vl_sens, vl_PR_lieu, vl_PR2_lieu
+
+	VAR	vl_i_camera, vl_camera
+	VAR	FORMAT TDO_Equipement	tl_cameras	' Liste de cameras restreinte a une autoroute
+	VAR	tl_cameras_zone				' Cameras couvrant une zone
+	VAR	tl_nums_cameras
+	VAR	vl_lgr_code				' Borne superieure de la longueur du code camera
+
+	VAR	vl_PR1, vl_PR2, vl_PR_eqt
+	VAR	vl_position
+	VAR	vl_direction
+	VAR	vl_rang
+	VAR	vl_zone
+	VAR	tl_params
+	VAR	vl_tache
+	VAR	vl_tmp
+	VAR	i
+	VAR	vl_cr, vl_cr_cam
+
+/*A
+** Traitements en cas d'erreur durant l'initialisation :
+** informer l'operateur, tracer l'erreur et abandonner
+** -----------------------------------------------------
+*/
+
+ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN (COM_NOK)
+}
+
+
+
+/*A
+** Initialiser les donnees globales du module
+** ------------------------------------------
+*/
+
+vm_site = SYSTEM_VAR@ (vg_site)
+vm_code_site = SYSTEM_VAR@ (vg_nom_site)
+
+
+
+/*A
+** Charger la fenetre de pilotage rapide des cameras
+** -------------------------------------------------
+*/
+
+vl_fenetre = DB_LOAD@ ("ITMA_TCA_rapide")
+
+DB_XPOS@ (vl_fenetre, 1014)
+IF (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+BEGIN
+DB_YPOS@ (vl_fenetre, 700)
+END
+else
+BEGIN
+'DB_XPOS@ (vl_fenetre, 1634)
+DB_XPOS@ (vl_fenetre, 1667)
+DB_YPOS@ (vl_fenetre, 680)
+END
+
+/*A
+** Definir les caracteristiques (initiales) des objets graphiques
+** --------------------------------------------------------------
+*/
+
+vl_tmp = DB_CTRL_GET_SIZE@ (vl_fenetre, "BS_Code")
+vl_lgr_code = vl_tmp[2]
+
+/* Pour controle de la frappe d'un retour chariot */
+DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Valider_Saisie", TRUE)
+
+
+
+/*A
+** Mettre en place la reception des messages
+** -----------------------------------------
+*/
+
+tl_les_messages_acceptes = {
+	COM_CANAL_FIN,
+	COM_CANAL_TEST,
+	COM_CANAL_MTCA_RAPIDE,
+	COM_CANAL_MTCA_RAPIDE_FIN
+}
+DB_ACCEPT_POKES@ (vl_fenetre, tl_les_messages_acceptes)
+
+
+
+/*A
+** Initialiser la visualisation
+** ----------------------------
+*/
+
+IF TCAR_Init_Pilotage_Rapide (vl_fenetre) <> COM_OK {
+	RETURN (COM_NOK)
+}
+
+
+
+/*A
+** Traitements en cas d'erreur durant la visualisation :
+** informer l'operateur et selon la nature et la gravite
+** de l'erreur la tracer ou non, continuer ou abandonner
+** -----------------------------------------------------
+*/
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+
+/*A
+** Tant que la fenetre n'est pas desactivee, la visualiser
+** -------------------------------------------------------
+*/
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY_ONLY@ (vl_fenetre, FALSE)
+	DB_DISPLAY@ (vl_fenetre)
+	DB_DISPLAY_ONLY@ (vl_fenetre, TRUE)
+
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+	CASE OF vl_objet_selecte
+
+	/*A
+	** Sur selection d'un moniteur autre que celui choisi,
+	** le selectionner en annulant la selection precedente
+	** et lui affecter la camera saisie si elle est valide
+	** ---------------------------------------------------
+	*/
+
+	CASE "BP_Moniteur1"
+	CASE "BP_Moniteur2"
+	CASE "BP_Moniteur3"
+	CASE "BP_Moniteur4"
+	CASE "BP_Moniteur5"
+	CASE "BP_Moniteur6"
+
+'		/* le rang du moniteur est pris dans le nom de l'objet graphique */
+'		vl_rang = SUBSTRING@ (vl_objet_selecte, LEN@ (vl_objet_selecte))
+'		vl_cr = TCAR_Choisir_Moniteur (vl_fenetre, vl_rang)
+
+		vl_cr_cam = TCAR_Verifier_Camera_Saisie (vl_fenetre)
+		/* affecter au moniteur la camera courante ou nouvelle si elle est valide */
+		IF (vl_cr_cam = COM_VALIDE)  OR  (vl_cr_cam = COM_OK)
+		{
+			vl_position = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Sens")
+			TCAR_Affecter_Camera (vl_fenetre, vm_i_camera, vm_i_moniteur, vl_position)
+		}
+
+
+
+	/*A
+	** Sur selection du moniteur deja actif (choisi),
+	** lui affecter la camera saisie si elle a change
+	** ----------------------------------------------
+	*/
+
+	CASE "BP_Moniteur_Actif1"
+	CASE "BP_Moniteur_Actif2"
+	CASE "BP_Moniteur_Actif3"
+	CASE "BP_Moniteur_Actif4"
+	CASE "BP_Moniteur_Actif5"
+	CASE "BP_Moniteur_Actif6"
+
+		vl_cr_cam = TCAR_Verifier_Camera_Saisie (vl_fenetre)
+		IF (vl_cr_cam = COM_VALIDE) {
+			vl_position = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Sens")
+			TCAR_Affecter_Camera (vl_fenetre, vm_i_camera, vm_i_moniteur, vl_position)
+		}
+
+
+
+	/*A
+	** Sur appui sur une commande de navigation,
+	** verifier si une nouvelle camera est saisie puis
+	** chercher et visualiser la prochaine camera
+	** -----------------------------------------------
+	*/
+
+	CASE "BP_Precedent_S0"
+	CASE "BP_Precedent_S1"
+	CASE "BP_Precedent_S2"
+
+	CASE "BP_Suivant_S0"
+	CASE "BP_Suivant_S1"
+	CASE "BP_Suivant_S2"
+
+		vl_cr_cam = TCAR_Verifier_Camera_Saisie (vl_fenetre)
+		/* si la saisie est correcte, visualiser la camera selectionnee */
+		IF (vl_cr_cam <> COM_REFUSE)  AND  (vl_cr_cam <> COM_NOK)
+		{
+			vl_direction = CM_DIRECTION_PRECEDENT
+			IF (STRING_INDEX@ (vl_objet_selecte, "Suivant") > 0) {
+				vl_direction = CM_DIRECTION_SUIVANT
+			}
+			vl_sens = 0 + SUBSTRING@ (vl_objet_selecte, LEN@ (vl_objet_selecte), 1)
+
+			vl_i_camera = TCAR_Prochaine_Camera (vm_i_autoroute, vm_i_camera, vl_direction, vl_sens)
+			IF (vl_i_camera >= 0) {
+				TCAR_Select_Camera (vl_fenetre, vl_i_camera)
+				vl_position = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Sens")
+				TCAR_Affecter_Camera (vl_fenetre, vm_i_camera, vm_i_moniteur, vl_position)
+			}
+		}
+
+
+
+	/*A
+	** Sur action de validation de saisie du code de camera,
+	** verifier la camera puis l'affecter au moniteur actif
+	** -----------------------------------------------------
+	*/
+
+	CASE "BP_Valider_Saisie"
+		vl_cr_cam = TCAR_Verifier_Camera_Saisie (vl_fenetre)
+		IF (vl_cr_cam = COM_VALIDE)
+		{
+			vl_position = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Sens")
+			TCAR_Affecter_Camera (vl_fenetre, vm_i_camera, vm_i_moniteur, vl_position)
+		}
+
+
+
+	/*A
+	** Sur choix "Suite", verifier la camera saisie puis
+	** ouvrir la fenetre de pilotage camera si elle ne l'est pas
+	** ---------------------------------------------------------
+	*/
+
+	CASE "BP_Suite"
+		vl_tache = COM21_Tache_De_La_Macro (vm_macro_fenetre_camera)
+		IF (vl_tache <> NULL) {
+			SELECT_WINDOW@ (COM22_Fenetre_De_La_Tache (vl_tache), TRUE)
+		} ELSE {
+			vl_cr_cam = TCAR_Verifier_Camera_Saisie (vl_fenetre)
+			IF (vl_cr_cam <> COM_REFUSE)  AND  (vl_cr_cam <> COM_NOK)  AND  (vm_i_camera >= 0)
+			{
+				vl_camera = tm_cameras[vm_i_camera].numero
+				NEW_TASK@ (vm_macro_fenetre_camera, "ITMA_TCAR", vl_camera, tm_moniteurs[vm_i_moniteur])
+			}
+		}
+
+
+
+	/*A
+	** Sur commande d'enregistrement ou arret de magnetoscope,
+	** basculer la commande active et executer la commande
+	** demandee sur le magnetoscope selectionne
+	** -------------------------------------------------------
+	*/
+
+	CASE "BP_Record"
+		DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Record", FALSE)
+		DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Stop", TRUE)
+
+		/*B memoriser la camera enregistree et le magnetoscope active */
+		vm_camera_enreg = tm_cameras[vm_i_camera].numero
+		vm_magneto_enreg = tm_magnetoscopes[vm_i_magneto].numero
+		vm_moniteur_enreg = tm_moniteurs[vm_i_moniteur]
+		ITMA_TCAR_Commande_Magneto (XDC_ENREG_MAGNETO, vm_camera_enreg, vm_magneto_enreg, vm_moniteur_enreg)
+
+	CASE "BP_Stop"
+		DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Stop", FALSE)
+		DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Record", TRUE)
+
+		ITMA_TCAR_Commande_Magneto (XDC_ARRET_MAGNETO, vm_camera_enreg, vm_magneto_enreg, vm_moniteur_enreg)
+		vm_camera_enreg = CM_CAMERA_AUCUNE
+		vm_magneto_enreg = CM_MAGNETO_AUCUN
+
+
+
+	CASE "poke_"
+		CASE OF  DB_GET_POKE@ (vl_fenetre)
+
+		CASE COM_CANAL_TEST
+			tl_params = DB_GET_POKE_DATA@ (vl_fenetre)
+			IF UPPERCASE@ (tl_params[0]) = "MTCAR" {
+				vl_tmp = UPPERCASE@ (tl_params[1])
+				IF vl_tmp = "DUMP" {
+					ITMA_TCAR_Dump ()
+				}
+			}
+
+
+
+		/*A
+		** Sur reception d'un message de fin,
+		** terminer la tache et fermer la fenetre
+		** --------------------------------------
+		*/
+
+		CASE COM_CANAL_FIN
+		CASE COM_CANAL_MTCA_RAPIDE_FIN
+			vl_la_fenetre_est_active = FALSE
+
+
+
+		/*A
+		** Sur reception d'un message de pilotage camera,
+		** chercher les cameras de l'autoroute puis
+		** selectionner la camera recue ou la plus pertinente
+		** --------------------------------------------------
+		*/
+
+		CASE COM_CANAL_MTCA_RAPIDE
+			tl_params = DB_GET_POKE_DATA@ (vl_fenetre)
+
+			vl_autoroute = NULL
+			vl_PR_lieu = NULL
+			vl_PR2_lieu = NULL
+			vl_sens = NULL
+
+			IF (ARRAY_SIZE@ (tl_params) = 1)
+			{
+				/* extraire numero camera et autoroute */
+				/* recus par messagerie (synoptique...)*/
+				tl_params = ARRAY_FROM_STRING@ (tl_params[0], MTAR_CAR_SEPAR)
+				tl_nums_cameras = { tl_params[0] }
+				vl_autoroute = tl_params[1]
+			}
+			ELSE
+			{
+				/* extraire la localisation recue en local */
+				vl_autoroute = tl_params[1]
+				vl_PR_lieu = tl_params[2]
+				vl_PR2_lieu = tl_params[3]
+				vl_sens = tl_params[4]
+
+				/* si la zone est reduite a un point alors l'etendre de 600 m: non, retirer */
+				vl_PR1 = vl_PR_lieu
+				vl_PR2 = vl_PR2_lieu
+				IF (vl_PR1 = vl_PR2)
+				{
+					vl_PR1 = vl_PR1 /*- 600 */
+					IF (vl_PR1 < 0) { vl_PR1 = 0 }
+					vl_PR2 = vl_PR2 /* + 600 */
+				}
+
+				/*B et y chercher les cameras pertinentes */
+				vl_zone = { vl_autoroute, vl_PR1, vl_PR2, vl_sens }
+				TCAR_Cameras_Couvrant_Zone (vl_zone, tl_cameras_zone)
+				/* si pas trouve alors on cherche dans tous les sens */
+				if  (ARRAY_SIZE@ (tl_cameras_zone)=0) 
+				{
+					vl_zone = { vl_autoroute, vl_PR1, vl_PR2, XDC_SENS_INCONNU }
+					TCAR_Cameras_Couvrant_Zone (vl_zone,tl_cameras_zone)
+				}
+
+				tl_nums_cameras = ARRAY_COLUMN@ (tl_cameras_zone, 0)
+			COM01_Trace(COM_DEBUG1, "Camera "++tl_nums_cameras[0])
+			}
+
+			/*B si l'autoroute n'est pas l'autoroute courante, extraire ses cameras */
+			vl_i_autoroute = COM45_IndexEnColonne (tm_autoroutes, TDO_NUMERO_AUTOROUTE, vl_autoroute)
+			IF (vl_i_autoroute >= 0)  AND  (vl_autoroute <> vm_autoroute)
+			{
+				TCAR_Cameras_De_L_Autoroute (vl_autoroute, tl_cameras)
+			}
+			/*B determiner si l'une des cameras candidates est sur le site et disponible */
+			i = 0
+			vl_i_camera = (-1)
+			WHILE (vl_i_camera < 0)  AND  (i < ARRAY_SIZE@ (tl_nums_cameras))
+				IF (vl_autoroute = vm_autoroute) {
+					vl_i_camera = COM45_IndexEnColonne (tm_cameras, TDO_NUMERO_EQUIP, tl_nums_cameras[i])
+				} ELSE {
+					vl_i_camera = COM45_IndexEnColonne (tl_cameras, TDO_NUMERO_EQUIP, tl_nums_cameras[i])
+				}
+				i = i + 1
+			WEND
+
+			COM01_Trace(COM_DEBUG1, "Camera trouvee "++vl_i_camera)
+			/*B si une camera est trouvee, la selectionner et l'affecter au moniteur selectionne */
+			IF (vl_i_camera >= 0)
+			{
+				IF (vl_autoroute <> vm_autoroute)
+				{
+					/*B conserver l'autoroute et ses cameras */
+					TCAR_Select_Autoroute (vl_fenetre, vl_i_autoroute)
+					tm_cameras = tl_cameras
+				}
+				TCAR_Select_Camera (vl_fenetre, vl_i_camera)
+
+				/*B si le lieu a visualiser est sur bretelle, demander le positionnement de la camera */
+				/*B sur bretelle; sinon demander de diriger la camera vers le lieu a visualiser */
+				vl_position = vl_sens
+				IF (vl_sens = XDC_SENS_SUD) OR (vl_sens = XDC_SENS_NORD) OR (vl_sens = XDC_SENS_INCONNU) {
+					vl_PR_eqt = tm_cameras[vl_i_camera].PR
+					IF ( (vl_sens = XDC_SENS_SUD) AND (vl_PR_eqt <= vl_PR_lieu) )  OR
+					   ( (vl_sens = XDC_SENS_NORD) AND (vl_PR_eqt >= vl_PR_lieu) )
+					{
+						vl_position = XZEVC_POS_FACE_S1
+					} ELSE {
+						vl_position = XZEVC_POS_FACE_S2
+					}
+					IF (tm_autoroutes[vl_i_autoroute].sens = XDC_PR_INV) {
+						IF (vl_position = XZEVC_POS_FACE_S1) {
+							vl_position = XZEVC_POS_FACE_S2
+						} ELSE {
+							vl_position = XZEVC_POS_FACE_S1
+						}
+					}
+				}
+
+
+			COM01_Trace(COM_DEBUG1, "Camera affect"++vl_i_camera)
+				/*TCAR_Affecter_Camera (vl_fenetre, vl_i_camera, vm_i_moniteur, vl_position)*/
+				TCAR_Affecter_Camera (vl_fenetre, vl_i_camera, vm_i_moniteur, 0)
+			}
+		ENDCASE
+	ENDCASE
+
+
+	/*A
+	** Si un magnetoscope n'est pas en cours d'enregistrement,
+	** autoriser l'enregistrement ssi. une camera est selectionnee
+	** -----------------------------------------------------------
+	*/
+
+	IF (DB_CTRL_GET_DISPLAY@ (vl_fenetre, "BP_Stop") = FALSE)
+	{
+		IF (vm_i_camera >= 0)  AND  (vm_i_magneto >= 0) {
+			DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Record_Inhibe", FALSE)
+			DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Record", TRUE)
+		} ELSE {
+			DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Record", FALSE)
+			DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Record_Inhibe", TRUE)
+		}
+	}
+
+
+	/*B En rendant la main a l'operateur, toujours placer le curseur en saisie de code */
+	DB_CURSOR_IN_ENTRY@ (vl_fenetre, "BS_Code", vl_lgr_code, vl_lgr_code)
+
+WEND
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialise la visualisation.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCAR_Init_Pilotage_Rapide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_rapide
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_poste
+	VAR	ll_positions
+	VAR	i, vl_dernier_car, vl_chaine
+
+IF (vm_site = XDC_CI) {
+	vm_macro_fenetre_camera = "ITMA_TCA_pilotage_camera_CI"
+} ELSE {
+	vm_macro_fenetre_camera = "ITMA_TCA_pilotage_camera"
+	'DB_CTRL_DISPLAY@ (va_fenetre, "LI_Site", FALSE)
+}
+
+
+/*A
+** Lire dans l'environnement les donnees de configuration
+** ------------------------------------------------------
+*/
+
+tm_sites = SYSTEM_VAR@ (vg_les_districts)
+
+'tm_autoroutes = SYSTEM_VAR@ (vg_autoroutes_district)
+tm_autoroutes = SYSTEM_VAR@ (vg_les_autoroutes)
+
+
+/*A
+** Initialiser la liste des moniteurs
+** ----------------------------------
+*/
+
+tm_moniteurs = {
+	NULL,
+	XDC_MONITEUR1,
+	XDC_MONITEUR2,
+	XDC_MONITEUR3,
+	XDC_MONITEUR4,
+	XDC_MONITEUR5,
+	XDC_MONITEUR6
+}
+vm_nombre_moniteurs = CM_NB_MONITEURS
+
+
+/*A Le moniteur dedie au poste porte conventionnellement le numero du poste */
+vm_i_moniteur = 0					' Defaut si on n'est pas sur un poste operateur
+vl_poste = "0" ++ SYSTEM_VAR@ (vg_poste)
+vl_dernier_car = SUBSTRING@ (vl_poste, LEN@ (vl_poste))
+IF IS_NUMERIC_STRING@ (vl_dernier_car) {
+	vm_i_moniteur = vl_dernier_car + 0
+}
+
+
+/*A
+** Lire dans l'environnement les magnetoscopes du site
+** ---------------------------------------------------
+*/
+
+tm_magnetoscopes = SYSTEM_VAR@ (vg_les_magnetoscopes)
+
+/*B le magnetoscope choisi est par defaut le premier */
+IF ARRAY_SIZE@ (tm_magnetoscopes) > 0 {
+	vm_i_magneto = 0
+} ELSE {
+	vm_i_magneto = CM_MAGNETO_AUCUN
+}
+
+
+/*A
+** Initialiser les donnees dynamiques
+** ----------------------------------
+*/
+
+/*B Caracteres valides pour le code camera : nombres */
+DB_CTRL_VALID_CHARS@ (va_fenetre, "BS_Code", COM_CHIFFRES)
+
+/*B Caracteres valides pour la position camera : sens de circulation */
+ll_positions = {
+	XDC_SENS_INCONNU,
+	XDC_SENS_SUD,
+	XDC_SENS_NORD,
+	XDC_SENS_SORTIE_SUD,
+	XDC_SENS_SORTIE_NORD,
+	XDC_SENS_ENTREE_SUD,
+	XDC_SENS_ENTREE_NORD
+}
+vl_chaine = ""
+FOR i = 0  TO (ARRAY_SIZE@ (ll_positions) - 1)
+	vl_chaine = vl_chaine ++ ll_positions[i]
+NEXT i
+DB_CTRL_VALID_CHARS@ (va_fenetre, "BS_Sens", vl_chaine)
+
+
+/*B Objets selectionnes par defaut */
+TCAR_Select_Autoroute (va_fenetre, CM_AUTOROUTE_AUCUNE)
+
+TCAR_Select_Aucune_Camera (va_fenetre)
+
+'TCAR_Choisir_Moniteur (va_fenetre, 1)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Analyse le code camera saisi dans le champ correspondant de la fenetre
+*  et verifie sa validite.
+*
+*  Selectionne l'autoroute sur laquelle elle est situee et la liste
+*  complete de ses cameras.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCAR_Verifier_Camera_Saisie (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Identifiant de la fenetre de saisie.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   Aucun
+*
+*
+* CODE RETOUR         : COM_OK si la camera est identique a la selection actuelle ;
+*                       COM_QUITTE si aucune camera n'est saisie ;
+*                       COM_VALIDE si la camera est valide et modifiee ;
+*                       COM_REFUSE si la camera n'est pas valide ;
+*                       COM_NOK si une erreur s'est produite.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_rapide
+*
+* FONCTION
+*   Compare le code camera du champ de saisie avec la derniere valeur ;
+*   s'il est modifie recherche les donnees de la camera ;
+*   si elle est connue recherche toutes les cameras de l'autoroute
+*   et selectionne celle de code saisi.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_code_camera, vl_PR_camera
+	VAR	FORMAT TDO_Equipement	tl_cameras, tl_infos_camera
+	VAR	vl_i_autoroute, vl_i_camera
+	VAR	vl_cr
+ 
+/*B Lire la valeur du code actuellement saisie */
+vl_code_camera = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_Code")
+ 
+
+/*B Si le code saisi est nul alors restaurer la selection actuelle */
+IF (vl_code_camera = NULL) {
+	TCAR_Select_Camera (va_fenetre, vm_i_camera)
+	RETURN (COM_QUITTE)
+}
+ 
+
+/*B Si le code saisi n'est pas modifie alors ne rien changer */
+IF (vl_code_camera = vm_code_camera) {
+	RETURN (COM_OK)
+}
+ 
+
+/*B Si le code saisi est modifie, le rechercher dans les cameras de l'autoroute... */
+vl_i_camera = COM45_IndexEnColonne (tm_cameras, TDO_INFO_EQUIP, vl_code_camera)
+IF (vl_i_camera >= 0) {
+	TCAR_Select_Camera (va_fenetre, vl_i_camera)
+	RETURN (COM_VALIDE)
+}
+
+
+/*B Si la camera n'est pas sur l'autoroute, la rechercher SUR LE SECTEUR */
+vl_cr = TCAR_Camera_Locale_De_Code (vl_code_camera, tl_infos_camera)
+
+/*B Sur erreur, restaurer la selection actuelle et abandonner */
+IF (vl_cr <> COM_OK) {
+	TCAR_Select_Camera (va_fenetre, vm_i_camera)
+	RETURN (COM_NOK)
+}
+
+
+/*B Si la valeur saisie n'est pas le code d'une camera du secteur et si */
+/*B elle n'est pas numerique alors restaurer la selection et abandonner */
+vl_PR_camera = COM56_Valeur (vl_code_camera)
+IF (ARRAY_SIZE@ (tl_infos_camera) = 0)  AND  IS_NULL@ (vl_PR_camera)
+{
+	TCAR_Select_Camera (va_fenetre, vm_i_camera)
+	IF (vm_site = XDC_CI) {
+		INFO_MESSAGE@ ("Caméra inconnue ou indisponible")
+	} ELSE {
+		INFO_MESSAGE@ ("Caméra inconnue sur la région ou indisponible")
+	}
+	RETURN (COM_REFUSE)
+}
+
+
+/*B Si la valeur saisie n'est pas le code d'une camera du secteur et si elle est numerique */
+/*B alors determiner la camera dont le Pr est le plus proche de cette valeur */
+IF (ARRAY_SIZE@ (tl_infos_camera) = 0)  AND  NOT IS_NULL@ (vl_PR_camera)
+{
+	vl_PR_camera = vl_PR_camera * 1000			' Valeur du PR en metres
+	TCAR_Camera_La_Plus_Proche (vl_PR_camera, tl_infos_camera)
+}
+
+
+/*B Si une camera est identifiee, extraire la liste des cameras sur l'autoroute */
+/*B et determiner la rang de la camera dans cette liste */
+vl_i_camera = -1
+IF (ARRAY_SIZE@ (tl_infos_camera) > 0)
+{
+	IF (tl_infos_camera.autoroute <> vm_autoroute) {
+		vl_i_autoroute = COM45_IndexEnColonne (tm_autoroutes, TDO_NUMERO_AUTOROUTE,
+		                                          tl_infos_camera.autoroute)
+		vl_cr = TCAR_Cameras_De_L_Autoroute (tm_autoroutes[vl_i_autoroute].numero, tl_cameras)
+		vl_i_camera = COM45_IndexEnColonne (tl_cameras, TDO_INFO_EQUIP, tl_infos_camera.info)
+	} ELSE {
+		vl_i_camera = COM45_IndexEnColonne (tm_cameras, TDO_INFO_EQUIP, tl_infos_camera.info)
+	}
+}
+
+
+/*B Si une camera est trouvee, conserver ses donnees et la selectionner */
+IF (vl_i_camera >= 0) {
+	IF (tl_infos_camera.autoroute <> vm_autoroute) {
+		TCAR_Select_Autoroute (va_fenetre, vl_i_autoroute)
+		tm_cameras = tl_cameras
+	}
+	TCAR_Select_Camera (va_fenetre, vl_i_camera)
+	RETURN (COM_VALIDE)
+} ELSE {
+	/*B sinon restaurer la selection precedente */
+	INFO_MESSAGE@ ("Aucune camera disponible ne correspond")
+	TCAR_Select_Camera (va_fenetre, vm_i_camera)
+	RETURN (COM_NOK)
+}
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Recherche et retourne le rang dans la liste des cameras
+*  celle suivant ou precedant une camera donnee
+*  en se limitant selon le cas aux equipements localises dans un sens donne.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCAR_Prochaine_Camera (va_i_autoroute, va_i_camera, va_direction, va_sens)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_i_autoroute    : Rang de l'autoroute ou sont situees les cameras ;
+*   va_i_camera       : Rang dans la liste de la camera courante ;
+*   va_direction      : Direction de recherche (PR croissants/decroissants) ;
+*   va_sens           : Critere de selection des cameras.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   Aucun.
+*
+*
+* CODE RETOUR         : Le rang dans la liste de la camera trouvee ;
+*                       -1 si aucune camera ne repond aux criteres.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_rapide
+*
+* FONCTION
+*   Determine la direction de recherche (PR croissants ou decroissants)
+*   selon la direction demandee.
+*   Puis balaye la liste des cameras dans cette direction.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_ordre_PRs
+	VAR	vl_nb_cameras, vl_sens_camera
+	VAR	vl_i_camera, vl_increment
+	VAR	vl_i_prochaine
+
+vl_i_prochaine = -1
+
+/*B Verifier la validite des donnees d'entree */
+IF (va_i_autoroute < 0)  OR  (va_i_autoroute >= ARRAY_SIZE@ (tm_autoroutes))
+{
+	RETURN (vl_i_prochaine)
+}
+
+vl_nb_cameras = ARRAY_SIZE@ (tm_cameras)
+IF (va_i_camera < 0)  OR  (va_i_camera >= vl_nb_cameras)
+{
+	RETURN (vl_i_prochaine)
+}
+
+
+/*B Determiner l'increment de parcours de la liste des cameras */
+/*B selon la direction indiquee */
+/*! Les equipements sont dans l'ordre des PR DECROISSANTS dans la liste */
+vl_ordre_PRs = tm_autoroutes[va_i_autoroute].sens
+IF (va_direction = CM_DIRECTION_PRECEDENT)
+{
+	vl_increment = 1
+}
+ELSE
+{
+	vl_increment = -1
+}
+
+
+/*B Parcourir la liste des cameras a partir de la suivante dans la direction voulue */
+vl_i_camera = va_i_camera + vl_increment
+
+WHILE (vl_i_camera >= 0)  AND  (vl_i_camera < vl_nb_cameras)  AND  (vl_i_prochaine < 0)
+	/*B determiner le sens de localisation de la camera en ignorant les sens sur bretelles */
+	vl_sens_camera = tm_cameras[vl_i_camera].sens
+	IF (vl_sens_camera = XDC_SENS_ENTREE_NORD) OR (vl_sens_camera = XDC_SENS_SORTIE_NORD)
+	{
+		vl_sens_camera = XDC_SENS_NORD
+	}
+	IF (vl_sens_camera = XDC_SENS_ENTREE_SUD) OR (vl_sens_camera = XDC_SENS_SORTIE_SUD)
+	{
+		vl_sens_camera = XDC_SENS_SUD
+	}
+
+	/*B si la camera est situee dans le sens de parcours ou compatible, c'est la prochaine */
+	IF (va_sens = XDC_SENS_INCONNU) OR (vl_sens_camera = XDC_SENS_INCONNU) OR (vl_sens_camera = va_sens)
+	{
+		vl_i_prochaine = vl_i_camera
+	}
+
+	/* (sinon) passer a la suivante dans la direction de parcours de la liste */
+	vl_i_camera = vl_i_camera + vl_increment
+WEND
+
+
+RETURN (vl_i_prochaine)
+
+ENDMACRO
+
+
+
+
+
+'   /*X*/
+'   /* ----------------------------------------------------------------------------
+'   * SERVICE RENDU :
+'   *
+'   *  Selectionne un moniteur pour visualisation de l'image d'une camera.
+'   *
+'   -------------------------------------------------------------------------------
+'   * SEQUENCE D'APPEL :
+'   */
+'   
+'   MACRO TCAR_Choisir_Moniteur (va_fenetre, va_i_moniteur)
+'   
+'   /*
+'   * ARGUMENTS EN ENTREE :
+'   *   va_fenetre        : Id. de la fenetre de visualisation ;
+'   *   va_i_moniteur     : Rang du moniteur selectionne.
+'   *
+'   *
+'   * ARGUMENTS EN SORTIE : Aucun
+'   *
+'   *
+'   * CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+'   *
+'   * CONDITION D'UTILISATION
+'   *   ITMA_TCA_rapide
+'   *
+'   * FONCTION
+'   *   Annule toute selection de moniteur precedente,
+'   *   puis visualise la selection de moniteur actuelle.
+'   *
+'   ---------------------------------------------------------------------------- */
+'   
+'   	VAR	i
+'   
+'   /*B Verifier la validite des donnees d'entree */
+'   IF (va_i_moniteur < 1)  OR  (va_i_moniteur > vm_nombre_moniteurs)
+'   {
+'   	RETURN (COM_NOK)
+'   }
+'   
+'   
+'   /*A
+'   ** Si un moniteur different etait choisi alors annuler la selection
+'   ** ----------------------------------------------------------------
+'   */
+'   
+'   IF (vm_i_moniteur <> NULL)  AND  (vm_i_moniteur <> va_i_moniteur)
+'   {
+'   	DB_CTRL_DISPLAY@ (va_fenetre, CM_MONIT_CHOISI ++ vm_i_moniteur, FALSE)
+'   	DB_CTRL_DISPLAY@ (va_fenetre, CM_MONIT_NON_CHOISI ++ vm_i_moniteur, TRUE)
+'   }
+'   
+'   
+'   /*A
+'   ** Memoriser et visualiser la selection indiquee
+'   ** ---------------------------------------------
+'   */
+'   
+'   vm_i_moniteur = va_i_moniteur
+'   
+'   DB_CTRL_DISPLAY@ (va_fenetre, CM_MONIT_NON_CHOISI ++ va_i_moniteur, FALSE)
+'   DB_CTRL_DISPLAY@ (va_fenetre, CM_MONIT_CHOISI ++ va_i_moniteur, TRUE)
+'   
+'   
+'   RETURN (COM_OK)
+'   
+'   ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Visualise l'image d'une camera donnee sur un moniteur donnee.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCAR_Affecter_Camera (va_fenetre, va_i_camera, va_i_moniteur, va_position)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre de visualisation ;
+*   va_i_camera       : Rang de la camera a affecter ;
+*   va_i_moniteur     : Rang du moniteur ou visualiser les images camera.
+*   va_position       : Position demandee a la camera.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   Aucun.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_rapide
+*
+* FONCTION
+*   Constitue et envoie la commande d'affectation de la camera au moniteur.
+*
+---------------------------------------------------------------------------- */
+
+DEFINE	CM_TRACE_AFFECTATION	"Affecter camera %d, code %s au moniteur %s"
+
+	VAR	vl_cmd, tl_args
+	VAR	vl_num_camera, vl_code_camera, vl_site_camera
+	VAR	vl_num_moniteur
+	VAR	vl_i_site
+	VAR	vl_cr
+
+/*B Verifier la validite des donnees d'entree */
+IF (va_i_moniteur < 1)  OR  (va_i_moniteur > vm_nombre_moniteurs)
+{
+	RETURN (COM_NOK)
+}
+vl_num_moniteur = tm_moniteurs[va_i_moniteur]
+
+
+IF (va_i_camera < 0)  OR  (va_i_camera >= ARRAY_SIZE@ (tm_cameras))
+{
+	RETURN (COM_NOK)
+}
+
+/* Obtenir le code du site de gestion de la camera */
+'vl_i_site = COM45_IndexEnColonne (tm_sites, TDO_NUMERO_DISTRICT, tm_cameras[va_i_camera].site_gestion)
+'IF (vl_i_site < 0)
+'{
+'	'RETURN (COM_NOK)
+'	vl_site_camera = "XX"
+'} ELSE {
+'	vl_site_camera = tm_sites[vl_i_site].code
+'}
+
+vl_num_camera = tm_cameras[va_i_camera].numero
+vl_code_camera = tm_cameras[va_i_camera].info
+'DB_CTRL_TITLE@ (va_fenetre, "LI_Site", vl_site_camera)
+
+IF IS_NULL@ (va_position)
+	va_position = XDC_SENS_INCONNU
+
+
+vl_cr = COM_OK
+
+/*B Constituer la commande */
+tl_args = { vm_code_site, vl_code_camera, vl_num_moniteur, va_position }
+
+vl_cmd = { MTAR_MSG_EXEC, 1, MTAR_FCT_XZEV03, ARRAY_TO_STRING@ (tl_args, MTAR_CAR_SEPAR) }
+
+/*B Envoyer la commande */
+'COM01_Trace (COM_INFO, FORMAT@ (CM_TRACE_AFFECTATION, vl_num_camera, vl_code_camera, vl_num_moniteur))
+DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Envoie une commande donnee a un magnetoscope donnee.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCAR_Commande_Magneto (va_commande, va_num_camera, va_num_magneto, va_num_moniteur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_commande       : Commande a envoyer (enregistrement, arret...) ;
+*   va_num_camera     : Numero de la camera a enregistrer ;
+*   va_num_magneto    : Numero du magnetoscope a commander ;
+*   va_num_moniteur   : Numero du moniteur visualisant les images camera.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   Aucun.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_rapide
+*
+* FONCTION
+*   Constitue et envoie la commande specifiee au magnetoscope indique.
+*
+---------------------------------------------------------------------------- */
+
+DEFINE	CM_TRACE_CMD_MAGNETO	"Commande %s au magneto %d, camera %d, moniteur %d"
+
+	VAR	vl_cmd, tl_args
+	VAR	vl_cr
+
+vl_cr = COM_OK
+
+/*B Constituer la commande */
+tl_args = { vm_code_site, va_commande, va_num_camera, va_num_magneto, va_num_moniteur }
+
+vl_cmd = { MTAR_MSG_EXEC, 1, MTAR_FCT_XZEV06, ARRAY_TO_STRING@ (tl_args, MTAR_CAR_SEPAR) }
+
+/*B Envoyer la commande */
+'COM01_Trace (COM_INFO, FORMAT@ (CM_TRACE_CMD_MAGNETO, va_commande, va_num_magneto, va_num_camera, va_num_moniteur))
+DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit en base de donnees les informations relatives a une camera
+*  dont le code est donne.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCAR_Camera_Locale_De_Code (va_code_camera, ta_infos_camera)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_code_camera    : Code de la camera recherche.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_infos_camera   : Donnees de la camera.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_rapide
+*
+* FONCTION
+*   Sur secteur : recherche le code camera dans les donnees publiques ;
+*   Au CI : lit les donnees de la camera en base par la procedure adequate.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	FORMAT TDO_Equipement		tl_cameras, vl_eqt
+
+	VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+	VAR	tl_data
+	VAR	vl_i_camera
+	VAR	vl_cr
+
+vl_cr = COM_OK
+
+/*B Sur les sites secteurs au moins, les cameras du site sont en donnees publiques */
+tl_cameras = SYSTEM_VAR@ (vg_les_cameras)
+
+
+IF (ARRAY_SIZE@ (tl_cameras) > 0)
+{
+	vl_i_camera = COM45_IndexEnColonne (tl_cameras, TDO_INFO_EQUIP, va_code_camera)
+	IF (vl_i_camera >= 0) {
+		vl_eqt = tl_cameras[vl_i_camera]
+	}
+} ELSE {
+	/*B Si les cameras ne sont pas en donnees publiques (par ex. au CI) alors les lire en base */
+	vl_parametres = COM15_Parametres_Requete ( {
+		{ FALSE,	SYB#CHAR_,	XDC_BASE_CFG },
+		{ FALSE,	SYB#INT2_,	NULL },			' numero min
+		{ FALSE,	SYB#INT2_,	NULL },			' numero max
+		{ FALSE,	SYB#CHAR_,	va_code_camera },
+		{ FALSE,	SYB#INT1_,	NULL }			' autoroute
+	} )
+
+	vl_cr = COM05_SQL_Procedure (XZAO18_Liste_Cameras, vl_parametres, vl_resultats, CM_MODULE)
+	tl_data = vl_resultats.select_results[0]
+
+	IF ARRAY_SIZE@ (tl_data) > 0 {
+		vl_eqt.numero	= tl_data[0][0]
+		vl_eqt.nom	= tl_data[0][2]
+		vl_eqt.autoroute = tl_data[0][3]
+		vl_eqt.PR	= tl_data[0][4]
+		vl_eqt.sens	= tl_data[0][5]
+		vl_eqt.info	= tl_data[0][1]
+	}
+}
+
+ta_infos_camera = vl_eqt
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit dans la configuration et retourne la liste des cameras d'une
+*  autoroute donnee.
+*  Cette liste est ordonnee selon le PR des cameras, independamment du sens.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCAR_Cameras_De_L_Autoroute (va_num_autoroute, FORMAT TDO_Equipement ta_cameras)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_autoroute  : Numero de l'autoroute.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_cameras        : Liste des cameras.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_rapide
+*
+* FONCTION
+*   Obtient la liste des cameras du site local (ou la liste complete au CI)
+*   puis extrait les cameras situees sur l'autoroute indiquee.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	FORMAT TDO_Equipement		tl_cameras
+
+	VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+	VAR	vl_cr
+	VAR	i, j
+
+
+vl_cr = COM_OK
+
+/*B Sur les sites secteurs au moins, les cameras du site sont en donnees publiques */
+tl_cameras = SYSTEM_VAR@ (vg_les_cameras)
+
+
+IF (ARRAY_SIZE@ (tl_cameras) > 0)
+{
+	/*B Extraire la sous-liste des cameras situees sur l'autoroute */
+	ta_cameras = COM44_ValeursEnColonne (tl_cameras, TDO_AUTO_EQUIP, { va_num_autoroute }, TRUE)
+}
+ELSE
+{
+	/*B Si les cameras ne sont pas en donnees publiques (par ex. au CI) alors les lire en base */
+	vl_cr = TCAR_Cameras_Locales (va_num_autoroute, ta_cameras)
+
+	IF (vl_cr = COM_OK)
+	{
+		/*B Rechercher les codes cameras */
+		vl_parametres = COM15_Parametres_Requete ( {
+			{ FALSE,	SYB#CHAR_,	XDC_BASE_CFG },
+			{ FALSE,	SYB#INT2_,	1 },			' numero min
+			{ FALSE,	SYB#INT2_,	NULL },			' numero max
+			{ FALSE,	SYB#CHAR_,	XDC_CHAINE_VIDE },	' code camera
+			{ FALSE,	SYB#INT1_,	va_num_autoroute }
+		} )
+
+		vl_cr = COM05_SQL_Procedure (XZAO18_Liste_Cameras, vl_parametres, vl_resultats, CM_MODULE)
+
+		/*B Pour chaque camera, chercher le code associe */
+		FOR i = 0  TO (ARRAY_SIZE@ (ta_cameras) - 1)
+			j = COM45_IndexEnColonne (vl_resultats.select_results[0], 0, ta_cameras[i].numero)
+			IF (j >= 0) {
+				ta_cameras[i].info = vl_resultats.select_results[0][j][1]	' code_camera
+			}
+		NEXT i
+	}
+}
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Determine la camera du secteur situee au plus pres d'un PR donne.
+*  La recherche s'effectue sans restriction sur l'autoroute de l'equipement.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCAR_Camera_La_Plus_Proche (va_PR_camera, FORMAT TDO_Equipement ta_camera)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_PR_camera      : PR de localisation de la camera recherchee.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_camera         : Donnees de la camera la plus proche.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_rapide
+*
+* FONCTION
+*   Obtient la liste des cameras du site local (ou la liste complete au CI)
+*   puis extrait les donnees de la camera la plus proche du PR indique.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	FORMAT TDO_Equipement		tl_cameras
+
+	VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+	VAR	vl_distance, vl_distance_min
+	VAR	i, vl_i_camera
+	VAR	vl_cr
+
+ta_camera = { }
+vl_cr = COM_OK
+
+
+/*B Sur les sites secteurs au moins, les cameras du site sont en donnees publiques */
+tl_cameras = SYSTEM_VAR@ (vg_les_cameras)
+
+
+/*B Si les cameras ne sont pas en donnees publiques (par ex. au CI) alors les lire en base */
+IF ARRAY_SIZE@ (tl_cameras) = 0
+{
+	vl_cr = TCAR_Cameras_Locales (NULL, tl_cameras)
+}
+
+IF ARRAY_SIZE@ (tl_cameras) = 0
+{
+	RETURN (vl_cr)
+}
+
+
+/*B Determiner la camera dont le PR est le plus proche de celui indique */
+vl_distance_min = ABS@ (tl_cameras[0].PR - va_PR_camera)
+vl_i_camera = 0
+
+i = 1
+WHILE (i < ARRAY_SIZE@ (tl_cameras))  AND  (vl_distance_min > 0)
+	vl_distance = ABS@ (tl_cameras[i].PR - va_PR_camera)
+	IF (vl_distance < vl_distance_min)
+	{
+		vl_i_camera = i
+		vl_distance_min = vl_distance
+	}
+	i = i + 1
+WEND
+ta_camera = tl_cameras[vl_i_camera]
+
+
+/*B Si le code de la camera n'est pas connu (pas en donnees publiques -au CI-), le rechercher en base */
+IF IS_NULL@ (ta_camera.info)
+{
+	vl_parametres = COM15_Parametres_Requete ( {
+		{ FALSE,	SYB#CHAR_,	XDC_BASE_CFG },
+		{ FALSE,	SYB#INT2_,	ta_camera.numero },	' numero min
+		{ FALSE,	SYB#INT2_,	ta_camera.numero },	' numero max
+		{ FALSE,	SYB#CHAR_,	XDC_CHAINE_VIDE },	' code camera
+		{ FALSE,	SYB#INT1_,	NULL }			' autoroute
+	} )
+
+	vl_cr = COM05_SQL_Procedure (XZAO18_Liste_Cameras, vl_parametres, vl_resultats, CM_MODULE)
+	ta_camera.info = vl_resultats.select_results[0][0][1]
+}
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit les donnees de toutes les cameras du site local.
+*  Ensuite filtre si demande celles d'une autoroute donnee.
+*
+*  L'objectif de cette sous-fonction est une meilleure gestion memoire.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCAR_Cameras_Locales (va_num_autoroute, FORMAT TDO_Equipement ta_cameras)
+
+	VAR	FORMAT COM_Donnees_Equipements	tl_donnees_eqts
+	VAR	vl_site
+	VAR	vl_num_cam_prec
+	VAR	vl_cr
+	VAR	i, k
+
+ta_cameras = { }
+
+/*B
+** Lire en base les donnees des cameras
+** ------------------------------------
+*/
+
+vl_site = vm_site
+IF (vl_site = XDC_CI) {
+	vl_site = NULL
+}
+vl_cr = ITMA_COM_Lire_Equipements (XDC_EQT_CAM, vl_site, XDC_EQT_HS, XDC_EQT_NON_HS,
+				      0, 0, tl_donnees_eqts, CM_MODULE)
+
+
+/*B
+** Extraire les informations utiles, filtrer selon l'autoroute si demande
+** ----------------------------------------------------------------------
+*/
+
+k = 0
+FOR i = 0  TO ARRAY_SIZE@ (tl_donnees_eqts) - 1
+	IF IS_NULL@ (va_num_autoroute)  OR  (tl_donnees_eqts[i].autoroute = va_num_autoroute)
+	{
+		IF (tl_donnees_eqts[i].numero <> vl_num_cam_prec)
+		{
+			ta_cameras[k].numero		= tl_donnees_eqts[i].numero
+			ta_cameras[k].nom		= tl_donnees_eqts[i].nom
+			ta_cameras[k].autoroute		= tl_donnees_eqts[i].autoroute
+			ta_cameras[k].PR		= tl_donnees_eqts[i].PR
+			ta_cameras[k].sens		= tl_donnees_eqts[i].sens
+			ta_cameras[k].site_gestion	= tl_donnees_eqts[i].sitegestion
+			ta_cameras[k].dispo		= tl_donnees_eqts[i].dispo
+			vl_num_cam_prec = ta_cameras[k].numero		' eviter les doublons
+			k = k + 1
+		}
+	}
+NEXT i
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit la liste des cameras couvrant une zone, ordonnee selon la pertinence
+*  donnee en configuration.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCAR_Cameras_Couvrant_Zone (va_zone, ta_cameras_zone)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_zone           : Zone donnee par autoroute, PR1, PR2, sens.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_cameras_zone   : Liste des cameras couvrant la zone.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_rapide
+*
+* FONCTION
+*   Lit la liste des cameras en base de donnees par la procedure adequate.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+	VAR	vl_cr
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	COM_Identifiant_Autoroute,	va_zone[0] },
+	{ FALSE,	COM_Identifiant_PR,		va_zone[1] },
+	{ FALSE,	COM_Identifiant_PR,		va_zone[2] },
+	{ FALSE,	COM_Identifiant_Sens_Circul,	va_zone[3] }
+} )
+
+COM01_Trace(COM_DEBUG1, "XZAO13_Chercher_Camera "++va_zone[0]++" "++va_zone[1]++" "++va_zone[2]++" "++va_zone[3] )
+
+vl_cr = COM05_SQL_Procedure (XZAO13_Chercher_Camera, vl_parametres, vl_resultats, CM_MODULE)
+
+ta_cameras_zone = vl_resultats.select_results[0]
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Fonctions utilitaires de selection d'objets (autoroute, camera...)
+*  a l'IHM et de gestion des objets et structures de donnees internes.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCAR_Select_Autoroute (va_fenetre, va_i_autoroute)
+
+IF (va_i_autoroute >= 0)  AND  (va_i_autoroute < ARRAY_SIZE@ (tm_autoroutes))
+{
+	vm_i_autoroute = va_i_autoroute
+	vm_autoroute = tm_autoroutes[va_i_autoroute].numero
+}
+ELSE
+{
+	vm_i_autoroute = CM_AUTOROUTE_AUCUNE
+	vm_autoroute = NULL
+}
+
+tm_cameras = { }
+TCAR_Select_Aucune_Camera (va_fenetre)
+
+ENDMACRO
+
+
+
+
+
+MACRO TCAR_Select_Camera (va_fenetre, va_i_camera)
+
+IF (va_i_camera >= 0)  AND  (va_i_camera < ARRAY_SIZE@ (tm_cameras))
+{
+	vm_i_camera = va_i_camera
+	vm_code_camera = tm_cameras[va_i_camera].info
+	DB_CTRL_VALUE@ (va_fenetre, "BS_Code", vm_code_camera)
+}
+ELSE
+{
+	TCAR_Select_Aucune_Camera (va_fenetre)
+}
+
+ENDMACRO
+
+
+
+
+
+MACRO TCAR_Select_Aucune_Camera (va_fenetre)
+
+vm_i_camera = CM_CAMERA_AUCUNE
+vm_code_camera = ""
+
+DB_CTRL_VALUE@ (va_fenetre, "BS_Code", vm_code_camera)
+
+ENDMACRO
+
+
+
+
+
+MACRO ITMA_TCAR_Dump ()
+	INFO_MESSAGE@ ("Indice moniteur = " ++ vm_i_moniteur)
+	INFO_MESSAGE@ ("Camera / indice = " ++ vm_code_camera ++ " / " ++ vm_i_camera)
+	INFO_MESSAGE@ ("Autoroute / indice = " ++ vm_autoroute ++ " / " ++ vm_i_autoroute)
+	DUMP_ARRAY@ (tm_cameras, 3)
+ENDMACRO

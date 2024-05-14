@@ -1,0 +1,602 @@
+/*E*/
+/* Fichier : $Id: ITMA_TEA_Activation_Eqt.am,v 1.4 2007/03/26 14:30:48 gesconf Exp $      Release : $Revision: 1.4 $        Date : $Date: 2007/03/26 14:30:48 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TEA * FICHIER ITMA_TEA_Activation_Eqt.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Liste des equipements repondant a certains criteres de recherche saisis par
+* l'operateur ;
+* Mise en service / hors service d'equipements parmi ceux visualises.
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou    06 jan 1995 : Creation                                       V1.1
+* Lecrivain  28 Mar 1995 : Designation differente des equipements         V1.3
+* Niepceron  12 dec 2005 : Execution à distance des proc    V1.4 DEM365
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"../../XDMICG/inc/xzat18sp.h"
+INCLUDE	"../../XDMICG/inc/xzat19sp.h"
+
+
+
+DEFINE	C_MODULE	"MTEA"			' Nom du module
+
+
+
+/*A
+ * Nom des images digitalisees indiquant l'etat "en/hors service"
+ * --------------------------------------------------------------
+ */
+
+DEFINE	C_PICTO_ACT	"pix_ok"
+DEFINE	C_PICTO_DESACT	"pix_croix"
+
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	TEA_Equipement
+        type,					' Type de l'equipement (25 car)
+        designation,				' Nom ou Autoroute/PR/sens
+        date					' Horodate changt. etat (16 car)
+
+
+/*A
+ * Description du format des donnees "equipements" internes
+ * --------------------------------------------------------
+ */
+
+FORMAT	TEA_Info_Equipement
+        numero,					' Identifiant de l'equipement
+        type,					' Type equipement (numerique)
+        desactive				' Etat actuel (vrai = desactive)
+
+
+
+VAR     vm_l_types_equip			' Liste des numeros types equip.
+VAR     vm_lib_types_equip			' Libelles des types equipements
+
+
+VAR     vm_l_districts				' Liste des numeros de districts
+
+VAR FORMAT TEA_Equipement vm_t_equip		' Table des equipements affichee
+VAR     vm_l_picto				' Noms des pictogrammes
+
+VAR FORMAT TEA_Info_Equipement vm_t_info	' Table des infos internes
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation des equipements d'un certain type sur une autoroute,
+*  dans un district et pour un sens donnes ;
+*  Activation / desactivation d'equipements parmi ceux visualises.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TEA_Activation_Eqt (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de Consulter -> Etat de service equipement dans MTMS
+*
+* FONCTION
+*   Permet a l'operateur de choisir des criteres de recherche dans la liste
+*   des types d'equipements et dans la liste des districts.
+*   Lit ensuite en base de donnees puis affiche la liste des equipements
+*   repondant a ces criteres et permet de modifier le statut "active" ou
+*   "desactive" des equipements visualises.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_type_eqt
+    VAR     vl_district
+    VAR     vl_select				' Selection(s) dans la table
+
+    VAR     vl_status
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Activation / Desactivation Equipements"
+ * -----------------------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TEA")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TEA_Activation_Eqt")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Types_Eqts", 0)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Types_Eqts", TRUE)
+
+DB_CTRL_VALUE@ (vl_fenetre, "BL_District", 0)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_District", TRUE)
+
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre, "TA_Equipements", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_Equipements", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_Equipements", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "TA_Equipements", TRUE)
+
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_Rechercher", SYSTEM_VAR@(vg_site) = XDC_CI)
+
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_activer",TRUE)
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_desactiver",TRUE)
+
+
+/*A
+ * Initialiser la visualisation (listes des equipements, autoroutes, districts)
+ * ----------------------------------------------------------------------------
+ */
+
+IF TEA_Init_Equip_Et_Districts (vl_fenetre) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur selection de criteres, autoriser ou non la recherche
+     * --------------------------------------------------------
+     */
+
+    CASE "BL_Types_Eqts"
+    CASE "BL_District"
+	vl_type_eqt = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Types_Eqts")
+	vl_district = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_District")
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Rechercher",
+			    IS_NULL@ (vm_l_types_equip[vl_type_eqt])  AND
+			    IS_NULL@ (vm_l_districts[vl_district]))
+
+
+    /*A
+     * Sur choix "Rechercher", lire et afficher les equipements
+     * --------------------------------------------------------
+     */
+
+    CASE "BP_Rechercher"
+	MACRO_WINS_BUSY@()
+	vl_type_eqt = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Types_Eqts")
+	vl_district = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_District")
+
+	TEA_Lire_Equipements (vl_fenetre, vm_l_types_equip[vl_type_eqt],
+				vm_l_districts[vl_district])
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_activer", TRUE)
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_desactiver", TRUE)
+
+
+    /*A
+     * Sur selection d'un equipement, autoriser le changement d'etat
+     * -------------------------------------------------------------
+     */
+
+    CASE "TA_Equipements"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Equipements")
+	vl_select = vl_select[0]
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_activer",
+			    NOT vm_t_info[vl_select].desactive)
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_desactiver",
+			    vm_t_info[vl_select].desactive)
+
+
+    /*A
+     * Sur choix "activer" ou "desactiver", effectuer le changement d'etat
+     * -------------------------------------------------------------------
+     */
+
+    CASE "BP_activer"
+    CASE "BP_desactiver"
+	MACRO_WINS_BUSY@()
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_Equipements")
+	vl_select = vl_select[0]
+	vl_district = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_District")
+	vl_status = TEA_Changer_Etat_Equipement (vm_t_info[vl_select].numero,
+						 vm_t_info[vl_select].type,
+						 vl_objet_selecte ="BP_activer",
+						vm_l_districts[vl_district])
+
+	/*A
+	 * puis si l'action se deroule correctement,
+	 * le visualiser en changeant le pictogramme
+	 * -----------------------------------------
+	 */
+
+	IF vl_status = COM_OK {
+	    vm_t_info[vl_select].desactive = NOT vm_t_info[vl_select].desactive
+	    vm_t_equip[vl_select].date = COM09_Date_Courante()
+	    IF vm_t_info[vl_select].desactive
+		vm_l_picto[vl_select][0] = C_PICTO_DESACT
+	    ELSE vm_l_picto[vl_select][0] = C_PICTO_ACT
+
+	    DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_Equipements", vm_t_equip, 0)
+	    DB_TABLE_MARKER_PIXMAPS@(vl_fenetre, "TA_Equipements", 0,vm_l_picto)
+
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_activer", TRUE)
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_desactiver", TRUE)
+	}
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les listes des types d'equipements et des districts.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TEA_Init_Equip_Et_Districts (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_THS_Equipements_HS
+*
+* FONCTION
+*   Initialise les valeurs des listes des types d'equipements et des districts
+*   a partir des donnees figurant dans l'environnement.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TDO_Type_Equipement  vl_les_types_equip	' Liste types equip.
+    VAR FORMAT TDO_District	    vl_les_districts	' Liste des districts
+
+    VAR     vl_lib_districts			' Libelles districts affiches
+    VAR     vl_t_titres				' Titres colonnes de la table
+    VAR     vl_indice
+
+
+/*A
+ * Inserer un element "Tous" dans les listes ;
+ * memoriser les identifiants et afficher les libelles
+ * ---------------------------------------------------
+ */
+
+vl_les_types_equip = SYSTEM_VAR@ (vg_les_types_equipement)
+vm_l_types_equip = ARRAY_COLUMN@ (vl_les_types_equip, TDO_NUMERO_TYPE_EQUIP)
+vm_lib_types_equip = ARRAY_COLUMN@ (vl_les_types_equip, TDO_NOM_TYPE_EQUIP)
+
+vm_l_types_equip = ARRAY_INSERT@ (vm_l_types_equip, NULL, 0)
+vm_lib_types_equip = ARRAY_INSERT@ (vm_lib_types_equip, "Tous", 0)
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Types_Eqts", vm_lib_types_equip)
+
+
+vl_les_districts = SYSTEM_VAR@ (vg_les_districts)
+vm_l_districts = ARRAY_COLUMN@ (vl_les_districts, TDO_NUMERO_DISTRICT)
+
+/*A
+ * Au CI proposer tous les districts, sinon le site local seulement
+ * ----------------------------------------------------------------
+ */
+
+IF SYSTEM_VAR@(vg_site) = XDC_CI {
+    vm_l_districts = ARRAY_INSERT@ (vm_l_districts, NULL, 0)
+
+    vl_lib_districts = ARRAY_COLUMN@ (vl_les_districts, TDO_NOM_DISTRICT)
+    vl_lib_districts = ARRAY_INSERT@ (vl_lib_districts, "Tous", 0)
+} ELSE {
+    vl_indice = ARRAY_INDEX@ (vm_l_districts, SYSTEM_VAR@(vg_site))
+    vm_l_districts[0] = vl_les_districts[vl_indice].numero
+    vl_lib_districts[0] = vl_les_districts[vl_indice].nom
+}
+DB_CTRL_STRINGS@ (va_fenetre, "BL_District", vl_lib_districts)
+
+
+/*A
+ * Definir les titres des colonnes de la table
+ * -------------------------------------------
+ */
+
+vl_t_titres[0] = "Type",         255       ' Titre colonne et taille en pixels
+vl_t_titres[1] = "Désignation",  237
+vl_t_titres[2] = "Date",         106
+vl_t_titres[3] = "", 0
+
+
+/*A
+ * Valuer la table a afficher (uniquement les titres de colonnes)
+ * --------------------------------------------------------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@(va_fenetre, "TA_Equipements", NULL, vl_t_titres)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recherche et affiche les equipements repondant aux criteres indiques.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TEA_Lire_Equipements (va_fenetre, va_type_equip, va_district)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_type_equip     : Identifiant du type d'equipement a rechercher ;
+*   va_district       : Numero de district ou rechercher les equipements.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TEA_Activation_Eqt
+*
+* FONCTION
+*   Lit en base de donnees la liste des equipements satisfaisant les criteres
+*   definis par les valeurs fournies en arguments.
+*   (re)initialise la table avec les donnees de ces equipements.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT COM_Donnees_Equipements	vl_data
+    VAR FORMAT COM_Localisation vl_localisation
+    VAR     vl_type
+    VAR     i
+
+
+/*A
+ * Lire en base les donnees la liste des equipements du type et du site donnes
+ * ---------------------------------------------------------------------------
+ */
+
+IF ITMA_COM_Lire_Equipements (va_type_equip, va_district,
+				0, XDC_EQT_NON_HS, 0, 0,
+				vl_data, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Effacer les structures de donnees (pour reinitialisation)
+ * ---------------------------------------------------------
+ */
+
+vm_t_equip = NULL
+vm_t_info = NULL
+vm_l_picto = NULL
+
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+    vl_type = ARRAY_INDEX@ (vm_l_types_equip, vl_data[i].type)
+    IF vl_type >= 0
+	vm_t_equip[i].type = vm_lib_types_equip[vl_type]
+
+    IF vl_data[i].autoroute = NULL
+	vm_t_equip[i].designation = vl_data[i].nom
+    ELSE {
+	vl_localisation = vl_data[i].autoroute, vl_data[i].PR, vl_data[i].sens
+	vm_t_equip[i].designation = COM10_Localisation (vl_localisation)
+    }
+
+    vm_t_equip[i].date = COM18_Date_SGBD_Formatee (vl_data[i].date)
+
+    vm_t_info[i].numero = vl_data[i].numero
+    vm_t_info[i].type = vl_data[i].type
+    vm_t_info[i].desactive = ((vl_data[i].dispo \ XDC_EQT_DESACTIVE) MOD 2 <> 0)
+    IF vm_t_info[i].desactive
+	vm_l_picto[i] = C_PICTO_DESACT, NULL
+    ELSE vm_l_picto[i] = C_PICTO_ACT, NULL
+NEXT i
+
+
+/*A
+ * (re)initialiser la table affichee
+ * ---------------------------------
+ */
+
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_Equipements", 0, -1)
+DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_Equipements", vm_t_equip, 0)
+DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_Equipements", 0, vm_l_picto)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Change l'etat active / desactive d'un equipement.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TEA_Changer_Etat_Equipement (va_num_equip, va_type_equip, va_activer,va_district)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_equip      : Identifiant de l'equipement dont l'etat est a changer ;
+*   va_type_equip     : Identifiant du type de l'equipement ;
+*   va_activer        : Indicateur de l'operation a effectuer sur l'equipement.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_THS_Equipements_HS
+*
+* FONCTION
+*   Execute la requete voulue pour activer, soit pour desactiver l'equipement
+*   dont l'identifiant est indique en argument.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = COM_Identifiant_Equipement
+vl_parametres[0].data = va_num_equip
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Type_Equip
+vl_parametres[1].data = va_type_equip
+vl_parametres[1].output = FALSE
+
+IF va_activer {
+	IF (SYSTEM_VAR@(vg_site)=XDC_CI)
+	{
+       IF COM41_SQL_Procedure_Distante_New (va_district,XZAT19_Activation,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	  RETURN (COM_NOK)
+	}
+	ELSE
+	{
+    IF COM05_SQL_Procedure (XZAT19_Activation,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+	}
+} ELSE {
+	IF (SYSTEM_VAR@(vg_site)=XDC_CI)
+	{
+       IF COM41_SQL_Procedure_Distante_New (va_district,XZAT18_Desactivation,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	  RETURN (COM_NOK)
+	}
+	ELSE
+	{
+    IF COM05_SQL_Procedure (XZAT18_Desactivation,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+	}
+}
+
+RETURN (COM_OK)
+
+ENDMACRO

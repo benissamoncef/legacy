@@ -1,0 +1,103 @@
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../inc/xzae147sp.h"
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* permet de quitter l'application
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMT_quitter (va_modeConfirme)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   
+*
+---------------------------------------------------------------------------- */
+VAR vl_msg
+VAR vl_fenetre
+VAR vl_exit_value
+VAR vl_type
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+
+	/*A si je n'ai pas de fiche poste operateur*/
+	IF (COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION)=FALSE) AND
+	   (COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)=FALSE)
+		goto FIN
+
+	/*A si je n'ai pas besoin de confirmation*/
+	IF (va_modeConfirme=1)
+		goto FIN
+	IF (va_modeConfirme=2)
+		goto FIN2
+
+	/*A charge la fenetre*/
+	vl_fenetre=DB_LOAD@("ITMA_TMT_quitter")
+
+	/*A attente d'un evenement*/
+	WHILE 1
+		DB_DISPLAY@(vl_fenetre)
+		vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+		CASE OF vl_exit_value
+			/*A appui sur le bouton forcer quitter*/
+			CASE "BP_forcer"
+FIN:
+				vl_type=SYSTEM_VAR@(vg_type_machine)
+				/*************IF (COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION)=TRUE) OR
+					   (COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)=TRUE){
+    				  if ((vl_type=XDC_TYPEM_PC2) OR (vl_type=XDC_TYPEM_PC2LT)) {
+					if PEND_FOR_NEW_TASK@ ("ITMA_TCF_Demande_Confirmation", "Voulez-vous transferer vos droits d'enrichir au CI?") = COM_OK {
+      						vl_parametres[0].type=SYB#CHAR_
+      						vl_parametres[0].data=SYSTEM_VAR@(vg_nom_site)
+      						vl_parametres[0].output=FALSE
+      						vl_parametres[1].type=SYB#CHAR_
+      						vl_parametres[1].data=XDC_NOM_SITE_CI
+      						vl_parametres[1].output=FALSE
+      						COM05_SQL_Procedure (XZAE147_Transmet_Droits_FMC,
+                        					vl_parametres, vl_resultats, "ITMA_TMT")
+				  	}
+				  }
+    				}********/
+FIN2:
+				/*A si l'operateur veut quitter*/
+				vl_msg[0]=MTAR_MSG_FIN_TACHE
+				DB_SEND_POKE@(MTAR_MSG_FIN_TACHE,vl_msg)
+				DELAY@(0.5)
+OPEN_ASCII_FILE@ ( "/tmp/surv_log.log", "a")
+WRITE_FILE@ ( "/tmp/surv_log.log", FORMAT@ ("\n%s : %s ", COM09_Date_Courante (TRUE), "______ FIN 1  CONNEXION ______"))
+CLOSE_FILE@  ( "/tmp/surv_log.log")
+
+				/*ferme le serveur de connexion*/
+				SOCKET_CLOSE_CHANNEL@(SYSTEM_VAR@(vg_socket_envoi))
+				SOCKET_CLOSE_CHANNEL@(SYSTEM_VAR@(vg_socket_recep))
+
+				EXIT_ALL@()
+
+			/*A appui sur le bouton ok*/
+			CASE "BP_ok"
+				/*A renvoie null*/
+OPEN_ASCII_FILE@ ( "/tmp/surv_log.log", "a")
+WRITE_FILE@ ( "/tmp/surv_log.log", FORMAT@ ("\n%s : %s  ", COM09_Date_Courante (TRUE), "______ FIN 2  CONNEXION ______"))
+CLOSE_FILE@  ( "/tmp/surv_log.log")
+				RETURN 
+		ENDCASE
+	WEND
+ENDMACRO

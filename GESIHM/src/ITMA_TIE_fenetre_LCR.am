@@ -1,0 +1,1335 @@
+/*E*/
+/* Fichier : $Id: ITMA_TIE_fenetre_LCR.am,v 1.18 2012/07/04 18:09:54 pc2dpdy Exp $      Release : $Revision: 1.18 $        Date : $Date: 2012/07/04 18:09:54 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER ITMA_TIE_fenetre_LCR.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* fenetre LCR depuis le LT.
+*
+*   Cf. DSD 7.2.1
+*   Cf. DCG 2.4.38
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Cornu 	21 Dec 1994 : Creation								1.1
+* Charles	04 Jul 1995 : Action qualité							1.7
+* Mismer	07 Aug 1995 : Mise en place timeout commande LCR			1.8
+* Mismer	14 Fev 1996 : Correction Bug raf liste aide + liste eqt	1.9
+* Mismer	29 Fev 1996 : Correction impression resultat	(DEM/1029)	1.10
+* Mismer	22 Mai 1996 : Modif bouton impression resultat (DEM/1112)	1.11
+* Mismer	09 Sep 1996 : Modif liste eqt ajout DC et DS (RADT_W)		1.12
+* Mismer	14 Nov 1996 : Modif pour METEO (DEM/1232)				1.13
+* Niepceron	19 Dec 1996 : Filtre sur impression(dem/1316)				1.14
+* Mismer	12 Fev 1997 : Modif pour TDP (DEM/1395)				1.15
+* JMG		11/10/05	: ajout PMVA BAF BAD				1.17
+* JMG		23/05/12	: ajout PRV 1.18
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes générales
+ * ------------------------------------*/
+DEFINE	C_MODULE			"MTIE"			' Nom du module
+DEFINE	REP_AIDE			"../fichiers/aid/"
+DEFINE	REP_CONFIG		"../fichiers/"
+DEFINE	REP_FICHIER		"../fichiers/"
+
+DEFINE	NORMAL	"../fichiers/pic/pix_panneau_eteint"
+DEFINE	DANGER	"../fichiers/pic/pix_danger"
+
+/*A Description des modules à inclures
+ * ----------------------------------
+ */
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_PMV_format.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+/*A Description des variables globales
+ * ----------------------------------*/
+var		vm_statut				' Valeur de retour du module
+var     	vm_fenetre			' item de la fenetre du module
+var     	vm_objet_selecte		' L'objet courant de la fenetre
+var     	vm_la_fenetre_est_active	' flag d'activation de la fenetre
+var		vm_District				' le nom du district
+var		vm_NomSite			' Nom du site en cours
+var		vm_NomOperateur
+var		vm_NomMachine			' nom de la machine
+var		vm_titre_table_aide		' titre du tableau de l'aide.
+var 		vm_table_aide			' libellés du tableau de l'aide
+var 		vm_pix_table_aide			' liste des pictos de l'aide
+var		vm_TypeEqt			' type d'equipement selectionné
+var		vm_text				' text libre
+var		vm_F_aide				' fichier d'aide
+var		vm_F_EQT				' fichier de type d'equipement
+var		vm_F_Equipement		' fichier d'equipement
+var		vm_F_NomMachine		' fichier des machines des equipements
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Appel de la fenetre LCR
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TIE_fenetre_LCR (va_appelant,va_1,va_2,va_3,va_4,va_5,va_6)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 à va_6		: N° d'ordre + N° PA  ou  N° Equipement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+
+var		i,j,k				' index de loop
+var		vl_text
+var		vl_taille				' taille d'une chaine de caractères
+var		vl_taille2			' taille d'une chaine de caractères
+var		vl_ligne				' ligne texte
+var		vl_message			' message reçu sur socket
+var		vl_size				' taille de la table liste_PMV
+var		vl_retour		 		' code retourne à l'appelant
+var		vl_erreur				' flag d'erreur
+var		vl_F_tpm				' fichier tampon
+var		vl_messages_acceptes	' messages acceptes par sockets
+var		vl_rang				' rang de la selection
+var		vl_rangdeb,vl_rangfin		' rang de la selection
+var		vl_rang_avant				' rang de la selection
+var		vl_date				' date
+var		vl_date2				' date
+var		vl_t_date				' tableau de date
+var		vl_fichier			' non du fichier en edition
+var		vl_fichier2			' non du fichier en edition
+var		vl_reponse			' reponse de la confirmation operateur
+var		vl_liste_TypeEqt		' liste des types d'equipement
+var		vl_typeeqt			' type d'eqt selectionné
+var		vl_numeqt				' n° d'eqt selectionné
+var		vl_periode			' periode selectionné
+var		vl_position			' position selectionné
+var		vl_result
+var		vl_periode_sec			' periode en secondes
+var 		vl_num				' type de clic sur table aide 
+var 		vl_dir_source			' liste du contenu du repertoire source 
+var 		vl_dir_resultat		' liste du contenu du repertoire resultat
+
+vm_District = SYSTEM_VAR@("vg_site")
+vm_NomSite = SYSTEM_VAR@("vg_nom_site")
+vm_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vm_NomOperateur = SUBSTRING@(vm_NomOperateur, 1, 25)
+vm_NomMachine = SYSTEM_VAR@(vg_poste)
+
+vm_F_EQT[0] = "RADT"
+vm_F_EQT[1] = "DAI"
+vm_F_EQT[2] = "PMV"
+vm_F_EQT[3] = "PICTO"
+vm_F_EQT[4] = "NAV"
+vm_F_EQT[5] = "GTC"
+vm_F_EQT[6] = "RAU"
+vm_F_EQT[7] = "SYSVIDEO"
+vm_F_EQT[8] = "EQTX"
+vm_F_EQT[9] = "UGTP"
+vm_F_EQT[10]= "PAL"
+vm_F_EQT[11]= "PMVA"
+vm_F_EQT[12]= "BAF"
+vm_F_EQT[13]= "BAD"
+vm_F_EQT[14]= "PRV"
+
+vl_liste_TypeEqt[0] = XDC_EQT_RAD
+vl_liste_TypeEqt[1] = XDC_EQT_DAI
+vl_liste_TypeEqt[2] = XDC_EQT_PMV
+vl_liste_TypeEqt[3] = XDC_EQT_PCT
+vl_liste_TypeEqt[4] = XDC_EQT_NAV
+vl_liste_TypeEqt[5] = XDC_EQT_GTC
+vl_liste_TypeEqt[6] = XDC_EQT_RAU
+vl_liste_TypeEqt[7] = XDC_EQT_SYV
+vl_liste_TypeEqt[8] = XDC_EQT_GEN_LCR
+vl_liste_TypeEqt[9] = XDC_EQT_TDP
+vl_liste_TypeEqt[10] = XDC_EQT_PAL
+vl_liste_TypeEqt[11] = XDC_EQT_PMVA
+vl_liste_TypeEqt[12] = XDC_EQT_BAF
+vl_liste_TypeEqt[13] = XDC_EQT_BAD
+vl_liste_TypeEqt[14] = XDC_EQT_PRV
+
+
+
+/*A Definition du traitement a realiser en cas d'erreur
+* -----------------------------------------------------*/
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+vl_text = "------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = COM09_Date_Courante() ++ "   User : " ++ vm_NomOperateur
+vl_text = "Start ITMA_TIE_fenetre_LCR " ++ vl_text
+COM01_Trace(0,vl_text)
+
+
+
+/*A Charger la fenetre LCR
+ * ----------------------*/
+vm_fenetre = DB_LOAD@("ITMA_TIE_fenetre_LCR")
+vl_messages_acceptes[0] = COM_CANAL_FIN
+vl_messages_acceptes[1] = COM_CANAL_MTIE
+DB_ACCEPT_POKES@ (vm_fenetre, vl_messages_acceptes)
+DB_DISPLAY_ONLY@(vm_fenetre,TRUE)
+DB_WINDOW_REMAIN@ (vm_fenetre, TRUE)
+DB_XPOS@ (vm_fenetre, 25)
+DB_YPOS@ (vm_fenetre, 100)
+DB_CTRL_HORIZ_SCROLL@(vm_fenetre,"TA_aide",FALSE)
+
+/*A capture des clicks sur liste et bascule 
+* -------------------*------------------------*/
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"TA_aide",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BR_periode",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_resultat",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_dir_resultat",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_dir_source",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_cmd_fichier",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BO_type_eqt",TRUE)
+
+
+/*A attacher la fenetre d'aide 
+ * --------------------------*/
+COM02_Attacher_Aide (vm_fenetre, "ITMA_TIE_fenetre_LCR")
+
+
+/*A Definir les caracteristiques (initiales) des objets graphiques
+* --------------------------------------------------------------*/
+
+/* afficher sur fond blanc les zones de listes et de tableaux */
+DB_CTRL_WORK_COLORS@(vm_fenetre,"BS_fichier_source",TRUE)
+DB_CTRL_WORK_COLORS@(vm_fenetre,"BS_fichier_resultat",TRUE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@(vm_fenetre,"TA_aide",FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vm_fenetre, "TA_aide", FALSE)
+
+
+/*A Affichage de la fenetre
+* -------------------------*/
+DB_DISPLAY@(vm_fenetre)
+
+
+ 
+/*A Lecture du fichier d'aide & MAJ de la table d'aide  
+*   ------------------------------------------------- */
+ITMA_TIE_MAJ_TA_aide("RADT")
+vl_rang_avant = DB_CTRL_GET_VALUE@(vm_fenetre,"BO_type_eqt")
+DB_CTRL_VALUE@(vm_fenetre,"BS_fichier_source","defaut")
+DB_CTRL_VALUE@(vm_fenetre,"BS_fichier_resultat","resultat")
+DB_CURSOR_IN_ENTRY@(vm_fenetre,"BS_libre")
+
+
+/*A flag de capture des évenements dans la fenetre
+* ------------------------------------------------*/
+DB_DISPLAY_ONLY@(vm_fenetre,FALSE)
+
+
+
+/*A Gestion des événements liés à la fiche 'Pilotage des PMV'
+* --------------------------------------------------------*/
+vm_la_fenetre_est_active = TRUE
+WHILE (vm_la_fenetre_est_active)
+
+	/*A
+	 * Lecture de la date system et MAJ du libellé
+	 * -------------------------------------------
+	 */
+
+	DB_DISPLAY@ (vm_fenetre)
+
+    	vm_objet_selecte = DB_EXIT_CTRL@ (vm_fenetre)
+    	IF SYSTEM_VAR@ (vg_verrou) vm_objet_selecte = NULL
+
+	CASE OF vm_objet_selecte
+
+	/* Traitement action sur bouton quitter */
+	CASE "BP_quitter"
+		vm_la_fenetre_est_active = FALSE
+
+	/* Traitement action sur bouton directorie source */
+	CASE "BP_dir_source"
+		vl_dir_source = FILE_SYSTEM_FILES@(REP_FICHIER++"deq","*.lcr")
+		if IS_ARRAY@(vl_dir_source)
+		{
+			for i  = 0 to ARRAY_SIZE@(vl_dir_source)-1
+				vl_dir_source[i] =
+					SUBSTRING@(vl_dir_source[i],1,LEN@(vl_dir_source[i])-4)
+			next i
+			vl_dir_source = ARRAY_INSERT@(vl_dir_source,"..",0)
+			DB_CTRL_STRINGS@(vm_fenetre,"BL_dir_source",vl_dir_source)
+			DB_CTRL_DISPLAY@(vm_fenetre,"BL_dir_source",True)
+		}
+		else { info_message@("Repertoire vide ...") }
+
+	/* Traitement action sur liste de la directorie source */
+	CASE "BL_dir_source"
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre,"BL_dir_source")
+		if vl_rang>0
+		{
+			DB_CTRL_VALUE@(vm_fenetre,"BS_fichier_source",
+						vl_dir_source[vl_rang])
+		}
+		DB_CTRL_DISPLAY@(vm_fenetre,"BL_dir_source",False)
+
+	/* Traitement action sur bouton directorie resultat */
+	CASE "BP_dir_resultat"
+		vl_dir_resultat = FILE_SYSTEM_FILES@(REP_FICHIER++"deq","*.lcr")
+		if IS_ARRAY@(vl_dir_resultat)
+		{
+			for i  = 0 to ARRAY_SIZE@(vl_dir_resultat)-1
+				vl_dir_resultat[i] =
+				 SUBSTRING@(vl_dir_resultat[i],1,LEN@(vl_dir_resultat[i])-4)
+			next i
+
+			vl_dir_resultat = ARRAY_INSERT@(vl_dir_resultat,"..",0)
+			DB_CTRL_STRINGS@(vm_fenetre,"BL_dir_resultat",vl_dir_resultat)
+			DB_CTRL_DISPLAY@(vm_fenetre,"BL_dir_resultat",True)
+		}
+		else { info_message@("Repertoire vide ...") }
+
+	/* Traitement action sur liste de la directorie resultat */
+	CASE "BL_dir_resultat"
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre,"BL_dir_resultat")
+		if vl_rang>0
+		{
+			DB_CTRL_VALUE@(vm_fenetre,"BS_fichier_resultat",
+							vl_dir_resultat[vl_rang])
+		}
+		DB_CTRL_DISPLAY@(vm_fenetre,"BL_dir_resultat",False)
+		
+	/* Traitement action sur bouton à option type d'équipement */
+	CASE "BO_type_eqt"
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre,"BO_type_eqt")
+		vl_erreur = ITMA_TIE_MAJ_TA_aide(vm_F_EQT[vl_rang])
+		if vl_erreur = COM_NOK
+		{
+			DB_CTRL_VALUE@(vm_fenetre,"BO_type_eqt",vl_rang_avant)
+			ITMA_TIE_MAJ_TA_aide(vm_F_EQT[vl_rang_avant])
+		}
+		vl_rang_avant = DB_CTRL_GET_VALUE@(vm_fenetre,"BO_type_eqt")
+
+	/* Traitement action sur liste d'aide */
+	CASE "TA_aide"
+		vl_num = DB_EXIT_CODE@(vm_fenetre)
+
+		if vl_num = 50
+		{
+			vl_rang = DB_TABLE_GET_SELECTIONS@(vm_fenetre,"TA_aide")
+			if vm_F_aide[vl_rang[0],3]=1
+			{
+				BEEP@()
+				DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+								"Status : Commande avec danger ...")
+				BEEP@()
+			}
+			else 
+			{
+			DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+								"Status : Ligne d'aide choisie")
+			}
+
+			DB_CTRL_VALUE@(vm_fenetre,"BS_libre",vm_F_aide[vl_rang[0],2])
+		}
+
+ 	/* Traitement action sur bouton radio période */
+	CASE "BR_periode"
+
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre,"BR_periode")
+		
+		if DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_jour")+0 = 0
+		{
+			vl_date = COM09_Date_Courante ()
+			COM24_Afficher_Horodate (vl_date, vm_fenetre, "BS_debut_jour",  "BS_debut_mois", "BS_debut_annee", "BS_debut_heure", "BS_debut_minute")
+		}
+
+		vl_t_date[0]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_jour")+0
+		vl_t_date[1]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_mois")+0
+		vl_t_date[2]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_annee")+0
+		vl_t_date[3]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_heure")+0
+		vl_t_date[4]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_minute")+0
+
+		vl_t_date = ITMA_TIE_test_date(vl_t_date)
+		vl_date = COM06_Date_Formatee(vl_t_date[0], vl_t_date[1], 
+						vl_t_date[2], vl_t_date[3], vl_t_date[4])
+
+
+		DB_CTRL_VALUE@(vm_fenetre,"BS_debut_jour",vl_t_date[0])
+		DB_CTRL_VALUE@(vm_fenetre,"BS_debut_mois",vl_t_date[1])
+		DB_CTRL_VALUE@(vm_fenetre,"BS_debut_annee",vl_t_date[2])
+		DB_CTRL_VALUE@(vm_fenetre,"BS_debut_heure",vl_t_date[3])
+		DB_CTRL_VALUE@(vm_fenetre,"BS_debut_minute",vl_t_date[4])
+
+		/*A choix unique */
+		if (vl_rang = 0)  or (vl_rang = 5)
+		{
+			vl_date = NULL
+			vl_date2 = NULL
+		}
+
+		/*A choix + 1 minutes */
+		if vl_rang = 1  
+		{
+			vl_t_date[4] = vl_t_date[4] + 1
+			vl_t_date = ITMA_TIE_test_date(vl_t_date)
+			vl_date2 = COM06_Date_Formatee(vl_t_date[0], vl_t_date[1],
+						 vl_t_date[2], vl_t_date[3], vl_t_date[4])
+		}
+
+		/*A choix + 6 minutes */
+		if vl_rang = 2  
+		{
+			vl_t_date[4] = vl_t_date[4] + 6
+			vl_t_date = ITMA_TIE_test_date(vl_t_date)
+			vl_date2 = COM06_Date_Formatee(vl_t_date[0], vl_t_date[1],
+							 vl_t_date[2], vl_t_date[3], vl_t_date[4])
+		}
+
+		/*A choix + 1 heure */
+		if vl_rang = 3  
+		{
+			vl_t_date[3] = vl_t_date[3] + 1
+			vl_t_date = ITMA_TIE_test_date(vl_t_date)
+			vl_date2 = COM06_Date_Formatee(vl_t_date[0], vl_t_date[1],
+						 vl_t_date[2], vl_t_date[3], vl_t_date[4])
+		}
+
+		/*A choix + 1 jour */
+		if vl_rang = 4   
+		{
+			vl_t_date[0] = vl_t_date[0] + 1
+			vl_t_date = ITMA_TIE_test_date(vl_t_date)
+			vl_date2 = COM06_Date_Formatee(vl_t_date[0], vl_t_date[1],
+						 vl_t_date[2], vl_t_date[3], vl_t_date[4])
+		}
+
+		COM24_Afficher_Horodate (vl_date, vm_fenetre, "BS_debut_jour",
+								  "BS_debut_mois", "BS_debut_annee",
+								 "BS_debut_heure", "BS_debut_minute")
+		COM24_Afficher_Horodate (vl_date2, vm_fenetre, "BS_fin_jour",  "BS_fin_mois", "BS_fin_annee", "BS_fin_heure", "BS_fin_minute")
+
+
+	/* Traitement action sur bouton envoi ligne */
+	CASE "BP_envoi_ligne"
+
+	   vl_ligne = DB_CTRL_GET_STRINGS@(vm_fenetre,"BL_cmd_fichier")
+	   if NOT IS_ARRAY@(vl_ligne)
+	   {
+			vl_ligne = ""
+			vl_ligne[0] = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_libre")
+	   }
+	   else
+	   {
+			vl_taille = ARRAY_SIZE@(vl_ligne)
+			if vl_ligne[0] = "" { vl_taille = 0}
+			vl_ligne[vl_taille] = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_libre")
+	   }
+
+	   /*A si ligne vide : message et retour */
+	   if TRIM@(vl_ligne[vl_taille]) = ""
+	   {
+			DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : Ligne vide ...")
+	   }
+	   /*A sinon */
+	   else
+	   {
+
+		DB_CTRL_STRINGS@(vm_fenetre,"BL_cmd_fichier",vl_ligne) 
+
+		/*A création du fichier pour la ligne */
+		vl_ligne = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_libre")
+		OPEN_ASCII_FILE@(REP_FICHIER++"deq/ligne.lcr","w")
+		WRITE_FILE@(REP_FICHIER++"deq/ligne.lcr",vl_ligne)
+		CLOSE_FILE@(REP_FICHIER++"deq/ligne.lcr")
+
+		/*A capture de la date de debut */
+		vl_t_date[0]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_jour")+0
+		vl_t_date[1]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_mois")+0
+		vl_t_date[2]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_annee")+0
+		vl_t_date[3]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_heure")+0
+		vl_t_date[4]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_minute")+0
+		vl_t_date = ITMA_TIE_test_date(vl_t_date)
+		vl_date = COM06_Date_Formatee(vl_t_date[0], vl_t_date[1], 
+						vl_t_date[2], vl_t_date[3], vl_t_date[4])
+		vl_date = vl_date ++ ":00"
+
+		/*A capture de la date de fin */
+		vl_t_date[0]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_jour")+0
+		vl_t_date[1]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_mois")+0
+		vl_t_date[2]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_annee")+0
+		vl_t_date[3]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_heure")+0
+		vl_t_date[4]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_minute")+0
+		vl_t_date = ITMA_TIE_test_date(vl_t_date)
+		vl_date2 = COM06_Date_Formatee(vl_t_date[0], vl_t_date[1], 
+						vl_t_date[2], vl_t_date[3], vl_t_date[4])
+		vl_date2 = vl_date2 ++ ":00"
+
+		/*A capture des noms de fichier */
+		vl_fichier = "ligne.lcr"
+		vl_fichier2 = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fichier_resultat")++".lcr"
+	
+		vm_text = SHELL_COMMAND@( "rm  " ++ REP_FICHIER ++ "deq/*" ++ vl_fichier2)
+
+		/*A capture de la periode */
+		vl_periode  = DB_CTRL_GET_VALUE@(vm_fenetre,"BR_periode")
+		if (vl_periode = 0) vl_periode_sec = 0
+		if (vl_periode = 1) vl_periode_sec = 60
+		if (vl_periode = 2) vl_periode_sec = 360
+		if (vl_periode = 3) vl_periode_sec = 3600
+		if (vl_periode = 4) vl_periode_sec = 3600 * 24
+		if (vl_periode = 5) vl_periode_sec = -1
+
+		/*A capture du N° d'equipement  */
+		vl_rang  = DB_CTRL_GET_VALUE@(vm_fenetre,"BL_equipement")
+		if vl_rang = 0 
+		{
+			vl_NumEqt = XDC_EQTALL
+			vl_rangdeb  = 1
+			vl_rangfin = ARRAY_SIZE@(vm_F_equipement) - 1
+		 }
+		else 
+		{
+			vl_NumEqt = SUBSTRING@(vm_F_equipement[vl_rang],1,3)+0 
+			vl_rangdeb  = vl_rang
+			vl_rangfin = vl_rang
+		}
+
+		/*A capture du type d'equipement  */
+		vl_TypeEqt = vl_liste_TypeEqt[vl_rang_avant]
+
+		/*A Appel de la procedure XEZX01  */
+           if vl_date = NULL vl_date = 0
+           if vl_date2 = NULL vl_date2 = 0
+		for i = vl_rangdeb to vl_rangfin
+			k = 0		
+			if vl_rangdeb <> i
+			{
+			   for j = vl_rangdeb to i-1
+				if vm_F_NomMachine[j] = vm_F_NomMachine[i] {k=1}
+			   next j
+			}		
+			if k <> 1
+			{			
+				vl_result = vm_F_NomMachine[i] ++ vl_fichier2
+				ITMA_TIE_XZEX01( vl_TypeEqt, vl_NumEqt, 
+						vl_fichier, vl_result, 
+						vl_Periode_sec, vl_date, vl_date2, vm_F_NomMachine[i])
+			}
+		next i
+
+		DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : Ligne envoyée ...")
+		
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_envoi_ligne",TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_envoi_fichier",TRUE)
+
+	   }
+
+	/* Traitement action sur bouton envoi fichier */
+	CASE "BP_envoi_fichier"
+		
+		/*A capture de la date de debut */
+		vl_t_date[0]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_jour")+0
+		vl_t_date[1]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_mois")+0
+		vl_t_date[2]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_annee")+0
+		vl_t_date[3]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_heure")+0
+		vl_t_date[4]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_debut_minute")+0
+		vl_t_date = ITMA_TIE_test_date(vl_t_date)
+		vl_date = COM06_Date_Formatee(vl_t_date[0], vl_t_date[1],
+							 vl_t_date[2], vl_t_date[3], vl_t_date[4])
+		vl_date = vl_date ++ ":00"
+
+		/*A capture de la date de fin */
+		vl_t_date[0]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_jour")+0
+		vl_t_date[1]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_mois")+0
+		vl_t_date[2]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_annee")+0
+		vl_t_date[3]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_heure")+0
+		vl_t_date[4]	= DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fin_minute")+0
+		vl_t_date = ITMA_TIE_test_date(vl_t_date)
+		vl_date2 = COM06_Date_Formatee(vl_t_date[0], vl_t_date[1], 
+						vl_t_date[2], vl_t_date[3], vl_t_date[4])
+		vl_date2 = vl_date2 ++ ":00"
+
+		/*A capture des noms de fichier */
+		vl_fichier  = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fichier_source")++".lcr"
+		vl_fichier2 = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fichier_resultat")++".lcr"
+
+		vm_text = SHELL_COMMAND@( "rm  " ++ REP_FICHIER ++ "deq/*" ++ vl_fichier2)
+
+		/*A si fichier vide ou inexistant: message et retour */
+		if FILE_EXISTS@(REP_FICHIER++"deq/"++vl_fichier)
+		{
+		vl_F_tpm = READ_ASCII_FILE@(REP_FICHIER++"deq/"++vl_fichier)
+		if ARRAY_SIZE@(vl_F_tpm )<1 and TRIM@(vl_F_tpm[0])="" 
+							and TRIM@(vl_F_tpm[1])=""
+		{
+			DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+					"Status : Fichiers '"++vl_fichier++"' vide ...")
+		}
+		else
+		{
+
+		/*A capture de la periode */
+		vl_periode  = DB_CTRL_GET_VALUE@(vm_fenetre,"BR_periode")
+		if (vl_periode = 0) vl_periode_sec = 0
+		if (vl_periode = 1) vl_periode_sec = 60
+		if (vl_periode = 2) vl_periode_sec = 360
+		if (vl_periode = 3) vl_periode_sec = 3600
+		if (vl_periode = 4) vl_periode_sec = 3600 * 24
+		if (vl_periode = 5) vl_periode_sec = -1
+
+
+		/*A capture du N° d'equipement  */
+		vl_rang  = DB_CTRL_GET_VALUE@(vm_fenetre,"BL_equipement")
+		if vl_rang = 0 
+		{
+			vl_NumEqt = XDC_EQTALL
+			vl_rangdeb  = 1
+			vl_rangfin = ARRAY_SIZE@(vm_F_equipement) - 1
+		 }
+		else 
+		{
+			vl_NumEqt = SUBSTRING@(vm_F_equipement[vl_rang],1,3)+0 
+			vl_rangdeb  = vl_rang
+			vl_rangfin = vl_rang
+		}
+
+		/*A capture du type d'equipement  */
+		vl_TypeEqt = vl_liste_TypeEqt[vl_rang_avant]
+
+		/*A Appel de la procedure XEZX01  */
+           if vl_date = NULL vl_date = 0
+           if vl_date2 = NULL vl_date2 = 0
+
+		for i = vl_rangdeb to vl_rangfin
+
+			k = 0		
+			if vl_rangdeb <> i
+			{
+			   for j = vl_rangdeb to i-1
+				if vm_F_NomMachine[j] = vm_F_NomMachine[i] k=1
+			   next j
+			}	
+	
+			if k <> 1
+			{	vl_result = vm_F_NomMachine[i] ++ vl_fichier2
+				ITMA_TIE_XZEX01( vl_TypeEqt, vl_NumEqt, vl_fichier, 
+						vl_result, vl_Periode_sec, vl_date,
+						 vl_date2, vm_F_NomMachine[i])
+			}
+
+		next i
+
+		DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : Fichier envoyé ...")
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_envoi_ligne",TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_envoi_fichier",TRUE)
+
+		}
+		}
+		else
+		{
+			DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+					"Status : Fichiers '"++vl_fichier++"' inexistant ...")
+		}
+
+	/* Traitement action sur bouton lire fichier */
+	CASE "BP_lire"
+
+		vl_fichier = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fichier_source")++".lcr"
+		if vl_fichier <> NULL
+		{
+			if NOT FILE_EXISTS@(REP_FICHIER++"deq/"++vl_fichier)
+			{
+				info_message@("Fichier inconnu : "++
+							REP_FICHIER++"deq/"++vl_fichier)
+				vl_ligne = ""
+				vl_ligne[0] = ""
+				DB_CTRL_STRINGS@(vm_fenetre,"BL_cmd_fichier",vl_ligne) 
+				DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : NOK")
+			}
+			else
+			{
+				vl_ligne = READ_ASCII_FILE@(REP_FICHIER++"deq/"++vl_fichier)
+				if IS_ARRAY@(vl_ligne)
+					{ 
+					DB_CTRL_STRINGS@(vm_fenetre,"BL_cmd_fichier",vl_ligne)
+					DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+								"Status : Fichier lu ...")
+					}
+			}
+		}
+
+
+	/* Traitement action sur bouton ecrire fichier */
+	CASE "BP_ecrire"
+
+		vl_fichier = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fichier_source")++".lcr"
+		if vl_fichier <> NULL
+		{
+			if NOT FILE_EXISTS@(REP_FICHIER++"deq/"++vl_fichier)
+			{
+				vl_ligne = DB_CTRL_GET_STRINGS@(vm_fenetre,"BL_cmd_fichier")
+				vl_taille = ARRAY_SIZE@(vl_ligne) - 1
+				OPEN_ASCII_FILE@(REP_FICHIER++"deq/"++vl_fichier,"w")
+				for i = 0 to vl_taille
+					WRITE_FILE@(REP_FICHIER++"deq/"++vl_fichier,vl_ligne[i])
+				next i
+				CLOSE_FILE@(REP_FICHIER++"deq/"++vl_fichier)
+				DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+							"Status : Fichier sauvegardé ...")
+			}
+			else
+			{
+				info_message@("Fichier existant : "++
+								REP_FICHIER++"deq/"++vl_fichier)
+				DB_CTRL_GRAYED@(vm_fenetre,"BP_ecraser",FALSE)
+				DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : NOK")
+			}
+		}
+
+
+	/* Traitement action sur bouton écraser fichier */
+	CASE "BP_ecraser"
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_ecraser",TRUE)
+		vl_ligne = DB_CTRL_GET_STRINGS@(vm_fenetre,"BL_cmd_fichier")
+		vl_taille = ARRAY_SIZE@(vl_ligne) - 1
+		OPEN_ASCII_FILE@(REP_FICHIER++"deq/"++vl_fichier,"w")
+		for i = 0 to vl_taille
+			WRITE_FILE@(REP_FICHIER++"deq/"++vl_fichier,vl_ligne[i])
+		next i
+		CLOSE_FILE@(REP_FICHIER++"deq/"++vl_fichier)
+		DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : Fichier ecrasé ...")
+
+
+	/* Traitement action sur bouton supprimer fichier */
+	CASE "BP_supprimer"
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_supprimer",FALSE)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_suppr_ok",TRUE)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_suppr_non",TRUE)
+		DB_CTRL_DISPLAY@(vm_fenetre,"LI_confirmation",TRUE)
+
+	/* Traitement action sur bouton supprimer fichier : NON */
+	CASE "BP_suppr_non"
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_supprimer",True)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_suppr_ok",False)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_suppr_non",False)
+		DB_CtRL_DISPLAY@(vm_fenetre,"LI_confirmation",False)
+
+	/* Traitement action sur bouton supprimer fichier : OUI */
+	CASE "BP_suppr_ok"
+		vl_fichier = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fichier_source")++".lcr"
+		if vl_fichier <> NULL
+		{
+
+			if FILE_EXISTS@(REP_FICHIER++"deq/"++vl_fichier)
+			{
+				DELETE_FILE@(REP_FICHIER++"deq/"++vl_fichier)
+				DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+						"Status : Fichier supprimé ...")
+			}
+			else {DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : NOK")}
+		}
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_supprimer",True)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_suppr_ok",False)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_suppr_non",False)
+		DB_CTRL_DISPLAY@(vm_fenetre,"LI_confirmation",False)
+
+
+	/* Traitement action sur bouton supprimer fichier résultat */
+	CASE "BP_suppr_resultat"
+		vl_fichier = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fichier_resultat")++".lcr"
+		if vl_fichier <> NULL and FILE_EXISTS@(REP_FICHIER++"deq/"++vl_fichier) 
+		{
+		  DB_CTRL_DISPLAY@(vm_fenetre,"BP_suppr_resultat",FALSE)
+		  DB_CTRL_DISPLAY@(vm_fenetre,"BP_supp_result_OK",TRUE)
+		  DB_CTRL_DISPLAY@(vm_fenetre,"BP_supp_result_non",TRUE)
+		  DB_CTRL_DISPLAY@(vm_fenetre,"LI_confirm_supp_result",TRUE)
+           }
+		else
+           {
+		    DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+						"Status : Fichier resultat inexistant")
+		}
+
+	/* Traitement action sur bouton supprimer fichier résultat */
+	CASE "BP_imprimer"
+		vl_fichier = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fichier_resultat")++".lcr"
+		if vl_fichier <> NULL and FILE_EXISTS@(REP_FICHIER++"deq/"++vl_fichier) 
+		{
+			vm_text = SHELL_COMMAND@( "sed 's/\(.\{80\}\)/\1ù/g' " ++ REP_FICHIER ++ "deq/" ++ vl_fichier ++ " | tr 'ù' '\012' | lp -onb " )
+			DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : Impression de "++ 	vl_fichier )
+           }
+		else
+           {
+		    DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+						"Status : Fichier resultat inexistant")
+		}
+
+	/* Traitement action sur bouton supprimer fichier résultat : NON */
+	CASE "BP_supp_result_non"
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_suppr_resultat",True)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_supp_result_OK",False)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_supp_result_non",False)
+		DB_CtRL_DISPLAY@(vm_fenetre,"LI_confirm_supp_result",False)
+
+	/* Traitement action sur bouton supprimer fichier résultat : OUI */
+	CASE "BP_supp_result_OK"
+		vl_fichier = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fichier_resultat")++".lcr"
+		if vl_fichier <> NULL and FILE_EXISTS@(REP_FICHIER++"deq/"++vl_fichier) 
+		{
+			DELETE_FILE@(REP_FICHIER++"deq/"++vl_fichier)
+			DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : Fichier supprimé")
+		}
+		else 
+		{
+			DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : NOK")
+		}
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_suppr_resultat",True)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_supp_result_OK",False)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_supp_result_non",False)
+		DB_CtRL_DISPLAY@(vm_fenetre,"LI_confirm_supp_result",False)
+
+
+ 	/* Traitement des réception de messages */
+  	CASE "poke_"
+
+
+	  	CASE OF  DB_GET_POKE@ (vm_fenetre)
+
+		/* Traitement message de FIN */
+     	CASE COM_CANAL_FIN
+    			vm_la_fenetre_est_active = FALSE
+
+ 		/* Traitement messages LCR */
+	    	CASE COM_CANAL_MTIE
+			/*A capture du message */
+			DB_CTRL_TITLE@(vm_fenetre,"LI_status","Status : Reception resultat")
+
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre)
+
+			/*A trace de la reception du message */
+			vm_text = COM09_Date_Courante() ++ "   MsgPoke MTIE : "
+			vm_text =  vm_text ++ vl_message[0]
+			COM01_Trace(0,vm_text)
+			COM01_Trace(0," ")
+
+			/*A si flag OK : MAJ de la zone resultat */
+			if vl_message[0]=COM_OK
+			{
+			  DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+								"Status : Reception fichier")
+			  vl_fichier =
+				 DB_CTRL_GET_VALUE@(vm_fenetre,"BS_fichier_resultat")++".lcr"
+			  if vl_fichier <> NULL 
+			  {
+			     vm_text = SHELL_COMMAND@( "rm  " ++ REP_FICHIER ++ 
+							"deq/" ++ vl_fichier)
+			     vm_text = SHELL_COMMAND@( "cat  " ++ REP_FICHIER ++ 
+						"deq/*" ++ vl_fichier ++ " >> " ++
+						 REP_FICHIER ++ "deq/" ++ vl_fichier)
+			     if FILE_EXISTS@(REP_FICHIER++"deq/"++vl_fichier)
+			     {
+				 vl_ligne = READ_ASCII_FILE@(REP_FICHIER++"deq/"++vl_fichier)
+			  	 if IS_ARRAY@(vl_ligne)
+				 { 
+					DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+								"Status : Compte-rendu recu ...")
+				
+					DB_CTRL_STRINGS@(vm_fenetre, "BL_resultat", vl_ligne)
+					/*A si bascule pour imprimante OK : imprimer */
+
+				  }
+				  else
+				  {
+			    		DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+							"Status : Fichier recu vide ...")
+				  }
+			 	}
+				else
+				{
+			    	    DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+							"Status : Pas de fichier recu ...")
+			 	}
+                  }
+		 	 }
+		    	 else
+			 {
+			   if vl_message[0]=COM_NOK
+			   {
+			       DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+						"Status : Compte rendu echec ...")
+                   }
+		    	   else
+                   {
+			       DB_CTRL_TITLE@(vm_fenetre,"LI_status",
+								"Status : Communication Impossible ...")
+				  vl_ligne[0]=""
+				 DB_CTRL_STRINGS@(vm_fenetre, "BL_resultat", vl_ligne)
+                   }
+			}
+                
+
+	         	DB_CTRL_GRAYED@(vm_fenetre,"BP_envoi_ligne",FALSE)
+	     	DB_CTRL_GRAYED@(vm_fenetre,"BP_envoi_fichier",FALSE)
+			DB_CTRL_VALUE@(vm_fenetre,"BR_periode",0)
+		ENDCASE
+
+	ENDCASE
+	
+WEND
+
+
+vl_text = COM09_Date_Courante() ++ "   User : " ++ vm_NomOperateur
+vl_text = "Stop ITMA_TIE_fenetre_LCR " ++ vl_text
+COM01_Trace(0,vl_text)
+RETURN(COM_QUITTE)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Envoi de commande LCR.
+*
+* -------------------------------------------------------------------------------*/
+
+FUNCTION ITMA_TIE_XZEX01( va_NoTypEqt, va_NoEqt, va_FichierLCR, va_FichierResultat, va_Periode, va_HrDebut, va_HrFin, va_NomMachine)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NoTypEqt		: Type d'equipement
+*		va_NoEqt			: N° d'equipement
+*		va_FichierLCR		: Fichier de commande
+*		va_FichierResultat	: Fichier de resultat
+*		va_Periode		: Periode (0 - 5) d'emission des messages
+*		va_HrDebut		: Heure de debut d'emission
+*		va_HrFin			: Heure de fin d'emission
+*		va_NomMachine		: Nom de la machine
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TPM_pilotage_PMv_LT
+*
+* FONCTION :
+*	 Envoi de commande CLR à l'equipement EQUEXT.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+
+	'ALL_WINDOWS_BUSY@()
+
+	/*A trace de l'appel de procedure */
+	vm_text = COM09_Date_Courante()  
+	vm_text =  vm_text ++ " --> XZEX01 "
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEX01 
+
+	/*B arguments */
+	vl_cmd[3]= va_NoTypEqt ++MTAR_CAR_SEPAR++ va_NoEqt ++MTAR_CAR_SEPAR++ va_FichierLCR ++MTAR_CAR_SEPAR++ va_FichierResultat ++MTAR_CAR_SEPAR++ va_Periode ++MTAR_CAR_SEPAR++ va_HrDebut ++MTAR_CAR_SEPAR++ va_HrFin ++MTAR_CAR_SEPAR++ va_NomMachine  
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émission */
+	vm_text = COM09_Date_Courante()  
+	vm_text =  vm_text ++ " -- DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+
+	COM01_Trace(0,vm_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDFUNCTION
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Mise à jour de la table d'aide par rapport à .
+*				l'equipement désiré ...
+* -------------------------------------------------------------------------------*/
+
+FUNCTION ITMA_TIE_MAJ_TA_aide(va_TypeEQT)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_TypeEQT			:	Type d'equipement choisi
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TPM_pilotage_PMv_LT
+*
+* FONCTION :
+*	 .
+* ------------------------------------------------------------------------------- */
+
+	var vl_F_tpm
+	var vl_tpm
+	var vl_ligne
+	var vl_taille
+	var vl_taille2
+	var i,j,k
+	var vl_pix_table
+	var vl_fichier
+
+
+
+
+/*A Lecture de la liste des equipements disponibles   
+*   ----------------------------------------------- */
+if LEN@(vm_NomSite)>0
+{
+	vl_fichier = REP_CONFIG++"deq/Config_"++va_TypeEQT++"_LCR"
+	if FILE_EXISTS@(vl_fichier) { vl_F_tpm = READ_ASCII_FILE@(vl_fichier) }
+
+}
+else
+{
+ 	info_message@("Mauvaise config du nom site : " ++vm_NomSite )
+	return(COM_NOK)
+}
+
+
+vm_F_Equipement = ""
+vm_F_Equipement[0] = "Tous"
+
+k = 1
+vl_taille = ARRAY_SIZE@(vl_F_tpm)-1
+for i = 0 to vl_taille
+	vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+	vl_taille2 = ARRAY_SIZE@(vl_ligne)-1
+	for j = 0 to vl_taille2
+		vl_tpm[i,j] = TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+		if LEN@(vl_tpm[i,1])=1 {vl_tpm[i,1] = "00"++vl_tpm[i,1]}
+		if LEN@(vl_tpm[i,1])=2 {vl_tpm[i,1] = "0"++vl_tpm[i,1]}
+	next j
+	vm_F_Equipement[k] = vl_tpm[i,1] ++ "  " ++ vl_tpm[i,0]
+	vm_F_NomMachine[k] = vl_tpm[i,2]
+ 	k = k + 1 
+next i
+
+DB_CTRL_STRINGS@(vm_fenetre,"BL_equipement",vm_F_Equipement)
+
+
+/*A Lecture du fichier d'aide  
+*   ------------------------- */
+vm_F_aide = ""
+
+
+if LEN@(va_TypeEQT)>0
+{
+  if NOT FILE_EXISTS@(REP_AIDE++"aide_"++va_TypeEQT++".lcr")
+  {	info_message@("Fichier demandé inexistant : " ++ REP_AIDE++"aide_"++va_TypeEQT++".lcr")
+	return(COM_NOK)
+  }
+  vl_F_tpm = READ_ASCII_FILE@(REP_AIDE++"aide_"++va_TypeEQT++".lcr")
+}
+else
+{
+  if NOT FILE_EXISTS@(REP_AIDE++"aide_RADT.lcr")
+  {	info_message@("Fichier demandé inexistant : " ++ REP_AIDE++"aide_RADT.lcr")
+	return(COM_NOK)
+  }
+  vl_F_tpm = READ_ASCII_FILE@(REP_AIDE++"aide_RADT.lcr")
+}
+
+vl_taille = ARRAY_SIZE@(vl_F_tpm)-1
+for i = 0 to vl_taille
+	vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+	vl_taille2 = ARRAY_SIZE@(vl_ligne)-1
+	for j = 0 to vl_taille2
+		vm_F_aide[i,j] = TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+	next j
+next i
+
+
+/*A MAJ TA_aide
+* -------------------*/
+vm_pix_table_aide = ""
+vm_table_aide = ""
+vm_titre_table_aide = ""
+vl_taille = ARRAY_SIZE@(vm_F_aide)-1
+for i = 0 to vl_taille
+	vm_table_aide[i,0]		= vm_F_aide[i,0]	' commandes
+	vm_table_aide[i,1]		= vm_F_aide[i,1]	' libellé
+	vm_table_aide[i,2]		= vm_F_aide[i,2]	' exemple
+
+
+	if vm_F_aide[i,3]=0 { vm_pix_table_aide[i] = NORMAL,"" }
+	if vm_F_aide[i,3]=1 { vm_pix_table_aide[i] = DANGER,"" }
+next i
+
+
+vm_titre_table_aide[0,0] 	= " Commande"
+vm_titre_table_aide[0,1]	= 80
+vm_titre_table_aide[1,0] 	= " Libellé de la commande"
+vm_titre_table_aide[1,1]	= 300
+vm_titre_table_aide[2,0] 	= " Exemple de syntaxe pour la commande"
+vm_titre_table_aide[2,1]	= 600
+
+DB_TABLE_CLEAR_DATA@(vm_fenetre,"TA_aide",0,-1)
+DB_TABLE_ALLOW_COLUMN_RESIZING@(vm_fenetre,"TA_aide",FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vm_fenetre, "TA_aide", FALSE)
+
+DB_TABLE_SET_MARKER_WIDTH@(vm_fenetre,"TA_aide",24)
+DB_TABLE_SET_DATA@(vm_fenetre,"TA_aide",vm_table_aide,vm_titre_table_aide)
+DB_TABLE_MARKER_PIXMAPS@(vm_fenetre,"TA_aide",0,vm_pix_table_aide)  		
+
+DB_DISPLAY_ONLY@(vm_fenetre,TRUE)
+DB_DISPLAY@(vm_fenetre)
+DB_DISPLAY_ONLY@(vm_fenetre,FALSE)
+
+/*B code retour OK */
+RETURN(COM_OK)
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Construit et retourne une chaine de caracteres representant une horodate
+*  dans un format valide pour interface avec le SGBD.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TIE_test_date(va_t_date)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_date           : date en cours,
+*   va_t_date         : tabhleau de date en cours,
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* VALEUR RETOURNEE    : La chaine construite, de la forme "jj/mm/aaaa hh:mm".
+*
+* CONDITION D'UTILISATION
+*   Toute macro.
+*
+* FONCTION
+*   Construit et retourne une chaine de caracteres representant une horodate
+*   dans un format fixe, accepte par le SGBD, a partir des valeurs indiquees
+*   en arguments.
+*
+*   * Les chaines d'heure et minute en entree peuvent etre vides, auquel cas
+*     les valeurs sont prises egales a "00".
+*   * La valeur des secondes n'est pas fournie.
+*
+---------------------------------------------------------------------------- */
+
+
+
+if va_t_date[4]>60
+{
+	va_t_date[4] = va_t_date[4] - 60
+	va_t_date[3] = va_t_date[3] + 1
+}
+
+if va_t_date[3]>24
+{
+	va_t_date[3] = va_t_date[3] - 24
+	va_t_date[0] = va_t_date[0] + 1
+}
+
+if va_t_date[0]>31 and ( va_t_date[1]=12 or va_t_date[1]=10 or va_t_date[1]=8 or va_t_date[1]=7 or va_t_date[1]=5 or va_t_date[1]=3 or va_t_date[1]=1 )
+{
+	va_t_date[0] = va_t_date[0] - 31
+	va_t_date[1] = va_t_date[1] + 1
+}
+
+if va_t_date[0]>30 and ( va_t_date[1]=11 or va_t_date[1]=9 or va_t_date[1]=6 or va_t_date[1]=4 ) 
+{
+	va_t_date[0] = va_t_date[0] - 30
+	va_t_date[1] = va_t_date[1] + 1
+}
+
+if va_t_date[0]>29 and va_t_date[1]=2 
+{
+	va_t_date[0] = va_t_date[0] - 29
+	va_t_date[1] = va_t_date[1] + 1
+}
+
+if va_t_date[1]>12 
+{
+	va_t_date[1] = va_t_date[1] - 12
+	va_t_date[2] = va_t_date[2] + 1
+}
+
+if va_t_date[2]<100 
+{
+	va_t_date[2] = va_t_date[2] + 1900
+}
+
+RETURN (va_t_date)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	affiche la boite de confirmation de suppression
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TIE_suppression()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* VALEUR RETOURNEE    : validation operateur
+*
+* CONDITION D'UTILISATION
+*   Toute macro.
+*
+* FONCTION
+*			affiche la boite de confirmation de suppression
+*
+---------------------------------------------------------------------------- */
+
+var	vl_fenetre
+var	vl_message
+var	vl_objet
+var  vl_reponse
+var	vl_fenetre_active
+
+vl_fenetre = DB_LOAD@("ITMA_TIE_suppression")
+vl_fenetre_active = TRUE
+
+vl_message[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_message)
+
+DB_XPOS@ (vl_fenetre, 150)
+DB_YPOS@ (vl_fenetre, 150)
+
+
+WHILE (vl_fenetre_active)
+
+	DB_DISPLAY@ (vl_fenetre)
+
+    	vl_objet = DB_EXIT_CTRL@ (vl_fenetre)
+
+	CASE OF vl_objet
+
+	CASE "BP_oui"
+		RETURN(COM_OK)
+
+	CASE "BP_non"
+		RETURN(COM_NOK)
+
+   	CASE "poke_"
+
+     	CASE OF  DB_GET_POKE@ (vl_fenetre)
+
+     	CASE COM_CANAL_FIN
+    			vl_fenetre_active = FALSE
+
+		ENDCASE
+
+	ENDCASE
+	
+WEND
+
+return(COM_NOK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourne un message à l'operateur et trace l'accès interdit
+*				à une macro.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TIE_Acces_interdit(va_NomMacro)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomMacro	:	le nom de la macro interdite
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+
+* CONDITION D'UTILISATION :
+*   appel d'une macro avec les droits d'accès insuffisant.
+*
+* FONCTION :
+*	Retourne un message à l'operateur et trace l'accès interdit à une macro
+*---------------------------------------------------------------------------- */
+
+	/*A message d'info à l'opérateur */
+
+	var vl_text
+	
+	vl_text = "L'utilisateur " ++vm_NomOperateur ++ " n'a pas les droits suffisants" ++ NUM_TO_STRING@(10) ++ "pour la fonction : " ++ va_NomMacro
+	info_message@(vl_text)
+
+	/*A trace de l'appel de procedure */
+	vl_text = COM09_Date_Courante()  
+	vl_text =  vl_text ++ " Accès Macro " ++ va_NomMacro ++ " refusé pour " ++ vm_NomOperateur
+	COM01_Trace(0,vl_text)
+
+ENDMACRO
+
+
+
+
+

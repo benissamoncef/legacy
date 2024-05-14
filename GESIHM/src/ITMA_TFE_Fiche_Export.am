@@ -1,0 +1,791 @@
+/*E*/
+/* Fichier : $Id: ITMA_TFE_Fiche_Export.am,v 1.2 1999/03/19 17:06:31 gesconf Exp $      Release : $Revision: 1.2 $        Date : $Date: 1999/03/19 17:06:31 $
+---------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TFE * FICHIER ITMA_TFE_Fiche_Export.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Demander d'export intergestionnaire
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Niepceron   25 Nov 1998 : Creation                                        V1.1
+* Niepceron   04 Mar 1999 : Ajout chps vide dans la gravite V1.2
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TMC.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TFA.h"
+INCLUDE	"../inc/ITMA_TAN_Escota.h"
+INCLUDE	"../../XDMICG/inc/xzaec_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzap24sp.h"
+INCLUDE "../../XDMICG/inc/xzac72sp.h"
+INCLUDE "../../XDMICG/inc/xzac73sp.h"
+INCLUDE "../../XDMICG/inc/xzac74sp.h"
+
+
+
+DEFINE	C_MODULE			"MTFE"						' Nom du module
+
+
+
+
+
+/*A
+ * Definition des codes et libelles
+ * des erreurs specifiques au module
+ * ---------------------------------
+ */
+
+DEFINE	C_ERR_IHM			1
+
+
+
+
+
+
+
+
+VAR FORMAT COM_Identifiant_FMC vm_id_FMC			' FMC liee a l'appel
+
+
+VAR vm_num_action
+VAR tm_num_actions
+VAR tm_liste_causes
+
+VAR vm_mode_formation
+VAR FORMAT TDO_NIV_LIB vm_liste_niveaux
+VAR tm_Niveau_Trafic
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Afficher le texte et demander une confirmation de celui-ci
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFE_Fiche_Export (va_appelant, ta_args)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  ta_args : table des arguments
+*	si MTPA	num plan actions,num ordre proposition,num fiche fmc, libelle
+*	si MTMC	num evt, cle evt, num action, sit action, libelle fmc
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_VALIDE si l'appel a ete effectue ;
+*						COM_QUITTE si la fenetre est quittee ;
+*						COM_REFUSE si l'appel a ete refuse ;
+*						COM_NOK en cas d'erreur.
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*
+*   Gere le dialogue de commande d'un appel par fax.
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_fenetre_active
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+
+	VAR vl_appelant
+	VAR vl_num_plan, vl_num_ordre, vl_libelle_FMC
+	VAR vl_texte									' Texte d'explication global
+
+	VAR FORMAT TFA_Contact_Interlocuteur vl_interlo	' Interlocuteur choisi
+	VAR vl_fax_envoye								' Indicateur d'envoi
+
+	VAR tl_data									' Arguments de message
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_indice,tl_retour
+	VAR vl_status
+	VAR vl_niveau,vl_gravite
+	VAR tl_intermediaire
+	VAR vl_champs
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (COM_NOK)
+}
+
+IF (SYSTEM_VAR@(vg_formation)<>null)
+	vm_mode_formation=TRUE
+
+/*A
+ * Charger la fenetre "Envoi de fax"
+ * ---------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TFE")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TFE_Fiche_Export")
+
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+DB_DISPLAY_ONLY@ (vl_fenetre, TRUE)
+DB_DISPLAY@ (vl_fenetre)
+
+MACRO_WINS_BUSY@()
+
+
+
+/*A
+ * Recuperer les arguments et les afficher
+ * ---------------------------------------
+ */
+
+tl_intermediaire =  SYSTEM_VAR@ ( vg_niv_diff )
+vl_champs=-1," "," "," "
+vm_liste_niveaux=ARRAY_INSERT@(tl_intermediaire,vl_champs,0)
+tm_niveau_trafic[0]=""
+tm_niveau_trafic[XDC_RADT_FLUIDE]="fluide"
+tm_niveau_trafic[XDC_RADT_PRESAT]="pré-saturé"
+tm_niveau_trafic[XDC_RADT_SATURE]="saturé"
+
+vl_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+
+IF vl_appelant = "MTPA" {
+	vl_num_plan = ta_args[0]
+	vl_num_ordre = ta_args[1]
+	vm_id_FMC = ta_args[2]
+	vl_libelle_FMC = ta_args[3]
+
+	DB_CTRL_TITLE@ (vl_fenetre, "LI_evt_lie", vl_libelle_FMC)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Terminer", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Quitter", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Lib_Niveau_Trafic", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Niveau_Trafic", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Gravite", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Lib_Gravite", FALSE)
+	DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_Niveau_Trafic", TRUE)
+	DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_Gravite", TRUE)
+    	DB_CTRL_STRINGS@ (vl_fenetre, "BO_Gravite" ,ARRAY_COLUMN@(vm_liste_niveaux,TDO_LIB_NIV) )
+    	DB_CTRL_STRINGS@ (vl_fenetre, "BO_Niveau_Trafic" ,tm_niveau_trafic )
+} ELSE IF vl_appelant = "MTMC" {
+     vm_id_FMC.numero=ta_args[0]
+	vm_id_FMC.cle=	ta_args[1]
+	DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Terminer", TRUE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Executer", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "BP_Refuser", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "BO_Niveau_Trafic", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "BO_Gravite", FALSE)
+       DB_CTRL_TITLE@ (vl_fenetre, "LI_Niveau_Trafic", "")
+       DB_CTRL_TITLE@ (vl_fenetre, "LI_Gravite", "")
+	/* consulter une action export realisée */
+	IF TFE_Consulter_Export (vl_fenetre, ta_args) <> COM_OK
+	{
+		INFO_MESSAGE@("Erreur dans la lecture de l'action export")
+		RETURN
+	}
+	}
+
+
+	/*A
+ 	* si l'appelant est MTPA recuperer la proposition*/
+	IF vl_appelant = "MTPA"
+	   IF TFE_Init_MTPA (vl_fenetre, vl_num_plan, vl_num_ordre, vl_texte) <> COM_OK
+			INFO_MESSAGE@ ("Erreur dans la lecture de la proposition d'export")
+
+
+
+
+DB_DISPLAY_ONLY@ (vl_fenetre, FALSE)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		IF ERROR_NUMBER@() <> C_ERR_IHM
+			COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A
+* boucle infinie de traitement des evenements*/
+vl_fenetre_active = TRUE
+WHILE vl_fenetre_active
+
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+
+		/*A
+		* appui sur le bouton envoyer*/
+		CASE "BP_Executer"
+			IF (vm_mode_formation)
+			{
+				vl_fenetre_active = FALSE
+				RETURN (COM_VALIDE)
+			}
+
+			vl_niveau = DB_CTRL_GET_VALUE@ (vl_fenetre, "BO_Niveau_Trafic")
+			IF ( vl_niveau = "0" )
+				Info_Message@( " Veuillez renseigner le Niveau de Trafic ")
+			ELSE
+			{
+			vl_gravite = DB_CTRL_GET_VALUE@ (vl_fenetre, "BO_Gravite")
+			IF ( vl_gravite = "0" )
+				Info_Message@( " Veuillez renseigner le Niveau de Gravite ")
+			ELSE
+			{
+				vl_fenetre_active = FALSE
+				/*A sauvegarde des actions en base*/
+				IF (TFE_Actions_Export(vl_fenetre)<>COM_OK)
+				{
+					Info_Message@( " Impossible de creer l'action en base ")
+				}
+		
+				vl_status = COM_VALIDE
+			}
+			}
+
+
+		/*A
+		* appui sur le bouton envoyer*/
+		CASE "BP_Terminer"
+			vl_fenetre_active = FALSE
+			IF (vm_mode_formation)
+				RETURN (COM_VALIDE)
+
+			/*A sauvegarde de la fin d' action en base*/
+				IF (TFE_Fin_Actions_Export(vl_fenetre)<>COM_OK)
+				{
+					Info_Message@( " Impossible de mettre à jour l'action en base ")
+				}
+
+
+
+
+		/*A
+		 * Sur choix "Quitter"  retourner COM_VALIDE
+		 * ---------------------------------------------------------------*/
+		
+
+		CASE "BP_Quitter"
+			vl_status = COM_QUITTE
+			vl_fenetre_active = FALSE
+
+
+		/*A
+		* appui sur le bouton refuser*/
+		CASE "BP_Refuser"
+			vl_status = COM_REFUSE
+			vl_fenetre_active = FALSE
+
+
+
+		/*A
+		* reception d'un poke*/
+		CASE "poke_"
+			CASE OF DB_GET_POKE@(vl_fenetre)
+				/*A
+				* poke de fin*/
+				CASE COM_CANAL_FIN
+					vl_status = COM_QUITTE
+					vl_fenetre_active = FALSE
+
+			ENDCASE
+
+		ENDCASE
+WEND
+
+
+RETURN (vl_status)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation dans le cas d'appel depuis MTPA.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFE_Init_MTPA (va_fenetre, va_num_PA, va_num_ordre, va_explication)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets a valuer ;
+*  va_num_PA          : Numero du plan d'action ;
+*  va_num_ordre       : Numero d'ordre du plan d'action.
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_explication     : Le texte d'explication.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFE_Fiche_Export
+*
+* FONCTION
+*   Lit en base de donnees la proposition d'envoi de fax ;
+*   value le champ "Remarque", le texte du fax et la table des destinataires
+*   a l'ecran et retourne le texte d'explication.
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_l_num_types
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR vl_niveau_trafic,vl_gravite,vl_index
+    VAR vl_idx_type, vl_taille, i
+
+/*A
+ * Lire la proposition d'envoi en base de donnees
+ * ----------------------------------------------
+ */
+
+vl_parametres[0].type = COM_Numero_PA
+vl_parametres[0].data = va_num_PA
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Numero_Ordre_PA
+vl_parametres[1].data = va_num_ordre
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT1_						' Gravite
+vl_parametres[2].output = TRUE
+
+vl_parametres[3].type = SYB#INT1_						' Niveau de Trafic
+vl_parametres[3].output = TRUE
+
+IF COM05_SQL_Procedure (XZAP24_Lire_Prop_Export,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+/*A
+ * Afficher la remarque et le texte du fax
+ * ---------------------------------------
+ */
+/*
+DB_CTRL_TITLE@ (va_fenetre, "LI_Remarque", vl_resultats.return_parameters[0])
+
+va_explication = vl_resultats.return_parameters[1]
+*/
+
+vl_gravite=vl_resultats.return_parameters[0]
+vl_niveau_trafic=vl_resultats.return_parameters[1]
+
+if ( ( vl_niveau_trafic = XDC_SANS_NTFMAX ) OR IS_NULL@ (vl_niveau_trafic) )
+	{
+	DB_CTRL_TITLE@ (va_fenetre, "LI_Niveau_Trafic", "")
+	DB_CTRL_VALUE@ (va_fenetre, "BO_Niveau_Trafic", 0 )
+	}
+ELSE
+	{
+	if ( vl_niveau_trafic >=  XDC_RADT_FLUIDE and  vl_niveau_trafic <= XDC_RADT_SATURE )
+		DB_CTRL_TITLE@ (va_fenetre, "LI_Niveau_Trafic", tm_niveau_trafic[vl_niveau_trafic])
+	else
+		DB_CTRL_TITLE@ (va_fenetre, "LI_Niveau_Trafic", "?")
+	
+	DB_CTRL_VALUE@ (va_fenetre, "BO_Niveau_Trafic", vl_niveau_trafic )
+	}
+if ( ( vl_gravite = XDC_SANS_NTFMAX ) OR IS_NULL@ (vl_gravite) )
+	{
+	DB_CTRL_TITLE@ (va_fenetre, "LI_Gravite", "")
+	DB_CTRL_VALUE@ (va_fenetre, "BO_Gravite", 0 )
+	}
+ELSE
+	{
+	vl_index=ARRAY_INDEX@( ARRAY_COLUMN@ ( vm_liste_niveaux,TDO_NIVEAU_TFM ), vl_gravite )
+	if ( vl_index <> -1 )
+		DB_CTRL_TITLE@ (va_fenetre, "LI_Gravite", vm_liste_niveaux[vl_index].libelle)
+	else
+		DB_CTRL_TITLE@ (va_fenetre, "LI_Gravite", "?")
+	
+	DB_CTRL_VALUE@ (va_fenetre, "BO_Gravite", vl_index )
+	}
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* met a jour les actions "export intergestionnaire" en base
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFE_Actions_Export (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets a valuer ;
+*
+*
+* ARGUMENTS EN SORTIE :
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFE_Fiche_Export
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+     VAR FORMAT SQL_Procedure_Result@ vl_resultats
+     VAR vl_indice
+	VAR vl_cr
+	VAR vl_taille
+	VAR vl_actionInseree
+	VAR vl_indexParam
+	VAR vl_texte 
+	VAR vl_longueurTexte, vl_depart
+	VAR vl_horodate,vl_string
+	VAR vl_numAction
+	VAR vl_indexActions
+    VAR vl_niveau_trafic,vl_gravite,vl_index
+
+	MACRO_WINS_BUSY@()
+
+	vl_actionInseree=FALSE
+	vl_indexActions=0
+
+	/*A recupere l'heure courante et la formate*/
+	vl_horodate=COM09_Date_Courante()
+
+	/*A recupere le texte du fax*/
+	vl_niveau_trafic = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Niveau_Trafic")
+	vl_gravite=DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Gravite")
+/*A
+ * ecrire la proposition d'export en base de donnees 
+ * ------------------------------------------------------------------------
+ */
+
+				/*A je l'insere en base*/
+				vl_indexParam=0
+				vl_parametres[vl_indexParam].type = SYB#INT4_
+				vl_parametres[vl_indexParam].data = vm_id_FMC.numero
+				vl_parametres[vl_indexParam].output = FALSE
+				vl_indexParam=vl_indexParam+1
+				vl_parametres[vl_indexParam].type = SYB#INT1_
+				vl_parametres[vl_indexParam].data = vm_id_FMC.cle
+				vl_parametres[vl_indexParam].output = FALSE
+				vl_indexParam=vl_indexParam+1
+				vl_parametres[vl_indexParam].type = SYB#INT1_
+				vl_parametres[vl_indexParam].data=vm_liste_niveaux[vl_gravite+0].niveau+0
+				vl_parametres[vl_indexParam].output = FALSE
+				vl_indexParam=vl_indexParam+1
+				vl_parametres[vl_indexParam].type = SYB#INT1_
+				vl_parametres[vl_indexParam].data =vl_niveau_trafic
+				vl_parametres[vl_indexParam].output = FALSE
+				vl_indexParam=vl_indexParam+1
+				vl_parametres[vl_indexParam].type = SYB#DATETIME_
+				vl_parametres[vl_indexParam].data = vl_horodate
+				vl_parametres[vl_indexParam].output = FALSE
+				vl_indexParam=vl_indexParam+1
+				vl_parametres[vl_indexParam].type = COM_Identifiant_Operateur
+				vl_parametres[vl_indexParam].data = SYSTEM_VAR@ (vg_numero_operateur)
+				vl_parametres[vl_indexParam].output = FALSE
+				vl_indexParam=vl_indexParam+1
+				vl_parametres[vl_indexParam].type = SYB#INT4_
+				vl_parametres[vl_indexParam].output = TRUE
+
+				IF COM05_SQL_Procedure (XZAC72_Exporter,
+						vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+				{
+					INFO_MESSAGE@("Impossible de creer l'action en base")
+					RETURN (COM_NOK)
+				}
+
+	RETURN (COM_OK)
+	
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* met a jour les actions "export intergestionnaire" en base
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFE_Fin_Actions_Export (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets a valuer ;
+*
+*
+* ARGUMENTS EN SORTIE :
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFE_Fiche_Export
+*
+* FONCTION
+*XDC_ACT_ETAT_FIN
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+     VAR FORMAT SQL_Procedure_Result@ vl_resultats
+     VAR vl_indice
+	VAR vl_cr
+	VAR vl_taille
+	VAR vl_actionInseree
+	VAR vl_indexParam
+	VAR vl_texte 
+	VAR vl_longueurTexte, vl_depart
+	VAR vl_horodate,vl_string
+	VAR vl_numAction
+	VAR vl_indexActions
+
+	MACRO_WINS_BUSY@()
+
+	vl_actionInseree=FALSE
+	vl_indexActions=0
+
+	/*A recupere l'heure courante et la formate*/
+	vl_horodate=COM09_Date_Courante()
+
+/*A
+ * ecrire la proposition d'export en base de donnees 
+ * ------------------------------------------------------------------------
+ */
+
+				/*A je l'insere en base*/
+				vl_indexParam=0
+				vl_parametres[vl_indexParam].type = SYB#INT4_
+				vl_parametres[vl_indexParam].data = vm_id_FMC.numero
+				vl_parametres[vl_indexParam].output = FALSE
+				vl_indexParam=vl_indexParam+1
+				vl_parametres[vl_indexParam].type = SYB#INT1_
+				vl_parametres[vl_indexParam].data = vm_id_FMC.cle
+				vl_parametres[vl_indexParam].output = FALSE
+				vl_indexParam=vl_indexParam+1
+				vl_parametres[vl_indexParam].type = SYB#DATETIME_
+				vl_parametres[vl_indexParam].data = vl_horodate
+				vl_parametres[vl_indexParam].output = FALSE
+				vl_indexParam=vl_indexParam+1
+				vl_parametres[vl_indexParam].type = SYB#INT1_
+				vl_parametres[vl_indexParam].data = XDC_ACT_ETAT_FIN
+				vl_parametres[vl_indexParam].output = FALSE
+
+				IF COM05_SQL_Procedure (XZAC73_Ecrire_Exporter,
+						vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+				{
+					INFO_MESSAGE@("Impossible de creer l'action en base")
+					RETURN (COM_NOK)
+				}
+
+	RETURN (COM_OK)
+	
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Afficher les caracteristiques de l'action "export intergestionnaire" en consultation
+*  et initialise la fenetre
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFE_Consulter_Export (va_fenetre, ta_args)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets ;
+*  ta_args            : tableau contenant info action
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFE_Fiche_Export
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+VAR i
+VAR vl_action
+VAR vl_site
+VAR vl_libelle_FMC
+VAR vl_index
+VAR vl_interlocuteur
+VAR vl_operateur
+VAR vl_lancement
+VAR vl_succes
+VAR vl_echec
+VAr vl_gravite
+VAr vl_niveau_trafic
+VAr vl_data
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+	vl_action = ta_args[2]
+	vl_site = ta_args[3]
+	vl_libelle_FMC = ta_args[4]
+
+
+	/*A preparation des parametres de la requete */
+	i=0
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].data = vl_action
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT1_
+	vl_parametres[i].data = vl_site
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT1_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT1_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	/*A execution de la requete de lecture de fax */
+	IF COM05_SQL_PROCEDURE(XZAC74_Lire_Exporter,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@("Erreur dans la lecture de l'action fax")
+		RETURN (COM_NOK)
+	}
+
+	IF (vl_resultats.return_parameters[2] <> NULL)  OR
+   			NOT COM04_Operateur_A_Le_Droit_De (XDC_FAM_EXPLOITATION_CI)
+    		DB_CTRL_DISPLAY@ (va_fenetre, "BP_Terminer", FALSE)
+
+	DB_CTRL_TITLE@ (va_fenetre, "LI_evt_lie", vl_libelle_FMC)
+/*	DB_CTRL_TITLE@ (va_fenetre, "LI_Remarque", NULL)*/
+
+	vl_gravite = vl_resultats.return_parameters[0]
+	vl_niveau_trafic = vl_resultats.return_parameters[1]
+	
+if ( ( vl_niveau_trafic = XDC_SANS_NTFMAX ) OR IS_NULL@ (vl_niveau_trafic) )
+	{
+	DB_CTRL_TITLE@ (va_fenetre, "LI_Niveau_Trafic", "")
+	DB_CTRL_VALUE@ (va_fenetre, "BO_Niveau_Trafic", 0 )
+	}
+ELSE
+	{
+	if ( vl_niveau_trafic >=  XDC_RADT_FLUIDE and  vl_niveau_trafic <= XDC_RADT_SATURE )
+		DB_CTRL_TITLE@ (va_fenetre, "LI_Niveau_Trafic", tm_niveau_trafic[vl_niveau_trafic])
+	else
+		DB_CTRL_TITLE@ (va_fenetre, "LI_Niveau_Trafic", "?")
+	
+	DB_CTRL_VALUE@ (va_fenetre, "BO_Niveau_Trafic", vl_niveau_trafic )
+	}
+if ( ( vl_gravite = XDC_SANS_NTFMAX ) OR IS_NULL@ (vl_gravite) )
+	{
+	DB_CTRL_TITLE@ (va_fenetre, "LI_Gravite", "")
+	DB_CTRL_VALUE@ (va_fenetre, "BO_Gravite", 0 )
+	}
+ELSE
+	{
+	vl_index=ARRAY_INDEX@( ARRAY_COLUMN@ ( vm_liste_niveaux,TDO_NIVEAU_TFM ), vl_gravite )
+	if ( vl_index <> -1 )
+		DB_CTRL_TITLE@ (va_fenetre, "LI_Gravite", vm_liste_niveaux[vl_index].libelle)
+	else
+		DB_CTRL_TITLE@ (va_fenetre, "LI_Gravite", "?")
+	
+	DB_CTRL_VALUE@ (va_fenetre, "BO_Gravite", vl_index )
+	}
+
+	DB_DISPLAY_ONLY@ (va_fenetre, TRUE)
+	DB_DISPLAY@ (va_fenetre)
+	DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+
+
+	RETURN (COM_OK)
+
+ENDMACRO
+
+

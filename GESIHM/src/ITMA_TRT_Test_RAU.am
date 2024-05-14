@@ -1,0 +1,579 @@
+/*E*/
+/* Fichier : $Id: ITMA_TRT_Test_RAU.am,v 1.12 2019/05/21 11:10:01 pc2dpdy Exp $      Release : $Revision: 1.12 $        Date : $Date: 2019/05/21 11:10:01 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TRT * FICHIER ITMA_TRT_Test_RAU.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Resultats d'un test semi-automatique du RAU.
+*
+*   Cf. DCG 2.4.63
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 17 Jan 1995	: Creation                                        V1.1
+* Lecrivain 29 Jan 1995	: Modif numero de poste, designation equipements  V1.4
+* Lecrivain 30 Avr 1995	: Modif numero de poste.                          V1.5
+* Guilhou	 03 Aut 1995	: Modif lancement test et chgt taille fenetre.    V1.6
+* Torregrossa 23 Jan 1996 : Degriser demarrer sur abort du test.    V1.7-1.8
+* Verdier	 04 Sep 1996	: Ajout impression					V1.9 (DEM666)
+* Guilhou	29 SEP 1997	: correction de l'impression 1.10 (dem/1469)
+* Niepceron	20 Mai 1998	: Ajout numero antenne dans test RAU 1.11
+* Claudel		07 Mai 2019	: Ne pas charger les PAU GAPLA DEM1334 1.12
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../inc/xzao145sp.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TRA.h"
+
+
+
+DEFINE	C_MODULE	"MTRT"				' Nom du module
+
+
+
+/*A
+ * Definition des images digitalisees refletant les etats PAU
+ * ----------------------------------------------------------
+ */
+
+DEFINE	C_PICTO_NON_TESTE	NULL
+DEFINE	C_PICTO_NOK		"pix_croix"
+DEFINE	C_PICTO_OK		"pix_ok"
+
+
+
+/*A
+ * Messages operateur
+ * ------------------
+ */
+
+DEFINE	C_MSG_TEST_REFUSE	"Demande de test refusée : test abandonné"
+DEFINE	C_MSG_FIN_TEST		"Test terminé"
+DEFINE	C_MSG_ABORT_TEST	"Test interrompu"
+
+DEFINE      C_SOUS_REP_MODELES      COM_SOUS_REP_IHM        ' Repertoire des modeles
+DEFINE	REP_CONFIG		"../fichiers/deq/"
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	TRT_PAU
+	designation					' Nom ou localisation
+
+
+
+VAR     vm_num_poste_oper				' Numero poste operateur
+
+VAR FORMAT TRT_PAU vm_t_PAU				' Liste des PAU
+VAR     vm_l_num_PAU					' Liste des numeros
+VAR     vm_l_picto					' Liste des pictogrammes
+VAR		vm_reduit, tm_pau
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Affichage du test semi-automatique du RAU.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRT_Test_RAU (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option "Tester -> RAU" dans le menu principal MTMS.
+*
+* FONCTION
+*   Affiche l'etat des PAU testes.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_RAU			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_message				' Message recu ou envoye
+    VAR FORMAT TRA_Etat_RAU vl_etat		' Message d'etat equipement
+    VAR     vl_picto
+VAR i, j
+VAR vl_liste_GN
+VAR vl_nom_GN
+VAR vl_chois_GN
+VAR vl_nom_site
+VAR vl_fichier_GN
+VAR vl_tmp
+VAR vl_antenne
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Test RAU"
+ * -----------------------------
+ */
+
+vl_fenetre_RAU = DB_LOAD@ ("ITMA_TRT")
+DB_WINDOW_REMAIN@ (vl_fenetre_RAU, TRUE)
+
+DB_XPOS@ (vl_fenetre_RAU, 0)
+DB_YPOS@ (vl_fenetre_RAU, 93)
+COM27_Agrandir_Fenetre (vl_fenetre_RAU, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre_RAU, "ITMA_TRT_Test_RAU")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_MTRA_ETAT
+DB_ACCEPT_POKES@ (vl_fenetre_RAU, vl_les_messages_acceptes)
+
+
+/*A
+ * Determiner le numero du poste operateur ;
+ * definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+vm_num_poste_oper = SYSTEM_VAR@ (vg_poste)
+vm_num_poste_oper = SUBSTRING@ (vm_num_poste_oper, LEN@ (vm_num_poste_oper), 1)
+
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre_RAU, "TA_PAU", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_RAU, "TA_PAU", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_RAU, "TA_PAU", FALSE)
+
+
+        vl_fichier_GN = REP_CONFIG ++ "RAU_GN.txt"
+        if FILE_EXISTS@(vl_fichier_GN)
+        {
+                vl_liste_GN = READ_ASCII_FILE@(vl_fichier_GN)
+        }
+        j = 0
+        vl_nom_site = SYSTEM_VAR@(vg_nom_site)
+        for i= 0 to ARRAY_SIZE@(vl_liste_GN)-1
+                vl_tmp = COMMA_SPLIT@(vl_liste_GN[i])
+                if vl_tmp[0] = vl_nom_site      
+                {
+                        vl_nom_GN[j] = vl_tmp
+                        j = j + 1
+                }
+        NEXT i
+        DB_CTRL_STRINGS@(vl_fenetre_RAU,"BR_chois_GN",ARRAY_COLUMN@(vl_nom_GN,2))
+
+		/*A si famille exploitation PC2 afficher le choix de zone*/
+		IF (COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)=TRUE)
+			DB_CTRL_DISPLAY@(vl_fenetre_RAU,"BR_chois_GN",TRUE)
+		ELSE
+			DB_CTRL_DISPLAY@(vl_fenetre_RAU,"BR_chois_GN",FALSE)
+
+/*A
+ * Initialiser la visualisation (liste des PAU)
+ * --------------------------------------------
+ */
+
+IF TRT_Init_Liste_PAU (vl_fenetre_RAU) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * S'abonner aux etats des PAU du site et demander le test RAU
+ * -----------------------------------------------------------
+ */
+
+vl_message = XDC_DEBUT_ABONNEMENT_EQUEXT, SYSTEM_VAR@ (vg_nom_site)
+vl_message = MTAR_MSG_EXEC, 1,
+		MTAR_FCT_XZEA14, ARRAY_TO_STRING@ (vl_message, MTAR_CAR_SEPAR)
+DB_SEND_POKE@ (COM_CANAL_TAR01, vl_message)
+
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_RAU)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_RAU)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+	CASE "BP_reduire"
+		IF (vm_reduit=FALSE)
+		{
+		DB_HEIGHT@(vl_fenetre_RAU,280)
+		DB_WIDTH@(vl_fenetre_RAU,450)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"BP_Quitter",20)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"BP_reduire",180)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"BP_demarrer",100)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"BP_Imprimer",260)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"BP_Aide",340)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"BP_Quitter",10)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"BP_reduire",10)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"BP_Imprimer",10)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"BP_demarrer",10)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"BP_Aide",10)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"BR_chois_GN",50)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"LI_Titre_Heure_Debut",50)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"LI_Heure_Debut",53)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"T_Heure_Debut",48)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"TA_PAU",130)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"TA_PAU",90)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"BR_chois_GN",10)
+		DB_CTRL_HEIGHT@(vl_fenetre_RAU,"TA_PAU",140)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"LI_Titre_Heure_Debut",110)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"LI_Heure_Debut",230)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"T_Heure_Debut",223)
+		DB_CTRL_TITLE@(vl_fenetre_RAU,"BP_reduire","Agrandir")
+		DB_CTRL_DISPLAY@(vl_fenetre_RAU,"T_Fenetre",FALSE)
+		vm_reduit=TRUE
+		}
+		ELSE
+		{
+			vm_reduit=FALSE
+		DB_HEIGHT@(vl_fenetre_RAU,738)
+		DB_WIDTH@(vl_fenetre_RAU,455)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"T_Fenetre",0)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"T_Fenetre",0)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"BP_Quitter",10)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"BP_reduire",190)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"BP_demarrer",100)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"BP_Imprimer",280)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"BP_Aide",370)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"BP_Quitter",10)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"BP_reduire",10)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"BP_Imprimer",10)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"BP_demarrer",10)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"BP_Aide",10)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"LI_Titre_Heure_Debut",50)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"LI_Heure_Debut",53)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"T_Heure_Debut",48)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"TA_PAU",130)
+		DB_CTRL_YPOS@(vl_fenetre_RAU,"BR_chois_GN",50)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"TA_PAU",80)
+		DB_CTRL_HEIGHT@(vl_fenetre_RAU,"TA_PAU",578)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"LI_Titre_Heure_Debut",110)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"LI_Heure_Debut",230)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"T_Heure_Debut",223)
+		DB_CTRL_XPOS@(vl_fenetre_RAU,"BR_chois_GN",10)
+		DB_CTRL_DISPLAY@(vl_fenetre_RAU,"T_Fenetre",TRUE)
+		DB_CTRL_TITLE@(vl_fenetre_RAU,"BP_reduire","Réduire")
+			COM27_Agrandir_Fenetre (vl_fenetre_RAU, 
+						COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+		}
+
+
+	CASE "BP_demarrer"
+		IF (COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)=TRUE)
+		{
+			vl_chois_GN = DB_CTRL_GET_VALUE@(vl_fenetre_RAU,"BR_chois_GN")
+			vl_antenne = vl_nom_GN[vl_chois_GN,1]
+		}
+		ELSE
+			 vl_antenne = 0
+
+		vl_message = MTAR_FCT_XZEU09, vm_num_poste_oper, vl_antenne, SYSTEM_VAR@ (vg_nom_site)
+		vl_message = MTAR_MSG_EXEC, 1,
+		MTAR_FCT_XZEU00, ARRAY_TO_STRING@ (vl_message, MTAR_CAR_SEPAR)
+		DB_SEND_POKE@ (COM_CANAL_TAR01, vl_message)
+		DB_CTRL_GRAYED@(vl_fenetre_RAU,"BP_demarrer",TRUE)
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+    CASE "BP_Imprimer"
+		FOR i=0 to ARRAY_SIZE@(vm_t_PAU)-1
+			tm_pau[i]=tm_pau[i]++"\t\t\t\t"
+			IF IS_NULL@(vm_l_picto[i][0])
+				tm_pau[i]=tm_pau[i]++"?"++"\n"
+			ELSE IF vm_l_picto[i][0]=C_PICTO_NOK
+				tm_pau[i]=tm_pau[i]++"NOK"++"\n"
+			ELSE IF vm_l_picto[i][0]=C_PICTO_OK
+					tm_pau[i]=tm_pau[i]++"OK"++"\n"
+		NEXT i
+		WP_APPLICATION_DLG@(null,TRUE)
+		WP_LOAD_FILE@(SYSTEM_VAR@ (vg_repertoire_migrazur) 
+							++C_SOUS_REP_MODELES++"ITMA_TRT_Test_RAU.aw")
+		for i=0 to ARRAY_SIZE@(tm_pau)-1
+			WP_ENTER_TEXT@(tm_pau[i])
+		next i
+		WP_SAVE_RENAME@("ITMA_TRT.aw")
+		COM36_Imprimer_Texte("ITMA_TRT.aw") 
+		DB_DISPLAY_ONLY@(vl_fenetre_RAU, FALSE)
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_RAU)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+
+	/*A
+	 * Sur reception d'un message destine a ce poste, sur message de
+	 * fin de test informer l'operateur ; sinon rafraichir l'etat du PAU
+	 * -----------------------------------------------------------------
+	 */
+
+        CASE COM_CANAL_MTRA_ETAT
+            vl_message = DB_GET_POKE_DATA@ (vl_fenetre_RAU)
+	    vl_etat = ARRAY_FROM_STRING@ (vl_message[0], COM_SEPAR_CHAMPS)
+	    IF vl_etat.num_poste_oper = vm_num_poste_oper {
+		IF /*! ### ??? ### vl_etat.commande = XZEUC_TST_SEMI_AUTO AND */
+		   vl_etat.cpt_rendu = XDC_RAU_CRNOK {
+		    BEEP@ ()
+		    INFO_MESSAGE@ (C_MSG_TEST_REFUSE)
+		    vl_la_fenetre_est_active = FALSE
+		} ELSE IF vl_etat.cpt_rendu = XDC_RAU_ABORT_TEST {
+		    BEEP@ ()
+		    INFO_MESSAGE@ (C_MSG_ABORT_TEST)
+		} ELSE {
+		    i = ARRAY_INDEX@ (vm_l_num_PAU, vl_etat.num_PAU)
+		    IF i >= 0 {
+			IF vl_etat.etat_comm_RAU = XDC_ETAT_RAU_DEFAUT
+			    vm_l_picto[i] = C_PICTO_NOK,NULL
+			ELSE IF vl_etat.etat_comm_RAU = XDC_ETAT_RAU_REPOS
+			    vm_l_picto[i] = C_PICTO_OK, NULL
+			DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre_RAU, "TA_PAU",
+						     0, vm_l_picto)
+
+			DB_TABLE_SET_NEW_TOP_ROW@(vl_fenetre_RAU,"TA_PAU",i)
+		    }
+
+		    IF vl_etat.cpt_rendu = XDC_RAU_FIN_TEST {
+			BEEP@ ()
+			INFO_MESSAGE@ (C_MSG_FIN_TEST)
+		    }
+		}
+		DB_CTRL_GRAYED@(vl_fenetre_RAU,"BP_demarrer",FALSE)
+	    }
+        ENDCASE
+    ENDCASE
+WEND
+
+
+/*A
+ * Se desabonner aux etats equipements
+ * -----------------------------------
+ */
+
+vl_message = XDC_FIN_ABONNEMENT_EQUEXT, SYSTEM_VAR@ (vg_nom_site)
+vl_message = MTAR_MSG_EXEC, 1,
+		MTAR_FCT_XZEA14, ARRAY_TO_STRING@ (vl_message, MTAR_CAR_SEPAR)
+DB_SEND_POKE@ (COM_CANAL_TAR01, vl_message)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des PAU.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRT_Init_Liste_PAU (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRT_Test_RAU
+*
+* FONCTION
+*   Initialise les valeurs de la liste des PAU et l'horodate courante.
+*
+---------------------------------------------------------------------------- */
+
+    VAR	vl_t_titres					' Titres colonnes table
+    VAR FORMAT COM_Donnees_Equipements vl_data		' Donnees lues en base
+    VAR FORMAT COM_Localisation vl_localisation
+
+    VAR vl_jj, vl_mm, vl_aa, vl_hh, vl_mn
+    VAR i, tl_auto, j, vl_str, vl_var
+    VAR FORMAT SQL_Procedure_Params@    vl_parametres
+    VAR FORMAT SQL_Procedure_Result@    vl_resultats
+    VAR FORMAT COM_Donnees_Equipements vl_info_PAU              ' Donnees PAU en base
+    VAR tl_retour,vl_index
+    VAR vl_index2
+	
+tl_auto=SYSTEM_VAR@ (vg_les_autoroutes)
+/*A
+ * Lire la liste de tous les PAU du site
+ * -------------------------------------
+ */
+IF ITMA_COM_Lire_Equipements (XDC_EQT_PAU, SYSTEM_VAR@(vg_site),
+				XDC_EQT_HS, XDC_EQT_NON_HS, 0, 0,
+				vl_data, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+vl_index=0
+/* supprimer de vm_info_PAU les PAU de type lit arret */
+
+        vl_parametres[0].data = 0
+        vl_parametres[0].type = SYB#INT4_
+        vl_parametres[0].output = FALSE
+        vl_parametres[1].type = SYB#CHAR_
+        vl_parametres[1].output = TRUE
+        vl_parametres[2].type = SYB#CHAR_
+        vl_parametres[2].output = TRUE
+        vl_parametres[3].type = SYB#INT2_
+        vl_parametres[3].output = TRUE
+        vl_parametres[4].type = SYB#INT4_
+        vl_parametres[4].output = TRUE
+
+        IF COM05_SQL_Procedure (XZAO145_Lire_PAU,
+                        vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+        RETURN (COM_NOK)
+
+        tl_retour = vl_resultats.select_results[0]
+vl_index2=0
+FOR i = 0 TO ARRAY_SIZE@( vl_data)-1
+        vl_index = ARRAY_INDEX@(ARRAY_COLUMN@(tl_retour,0),vl_data[i].numero)
+        if (vl_index > 0) {
+                vl_info_PAU[vl_index2]=vl_data[i]
+                vl_index2 = vl_indeX2 +1
+	}
+
+NEXT i
+
+vl_data = vl_info_PAU
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+    vm_l_num_PAU[i] = vl_data[i].numero
+
+    IF vl_data[i].autoroute = NULL {
+	vm_t_PAU[i].designation = vl_data[i].nom
+	tm_pau[i] = vm_t_PAU[i].designation
+    }
+    ELSE {
+	vl_localisation.NumAuto = vl_data[i].autoroute
+	vl_localisation.PR = vl_data[i].PR
+	vl_localisation.sens_circulation = vl_data[i].sens
+	
+	vm_t_PAU[i].designation = COM10_Localisation (vl_localisation)
+	j=ARRAY_INDEX@(ARRAY_COLUMN@(tl_auto, 0) , vl_localisation.NumAuto)
+	if j<0 
+		tm_pau[i] = ""
+	ELSE
+		tm_pau[i] = tl_auto[j][1]
+	vl_str=TRIM@(vl_localisation.PR/1000)
+	j=STRING_INDEX@(vl_str,",")
+	IF j<1
+		vl_var=vl_str
+	ELSE
+		vl_var=SUBSTRING@(vl_str, 1,j-1)++"."++SUBSTRING@(vl_str, j+1)
+	tm_pau[i] = TRIM@(tm_pau[i])++"-"++TRIM@(vl_localisation.sens_circulation)
+			++"-"++vl_var
+	FOR j=LEN@(SUBSTRING@(vl_str, j+1)) to 2
+		tm_pau[i] = TRIM@(tm_pau[i])++"0"
+	NEXT j
+
+	tm_pau[i] = vm_t_PAU[i].designation
+    }
+
+    vm_l_picto[i] = C_PICTO_NON_TESTE, NULL
+NEXT i
+
+
+/*A
+ * Definir les titres des colonnes de la table
+ * -------------------------------------------
+ */
+
+vl_t_titres[0] = "PAU",		 255	' Titre colonne et taille en pixels
+vl_t_titres[1] = "", 0
+
+
+/*A
+ * Afficher la table
+ * -----------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_PAU", vm_t_PAU, vl_t_titres, vm_l_picto)
+
+
+/*A
+ * Lire et afficher l'heure courante
+ * ---------------------------------
+ */
+
+COM14_Valeurs_Horodate(COM09_Date_Courante(), vl_jj, vl_mm, vl_aa, vl_hh, vl_mn)
+DB_CTRL_TITLE@ (va_fenetre, "LI_Heure_Debut", vl_hh ++ ":" ++ vl_mn)
+
+
+RETURN (COM_OK)
+
+ENDMACRO

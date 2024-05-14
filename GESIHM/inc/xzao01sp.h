@@ -1,0 +1,1 @@
+DEFINE	XZAO01_Gabarit			"XZAO01"

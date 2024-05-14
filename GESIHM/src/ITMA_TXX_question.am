@@ -1,0 +1,205 @@
+/*E*/
+/* Fichier : $Id: ITMA_TXX_question.am,v 1.1 2012/10/04 17:30:08 gesconf Exp $        Release : $Revision: 1.1 $        Date : $Date: 2012/10/04 17:30:08 $
+------------------------------------------------------------------------------
+*  ESCOTA  *  PROJET PASTRE
+------------------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+------------------------------------------------------------------------------
+*  MODULE MTXX  *  Fichier ITMA_TXX_question.am
+------------------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*
+*   Gere un fenetre de question a l'operateur et retour d'une réponse
+*   a l'appelant en proposant de un a trois boutons pour choix de reponse.
+*
+------------------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  JPL	03/10/12 : Creation  1.1
+------------------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/xzao215sp.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+
+
+/*A Définition des constantes */
+
+DEFINE	CM_MODULE		"MTXX"			' Nom du module
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Visualisation et saisie de la fenetre de question a l'operateur.
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TXX_question (ta_question, ta_choix)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  ta_question        : Liste des lignes de la question a poser a l'operateur ;
+*  ta_choix           : Liste des choix de reponse a proposer a l'operateur.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Le choix de l'operateur represente par son numero.
+*
+* CONDITION D'UTILISATION
+*   Tout module
+*
+* FONCTION
+*  Presente le texte de question et les choix de reponse specifies,
+*  et retourne le choix effectue par l'operateur par son rang (numero).
+*
+--------------------------------------------------------------------------------- */
+
+	VAR	vl_fenetre
+	VAR	vl_objet_selecte			' L'objet courant de la fenetre
+	VAR	tl_les_messages_acceptes		' Pour reception de signaux
+	VAR	vl_la_fenetre_est_active
+	VAR	vl_installer_traitement_erreur
+
+	VAR	tl_boutons, tl_choix
+	VAR	vl_val_retour
+	VAR	i
+
+tl_choix = ta_choix
+
+/*A
+** Traitements en cas d'erreur :
+** informer l'operateur, tracer l'erreur et abandonner
+** ---------------------------------------------------
+*/
+
+ON ERROR
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN (0)
+}
+
+
+/*A
+** Charger la fenetre de question a l'operateur
+** --------------------------------------------
+*/
+
+vl_fenetre = DB_LOAD@ ("ITMA_TXX_question")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 500)
+DB_YPOS@ (vl_fenetre, 360)
+
+
+
+/*A
+** Mettre en place la configuration indiquee par l'appelant
+** --------------------------------------------------------
+*/
+
+/* Afficher chacune des lignes du texte de la question */
+IF (ARRAY_SIZE@ (ta_question) = 1)
+{
+	/* S'il n'y a qu'une ligne alors la centrer */
+	DB_CTRL_TITLE@ (vl_fenetre, "LI_ligne1", "")
+	DB_CTRL_TITLE@ (vl_fenetre, "LI_ligne2", ta_question[0])
+	DB_CTRL_TITLE@ (vl_fenetre, "LI_ligne3", "")
+}
+ELSE
+{
+	DB_CTRL_TITLE@ (vl_fenetre, "LI_ligne1", ta_question[0])
+	DB_CTRL_TITLE@ (vl_fenetre, "LI_ligne2", ta_question[1])
+	DB_CTRL_TITLE@ (vl_fenetre, "LI_ligne3", ta_question[2])
+}
+
+
+/*A
+** Cacher ou visualiser les boutons et leur attribuer le libelle specifie
+** ----------------------------------------------------------------------
+*/
+
+tl_boutons = { "BP_1", "BP_2", "BP_3" }
+
+/*A Par defaut les boutons presentes sont "Oui" et "Non" */
+IF (tl_choix[0] = "") AND (tl_choix[1] = "") AND (tl_choix[2] = "")
+{
+	tl_choix = { "Oui", "Non" }
+}
+
+FOR i = 0  TO 2
+	IF (tl_choix[i] = "")
+	{
+		DB_CTRL_DISPLAY@ (vl_fenetre, tl_boutons[i], FALSE)
+	}
+	ELSE
+	{
+		DB_CTRL_TITLE@ (vl_fenetre, tl_boutons[i], tl_choix[i])
+	}
+NEXT i
+
+
+
+/*B Repositionner les boutons s'il n'y en a qu'un ou deux */
+IF (tl_choix[2] = "")
+{
+	IF (tl_choix[1] = "")
+	{
+		DB_CTRL_XPOS@ (vl_fenetre, tl_boutons[0], DB_CTRL_GET_XPOS@ (vl_fenetre, tl_boutons[1]))
+	}
+	ELSE
+	{
+		DB_CTRL_XPOS@ (vl_fenetre, tl_boutons[1], DB_CTRL_GET_XPOS@ (vl_fenetre, tl_boutons[2]))
+	}
+}
+
+
+
+/*A
+** Visualiser la fenetre jusqu'a la saisie d'une reponse
+** -----------------------------------------------------
+*/
+
+vl_val_retour = 0					' Valeur retournee par defaut
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY@ (vl_fenetre)
+
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+	CASE OF vl_objet_selecte
+
+	/*A
+	** Sur action d'un bouton, retourner son numero
+	** --------------------------------------------
+	*/
+
+	CASE "BP_1"
+	CASE "BP_2"
+	CASE "BP_3"
+		vl_val_retour = 0 + SUBSTRING@ (vl_objet_selecte, LEN@ (vl_objet_selecte))
+		vl_la_fenetre_est_active = FALSE
+
+	ENDCASE
+WEND
+
+RETURN (vl_val_retour)
+
+ENDMACRO

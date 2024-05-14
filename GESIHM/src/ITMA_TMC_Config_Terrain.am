@@ -1,0 +1,240 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_Config_Terrain.am,v 1.12 2007/05/29 13:37:48 gesconf Exp $      Release : $Revision: 1.12 $        Date : $Date: 2007/05/29 13:37:48 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_COM * FICHIER ITMA_TMC_Config_Terrain.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fonctions communes.
+*
+*   Non decrit dans le DCG
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Torregrossa 12 Juin 1995	: Creation           		 			V1.1
+* Torregrossa 25 Octobre 1995	: Modif position des pixmaps bau 			V1.4
+* Noel	    31 Janvier 1995 : Changement de l'initialisation de vl_indice (mis à 5)
+*					pour choix du pix_map dans l'affichage des 
+*					la voie BAU de basculement sens normal		V1.5
+* Torregrossa 22 Novembre 1995 : Changement interface de sortie de XZAE66 et 
+*                                ajout affichage BAU etroite (SAD4)(1283)	V1.6
+* Guilhou	03 dec 1996 : config des voies sur queue de bouchon 1.7
+* Guilhou	12 fev 1997 : ajout neutralisations de voies sur FMC travaux (DEM/1394) ANA64 1.8
+* Guilhou	10/09/99	: suppression de la synthese config terrain 1.9
+* Lecrivain 25/01/07 : Position pixmaps de FAV (reorg. fiche FMC DEM607) v1.10
+* JPL		24/05/07 : Suppression de la visualisation des voies v1.11
+* JPL		29/05/07 : Suppression gestion config. des voies spécifique (pour DEM 647) v1.12
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TMC.h"
+include "../../XDMICG/inc/xdc_ax.h"
+include "../../XDMICG/inc/xzaec_ax.h"
+
+INCLUDE "../inc/xzae86sp.h"
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Definir les configurations des voies en fonction du terrain
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Config_Terrain (FORMAT TMC_fmc va_fiche, ta_config, va_module)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fiche        : fmc en cours
+*   ta_config       : configuration des voies actuelle
+*   va_module       : Nom du module appelant.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_config       : nouvelle configuration des voies 
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   Toute macro.
+*
+* FONCTION
+*   Lit en base de donnees et retourne les informations
+*    sur la configuration des voies a la localisation de l'evenement
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_config_terrain, tl_old_config
+	VAR i
+	VAR vl_indice
+	VAR vl_type_fmc
+
+
+	vl_type_fmc = va_fiche.type
+
+	/*A
+	* Lire en base de donnees la configuration terrain des voies
+	*  pour la fmc en cours
+	* ----------------------------------------------------------
+	*/
+
+	/*A recherche la configuration des voies en prenant en compte les */
+	/*A travaux (pour la config terrain)                              */
+	i=0
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].data=va_fiche.autoroute
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].data = va_fiche.pr
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].data = va_fiche.sens
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=null 	'vr
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].data=null 	'vm2
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].data=null 	'vm1
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].data=null 	'vl
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].data=null 	'bau
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].data=null 	'vri
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].data=null 	'vm2i
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].data=null 	'vm1i
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].data=null 	'vli
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].data=null 	'baui
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].data=null 	'bau_etroite
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].data=null 	'bau_i_etroite
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+
+	IF (COM05_SQL_Procedure (XZAE86_Configuration_Voies,
+				  vl_parametres, vl_resultats, va_module) <> COM_OK)
+	{
+		INFO_MESSAGE@("Erreur lors de la lecture en base de la configuration terrain")
+		RETURN (COM_NOK)
+	}
+
+	/* memoriser la config des voies terrain */		
+	vl_config_terrain[9]=vl_resultats.return_parameters[0]		'vr
+	vl_config_terrain[8]=vl_resultats.return_parameters[1]		'vm2
+	vl_config_terrain[7]=vl_resultats.return_parameters[2]		'vm1
+	vl_config_terrain[6]=vl_resultats.return_parameters[3]		'vl
+	vl_config_terrain[5]=vl_resultats.return_parameters[4]		'bau
+	vl_config_terrain[4]=vl_resultats.return_parameters[5]		'vr_i
+	vl_config_terrain[3]=vl_resultats.return_parameters[6]		'vm2_i
+	vl_config_terrain[2]=vl_resultats.return_parameters[7]		'vm1_i
+	vl_config_terrain[1]=vl_resultats.return_parameters[8]		'vl_i
+	vl_config_terrain[0]=vl_resultats.return_parameters[9]		'bau_i
+
+
+	/*B je mets de cote l'ancienne configuration des voies*/
+	tl_old_config=ta_config
+
+	/*B mettre a jour le tableau de configuration des voies*/
+	ta_config[0][1]=va_fiche.bau_i
+	ta_config[1][1]=va_fiche.vl_i
+	ta_config[2][1]=va_fiche.vm1_i
+	ta_config[3][1]=va_fiche.vm2_i
+	ta_config[4][1]=va_fiche.vr_i
+	ta_config[5][1]=va_fiche.bau
+	ta_config[6][1]=va_fiche.vl
+	ta_config[7][1]=va_fiche.vm1
+	ta_config[8][1]=va_fiche.vm2
+	ta_config[9][1]=va_fiche.vr
+
+
+	/*B pour chacune des voies */
+	FOR vl_indice = 0 TO 9
+		/*B si la voie existe alors */
+		IF ((ta_config[vl_indice][1]<>XDC_VOIE_INEXISTANTE) AND
+		    (ta_config[vl_indice][1]<>XDC_VOIE_INCONNUE) )
+		{
+			/*B si l'ancienne valeur etait differente de voie
+			* inexistante ou inconnue*/
+			IF ((tl_old_config[vl_indice][1]<>XDC_VOIE_INEXISTANTE) AND
+			    (tl_old_config[vl_indice][1]<>XDC_VOIE_INCONNUE) AND
+				(tl_old_config[vl_indice][1]<>null) )
+				ta_config[vl_indice][1]=tl_old_config[vl_indice][1]
+
+			/*B prise en compte de la configuration terrain */
+			/*B (priorite : NORMALE<INVERSE<BLOQUE<NEUTRALISE<BLOQUE NEUTRALISE) */
+/*			IF (vl_config_terrain[vl_indice] = XDC_VOIE_SENS_INVERSE AND
+			    vl_config_terrain[vl_indice] > ta_config[vl_indice][1]) 
+				ta_config[vl_indice][1] = vl_config_terrain[vl_indice]
+			ELSE IF (vl_config_terrain[vl_indice] = XDC_VOIE_NEUTRALISEE AND
+				 ta_config[vl_indice][1] < XDC_VOIE_BLOQUEE)
+				ta_config[vl_indice][1] = XDC_VOIE_NEUTRALISEE
+			ELSE IF (vl_config_terrain[vl_indice] = XDC_VOIE_NEUTRALISEE AND
+				 (ta_config[vl_indice][1] = XDC_VOIE_BLOQUEE_NEUTRALISEE OR
+				 ta_config[vl_indice][1] = XDC_VOIE_BLOQUEE))
+				ta_config[vl_indice][1] = XDC_VOIE_BLOQUEE_NEUTRALISEE
+
+			IF (vl_indice = 0 OR vl_indice = 5) AND (ta_config[vl_indice][1] = XDC_VOIE_BAU_NORMALE)
+				ta_config[vl_indice][1] = vl_config_terrain[vl_indice]
+*/
+		}
+	NEXT vl_indice
+
+	RETURN (COM_OK)
+ENDFUNCTION

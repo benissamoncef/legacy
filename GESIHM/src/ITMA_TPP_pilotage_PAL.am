@@ -1,0 +1,1207 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPP_pilotage_PAL.am,v 1.13 2017/06/20 16:47:55 gesconf Exp $      Release : $Revision: 1.13 $        Date : $Date: 2017/06/20 16:47:55 $
+------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE MTPM * FICHIER  ITMA_TPP_pilotage_PAL.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de commande des PAL.
+*
+*
+------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Mismer  26 Avr 2004	: ReCreation						1.3
+* Hilmarcher 04/10/04   : modif fenetre pilotage PAL:
+*                         bouton 'executer' degrise et scenario preselectionne
+*                         qd predefini par le plan d'action v1.4
+* Cluchague 01/12/2004  : PODFA peut ouvrir la fenetre de pilotage pal 1.6
+* PNI 	19/07/07	: Appel de ITMA_TPP_Init_Config_PAL_PA apres ITMA_TPP_Lire_Prop_PAL pour avoir le bon no d'eqt 1.7 DEM677
+* JMG   31/10/07        : ajout site de gestion  1.8
+* JMG   29/09/09        : SECTO DEM 887
+* JPL	31/01/11	: Envoi message a la fenetre de pilotage rapide pour associer camera (DEM 949)  1.10
+* JMG	04/01/12	: positionnement linux 1.11
+* JPL	23/03/17	: Changement du terme Secteur en Region (DEM 1173)  1.12
+* PNI	20/06/17	: Ajout du sens dans l'appel de ITMA_TPP_pos_picto DEM1226 1.13
+-------------------------------------------------------------------- */
+
+
+
+/*A Description des modules a inclures 
+* ------------------------------------ */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+INCLUDE	"GESIHM/inc/ITMA_TPP.h"
+INCLUDE "GESIHM/inc/xzap131sp.h"
+
+ /*A Description des procedures sotckees a appeler
+* ------------------------------------------------ */
+
+
+/*A Declaration des variables globales 
+* ------------------------------------ */
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Commande le pilotage des PAL
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPP_pilotage_PAL(va_appelant,va_1,va_2,va_3,va_4,
+											va_5,va_6,va_7)
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 a va_6		: Suivant la procedure d'appel
+*
+*	Trois appels possibles:
+*
+*		ITMA_TPA	<Numero plan d'action>	<Numero d'ordre>
+*
+*			^			^				^
+*			|			|				|
+*			|		Numero FMC		Numero cle FMC	
+*			|
+*			|
+*		Appel depuis le plan d'action
+*
+*
+*
+*		ITMA_TMT
+*
+*			^
+*			|
+*		Appel depuis le menu textuel --> Liste des PALs
+*
+*
+*
+*		ISYN_SOP	<Numero de la PAL>
+*
+*			^
+*			|
+*		Appel depuis le synoptique Bp de droite
+*
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant resultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> PAL dans MTMT
+*
+* FONCTION
+*    Pilote les PAL
+*
+--------------------------------------------------------------------- */
+
+/*A Declaration des variables */
+/*A ------------------------- */
+
+/*A Variables secondaires ou de travail */
+/*A ----------------------------------- */
+
+VAR FORMAT 	TMC_actionFiche	vl_ficheAction
+
+var	vl_appel_connu		' Flag de reconnaisance de l'appel
+var	vl_Poste			' Le nom de la machine
+var	vl_fenetre_active	' flag de fenetre active
+var	vl_controle_sortie	' flag de sortie
+var	vl_erreur			' flag d'erreur
+var	i,j,vl_mess		' index de loop
+var	vl_taille			' taille de tableau
+var	vl_message		' message affiche
+var	vl_objet			' objet en edition
+var	vl_rang			' rang de la selection dans la liste
+var	vl_expliquer		' expliquation du PA
+var	vl_abt_panneau		' flag d'abonnement des panneaux
+var	vl_trouve			' flag pour trouver le bon scenario 		d'après le code
+var	vl_fmc			' libelle fmc a construire
+var	vl_lib_fmc		' tableau du libelle fmc a construire
+var	vl_renvoi_appel	' flag de renvoi d'appel
+var	vl_repondeur		' flag de renvoi d'appel
+var	vl_cpt			' compte-rendu
+var	tl_data,tl_retour	' param. table evenements
+var	tl_titres			' titre evenements
+var	vl_1,vl_2,vl_3,vl_4	' var locales pour l'appel de la camera
+var	vl_flag			' flag de condition
+var	vl_Appel			' appelant
+var	vl_lecture		' le n° d'evenement lie + cle
+var	vl_Nummachine		' n° de la machine
+var	vl_NumAction		' Numero d'action
+var	vl_mode_formation	' Mode Formation
+var	tl_liste_causes
+var	vl_text			' text en edition
+var	vl_etat_actuel_man	' Etat actuel recherche pour la cmd manuelle
+var	vl_message_man		' Message envoye par la commande manuelle
+var	vl_autorisation_executer	'Autorisation d'executer la commande "excuter" depuis le CI
+var     vl_num_equipement
+
+/*A Variables principales */
+/*A --------------------- */
+
+/*A Numero du district
+*/
+var	vl_District
+
+/*A Item de la fenetre du module
+*/
+var 	vl_fenetre_TPP
+
+/*A Messages acceptes dans la boucle principale
+*/
+var	vl_messages_acceptes
+
+/*A Nom du site en cours
+*/
+var	vl_NomSite
+
+/*A Numero du scenario en cours
+*/
+var	vl_NumScenario
+
+/*A Nom du scenario en cours
+*/
+var	vl_NomScenario
+
+/*A Nom de l'operateur
+*/
+var	vl_NomOperateur
+
+/*A Mode de retour du plan d'action
+*/
+var	vl_mode_PA
+
+
+/*A Liste des PAL et leurs infos associees Table sur indice numero PAL
+*/
+
+var	FORMAT Config_PAL vl_info_liste_PAL
+
+/*A Liste des scenarios autorises pour un PAL Table sur indice numero
+													PAL
+ */
+var  FORMAT Config_Scenario vl_liste_scenario_autorises
+
+/*A Liste de nom des PAL disponibles
+*/
+var	vl_liste_nom_PAL_dispo
+
+/*A Liste des scenarios
+*/
+var	FORMAT ST_scenario vl_ST_scenario
+
+/*A Tableau contenant la liste des libelles des scenarios presentes dans
+				la "liste des scenarios" dans la boite de dialogue
+*/ 
+var		vl_BL_scenario
+
+/*A Booleen utilise par "Executer" pour savoir si la CMD est une fin
+												d'action
+*/
+var	vl_fin_action
+
+/*A Structure infos PAL plan d'action
+*/
+var	FORMAT PA_PAL vl_PAL
+
+/*A Tableau d'infos contenant les infos sur la configuration des
+	messages et des affichages pour les PALs Indice du tableau le
+							numero de l'equipement dans la PAL */ 
+var	FORMAT ST_affichage_et_message vl_ST_aff_msg
+
+
+/*A liste des objets pour la boite de dialogue consultation
+*/
+var FORMAT	ST_objet	vl_liste_objet_consultation
+
+/*A liste des objets pour la boite de dialogue pilotage
+*/
+var	FORMAT	ST_objet	vl_liste_objet_pilotage
+
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+
+/*A MAJ des variables statiques */
+
+vl_District 	= SYSTEM_VAR@(vg_site)
+vl_NomSite 	= SYSTEM_VAR@(vg_nom_site)
+vl_mode_formation = (SYSTEM_VAR@ (vg_formation) <> NULL)
+vl_poste 		= SYSTEM_VAR@(vg_numero_operateur)
+vl_abt_panneau	= FALSE
+vl_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vl_Nummachine 	= SYSTEM_VAR@(vg_numero_poste)
+vl_NomOperateur = SUBSTRING@(vl_NomOperateur, 1, 25)
+vl_mode_PA 	= COM_QUITTE
+vl_Appel		= SUBSTRING@(va_appelant,1,8)
+
+
+vl_appel_connu=FALSE
+vl_num_equipement=0
+
+/*B trace du debut du traitement */
+vl_text = "------------------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = " Start ITMA_TPP_pilotage_PAL   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+vl_text = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_text)
+
+if NOT(IS_ARRAY@(va_1))
+{	vl_text = "va_1 : " ++ va_1
+	COM01_Trace(0,vl_text)}
+else 
+{	vl_text = "va_1  est un tableau"
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_2))
+{	vl_text = "va_2 : " ++ va_2
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_3))
+{	vl_text = "va_3 : " ++ va_3
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_4))
+{	vl_text = "va_4 : " ++ va_4
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_5))
+{	vl_text = "va_5 : " ++ va_5
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_6))
+{	vl_text = "va_6 : " ++ va_6
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_7))
+{	vl_text = "va_7 : " ++ va_7
+	COM01_Trace(0,vl_text)
+}
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace(COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN(COM_NOK)
+}
+
+/*A Pour initialiser les procedures communes */
+/*  ---------------------------------------- */
+
+if (vl_Appel <> "ITMA_TPA" and vl_Appel <> "ISYN_SOP")
+{
+ITMA_TPP_commun_PAL()
+
+ITMA_TPP_Init_Config_PAL(vl_info_liste_PAL,vl_liste_scenario_autorises)
+
+if (SYSTEM_VAR@(vg_formation) = NULL)
+	 vl_liste_nom_PAL_dispo = ITMA_TPP_Liste_Eqt_Disponibles(vl_District,
+										vl_info_liste_PAL)
+else
+	vl_liste_nom_PAL_dispo = ITMA_TPP_Liste_Eqt_Disponibles(va_4,
+										vl_info_liste_PAL)
+
+/*A Si la liste des PAL dispo est vide */
+ 
+if vl_liste_nom_PAL_dispo[0]=""
+{
+	/*A Alors */ 
+	if (vl_Appel = "ITMA_TMT" or vl_Appel = "ITMA_TPA") 
+	{
+ 		info_message@("Aucun PAL n'est disponible pour cette région !") 
+		RETURN(COM_NOK)
+	}
+}
+/*A Finsi */
+}
+else
+if vl_Appel ="ITMA_TPA"
+{
+ITMA_TPP_commun_PAL()
+
+/* on recupere le num de l equipement a partir du num PA */
+vl_parametres[0].type   = SYB#INT4_
+vl_parametres[0].data   = va_1
+vl_parametres[0].output = FALSE
+
+IF COM05_SQL_Procedure(XZAP131,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+{
+RETURN (COM_NOK)
+}
+
+vl_PAL.NumEqt = vl_resultats.select_results[0]
+vl_num_equipement = vl_PAL.NumEqt[0][0]
+
+
+}
+
+else
+if vl_Appel ="ISYN_SOP"
+{
+ITMA_TPP_commun_PAL()
+
+/* on recupere le num de l equipement passe en param d entree */
+vl_PAL.NumEqt = va_1[0] +0
+
+ITMA_TPP_Init_Config_PAL_PA(vl_PAL.NumEqt,vl_info_liste_PAL,vl_liste_scenario_autorises)
+
+/*on verifie la dispo de l equipement */
+if (SYSTEM_VAR@(vg_formation) = NULL)
+	 vl_liste_nom_PAL_dispo = ITMA_TPP_Liste_Eqt_Disponibles(vl_District,
+									 vl_info_liste_PAL)
+else
+	 vl_liste_nom_PAL_dispo = ITMA_TPP_Liste_Eqt_Disponibles(va_4,
+									 vl_info_liste_PAL)
+}
+
+vl_PAL.Priorite	= 0
+vl_PAL.DistanceEvt	= XDC_DISTANCE_INCONNUE
+
+
+/*A si l'appelant est le menu textuel */
+ 
+if vl_Appel ="ITMA_TMT" 
+{
+
+  /*A Ouverture de la liste des PAL */
+
+  vl_fenetre_TPP = DB_LOAD@("ITMA_TPP_liste_PAL") 
+  vl_messages_acceptes[0] = COM_CANAL_FIN 
+  DB_ACCEPT_POKES@ (vl_fenetre_TPP, vl_messages_acceptes)
+
+  /*A Positionnement de la fenetre   
+  *   ---------------------------- */
+  DB_XPOS@(vl_fenetre_TPP,0)
+
+  DB_YPOS@(vl_fenetre_TPP,93)
+
+  DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TPP,"BL_PAL",True)
+
+  DB_CTRL_STRINGS@(vl_fenetre_TPP,"BL_PAL",vl_liste_nom_PAL_dispo)
+  DB_CTRL_VALUE@(vl_fenetre_TPP,"BL_PAL",-1)
+  DB_CTRL_DISPLAY@(vl_fenetre_TPP,"BP_piloter",True)
+  DB_CTRL_DISPLAY@(vl_fenetre_TPP,"T_piloter",True)
+
+  /*A Boucle de capture des evenements de la boite de dialogue  
+  *   -------------------------------------------------------- */
+  vl_fenetre_active = TRUE
+
+  /*A tant que la fenetre est active */
+  WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_TPP)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_TPP)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+
+	CASE "BP_quitter"
+
+		/*A fermer la fenetre */
+		RETURN(COM_NOK)
+
+	/*A sur action piloter */
+
+	CASE "BP_piloter"
+
+		/*A fermer la fenetre */
+		vl_fenetre_active = FALSE
+
+	/*A sur  liste PAL */
+
+	CASE "BL_PAL"
+
+		/*A Capture du rang dans la liste des PAL */
+
+		vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_TPP,"BL_PAL")
+		for i=0 to ARRAY_SIZE@(vl_info_liste_PAL)
+
+			if vl_info_liste_PAL[i].Identifiant=
+								vl_liste_nom_PAL_dispo[vl_rang]
+			{
+				vl_PAL.NumEqt = i
+			}
+		next i
+		DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_piloter",False)
+	
+	/*A sur reception de poke */
+
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+
+		CASE OF DB_GET_POKE@(vl_fenetre_TPP)
+
+		/*A si poke de fin de canal */
+
+		CASE COM_CANAL_FIN
+
+			/*A fermer la fenetre */
+
+			RETURN(COM_NOK)
+
+		ENDCASE
+
+	ENDCASE
+
+  /*A fin tant que */
+  WEND
+
+  ITMA_TPP_INIT_PAL(vl_ST_aff_msg,vl_BL_scenario,vl_ST_scenario,
+			vl_liste_objet_consultation,vl_liste_objet_pilotage,
+					vl_info_liste_PAL[vl_PAL.NumEqt].NumType,
+								vl_liste_scenario_autorises)
+
+
+ /*A lecture de l'etat actuel du PAL */
+ ITMA_TPP_Lecture_PAL(vl_PAL.NumEqt,vl_PAL)
+
+ ITMA_TPP_init_boite_dialogue_pilotage(vl_fenetre_TPP,
+		vl_messages_acceptes,vl_ST_aff_msg,vl_liste_objet_pilotage)
+
+ ITMA_TPP_deselectionne_objet_PA(vl_fenetre_TPP,vl_expliquer,
+							vl_lecture,vl_info_liste_PAL,vl_PAL)
+	vl_appel_connu=TRUE
+}
+
+/*A Si l'appelant est le synoptique BP de droite */
+
+if vl_Appel = "ISYN_SOP"
+{
+	if NOT(IS_ARRAY@(va_1))
+	{
+		vl_PAL.NumEqt = va_1+0
+	}
+	else
+	{
+		vl_PAL.NumEqt = va_1[0] +0
+	}
+	if (vl_info_liste_PAL[vl_PAL.NumEqt].Disponible=FALSE)
+		AND (SYSTEM_VAR@(vg_poste)<>XDC_PODFA) AND (SYSTEM_VAR@(vg_poste)<>XDC_POCI1)
+	{
+		info_message@("Le PAL demande n'est pas disponible")
+		RETURN(COM_NOK)
+	} 
+     if NOT vl_mode_formation  and
+     NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) and  
+	  NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+     NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+       NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI) and
+	    (SYSTEM_VAR@(vg_site) = XDC_CI)) and (SYSTEM_VAR@(vg_poste)<>XDC_PODFA)
+	{               
+		vl_text=" Appel pilotage PAL depuis syno par un utilisateur non autorisé"
+		COM01_Trace(0,vl_text)
+		RETURN(COM_OK)
+	}
+
+	ITMA_TPP_INIT_PAL(vl_ST_aff_msg,vl_BL_scenario,vl_ST_scenario,
+			vl_liste_objet_consultation,vl_liste_objet_pilotage,
+					vl_info_liste_PAL[vl_PAL.NumEqt].NumType,
+								vl_liste_scenario_autorises)
+
+	/* Au CI si appel depuis depuis le synoptique prendre le district du PAL  */
+	if vl_District = XDC_CI 
+	{ 
+		if NOT ITMA_COM_District_pilotable(vl_info_liste_PAL[vl_PAL.NumEqt].sitegestion, 
+				XDC_LIB_PAL,TRUE,vl_info_liste_PAL[vl_PAL.NumEqt].Identifiant) and  (SYSTEM_VAR@(vg_poste)<>XDC_PODFA)
+		{ 
+			vl_text = " Appel pilotage PMV depuis syno pour un PAL pilotable en région " ++ vl_info_liste_PAL[vl_PAL.NumEqt].NomSite
+			COM01_Trace(0,vl_text)
+				RETURN(COM_OK)
+ 		}
+	}
+	else
+	{ 
+		if (vl_District <> vl_info_liste_PAL[vl_PAL.NumEqt].sitegestion)
+		{ 
+			vl_text=
+			" Appel pilotage PAL depuis syno pour un PAL hors région"
+
+			COM01_Trace(0,vl_text)
+			RETURN(COM_OK)
+ 		}
+	}
+
+	/*A lecture de l'etat actuel du PAL */
+	ITMA_TPP_Lecture_PAL(vl_PAL.NumEqt,vl_PAL)
+
+	ITMA_TPP_init_boite_dialogue_pilotage(vl_fenetre_TPP,
+		vl_messages_acceptes,vl_ST_aff_msg,vl_liste_objet_pilotage)
+
+	ITMA_TPP_deselectionne_objet_PA(vl_fenetre_TPP,vl_expliquer,
+							vl_lecture,vl_info_liste_PAL,vl_PAL)
+	vl_appel_connu=TRUE
+}
+
+/*A si l'appelant est le PA */
+
+if vl_Appel="ITMA_TPA" 
+{
+	/*A lecture de la proposition du PA */
+
+	vl_erreur = ITMA_TPP_Lire_Prop_PAL(va_1,va_2,vl_PAL) 
+
+	ITMA_TPP_Init_Config_PAL_PA(vl_PAL.NumEqt,vl_info_liste_PAL,vl_liste_scenario_autorises)
+
+	ITMA_TPP_INIT_PAL(vl_ST_aff_msg,vl_BL_scenario,vl_ST_scenario,
+			vl_liste_objet_consultation,vl_liste_objet_pilotage,
+					vl_info_liste_PAL[vl_PAL.NumEqt].NumType,
+								vl_liste_scenario_autorises)
+	
+	/*inutile ici car si le PAL est propose par le PA c est qu il est dispo ! */
+	/*if vl_info_liste_PAL[vl_PAL.NumEqt].Disponible=FALSE
+	{
+		info_message@("Le PAL demande n'est pas disponible")
+	}*/
+	
+	/*A Memorisation de l'explication */
+	vl_expliquer = vl_PAL.Explication 
+
+	ITMA_TPP_init_boite_dialogue_pilotage(vl_fenetre_TPP,
+		vl_messages_acceptes,vl_ST_aff_msg,vl_liste_objet_pilotage)
+
+	/*A Activation des boutons lies au PA */
+
+     if vl_mode_formation or
+       COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT) or
+       COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI)
+	{
+		DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_executer",False)
+	}
+	DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_expliquer",False)
+	DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_refuser",False)
+
+
+	/*A recherche du code de scenario */
+	if UPPERCASE@(vl_PAL.Scenario) = "XXXX"
+	{
+		vl_PAL.Scenario = "SC11"
+	}
+	vl_trouve = -1
+	for i = 0 to ARRAY_SIZE@(vl_ST_scenario)-1
+  		vl_text = "Scenar :" ++ vl_ST_scenario[i].quadrigramme++
+									" propo:"++vl_PAL.Scenario
+		COM01_Trace(0,vl_text)
+		if vl_ST_scenario[i].quadrigramme=
+								UPPERCASE@(vl_PAL.Scenario)
+		{
+			vl_trouve = i
+			vl_NomScenario = vl_PAL.Scenario
+			vl_NumScenario = i
+		}
+	next i
+
+	/*A si scenario trouve */
+	if vl_trouve <> -1
+	{
+		/*A MAJ du libelle status */
+		DB_CTRL_TITLE@(vl_fenetre_TPP,
+				"LI_status","PA : " ++ vl_BL_scenario[vl_trouve])
+
+		/*A MAJ des boutons de commande */
+		for i = 0 to DIM_MAX_ST_affichage_et_message
+
+			ITMA_TPP_pos_picto(i,vl_ST_aff_msg[i].
+						etat_equipement_scenario[vl_trouve],
+								vl_fenetre_TPP,vl_ST_aff_msg,vl_info_liste_PAL[vl_PAL.NumEqt].Sens)
+
+		next i
+
+		/*A MAJ de la zone remarque */
+		if TRIM@(vl_PAL.Remarque)<>""
+		{
+			vl_lecture = ""
+			vl_lecture[0] = vl_PAL.Remarque
+			DB_EDITBOX_CLEAR@(vl_fenetre_TPP,"BE_remarque")
+			DB_EDITBOX_SET_DATA@(vl_fenetre_TPP,"BE_remarque"
+											,vl_lecture)
+		}
+
+		/*A MAJ du libelle fmc nouveau */
+		ITMA_COM_Lire_Evenement ( va_3, va_4, vl_lib_fmc, C_MODULE) 
+		vl_fmc = COM11_Libelle_FMC(vl_lib_fmc)
+		vl_PAL.NumEvt = va_3 + 0
+		vl_PAL.CleEvt = va_4 + 0
+		DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_fmc_nouveau",vl_fmc)
+
+                /*A MAJ du scenario dans la fenetre de selection des scenarios */
+                /*Affiche le nom des 11 scenarios possibles */
+                DB_CTRL_STRINGS@(vl_fenetre_TPP,"BL_scenario",vl_BL_scenario)
+                /* surligne le scenario choisi */
+                DB_CTRL_VALUE@(vl_fenetre_TPP,"BL_scenario",vl_NumScenario)
+
+
+	}
+	else
+	{
+		info_message@("Le scenario "++vl_PAL.Scenario++
+							" propose par le PA n'existe pas")
+	}	
+	vl_appel_connu=TRUE
+}
+
+/* Autoriser la commande executer */
+
+if NOT vl_mode_formation and (vl_district=XDC_CI and
+   NOT (ITMA_COM_District_pilotable(
+			vl_info_liste_PAL[vl_PAL.NumEqt].sitegestion, 
+			XDC_LIB_PAL,FALSE)) )
+{
+	vl_autorisation_executer=True
+}
+else
+{
+	vl_autorisation_executer=False
+}
+
+
+
+/* Si l'appel est connu ( ici ITMA_TMT ou ITMA_TPA ou ITMA_SOP ) */
+
+if(vl_appel_connu=FALSE)
+{
+	/* Alors */
+	/* Retourner une erreur */
+
+	info_message@("L'appel '"++vl_Appel++
+			"' n'est pas reconnu pas la boite de dialogue "++ 
+									"Pilotage d'un PAL")
+	RETURN(COM_NOK)
+}
+/* Finsi */
+/*A MAJ du titre de la fenetre */
+DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_nom",
+					vl_info_liste_PAL[vl_PAL.NumEqt].Identifiant)
+DB_CTRL_STRINGS@(vl_fenetre_TPP,"BL_scenario",vl_BL_scenario)
+
+
+/*A Abonnement a l'etat des panneaux */ 
+
+vl_erreur = ITMA_TPP_Abt_Etat_Panneaux_PAL(XDC_DEBUT_ABONNEMENT_EQUEXT,
+					COM51_NomSite(vl_info_liste_PAL[vl_PAL.NumEqt].sitegestion))
+
+if (vl_erreur <> COM_NOK)
+{
+	vl_abt_panneau = TRUE
+}
+DB_CTRL_DISPLAY@(vl_fenetre_TPP,"panneau",FALSE)
+
+/*DB_CTRL_VALUE@(vl_fenetre_TPP,"BL_scenario",-1)*/
+
+
+/*A Boucle de capture des evenements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_TPP)
+
+	/*A capture de l'evenement dans la BD TPP */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_TPP)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL
+ 
+	if substring@(vl_controle_sortie,1,len@(OBJET_ETAT_ACTUEL))=
+											OBJET_ETAT_ACTUEL
+	{
+		vl_erreur=ITMA_TPP_modif_picto(vl_controle_sortie,
+								vl_fenetre_TPP,vl_ST_aff_msg)
+		vl_mode_PA = COM_REFUSE
+	}
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+
+	CASE "BP_quitter"
+
+		vl_fenetre_active = FALSE
+
+	/*A sur action refuser */
+
+	CASE "BP_refuser"
+
+		vl_mode_PA = COM_REFUSE
+		vl_fenetre_active = FALSE
+
+
+	/*A sur action lier FMC */
+	CASE "BP_lier_FMC"
+ 		DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_status",
+									"Status : appel lien FMC")
+
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+									"ITMA_TPP_pilotage_PAL")
+		tl_liste_causes=tl_data[0]
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vl_fenetre_TPP,"TA_Evenements",TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TPP,"TA_Evenements",TRUE)
+		DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre_TPP, "TA_Evenements", 25)
+		DB_TABLE_ALLOW_COLUMN_RESIZING@(
+							vl_fenetre_TPP,"TA_Evenements",True)
+		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,
+								COM_CAUSE_LONG_LOCALISATION
+		DB_TABLE_SET_DATA@(vl_fenetre_TPP,"TA_Evenements",
+										tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_TPP, "TA_Evenements", 0, tl_data[2])
+
+
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+ 		DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_status",
+								"Status : selection evenement")
+
+		tl_retour=ITMA_COM_Validite_Cause("ITMA_TPP_pilotage_PAL",
+								vl_fenetre_TPP,tl_liste_causes)
+		vl_PAL.NumEvt = tl_retour[0][0]
+		vl_PAL.CleEvt = tl_retour[0][1]
+		vl_fmc = tl_retour[1]
+		DB_CTRL_DISPLAY@(vl_fenetre_TPP,"TA_Evenements",FALSE)
+		DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_fmc_nouveau",vl_fmc)
+		vl_PAL.fmc_liee = vl_fmc
+
+
+
+	/*A sur action executer */
+	CASE "BP_executer"
+
+		/*A Recherche du champ fin d'action */
+
+		vl_fin_action=FALSE
+		for i=0 to ARRAY_SIZE@(vl_ST_scenario)
+
+			if vl_NomScenario=vl_ST_scenario[i].quadrigramme
+			{
+				vl_fin_action=vl_ST_scenario[i].fin_action
+				vl_rang = i
+			}
+		next i
+
+		if NOT vl_fin_action and vl_PAL.NumEvt=0 and vl_PAL.CleEvt=0
+		{
+			info_message@(
+				"Veuillez d'abord lier cette action a une F.M.C")
+		}
+		else
+		{
+			/*A Griser le bouton Executer */
+
+			DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_executer",TRUE)
+			DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_lier_FMC",TRUE)
+			DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_fmc_actuel",vl_fmc)
+			DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_fmc_nouveau","")
+
+			/*A si le scenario est une fin d'action */
+
+			if vl_fin_action=TRUE
+			{
+				/* recuperation du n° d'action dans la base */
+			
+				vl_cpt=ITMA_TPP_Commande_fin_PAL(vl_PAL.NumEqt,
+						vl_info_liste_PAL[vl_PAL.NumEqt].sitegestion,FALSE,
+							vl_NomOperateur,vl_mode_formation,
+							vl_NomScenario,vl_BL_scenario[vl_NumScenario],
+							vl_NumAction)
+			}
+			/*A sinon cmd PAL classique */
+			else
+			{
+				/* recuperation du n° d'action dans la base */			
+				vl_NumAction = 0 		
+				vl_cpt=ITMA_TPP_Commande_PAL(vl_poste, 
+							FALSE,vl_NomScenario,
+							vl_BL_scenario[vl_NumScenario],
+							vl_mode_formation,vl_PAL.NumEvt,
+								vl_PAL.CleEvt,vl_PAL.NumEqt,
+								vl_PAL,vl_NumAction,
+								vl_info_liste_PAL[vl_PAL.NumEqt].sitegestion)
+			}
+		
+
+			if vl_cpt = COM_OK
+			{
+		    		DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_status",
+								"Status : Commande envoyee")
+				if vl_Appel="ITMA_TPA"				
+				{
+					vl_mode_PA=COM_VALIDE
+		    			DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_status",
+								"Status : Validation du PA")	
+				}
+				else
+				{
+					vl_mode_PA=COM_QUITTE
+					if vl_erreur <> COM_NOK
+					{
+						DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_status",
+								"Status : Pilotage PAL !!!")
+					}
+					else
+					{
+						DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_status",
+							"Status : Problème Pilotage PAL !!!")
+					}
+				}
+			}
+			else
+			{	
+				DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_status",
+					"Status : Commande refusee (manque lien FMC)") 
+			}
+		 }
+	   	 vl_PAL.NumEvt = 0
+		 vl_PAL.CleEvt = 0
+
+
+	/*A sur action BP_expliquer */
+	CASE "BP_expliquer"
+
+		/* appel de MTEX avec passage en argument de l'explication */
+		vl_erreur = Pend_For_NEW_TASK@("ITMA_TEX_Explication_Propo",
+							"ITMA_TPP_pilotage_PAL",vl_expliquer)
+
+
+	/*A sur action camera */
+	CASE "BP_camera"
+
+		DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_status",
+				"Status : Appel de la boite de commande camera")
+	
+		if vl_info_liste_PAL[vl_PAL.NumEqt].Disponible=TRUE
+		{
+
+			vl_1 = vl_info_liste_PAL[vl_PAL.NumEqt].Autoroute
+			vl_2 = vl_info_liste_PAL[vl_PAL.NumEqt].PR
+			vl_3 = vl_info_liste_PAL[vl_PAL.NumEqt].PR
+			vl_4 = vl_info_liste_PAL[vl_PAL.NumEqt].Sens
+
+			/*A trace de l'appel */
+
+			vl_text = " Appel pilotage camera ("
+			vl_text = vl_text++vl_1++","++vl_2++","
+								++vl_3++","++vl_4++")"
+			COM01_Trace(0,vl_text)
+			DB_SEND_POKE@(COM_CANAL_MTCA_RAPIDE,
+					{ "ITMA_TPP_pilotage_PAL",vl_1,vl_2,vl_3,vl_4 })
+		}
+
+
+
+	/*A sur action 'valider' un scenario */
+	CASE "BP_valider"
+				
+
+		for i=0 to ARRAY_SIZE@(vl_ST_aff_msg)-1
+
+			if(vl_ST_aff_msg[i].equipement_present=TRUE)
+			{
+				/*A griser les boutons de pilotage de barrieres
+											et panneaux */
+				DB_CTRL_GRAYED@(vl_fenetre_TPP,
+					vl_ST_aff_msg[i].nom_objet_etat_actuel,True)
+			}
+		next i
+
+		/*A Griser les boutons du PA */
+
+		DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_refuser",TRUE)
+		DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_expliquer",TRUE)
+		DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_valider",TRUE)
+
+		DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_executer",
+								vl_autorisation_executer)
+		DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_lier_FMC",FALSE)
+
+
+		/*A capture du rang dans la liste et reset de la selection */
+
+		vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_TPP,"BL_scenario")
+		DB_CTRL_VALUE@(vl_fenetre_TPP,"BL_scenario",-1)
+
+		/*A MAJ du libelle status */
+
+		DB_CTRL_TITLE@(vl_fenetre_TPP,"LI_status",
+									vl_BL_scenario[vl_rang])
+
+		/*A MAJ des variables */
+
+		vl_NumScenario = vl_rang
+		vl_NomScenario = vl_ST_scenario[vl_rang].quadrigramme
+		
+		vl_text="NumSc = "++vl_NumScenario++"NomSc = "++vl_NomScenario
+		COM01_Trace(0,vl_text) 
+
+		/*A MAJ des boutons de commande */
+
+		for i = 0 to DIM_MAX_ST_affichage_et_message
+			ITMA_TPP_pos_picto(i,vl_ST_aff_msg[i]
+					.etat_equipement_scenario[vl_NumScenario],
+								vl_fenetre_TPP,vl_ST_aff_msg,vl_info_liste_PAL[vl_PAL.NumEqt].Sens)
+		next i
+
+
+
+
+	/*A sur action liste scenario */
+	CASE "BL_scenario"
+
+		vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_TPP,"BL_scenario")
+
+		DB_CTRL_GRAYED@(vl_fenetre_TPP,"BP_valider",False)
+
+
+
+
+	/*A sur reception de poke */		
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vl_fenetre_TPP)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_MTPP
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vl_fenetre_TPP)
+
+			/*A trace de la reception du message */
+			vl_text = "   MsgPoke MTPP : " ++ vl_message[0]
+			COM01_Trace(0,vl_text)
+			COM01_Trace(0," ")
+
+			/*A decomposition des messages en tableau */
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+			/*A si numero de PAL en cours d'edition */
+			if vl_mess[0]+0 =  vl_PAL.NumEqt+0
+			{				
+				/*A on boucle sur toutes les infos du message */
+				for i = 1 to ARRAY_SIZE@(vl_mess)-1 step 2
+				
+					ITMA_TPP_MAJ_PAL(vl_mess[i],vl_mess[i+1],
+								vl_fenetre_TPP,vl_ST_aff_msg)
+
+				next i
+			}
+		ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+
+
+
+/* si  Renvoi d'appel sur repondeur : Annul renvoi */
+
+if (vl_Renvoi_Appel)
+{ 
+	ITMA_TPP_Annul_Renvoi(vl_NomSite,vl_Nummachine)
+}
+
+/*B Fermerture des abonnements */
+if (vl_abt_panneau)
+{
+	ITMA_TPP_Abt_Etat_Panneaux_PAL(XDC_FERMER_ABONNEMENT_EQUEXT,
+					vl_info_liste_PAL[vl_PAL.NumEqt].sitegestion)
+}
+
+/*B trace de la fin de traitement */
+vl_text = " Stop ITMA_TPP_pilotage_PAL   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+RETURN(vl_mode_PA)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Initialisation generale de la boite de dialogue
+*												Pilotage
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPP_init_boite_dialogue_pilotage(va_fenetre_TPP,
+								va_messages_acceptes,
+				FORMAT ST_affichage_et_message va_ST_aff_msg,
+						FORMAT	ST_objet	va_liste_objet)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_fenetre_TPP			:	Item de la boite de dialogue
+*												Pilotage
+*	va_messages_acceptes	:	Liste des messages acceptes par la
+*											boite de dialogue
+*	va_ST_aff_msg			:	Structure contenant les donnees
+*							d'affichage et de messages vers
+*							les equipements
+*	va_liste_objet			:	Liste des objets pilotage 
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*  	va_fenetre_TPP			:	Item de la boite de dialogue
+*												Pilotage
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*    Initialisation generale de la boite de dialogue Pilotage
+*
+--------------------------------------------------------------------- */
+
+var i
+
+
+/*A Ouverture de la fiche de pilotage PAL */
+
+va_fenetre_TPP = DB_LOAD@("ITMA_TPP_pilotage_PAL")
+
+va_messages_acceptes[0] = COM_CANAL_FIN
+va_messages_acceptes[1] = COM_CANAL_MTPP
+DB_ACCEPT_POKES@ (va_fenetre_TPP, va_messages_acceptes)
+
+DB_CTRL_WORK_COLORS@(va_fenetre_TPP,"BE_remarque",TRUE)
+DB_CTRL_GRAYED@(va_fenetre_TPP,"BP_lier_FMC",False)
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_HEIGHT@(va_fenetre_TPP,880)
+DB_XPOS@(va_fenetre_TPP,0)
+ if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+DB_YPOS@(va_fenetre_TPP, 1000)
+ELSE
+DB_YPOS@(va_fenetre_TPP, 104)
+
+DB_WIDTH@(va_fenetre_TPP,960)
+
+ITMA_TPP_creation_dans_boite_objet_PAL(va_fenetre_TPP,va_liste_objet)
+
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre_TPP,"BL_scenario",TRUE)
+
+/*A Griser le bouton 'Executer' */
+DB_CTRL_GRAYED@(va_fenetre_TPP,"BP_executer",True)
+
+DB_DISPLAY_ONLY@(va_fenetre_TPP,TRUE)
+DB_DISPLAY@(va_fenetre_TPP)
+DB_DISPLAY_ONLY@(va_fenetre_TPP,FALSE)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Deselection les objets lies au PA
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPP_deselectionne_objet_PA(va_fenetre_TPP,va_expliquer,
+				va_lecture,FORMAT Config_PAL va_info_liste_PAL,
+										FORMAT PA_PAL va_PAL)
+
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_fenetre_TPP			:	Item de la boite de dialogue
+*												Pilotage
+*	va_expliquer			:	Explication sur le plan d'action
+*	va_lecture			:
+*	va_info_liste_PAL		:	Liste d'info sur les PAL
+*	va_PAL				:	Structure de donnees sur le PAL
+*									en cours en traitement
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*    	Deselection les objets lies au PA
+*
+--------------------------------------------------------------------- */
+
+/*A Griser les boutons lies au PA */
+
+va_expliquer = "L'appelant n'est pas le System Expert"
+DB_CTRL_GRAYED@(va_fenetre_TPP,"BP_refuser",True)
+DB_CTRL_GRAYED@(va_fenetre_TPP,"BP_expliquer",True)
+va_lecture = ""
+va_lecture[0] = ""
+DB_EDITBOX_SET_DATA@(va_fenetre_TPP,"BE_remarque",va_lecture)
+
+/*A MAJ du titre de la fenetre */
+DB_CTRL_TITLE@(va_fenetre_TPP,"LI_nom",
+					va_info_liste_PAL[va_PAL.NumEqt].Identifiant)
+DB_CTRL_TITLE@(va_fenetre_TPP,"LI_fmc_actuel",va_PAL.fmc_liee)
+
+ENDMACRO

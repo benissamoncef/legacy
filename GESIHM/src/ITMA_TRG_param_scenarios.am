@@ -1,0 +1,1953 @@
+/*E*/
+/* Fichier :$Id: ITMA_TRG_param_scenarios.am,v 1.1 2012/07/04 14:59:09 pc2dpdy Exp $       Release : $Revision: 1.1 $        Date : $Date: 2012/07/04 14:59:09 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TPL * FICHIER ITMA_TRG_param_scenarios.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Parametrage des scenarios
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG 	20/03/12 : creation dem 1016
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TRG.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/xzao552sp.h"
+INCLUDE	"../inc/xzao557sp.h"
+INCLUDE	"../inc/xzao558sp.h"
+INCLUDE	"../inc/xzao559sp.h"
+INCLUDE	"../inc/xzao556sp.h"
+INCLUDE	"../inc/xzao561sp.h"
+INCLUDE	"../inc/xzao580sp.h"
+INCLUDE	"../inc/xzao551sp.h"
+INCLUDE	"../inc/xzao566sp.h"
+INCLUDE	"../inc/xzao571sp.h"
+INCLUDE	"../inc/xzao900sp.h"
+
+INCLUDE    "../../XDMICG/inc/xzaec_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTRG"			' Nom du module
+
+DEFINE	C_TYPE_TRAFIC_ACTIV	0
+DEFINE	C_TYPE_TRAFIC_DESACTIV	1
+DEFINE	C_TYPE_HORAIRE	2
+/*A
+ * position des parametres de nombres de colonnes et lignes dans le spreadsheet
+ */
+#define COM_NB_COL      6
+#define COM_NB_LIG      7
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM			1
+
+
+
+/*A
+ * Noms des images digitalisees particularisant
+ *     les caracteristiques d'un evenement
+ * --------------------------------------------
+ */
+
+DEFINE	C_PICTO_FIGE		"pix_croix"
+DEFINE	C_PICTO_MODIFIABLE	"pix_crayon"
+DEFINE	C_PICTO_VERT		"pix_vert"
+DEFINE	C_PICTO_ROUGE		"pix_rouge"
+FORMAT EXPORT_SCENARIO
+	base,
+	zone_id,
+	zone_libelle,
+	scenario_id,
+	scenario_libelle,
+	scenario_niveau,
+	scenario_nominal,
+	scenario_inhibition,
+	scenario_degrade,
+	prv_id,
+	prv_nom,
+	prv_autoroute,
+	prv_pr,
+	prv_sens,
+	prv_vitesse,
+	prv_critique,
+	prv_vitesse_nominal,
+	prv_rappel_nominal,
+	prv_type,
+	cond_id,
+	cond_type_horaire,
+	cond_jour,
+	cond_horodate_debut,
+	cond_horodate_fin,
+	cond_heure_debut,
+	cond_minute_debut,
+	cond_heure_fin,
+	cond_minute_fin,
+	cond_cond_alternative,
+	cond_seuil,
+	cond_donnee_trafic,
+	cond_operateur,
+	cond_scenario,
+	cond_conjonction1,
+	cond_conjonction2,
+	cond_conjonction3,
+	cond_conjonction4,
+	cond_station,
+	cond_zone,
+	cond_type_jour,
+	cond_libelle 
+
+
+VAR tm_vitesses
+
+VAR FORMAT T_zone  vm_zones
+VAR vm_l_picto_lib
+VAR FORMAT T_scenario tm_scenarios
+VAR FORMAT T_scenario vm_scenario_courant
+VAR FORMAT T_prv	tm_prv
+VAR vm_index_prv
+VAR FORMAT T_commande	tm_commandes
+VAR FORMAT T_Condition tm_conditions_activ
+VAR FORMAT T_Condition tm_conditions_desactiv
+VAR FORMAT T_Condition tm_conditions_horaire
+VAR FORMAT T_Condition tm_conditions
+
+/*A
+ * Description du format des donnees provenant de la base
+ * ------------------------------------------------------
+ */
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+*
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRG_param_scenarios ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation par menu principal.
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR     vl_fenetre_events			' Nom de la fenetre du module
+	VAR     vl_objet_selecte			' L'objet courant de la fenetre
+	VAR     vl_la_fenetre_est_active
+	VAR     vl_installer_traitement_erreur
+
+
+	VAR     vl_select				' Selection(s) dans la table
+	VAR     i, index
+	VAR vl_indice,vl_index
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_data
+	VAR vl_t_titres
+	VAR vl_num_param, tl_data
+	VAR vl_type_select
+	VAR vl_lib_select
+	VAR vl_val
+	VAR vl_refer
+	VAr vl_valeur,vl_valeur2
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+/*ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}*/
+
+/*A
+ * Charger la fenetre "Parametrage des libelles"
+ * ---------------------------------------------
+ */
+
+vl_fenetre_events = DB_LOAD@ ("ITMA_TRG_param_scenarios")
+DB_TITLE@(vl_fenetre_events, "Configurer les scenarios de regulation")
+DB_WINDOW_REMAIN@ (vl_fenetre_events, TRUE)
+
+DB_XPOS@ (vl_fenetre_events, 100)
+DB_YPOS@ (vl_fenetre_events, 93)
+
+DB_WIDTH@(vl_fenetre_events, 1146)
+DB_HEIGHT@(vl_fenetre_events, 748)
+
+COM02_Attacher_Aide (vl_fenetre_events, "ITMA_TRG_param_scenarios")
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_events, "TA_scenarios", FALSE)
+DB_CTRL_VERT_SCROLL@ (vl_fenetre_events, "TA_scenarios", TRUE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_events, "TA_scenarios", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "TA_scenarios", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "TA_prv", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BO_zone", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BO_refer", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BO_vitesse", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BP_plus_desactiv", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BP_plus_activ", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BP_moins_desactiv", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BP_moins_activ", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BP_plus_horaire", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BP_moins_horaire", TRUE)
+DB_CTRL_VALUE@(vl_fenetre_events, "BO_zone", -1)
+DB_CTRL_VALUE@(vl_fenetre_events, "BO_vitesse", -1)
+DB_CTRL_GRAYED@(vl_fenetre_events, "BP_creer", true)
+
+/*A
+ * Initialiser la visualisation (liste des evenements)
+ * ---------------------------------------------------
+ */
+MACRO_WINS_BUSY@()
+IF TRG_Init_Visualisation (vl_fenetre_events) <> COM_OK
+    RETURN
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_type_select = -1
+vl_lib_select = -1
+index = null
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_DISPLAY@ (vl_fenetre_events)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_events)
+
+    CASE OF vl_objet_selecte
+   
+
+		
+    /*A
+     * Sur selection d'un libelle predefini,
+     * -------------------------------------
+     */
+	CASE "BP_plus_activ"
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_activ")
+		if (vl_valeur = -1)
+			return
+		vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+		tl_data=DB_TABLE_GET_DATA@(vl_fenetre_events, "TA_activ")
+		index=ARRAY_INDEX@(ARRAY_COLUMN@(tl_data, 0), 
+				tm_conditions_activ[vl_valeur].numero)
+		if (index=-1) {
+			i = ARRAY_SIZE@(tl_data)
+			tl_data[i][0]=tm_conditions_activ[vl_valeur].numero
+			tl_data[i][1]=tm_conditions_activ[vl_valeur].libelle
+			DB_TABLE_CLEAR_DATA@(vl_fenetre_events, "TA_activ", 0, -1)
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre_events, "TA_activ", tl_data,0)
+		}
+	/*	TRG_associer_conditions(vl_fenetre_events, vm_zones[vl_valeur2].numero,
+				vm_scenario_courant.numero,
+				tm_conditions_activ[vl_valeur][0],1)*/
+
+	CASE "BP_moins_activ"
+		vl_select = DB_TABLE_GET_SELECTIONS@(vl_fenetre_events,"TA_activ")
+		vl_valeur = vl_select[0]
+		if (vl_valeur = -1)
+			return
+		vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+		tl_data=DB_TABLE_GET_DATA@(vl_fenetre_events, "TA_activ")
+		tl_data=ARRAY_DELETE@(tl_data, vl_valeur)
+		DB_TABLE_CLEAR_DATA@(vl_fenetre_events, "TA_activ", 0, -1)
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre_events, "TA_activ", tl_data,0)
+/*		TRG_associer_conditions(vl_fenetre_events, vm_zones[vl_valeur2].numero,
+				vm_scenario_courant.numero,
+				tm_conditions_activ[vl_valeur][0],0)*/
+
+	CASE "BP_plus_desactiv"
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_desactiv")
+		if (vl_valeur = -1)
+			return
+		vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+		tl_data=DB_TABLE_GET_DATA@(vl_fenetre_events, "TA_desactiv")
+		index=ARRAY_INDEX@(ARRAY_COLUMN@(tl_data, 0), 
+				tm_conditions_desactiv[vl_valeur].numero)
+		if (index=-1) {
+			i = ARRAY_SIZE@(tl_data)
+			tl_data[i][0]=tm_conditions_desactiv[vl_valeur].numero
+			tl_data[i][1]=tm_conditions_desactiv[vl_valeur].libelle
+			DB_TABLE_CLEAR_DATA@(vl_fenetre_events, "TA_desactiv", 0, -1)
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre_events, "TA_desactiv", tl_data,0)
+		}
+	/*	TRG_associer_conditions(vl_fenetre_events, vm_zones[vl_valeur2].numero,
+				vm_scenario_courant.numero,
+				tm_conditions_desactiv[vl_valeur][0],1)*/
+
+	CASE "BP_moins_desactiv"
+		vl_select = DB_TABLE_GET_SELECTIONS@(vl_fenetre_events,"TA_desactiv")
+		vl_valeur = vl_select[0]
+		if (vl_valeur = -1)
+			return
+		vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+		tl_data=DB_TABLE_GET_DATA@(vl_fenetre_events, "TA_desactiv")
+		tl_data=ARRAY_DELETE@(tl_data, vl_valeur)
+		DB_TABLE_CLEAR_DATA@(vl_fenetre_events, "TA_desactiv", 0, -1)
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre_events, "TA_desactiv", tl_data,0)
+	/*	TRG_associer_conditions(vl_fenetre_events, vm_zones[vl_valeur2].numero,
+				vm_scenario_courant.numero,
+				tm_conditions_desactiv[vl_valeur][0],0)*/
+
+	CASE "BP_plus_horaire"
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_horaire")
+		if (vl_valeur = -1)
+			return
+		vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+		tl_data=DB_TABLE_GET_DATA@(vl_fenetre_events, "TA_horaire")
+		index=ARRAY_INDEX@(ARRAY_COLUMN@(tl_data, 0), 
+				tm_conditions_horaire[vl_valeur].numero)
+		if (index=-1) {
+			i = ARRAY_SIZE@(tl_data)
+			tl_data[i][0]=tm_conditions_horaire[vl_valeur].numero
+			tl_data[i][1]=tm_conditions_horaire[vl_valeur].libelle
+			DB_TABLE_CLEAR_DATA@(vl_fenetre_events, "TA_horaire", 0, -1)
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre_events, "TA_horaire", tl_data,0)
+		}
+	/*	TRG_associer_conditions(vl_fenetre_events, vm_zones[vl_valeur2].numero,
+				vm_scenario_courant.numero,
+				tm_conditions_horaire[vl_valeur][0],1)*/
+
+	CASE "BP_moins_horaire"
+		vl_select = DB_TABLE_GET_SELECTIONS@(vl_fenetre_events,"TA_horaire")
+		vl_valeur = vl_select[0]
+		if (vl_valeur = -1)
+			return
+		vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+		tl_data=DB_TABLE_GET_DATA@(vl_fenetre_events, "TA_horaire")
+		tl_data=ARRAY_DELETE@(tl_data, vl_valeur)
+		DB_TABLE_CLEAR_DATA@(vl_fenetre_events, "TA_horaire", 0, -1)
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre_events, "TA_horaire", tl_data,0)
+/*		TRG_associer_conditions(vl_fenetre_events, vm_zones[vl_valeur2].numero,
+				vm_scenario_courant.numero,
+				tm_conditions_horaire[vl_valeur][0],0)*/
+
+	CASE "TA_prv"
+		vl_select = DB_TABLE_GET_SELECTIONS@(vl_fenetre_events,"TA_prv")
+		vm_index_prv = vl_select[0]
+
+	CASE "TA_scenarios"
+		MACRO_WINS_BUSY@()
+		vl_select = DB_TABLE_GET_SELECTIONS@(vl_fenetre_events,"TA_scenarios")
+		vl_lib_select = vl_select[0]
+		vm_scenario_courant = tm_scenarios[vl_lib_select]
+		DB_CTRL_VALUE@(vl_fenetre_events, "BS_libelle", 
+			vm_scenario_courant.libelle)		
+		DB_CTRL_VALUE@(vl_fenetre_events, "BS_niveau", 
+			vm_scenario_courant.niveau)		
+		DB_CTRL_VALUE@(vl_fenetre_events, "BR_nominal", 
+			vm_scenario_courant.nominal)		
+		DB_CTRL_VALUE@(vl_fenetre_events, "BR_degrade", 
+			vm_scenario_courant.degrade)	
+		DB_CTRL_VALUE@(vl_fenetre_events, "BR_actif", 
+			vm_scenario_courant.inhibition)	
+		
+		/*met a jour les PRV commandes*/
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+		TRG_recherche_prv(vl_fenetre_events, vm_zones[vl_valeur].numero)	
+
+		DB_CTRL_GRAYED@(vl_fenetre_events, "BP_plus_activ", false)
+
+	CASE "BO_vitesse"
+		TRG_applique_vitesse(vl_fenetre_events)
+
+	CASE "BO_zone"
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+		TRG_recherche_scenarios(vl_fenetre_events, vm_zones[vl_valeur].numero)
+		DB_CTRL_GRAYED@(vl_fenetre_events, "BP_creer", false)
+		vm_index_prv=-1
+
+	/*A
+     * Sur selection bouton modifier,
+     * ------------------------------
+     */
+	CASE "BP_modifier"
+	if IS_NULL@(vm_scenario_courant)	{
+		INFO_MESSAGE@("Vous devez d'abord choisir un scenario")
+	}
+	else if (TRG_controle_coherence(vl_fenetre_events)=COM_OK) 
+	{	
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BR_nominal")
+		vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BR_actif")
+		if (vl_valeur<>0) and (vl_valeur2=0) {
+			info_message@("Ce scenario va devenir le scenario nominal de la zone")	
+		}
+
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+		TRG_cree_scenario(vl_fenetre_events,vm_zones[vl_valeur].numero)
+	}
+
+	CASE "BP_creer"
+		vm_scenario_courant=null
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BR_nominal")
+		vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BR_actif")
+		if (vl_valeur<>0) and (vl_valeur2=0) {
+			info_message@("Ce scenario va devenir le scenario nominal de la zone")	
+		}
+
+		if (TRG_controle_coherence(vl_fenetre_events)=COM_OK) {
+			vm_scenario_courant=null
+			vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+			TRG_cree_scenario(vl_fenetre_events,vm_zones[vl_valeur].numero)
+		}
+
+	/*A
+	 * Sur selection bouton basculer base
+	 * ----------------------------------
+	 */
+	CASE "BP_Base"
+		IF COM05_SQL_Procedure (XZAO566_Trans_RegScenario_Cond, vl_parametres
+, vl_resultats, C_MODULE) <> COM_OK
+		info_message@("probleme de basculement de CFG vers CFT")
+	
+	/*A
+	 * Sur selection bouton supprimer scenario
+	 * ----------------------------------------
+	 */
+	CASE "BP_supprimer"
+	
+	if IS_NULL@(vm_scenario_courant)	{
+		INFO_MESSAGE@("Vous devez d'abord choisir un scenario")
+	}
+	else
+	{
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+		if(vm_scenario_courant.nominal <> 0)
+		{
+			info_message@("Impossible de supprimer le scenario nominal")
+		}
+		else
+		{
+			TRG_supprimer_scenarios(vl_fenetre_events, vm_scenario_courant.numero, vm_zones[vl_valeur].numero)
+		}
+	}
+			
+
+	/*A
+	 * Sur selection bouton Quitter
+	 * ----------------------------
+	 */
+	CASE "BP_fermer"
+		vl_la_fenetre_est_active = FALSE
+		
+
+	/*A
+	 * Sur selection bouton Exporter
+	 * ------------------------------
+	 */
+	CASE "BP_Export"
+		TRG_export(vl_fenetre_events)
+
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_scenarios
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+ 
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+
+TRG_Init_Zone(va_fenetre)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des zones
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_Init_Zone(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_scenarios ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des libelles predefinis.
+*
+---------------------------------------------------------------------------- */
+
+  	VAR vl_data
+
+    VAR vl_t_titres, vl_base
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j
+
+tm_vitesses[0]=130, "130 km/h"
+tm_vitesses[1]=110, "110 km/h"
+tm_vitesses[2]=90, "90 km/h"
+tm_vitesses[3]=70, "70 km/h"
+DB_CTRL_STRINGS@(va_fenetre, "BO_vitesse", ARRAY_COLUMN@(tm_vitesses, 1))
+
+/*A
+ * Lire en base de donnees la liste des libelles predefinis
+ * --------------------------------------------------------
+ */
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = XDC_BASE_CFG
+if vl_base = 1
+	vl_base = XDC_BASE_CFT
+
+
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT4_
+vl_parametres[1].data = SYSTEM_VAR@(vg_site)
+vl_parametres[1].output = FALSE
+vl_resultats = null
+
+	IF COM05_SQL_Procedure (XZAO557_Liste_Zones,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+vm_zones = vl_resultats.select_results[0]
+DB_CTRL_STRINGS@(va_fenetre,"BO_zone",ARRAY_COLUMN@(vm_zones,1))
+
+/*A  Affichage des libelles du type de libelles choisi */
+
+vl_t_titres[0] = " ",			0	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Nom",			200
+vl_t_titres[2] = "Niveau",		50
+vl_t_titres[3] = "Nominal",		50
+vl_t_titres[4] = "Degrade",		50
+
+	DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_scenarios",0,1)
+	
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_scenarios", null, vl_t_titres)
+	DB_TABLE_SET_MARKER_WIDTH@(va_fenetre, "TA_scenarios", 25)
+	DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_scenarios", 0, vm_l_picto_lib)
+	
+
+vl_t_titres=null
+vl_t_titres[0] = " ",			0	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Aut.",			40
+vl_t_titres[2] = "PR",		50
+vl_t_titres[3] = "Sens",		50
+vl_t_titres[4] = "Vitesse",		50
+vl_t_titres[5] = "Critique",		50
+vl_t_titres[6] = "Vitesse Nominale",		100
+vl_t_titres[7] = "Type",					50
+
+
+	DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_prv",0,-1)
+	
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_prv", null, vl_t_titres)
+	DB_TABLE_SET_MARKER_WIDTH@(va_fenetre, "TA_prv", 25)
+	DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_prv", 0, vm_l_picto_lib)
+
+
+vl_t_titres=null
+vl_t_titres[0] = " ",			0	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Libelle",			700
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_activ",0,-1)
+DB_TABLE_SET_DATA@(va_fenetre, "TA_activ", null, vl_t_titres)
+DB_TABLE_SET_MARKER_WIDTH@(va_fenetre, "TA_activ", 25)
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_desactiv",0,-1)
+DB_TABLE_SET_DATA@(va_fenetre, "TA_desactiv", null, vl_t_titres)
+DB_TABLE_SET_MARKER_WIDTH@(va_fenetre, "TA_desactiv", 25)
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_horaire",0,-1)
+DB_TABLE_SET_DATA@(va_fenetre, "TA_horaire", null, vl_t_titres)
+DB_TABLE_SET_MARKER_WIDTH@(va_fenetre, "TA_horaire", 25)
+
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des scenarios de la zone
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_recherche_scenarios(va_fenetre, va_zone)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_scenarios ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des libelles predefinis.
+*
+---------------------------------------------------------------------------- */
+  	VAR vl_data
+
+    VAR vl_t_titres, vl_base
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j
+	VAR FORMAT T_Condition tl_data
+	var index_act, index_desact, index_hor
+	VAR vl_type_PRV
+
+/*A
+ * Lire en base de donnees la liste des libelles predefinis
+ * --------------------------------------------------------
+ */
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = XDC_BASE_CFG 
+if vl_base = 1
+	vl_base = XDC_BASE_CFT
+
+
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_zone
+vl_parametres[1].output = FALSE
+vl_resultats = null
+
+	IF COM05_SQL_Procedure (XZAO558_Liste_Scenarios,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+vl_data= vl_resultats.select_results[0]
+j = ARRAY_SIZE@(vl_data)-1
+tm_scenarios=null
+for i = 0 to (j)
+	tm_scenarios[i] = vl_data[j-i]
+next i
+
+vm_l_picto_lib=null
+for i = 0 to (ARRAY_SIZE@(tm_scenarios)-1)
+	if (tm_scenarios[i].inhibition <> 0)
+		vm_l_picto_lib[i] = C_PICTO_ROUGE, NULL
+	else
+		vm_l_picto_lib[i] = C_PICTO_VERT, NULL
+	if (tm_scenarios[i].nominal <> 0)
+		tm_scenarios[i].niveau = 1
+next i
+
+
+	DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_scenarios",0,-1)
+	
+	DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_scenarios", 
+			tm_scenarios, 0)	
+
+
+	DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_scenarios", 0, vm_l_picto_lib)
+
+vm_scenario_courant=null
+
+DB_CTRL_VALUE@(va_fenetre, "BS_libelle", "")
+DB_CTRL_VALUE@(va_fenetre, "BS_niveau", "")
+DB_CTRL_VALUE@(va_fenetre, "BR_nominal", false)
+DB_CTRL_VALUE@(va_fenetre, "BR_degrade", false)
+DB_CTRL_VALUE@(va_fenetre, "BR_actif", false)
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_activ",0,-1)
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_desactiv",0,-1)
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_horaire",0,-1)
+
+/*PRV de la zone*/
+IF COM05_SQL_Procedure (XZAO556_Liste_PRV,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ RETURN (COM_NOK)
+
+
+tm_prv=null
+tl_data = vl_resultats.select_results[0]
+for I = 0 TO ARRAY_SIZE@(tl_data)-1
+	tm_prv[i].numero = tl_data[i][0]
+	tm_prv[i].autoroute = tl_data[i][1]
+	tm_prv[i].PR = tl_data[i][2]
+	tm_prv[i].sens = tl_data[i][3]
+	tm_prv[i].vitesse_nominale = tl_data[i][4]
+	tm_prv[i].critique = tl_data[i][5]
+
+vl_type_PRV = tl_data[i][6]
+if vl_type_PRV = 0
+	vl_type_PRV = "P"
+if vl_type_PRV = 1
+	vl_type_PRV = "A"
+
+	tm_prv[i].type = vl_type_PRV
+	tm_prv[i].zone = tl_data[i][7]
+	tm_prv[i].bretelle_entree = tl_data[i][8]
+	tm_prv[i].critique_decrement=false
+	tm_prv[i].critique_distance=false
+	tm_prv[i].critique_vitesse=false
+next I
+
+
+	DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_prv",0,-1)
+	
+	DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_prv", 
+			tm_prv, 0)	
+
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_zone
+vl_parametres[1].output = FALSE
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = -1
+vl_parametres[2].output = FALSE
+vl_resultats = null
+
+IF COM05_SQL_Procedure (XZAO561_Liste_Conditions,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+tl_data = vl_resultats.select_results[0]
+tm_conditions = tl_data
+tm_conditions_activ=null
+tm_conditions_desactiv=null
+tm_conditions_horaire=null
+index_act=0
+index_desact=0
+index_hor=0
+for i = 0 to ARRAY_SIZE@(tl_data)-1
+	if (tl_data[i].type_horaire = C_TYPE_TRAFIC_ACTIV){
+		tm_conditions_activ[index_act].numero= tl_data[i].numero
+		tm_conditions_activ[index_act].libelle = tl_data[i].libelle
+		tm_conditions_activ[index_act].scenario = tl_data[i].scenario
+		index_act = index_act+1
+	} else if (tl_data[i].type_horaire = C_TYPE_TRAFIC_DESACTIV){
+		tm_conditions_desactiv[index_desact].numero = tl_data[i].numero
+		tm_conditions_desactiv[index_desact].libelle = tl_data[i].libelle
+		tm_conditions_desactiv[index_desact].scenario = tl_data[i].scenario
+		index_desact = index_desact+1
+	} else if (tl_data[i].type_horaire = C_TYPE_HORAIRE){
+		tm_conditions_horaire[index_hor].numero = tl_data[i].numero
+		tm_conditions_horaire[index_hor].libelle = tl_data[i].libelle
+		tm_conditions_horaire[index_hor].scenario = tl_data[i].scenario
+		index_hor = index_hor+1
+	}
+next i
+
+DB_CTRL_STRINGS@(va_fenetre, "BO_activ", 
+		ARRAY_COLUMN@(tm_conditions_activ, 1))
+DB_CTRL_STRINGS@(va_fenetre, "BO_desactiv", 
+		ARRAY_COLUMN@(tm_conditions_desactiv, 1))
+DB_CTRL_STRINGS@(va_fenetre, "BO_horaire", 
+		ARRAY_COLUMN@(tm_conditions_horaire, 1))
+
+/*DB_CTRL_GRAYED@(va_fenetre, "BP_plus_activ", true)*/
+ENDMACRO
+
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Cree un scenario
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_cree_scenario (va_fenetre, va_zone)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*   va_proc		: Nom de la procedure stockee a executer
+*   va_type_select    : No de la ligne de "TA_Liste_Libelle" selectionne
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_scenarios ;
+*
+* FONCTION
+*   creation ou modification d'un libelle predefini.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j, vl_num_param, vl_num_lib, vl_base
+	VAR vl_libelle, vl_niveau, tl_data
+VAr vl_num_scenario
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = XDC_BASE_CFG 
+if vl_base = 1
+	vl_base = XDC_BASE_CFT
+
+vl_libelle = DB_CTRL_GET_VALUE@(va_fenetre,"BS_libelle")
+if (TRIM@(vl_libelle)="") {
+	INFO_MESSAGE@("Libelle obligatoire")
+	return
+}
+vl_niveau = DB_CTRL_GET_VALUE@(va_fenetre,"BS_niveau")
+if (TRIM@(vl_niveau)="") {
+	INFO_MESSAGE@("Niveau obligatoire")
+	return
+}
+
+vl_parametres = null	
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT2_
+if (vm_scenario_courant=null)
+	vl_parametres[1].data = -1
+else
+	vl_parametres[1].data = vm_scenario_courant.numero	
+vl_parametres[1].output = FALSE
+vl_parametres[2].type = SYB#CHAR_
+vl_parametres[2].data = vl_libelle
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#BIT_
+vl_parametres[3].data = DB_CTRL_GET_VALUE@(va_fenetre, "BR_nominal")
+vl_parametres[3].output = FALSE
+vl_parametres[4].type = SYB#BIT_
+vl_parametres[4].data = DB_CTRL_GET_VALUE@(va_fenetre, "BR_degrade")
+vl_parametres[4].output = FALSE
+vl_parametres[5].type = SYB#INT2_
+vl_parametres[5].data = vl_niveau+0
+vl_parametres[5].output = FALSE
+vl_parametres[6].type = SYB#BIT_
+vl_parametres[6].data = DB_CTRL_GET_VALUE@(va_fenetre, "BR_actif")
+vl_parametres[6].output = FALSE
+vl_parametres[7].type = SYB#INT2_
+vl_parametres[7].data = va_zone
+vl_parametres[7].output = FALSE
+vl_parametres[8].type = SYB#INT2_
+vl_parametres[8].data = null
+vl_parametres[8].output = TRUE
+
+vl_resultats = null
+	IF COM05_SQL_Procedure(XZAO552_Update_Scenario,vl_parametres, vl_resultats,C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+vl_num_scenario= vl_resultats.return_parameters[0]
+
+/*mise � jour des commandes en base*/
+vl_parametres = null	
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = vl_num_scenario
+vl_parametres[1].output = FALSE
+
+for i = 0 to ARRAY_SIZE@(tm_prv)-1
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = tm_prv[i].numero
+vl_parametres[2].output = FALSE
+	
+vl_parametres[3].type = SYB#BIT_
+vl_parametres[3].data = tm_prv[i].critique
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#INT2_
+vl_parametres[4].data = tm_prv[i].vitesse_scenario
+vl_parametres[4].output = FALSE
+
+vl_resultats = null
+IF COM05_SQL_Procedure(XZAO559_Update_Commandes,vl_parametres, vl_resultats,C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+next i
+
+
+/*mise en base des conditions*/
+/*supprime les anciennes conditions au prealable*/
+TRG_associer_conditions(va_fenetre, va_zone,
+				vl_num_scenario,0,0)
+
+tl_data=DB_TABLE_GET_DATA@(va_fenetre, "TA_activ")
+for i = 0 to ARRAY_SIZE@(tl_data)-1
+	TRG_associer_conditions(va_fenetre, va_zone,
+				vl_num_scenario,
+				tl_data[i][0],1)
+next i
+tl_data=null
+tl_data=DB_TABLE_GET_DATA@(va_fenetre, "TA_desactiv")
+for i = 0 to ARRAY_SIZE@(tl_data)-1
+	TRG_associer_conditions(va_fenetre, va_zone,
+				vl_num_scenario,
+				tl_data[i][0],1)
+next i
+tl_data=null
+tl_data=DB_TABLE_GET_DATA@(va_fenetre, "TA_horaire")
+for i = 0 to ARRAY_SIZE@(tl_data)-1
+	TRG_associer_conditions(va_fenetre, va_zone,
+				vl_num_scenario,
+				tl_data[i][0],1)
+next i
+
+/*relecture et affichage des donnees*/
+
+TRG_recherche_scenarios(va_fenetre,va_zone)
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  liste des commandes du scenario
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_recherche_prv(va_fenetre,va_zone)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_scenarios ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des libelles predefinis.
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_t_titres, vl_base
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j, k, l
+	Var FORMAT T_Condition tl_conditions
+	var tl_data_activ, tl_data_desactiv, tl_data_horaire
+	var tl_data
+
+/*A
+ * Lire en base de donnees la liste des libelles predefinis
+ * --------------------------------------------------------
+ */
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = XDC_BASE_CFG 
+if vl_base = 1
+	vl_base =  XDC_BASE_CFT
+
+
+vl_parametres = null		
+vl_resultats = null
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = vm_scenario_courant.numero
+vl_parametres[1].output = FALSE
+
+
+
+COM05_SQL_Procedure(XZAO551_Lire_Commandes, vl_parametres, vl_resultats,C_MODULE) 
+
+for i = 0 to ARRAY_SIZE@(tm_prv)-1
+		tm_prv[i].vitesse_scenario = null
+		tm_prv[i].critique = 0
+next i
+
+tl_data=vl_resultats.select_results[0]
+for i = 0 to ARRAY_SIZE@(tl_data)-1
+	j = ARRAY_INDEX@(ARRAY_COLUMN@(tm_prv, 0), tl_data[i][0] )
+	if (j>=0) {	
+		tm_prv[j].vitesse_scenario = tl_data[i][2]
+		tm_prv[j].critique = tl_data[i][3]
+	}
+next i
+
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_prv", 0, -1)
+DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_prv", tm_prv, 0)
+
+/*conditions associees*/
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_zone
+vl_parametres[1].output = FALSE
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = vm_scenario_courant.numero
+vl_parametres[2].output = FALSE
+vl_resultats = null
+
+IF COM05_SQL_Procedure (XZAO561_Liste_Conditions,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+tl_conditions = vl_resultats.select_results[0]
+
+j=0
+k=0
+l=0
+tl_data_activ=null
+tl_data_desactiv=null
+tl_data_horaire=null
+for i = 0 to ARRAY_SIZE@(tl_conditions)-1
+	if (tl_conditions[i].type_horaire = C_TYPE_TRAFIC_ACTIV)
+	{
+		tl_data_activ[j][0] = tl_conditions[i].numero
+		tl_data_activ[j][1] = tl_conditions[i].libelle
+		j = j+1
+	}
+	else if (tl_conditions[i].type_horaire = C_TYPE_TRAFIC_DESACTIV)
+	{
+		tl_data_desactiv[k][0] = tl_conditions[i].numero
+		tl_data_desactiv[k][1] = tl_conditions[i].libelle
+		k = k+1
+	}
+	else	if (tl_conditions[i].type_horaire = C_TYPE_HORAIRE){
+		tl_data_horaire[l][0] = tl_conditions[i].numero
+		tl_data_horaire[l][1] = tl_conditions[i].libelle
+		l = l+1
+	}
+next i
+
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_activ", 0, -1)
+DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_activ", tl_data_activ,0)
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_desactiv", 0, -1)
+DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_desactiv", tl_data_desactiv,0)
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_horaire", 0, -1)
+DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_horaire", tl_data_horaire,0)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  liste des commandes du scenario
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_applique_vitesse(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_scenarios ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des libelles predefinis.
+*
+---------------------------------------------------------------------------- */
+VAR vl_index
+
+vl_index= DB_CTRL_GET_VALUE@(va_fenetre, "BO_vitesse")
+if (vm_index_prv <0)
+ return
+
+if (tm_prv[vm_index_prv].vitesse_nominale < tm_vitesses[vl_index][0]) {
+	INFO_MESSAGE@("La vitesse ne peut etre superieure a la vitesse nominale")
+}
+else {
+
+tm_prv[vm_index_prv].vitesse_scenario = tm_vitesses[vl_index][0]
+
+
+DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_prv", tm_prv, 0)
+
+TRG_critique(va_fenetre)
+
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  liste des commandes du scenario
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_associer_conditions(va_fenetre, va_zone,
+				va_scenario,va_condition,va_ajout)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_scenarios ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des libelles predefinis.
+*
+---------------------------------------------------------------------------- */
+  	VAR vl_data
+
+    VAR vl_t_titres, vl_base
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j	
+	VAR FORMAT T_Condition tl_data
+	var index_act, index_desact, index_hor
+
+
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base =  XDC_BASE_CFG
+if vl_base = 1
+	vl_base = XDC_BASE_CFT
+
+
+vl_parametres = null		
+vl_resultats = null
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_condition
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = va_scenario
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#INT2_
+vl_parametres[3].data = va_zone
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#INT2_
+vl_parametres[4].data = va_ajout
+vl_parametres[4].output = FALSE
+
+	IF COM05_SQL_Procedure(XZAO580_Associer_Conditions, vl_parametres, vl_resultats,C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+/*
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_zone
+vl_parametres[1].output = FALSE
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = -1
+vl_parametres[2].output = FALSE
+vl_resultats = null
+
+
+IF COM05_SQL_Procedure (XZAO561_Liste_Conditions,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+dump_array@(vl_resultats)
+tl_data = vl_resultats.select_results[0]
+
+tm_conditions = tl_data
+
+index_act=0
+index_desact=0
+index_hor=0
+for i = 0 to ARRAY_SIZE@(tl_data)-1
+	if (tl_data[i].type_horaire = C_TYPE_TRAFIC_ACTIV){
+		tm_conditions_activ[index_act].numero= tl_data[i].numero
+		tm_conditions_activ[index_act].libelle = tl_data[i].libelle
+		tm_conditions_activ[index_act].scenario = tl_data[i].scenario
+		index_act = index_act+1
+	} else if (tl_data[i].type_horaire = C_TYPE_TRAFIC_DESACTIV){
+		tm_conditions_desactiv[index_desact].numero = tl_data[i].numero
+		tm_conditions_desactiv[index_desact].libelle = tl_data[i].libelle
+		tm_conditions_desactiv[index_desact].scenario = tl_data[i].scenario
+		index_desact = index_desact+1
+	} else if (tl_data[i].type_horaire = C_TYPE_HORAIRE){
+		tm_conditions_horaire[index_hor].numero = tl_data[i].numero
+		tm_conditions_horaire[index_hor].libelle = tl_data[i].libelle
+		tm_conditions_horaire[index_hor].scenario = tl_data[i].scenario
+		index_hor = index_hor+1
+	}
+next i
+
+DB_CTRL_STRINGS@(va_fenetre, "BO_activ", 
+		ARRAY_COLUMN@(tm_conditions_activ, 1))
+DB_CTRL_STRINGS@(va_fenetre, "BO_desactiv", 
+		ARRAY_COLUMN@(tm_conditions_desactiv, 1))
+DB_CTRL_STRINGS@(va_fenetre, "BO_horaire", 
+		ARRAY_COLUMN@(tm_conditions_horaire, 1))
+
+			*/
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  liste des commandes du scenario
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TRG_controle_coherence(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_scenarios ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des libelles predefinis.
+*
+---------------------------------------------------------------------------- */
+var vl_index
+var vl_ok , vl_base, vl_degrade
+var tl_data, vl_niveau
+
+/*prv sans vitesses*/
+for vl_index = 0 to (ARRAY_SIZE@(tm_prv)-1)
+ if (tm_prv[vl_index].vitesse_scenario++""="") {
+    INFO_MESSAGE@("La vitesse doit etre saisie pour tous les PRV")
+    return (COM_NOK)
+ }
+ if (vl_index>0) {
+   if (ABS@(tm_prv[vl_index-1].vitesse_scenario - tm_prv[vl_index].vitesse_scenario) > 20) {
+     INFO_MESSAGE@("Decrement maximum de 20 km/h entre 2 PRV")
+     return (COM_NOK)
+   }
+ }
+next vl_index
+
+vl_ok=0
+vl_base=0
+if (ARRAY_SIZE@(tm_scenarios)>0) {
+	for vl_index = 0 TO (ARRAY_SIZE@(tm_scenarios)-1)
+  		if (tm_scenarios[vl_index].nominal)
+    			vl_ok=vl_ok+1
+  		if (NOT tm_scenarios[vl_index].degrade)
+    		vl_base=1
+	next vl_index
+}
+else {
+vl_ok=1
+vl_base=1
+}
+
+if (vl_base=0) {
+  INFO_MESSAGE@("Il faut au moins un scenario de base")
+  return  (COM_NOK)
+  }
+
+
+vl_degrade = DB_CTRL_GET_VALUE@(va_fenetre, "BR_degrade")
+vl_ok=0
+tl_data=DB_TABLE_GET_DATA@(va_fenetre,"TA_horaire")
+if (ARRAY_SIZE@(tl_data)>=1) 
+  vl_ok=1
+if (vl_ok=0) AND (vl_degrade=0) {
+	tl_data=DB_TABLE_GET_DATA@(va_fenetre,"TA_activ")
+	if (ARRAY_SIZE@(tl_data)<1) {
+  		INFO_MESSAGE@("Il faut au moins une condition d'activation")
+  	return (COM_NOK)
+	}
+	tl_data=DB_TABLE_GET_DATA@(va_fenetre,"TA_desactiv")
+	if (ARRAY_SIZE@(tl_data)<1) {
+  		INFO_MESSAGE@("Il faut au moins une condition de desactivation")
+  	return (COM_NOK)
+	}
+}
+
+vl_niveau=DB_CTRL_GET_VALUE@(va_fenetre,"BS_niveau")
+for vl_index = 0 TO (ARRAY_SIZE@(tm_scenarios)-1)
+  if (tm_scenarios[vl_index].numero <> vm_scenario_courant.numero) AND (tm_scenarios[vl_index].niveau=vl_niveau) {
+    INFO_MESSAGE@("Le niveau doit etre unique sur la zone")
+    return (COM_NOK)
+  }
+next vl_index
+return (COM_OK)
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  recherche des PRV critiques
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TRG_critique(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_scenarios ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des libelles predefinis.
+*
+---------------------------------------------------------------------------- */
+var vl_index, vl_indice
+var vl_ok
+var vl_valeur2
+var vl_pr1, vl_pr2, vl_sens, vl_pr3
+var format t_zone vl_zone
+var vl_dmax , vl_distance
+var vl_vitesse
+
+vl_valeur2 = DB_CTRL_GET_VALUE@(va_fenetre, "BO_zone")
+vl_zone = vm_zones[vl_valeur2]
+vl_dmax= 25000
+if vl_zone.sens=XDC_SENS_SUD
+	vl_pr1 = vl_zone.fin
+else
+	vl_pr1 = vl_zone.debut
+
+
+/*prv sans vitesses*/
+for vl_index = 0 to (ARRAY_SIZE@(tm_prv)-1)
+	tm_prv[vl_index].critique_vitesse=false
+	tm_prv[vl_index].critique_distance=false
+	tm_prv[vl_index].critique_decrement=false
+	
+	/*vitesse < 130 en aval d une bretelle*/
+	if ((tm_prv[vl_index].bretelle_entree) AND (tm_prv[vl_index].vitesse_scenario < 130)) 
+	{
+		tm_prv[vl_index].critique_vitesse=true
+	}
+
+	/*premier PRV*/
+	if (vl_index=0) 
+	{
+		/*controle decrement vitesse*/
+		vl_vitesse=vl_zone.vitesse_amont
+		if (tm_prv[vl_index].vitesse_scenario < vl_vitesse)
+		{
+			tm_prv[vl_index].critique_decrement=true
+		}
+		/*pas de controle de distance*/
+	}
+	/*dernier PRV*/
+	else if (vl_index = ARRAY_SIZE@(tm_prv)-1) 
+	{
+		/*controle decrement vitesse*/
+		vl_vitesse=tm_prv[vl_index-1].vitesse_scenario
+		if (tm_prv[vl_index].vitesse_scenario < vl_vitesse)
+		{
+			tm_prv[vl_index].critique_decrement=true
+		}
+		/*recherche distance entre ce panneau et la fin de zone*/
+		vl_distance = abs@(tm_prv[vl_index].PR - vl_pr1)
+		if (vl_distance > vl_dmax)
+		{
+			tm_prv[vl_index].critique_distance=true
+		}
+	}
+	/*PRv intermediaire*/
+	else {
+		/*controle decrement vitesse*/
+		vl_vitesse=tm_prv[vl_index-1].vitesse_scenario
+		if (tm_prv[vl_index].vitesse_scenario < vl_vitesse)
+		{
+			tm_prv[vl_index].critique_decrement=true
+		}
+		/*recherche PRV pleine voie en amont*/
+		vl_pr2=0
+		for vl_indice = 0 to vl_index -1
+			if (tm_prv[vl_indice].type=1)
+				vl_pr2=tm_prv[vl_indice].PR
+		next vl_indice
+
+		/*recherche PRV pleine voie en aval*/
+		vl_pr3=0
+		for vl_indice = 0 to (ARRAY_SIZE@(tm_prv)-1)
+			if (tm_prv[vl_indice].type=1) AND
+				vl_pr3=0 
+			{
+				vl_pr3=tm_prv[vl_indice].PR
+			}
+		next vl_indice
+
+		if (vl_pr2 <>0) and (vl_pr3<>0) 
+		{
+			if (abs@(vl_pr2-vl_pr3) > vl_dmax)
+			{
+				tm_prv[vl_index].critique_distance=true
+			}
+		}
+	}
+
+	if (tm_prv[vl_index].critique_decrement) or
+		(tm_prv[vl_index].critique_distance) or
+		(tm_prv[vl_index].critique_vitesse) 
+		tm_prv[vl_index].critique=1
+	else
+		tm_prv[vl_index].critique=0
+next vl_index
+
+DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_prv", tm_prv, 0)
+
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des scenarios de la zone
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_supprimer_scenarios(va_fenetre, va_scenario, va_zone)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_scenarios ;
+*
+* FONCTION
+*   Supprime un scenario
+*
+---------------------------------------------------------------------------- */
+  	VAR vl_data
+
+    VAR vl_t_titres, vl_base
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j
+	VAR FORMAT T_Condition tl_data
+/*A
+ * Lire en base de donnees la liste des libelles predefinis
+ * --------------------------------------------------------
+ */
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = XDC_BASE_CFG 
+if vl_base = 1
+	vl_base = XDC_BASE_CFT
+
+
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_scenario
+vl_parametres[1].output = FALSE
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = va_zone
+vl_parametres[2].output = FALSE
+
+vl_resultats = null
+
+	IF COM05_SQL_Procedure (XZAO571_Supprimer_Scenario,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+TRG_recherche_scenarios(va_fenetre, va_zone)
+
+return (COM_OK)
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des scenarios de la zone
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_export(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_scenarios ;
+*
+* FONCTION
+*   Supprime un scenario
+*
+---------------------------------------------------------------------------- */
+VAR vl_data
+
+VAR vl_t_titres, vl_base
+VAR vl_nombre_enregistrements
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR i, j
+VAR FORMAT EXPORT_SCENARIO vl_Liste
+VAR vl_id
+VAR vl_nb_donnees
+VAR vl_ToutSelectionne
+VAR vl_nombre_lignes, vl_nombre_colonnes
+VAR vl_SelectTitre
+VAR COLOR, BOLD, ITALIC, UNDERLINE, FACE, PTSIZE, TYPE, WRAP_TEXT, VALIGN, RESET_TO_DEFAULT, INSPOINT, CNT, RANGES
+
+    
+	/*A
+	 * Lire en base de donnees la liste des libelles predefinis
+	 * --------------------------------------------------------
+	 */
+
+	vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+	if vl_base = 0
+		vl_base = XDC_BASE_CFG 
+	if vl_base = 1
+		vl_base = XDC_BASE_CFT
+	
+	
+	vl_parametres = null		
+	vl_parametres[0].type = SYB#CHAR_
+	vl_parametres[0].data = vl_base
+	vl_parametres[0].output = FALSE
+	
+	
+	vl_resultats = null
+
+	IF COM05_SQL_Procedure (XZAO900_Export_Config,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	 	RETURN (COM_NOK)
+
+	/* recuperation des resultats de la procedure dans une liste */				
+	vl_Liste = vl_resultats.select_results[0]
+	
+	/* calcul du nombre d'enregistrements dans la liste */
+	vl_nombre_enregistrements = ARRAY_SIZE@(vl_Liste)
+
+	/* ouverture du spreadsheet */
+	vl_ID = null
+	SS_APPLICATION_DLG@(vl_ID)
+
+	/* inhiber le calcul */
+	SS_CALC@(0,0,NULL,NULL)
+
+	/* creer les titres des colonnes */
+	SS_PUT_CELL@("A1","BASE")
+	SS_PUT_CELL@("B1","ID ZONE")
+	SS_PUT_CELL@("C1","NOM")
+	SS_PUT_CELL@("D1","ID SCENARIO")
+	SS_PUT_CELL@("E1","NOM")
+	SS_PUT_CELL@("F1","NIVEAU")
+	SS_PUT_CELL@("G1","NOMINAL")
+	SS_PUT_CELL@("H1","INHIBITION")
+	SS_PUT_CELL@("I1","DEGRADE")
+	SS_PUT_CELL@("J1","ID PRV")
+	SS_PUT_CELL@("K1","NOM")
+	SS_PUT_CELL@("L1","AUTOROUTE")
+	SS_PUT_CELL@("M1","PR")
+	SS_PUT_CELL@("N1","SENS")
+	SS_PUT_CELL@("O1","VITESSE")
+	SS_PUT_CELL@("P1","CRITIQUE")
+	SS_PUT_CELL@("Q1","VITESSE NOMINALE")
+	SS_PUT_CELL@("R1","RAPPEL NOMINAL")
+	SS_PUT_CELL@("S1","TYPE")
+	SS_PUT_CELL@("T1","ID CONDITION")
+	SS_PUT_CELL@("U1","TYPE HOTAIRE")
+	SS_PUT_CELL@("V1","JOUR")
+	SS_PUT_CELL@("W1","HORODATE DEBUT")
+	SS_PUT_CELL@("X1","HORODATE FIN")
+	SS_PUT_CELL@("Y1","HEURE DEBUT")
+	SS_PUT_CELL@("Z1","HEURE FIN")
+	SS_PUT_CELL@("AA1","ALTERNATIVE")
+	SS_PUT_CELL@("AB1","SEUIL")
+	SS_PUT_CELL@("AC1","DONNEE TRAFIC")
+	SS_PUT_CELL@("AD1","OPERATEUR")
+	SS_PUT_CELL@("AE1","SCENARIO")
+	SS_PUT_CELL@("AF1","CONJONCTION 1")
+	SS_PUT_CELL@("AG1","CONJONCTION 2")
+	SS_PUT_CELL@("AH1","CONJONCTION 3")
+	SS_PUT_CELL@("AI1","CONJONCTION 4")
+	SS_PUT_CELL@("AJ1","STATION")
+	SS_PUT_CELL@("AK1","ZONE")
+	SS_PUT_CELL@("AL1","TYPE JOUR")
+	SS_PUT_CELL@("AM1","LIBELLE")
+
+	/* initialisation de la feuille a partir de la ligne 2*/
+	j = 2
+	
+	/* mise en place dans le spreadsheet de tous les enregistrements */
+	FOR i = 0 TO (vl_nombre_enregistrements - 1)
+	
+		/* mise en place de toutes les cellules pour la ligne courante */	
+		SS_PUT_CELL@("A"++j, vl_Liste[i].base)
+		SS_PUT_CELL@("B"++j, vl_Liste[i].zone_id)
+		SS_PUT_CELL@("C"++j, vl_Liste[i].zone_libelle)
+		SS_PUT_CELL@("D"++j, vl_Liste[i].scenario_id)
+		SS_PUT_CELL@("E"++j, vl_Liste[i].scenario_libelle)
+		SS_PUT_CELL@("F"++j, vl_Liste[i].scenario_niveau)
+		SS_PUT_CELL@("G"++j, vl_Liste[i].scenario_nominal)
+		SS_PUT_CELL@("H"++j, vl_Liste[i].scenario_inhibition)
+		SS_PUT_CELL@("I"++j, vl_Liste[i].scenario_degrade)
+		SS_PUT_CELL@("J"++j, vl_Liste[i].prv_id)
+		SS_PUT_CELL@("K"++j, vl_Liste[i].prv_nom)
+		SS_PUT_CELL@("L"++j, vl_Liste[i].prv_autoroute)
+		SS_PUT_CELL@("M"++j, vl_Liste[i].prv_pr)
+		SS_PUT_CELL@("N"++j, vl_Liste[i].prv_sens)
+		SS_PUT_CELL@("O"++j, vl_Liste[i].prv_vitesse)
+		SS_PUT_CELL@("P"++j, vl_Liste[i].prv_critique)
+		SS_PUT_CELL@("Q"++j, vl_Liste[i].prv_vitesse_nominal)
+		SS_PUT_CELL@("R"++j, vl_Liste[i].prv_rappel_nominal)
+		SS_PUT_CELL@("S"++j, vl_Liste[i].prv_type)
+		SS_PUT_CELL@("T"++j, vl_Liste[i].cond_id)
+		SS_PUT_CELL@("U"++j, vl_Liste[i].cond_type_horaire)
+		SS_PUT_CELL@("V"++j, vl_Liste[i].cond_jour)
+		SS_PUT_CELL@("W"++j, vl_Liste[i].cond_horodate_debut)
+		SS_PUT_CELL@("X"++j, vl_liste[i].cond_horodate_fin )
+		SS_PUT_CELL@("Y"++j, vl_Liste[i].cond_heure_debut++":"++vl_Liste[i].cond_minute_debut)  
+		SS_PUT_CELL@("Z"++j, vl_Liste[i].cond_heure_fin++":"++vl_Liste[i].cond_minute_fin)
+		SS_PUT_CELL@("AA"++j, vl_Liste[i].cond_cond_alternative)
+		SS_PUT_CELL@("AB"++j, vl_Liste[i].cond_seuil)
+		SS_PUT_CELL@("AC"++j, vl_Liste[i].cond_donnee_trafic)
+		SS_PUT_CELL@("AD"++j, vl_Liste[i].cond_operateur)
+		SS_PUT_CELL@("AE"++j, vl_Liste[i].cond_scenario)
+		SS_PUT_CELL@("AF"++j, vl_Liste[i].cond_conjonction1)
+		SS_PUT_CELL@("AG"++j, vl_Liste[i].cond_conjonction2)
+		SS_PUT_CELL@("AH"++j, vl_Liste[i].cond_conjonction3)
+		SS_PUT_CELL@("AI"++j, vl_Liste[i].cond_conjonction4)
+		SS_PUT_CELL@("AJ"++j, vl_Liste[i].cond_station)
+		SS_PUT_CELL@("AK"++j, vl_Liste[i].cond_zone)
+		SS_PUT_CELL@("AL"++j, vl_Liste[i].cond_type_jour)
+		SS_PUT_CELL@("AM"++j, vl_Liste[i].cond_libelle)
+	
+		j=j+1
+	NEXT i
+
+	/* autoriser le mode calcul */
+	SS_CALC@(1,0,NULL,NULL)
+	
+	/* forcer le calcul */
+	SS_RECALC@()
+
+	/* initialisation de la variable representant toutes les lignes et colonnes */
+	vl_nb_donnees = SS_GET_STATUS@()
+	vl_ToutSelectionne = "A1.."++SS_COORDINATE@(vl_nb_donnees[com_nb_col],vl_nb_donnees[com_nb_lig])
+	vl_nombre_lignes   = vl_nb_donnees[com_nb_lig] + 1
+	vl_nombre_colonnes = vl_nb_donnees[com_nb_col] + 1 
+
+	/* initialisation de la variable selection de titre */
+	vl_SelectTitre = "A1.."++SS_COORDINATE@(vl_nb_donnees[com_nb_col],0)
+	
+	/* mettre les titres de colonnes en gras */
+	COLOR = null
+	BOLD = 1
+	ITALIC = null
+	UNDERLINE = null
+	FACE = null
+	PTSIZE = null
+	RESET_TO_DEFAULT = 0
+	SS_SET_RANGE_ATTR@(vl_SelectTitre,COLOR,BOLD,ITALIC,UNDERLINE,FACE,PTSIZE,RESET_TO_DEFAULT)
+
+	/* justification de l'ensemble du texte sans justification, au centre de la */
+	/* cellule et sans retour a la ligne                                        */
+	TYPE=3
+	WRAP_TEXT = 0
+	VALIGN = 2
+	SS_CELL_JUSTIFY@(vl_ToutSelectionne,TYPE,WRAP_TEXT,VALIGN)
+
+	/*justification de la ligne de titre centree, et cesure de la cellule */
+	TYPE=3
+	WRAP_TEXT = 1
+	VALIGN = 2
+	SS_CELL_JUSTIFY@(vl_SelectTitre,TYPE,WRAP_TEXT,VALIGN)
+	SS_PUT_CELL@("A1","BASE")
+	SS_PUT_CELL@("B1","ID ZONE")
+	SS_PUT_CELL@("C1","NOM")
+	SS_PUT_CELL@("D1","ID SCENARIO")
+	SS_PUT_CELL@("E1","NOM")
+	SS_PUT_CELL@("F1","NIVEAU")
+	SS_PUT_CELL@("G1","NOMINAL")
+	SS_PUT_CELL@("H1","INHIBITION")
+	SS_PUT_CELL@("I1","DEGRADE")
+	SS_PUT_CELL@("J1","ID PRV")
+	SS_PUT_CELL@("K1","NOM")
+	SS_PUT_CELL@("L1","AUTOROUTE")
+	SS_PUT_CELL@("M1","PR")
+	SS_PUT_CELL@("N1","SENS")
+	SS_PUT_CELL@("O1","VITESSE")
+	SS_PUT_CELL@("P1","CRITIQUE")
+	SS_PUT_CELL@("Q1","VITESSE NOMINALE")
+	SS_PUT_CELL@("R1","RAPPEL NOMINAL")
+	SS_PUT_CELL@("S1","TYPE")
+	SS_PUT_CELL@("T1","ID CONDITION")
+	SS_PUT_CELL@("U1","TYPE HORAIRE")
+	SS_PUT_CELL@("V1","JOUR")
+	SS_PUT_CELL@("W1","HORODATE DEBUT")
+	SS_PUT_CELL@("X1","HORODATE FIN")
+	SS_PUT_CELL@("Y1","HEURE DEBUT")
+	SS_PUT_CELL@("Z1","HEURE FIN")
+	SS_PUT_CELL@("AA1","ALTERNATIVE")
+	SS_PUT_CELL@("AB1","SEUIL")
+	SS_PUT_CELL@("AC1","DONNEE TRAFIC")
+	SS_PUT_CELL@("AD1","OPERATEUR")
+	SS_PUT_CELL@("AE1","SCENARIO")
+	SS_PUT_CELL@("AF1","CONJONCTION 1")
+	SS_PUT_CELL@("AG1","CONJONCTION 2")
+	SS_PUT_CELL@("AH1","CONJONCTION 3")
+	SS_PUT_CELL@("AI1","CONJONCTION 4")
+	SS_PUT_CELL@("AJ1","STATION")
+	SS_PUT_CELL@("AK1","ZONE")
+	SS_PUT_CELL@("AL1","TYPE JOUR")
+	SS_PUT_CELL@("AM1","LIBELLE")
+
+/* largeur des colonnes A a AM */
+SS_SET_WIDTH@("A",6)
+SS_SET_WIDTH@("B",6)
+SS_SET_WIDTH@("C",10)
+SS_SET_WIDTH@("D",10)
+SS_SET_WIDTH@("E",15)
+SS_SET_WIDTH@("F",10)
+SS_SET_WIDTH@("G",10)
+SS_SET_WIDTH@("H",10)
+SS_SET_WIDTH@("I",10)
+SS_SET_WIDTH@("J",10)
+SS_SET_WIDTH@("K",15)
+SS_SET_WIDTH@("L",10)
+SS_SET_WIDTH@("M",10)
+SS_SET_WIDTH@("N",6)
+SS_SET_WIDTH@("O",10)
+SS_SET_WIDTH@("P",10)
+SS_SET_WIDTH@("Q",10)
+SS_SET_WIDTH@("R",10)
+SS_SET_WIDTH@("S",6)
+SS_SET_WIDTH@("T",12)
+SS_SET_WIDTH@("U",14)
+SS_SET_WIDTH@("V",14)
+SS_SET_WIDTH@("W",30)
+SS_SET_WIDTH@("X",30)
+SS_SET_WIDTH@("Y",10)
+SS_SET_WIDTH@("Z",10)
+SS_SET_WIDTH@("AA",15)
+SS_SET_WIDTH@("AB",10)
+SS_SET_WIDTH@("AC",16)
+SS_SET_WIDTH@("AD",16)
+SS_SET_WIDTH@("AE",12)
+SS_SET_WIDTH@("AF",16)
+SS_SET_WIDTH@("AG",16)
+SS_SET_WIDTH@("AH",16)
+SS_SET_WIDTH@("AI",16)
+SS_SET_WIDTH@("AJ",12)
+SS_SET_WIDTH@("AK",8)
+SS_SET_WIDTH@("AL",10)
+SS_SET_WIDTH@("AM",20)
+
+/* colonne HxKM reformatee pour avoir 2 chiffres apres la virgule */
+SS_SELECT_MATERIAL@ ( "W1..W"++vl_nombre_lignes)
+SS_NUM_STYLE@(2,2)
+SS_SELECT_CLEAR@
+
+/* insertion d'une ligne pour la mise en place du titre de la feuille */
+INSPOINT = "A:A1"
+CNT = "2"
+SS_INSERT_ROWS@(INSPOINT,CNT)
+
+/* mise en place du titre et mise en gras du titre en colonne E */
+SS_PUT_CELL@("A:E1",
+            "EXPORT PARAMETRAGE SCENARIOS REGULATION")
+RANGES = "A:E1"
+COLOR = null
+BOLD = 1
+ITALIC = null
+UNDERLINE = null
+FACE = null
+PTSIZE = null
+RESET_TO_DEFAULT = 0
+SS_SET_RANGE_ATTR@(RANGES,COLOR,BOLD,ITALIC,UNDERLINE,FACE,PTSIZE,RESET_TO_DEFAULT)
+
+/* declaration des lignes de titre */
+/* DESC = "A:1,A:2,A:3,A:4" */
+/* SS_SET_TITLES@(DESC)     */
+
+
+
+return (COM_OK)
+ENDMACRO
+

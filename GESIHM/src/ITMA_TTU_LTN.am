@@ -1,0 +1,1042 @@
+/*Fichier :  $Id: ITMA_TTU_LTN.am,v 1.9 2014/05/22 11:59:25 gesconf Exp $      Release : $Revision: 1.9 $        Date : $Date: 2014/05/22 11:59:25 $ 
+*/
+/*A Description des constantes générales
+ * ------------------------------------- */
+DEFINE	C_MODULE			"MTTU"	' Nom du module
+DEFINE	REP_CONFIG		"../fichiers/"
+DEFINE	REP_RENOVE		"../fichiers/renov/"
+
+DEFINE	POSX_BP_INDIVIDUEL	330
+DEFINE	POSY_BP_INDIVIDUEL	665
+
+
+/*A Description des modules à inclures 
+* ---------------------------------------*/
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+/*A Description des variables globales
+ * ----------------------------------- */
+var		vm_NomSite				' Nom du site
+var		vm_District				' N° du district
+var		vm_LTN			'fichier de config d'un LTN
+var		vm_Eqp_LTN		'fichier de config des eqp LTN
+var		vm_F_bouton		'fichier de config des boutons
+var		vm_num_LTN		'Numero du LTN selectionné
+var		vm_text			'text en edition
+var     vm_fenetre_TTU		'item de la fenetre du module
+var		vm_Titre_Fenetre
+var		vm_Nom_Fenetre
+var		vm_messages_acceptes
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Appel liste des LTN
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_liste_choix_LTN()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant résultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> LTN
+*
+* FONCTION
+*    Choix d'un LTN
+*
+---------------------------------------------------------------------------- */
+/*A Déclaration des variables statiques */
+var		vl_fenetre_active	' flag de fenetre active
+var		vl_controle_sortie	' flag de sortie
+var		i,j,k			' index de loop
+var		vl_taille			' taille de tableau
+var 	vl_taille2		' 	"        "
+var		vl_rang			' rang selectionné dans une liste
+var		vl_message		' message affiché
+var		vl_text			' text libre
+var		vl_fermeture		' flag de fermeture de la fenetre par socket
+var		vl_F_tpm			' tableau tampon
+var		vl_liste_LTN		'fichier de config liste des LTN
+var		vl_ligne			' tableau d'une ligne
+var		tl_ltn			' LTN selectionné dans la liste
+var		vl_existe
+var vl_trigramme
+var vl_trigramme_amont
+var vl_trigramme_aval
+var vl_trigramme_sens
+var		vl_tab
+var		vl_index, vl_index2
+
+MACRO_WINS_BUSY@()
+
+/*A MAJ des variables statiques */
+vl_fermeture = FALSE
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN(COM_NOK)
+}
+
+INSTALL_FILE@("ITMA_TTU_eclairage.elo")
+SET_SYSTEM_VAR@("vg_domaine_courant", "ltn")
+
+/*A Chargement du fichier de config liste des LTN */
+vl_liste_LTN = null
+vl_F_tpm = READ_ASCII_FILE@(REP_RENOVE ++ "/ConfigBDLTN.cfg")
+vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+vl_index = 1
+for i = 0 to vl_taille
+  vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+  vl_tab = ARRAY_SIZE@(vl_ligne)
+  if substring@(vl_F_tpm[i],1,1) <> "#" and vl_tab > 1
+  {
+
+	vl_taille2 = ARRAY_SIZE@(vl_ligne) -1
+	for j = 0 to vl_taille2
+		vl_liste_LTN[vl_index,j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+	next j
+	vl_index = vl_index + 1
+  }
+next i
+
+if vl_liste_LTN = null or vl_index = 1
+{
+	info_message@("Aucun LTN disponible !")
+	/*A Fermeture de la fenetre */
+	RETURN(COM_NOK)
+}
+
+/*A construction de la liste des LTN */
+vl_f_tpm = ""
+vl_taille = ARRAY_SIZE@(vl_liste_LTN) -1
+j = 1
+for i = 0 to vl_taille
+		vl_F_tpm[j-1] = vl_liste_LTN[i+1,2]
+		j = j + 1
+next i
+
+/*A Ouverture de la liste des tunnels */
+vm_fenetre_TTU = DB_LOAD@("ITMA_TTU_liste_ltn")
+
+vm_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vm_fenetre_TTU, vm_messages_acceptes)
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(vm_fenetre_TTU,COM_POS_X)
+DB_YPOS@(vm_fenetre_TTU, COM_POS_y_FEN)
+'DB_WIDTH@(vm_fenetre_TTU, 993)
+DEFINE_HELPFILE@("Liste des tunnels", "./aid/ITMA_TTU_liste_ltn.aide")
+DB_HELP_TOPIC@(vm_fenetre_TTU,"Liste des tunnels")
+
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BL_ltn",True)
+
+DB_CTRL_STRINGS@(vm_fenetre_TTU,"BL_ltn",vl_F_tpm)
+DB_CTRL_VALUE@(vm_fenetre_TTU,"BL_ltn",-1)
+
+DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_valider",True)
+
+
+
+/*A Boucle de capture des événements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vm_fenetre_TTU)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vm_fenetre_TTU)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action aide */
+	CASE "BP_aide"
+		COM33_Aide_Renov("ITMA_TTU_liste_ltn")
+
+	/*A sur action valider */
+	CASE "BP_valider"
+
+		/* verifier si le fichier de config des eqt LTN existe */
+		vl_existe = FILE_EXISTS@(REP_RENOVE ++ "/ConfigEqt" ++ tl_LTN[1] ++ ".cfg")
+
+		if vl_existe = TRUE
+		{
+			New_task@("ITMA_TTU_LTN","ITMA_TTU",vl_liste_LTN[vl_rang],vl_trigramme)
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+		}
+		else
+			error_box@(50,"Le fichier " ++ REP_RENOVE ++ vl_trigramme ++ "/ConfigEqt" ++ tl_LTN[1] ++
+				".cfg" ++ " est introuvable !","Fichier de configuration")
+
+	/*A sur action quitter */
+	CASE "BP_quitter"
+
+		/*A Fermeture de la fenetre */
+		RETURN(COM_NOK)
+
+	/*A sur action sélection d'un LTn */
+	CASE "BL_ltn"
+
+		/*A Capture du rang dans la liste des tunnels */
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BL_ltn")+1
+
+		for i = 0 to ARRAY_SIZE@(vl_liste_LTN)-1 
+			tl_LTN[i] = vl_liste_LTN[vl_rang,i]
+		next i
+
+		vl_text = "Status : Sélection de '" ++ vl_liste_LTN[vl_rang,2] ++ "' "  
+
+		DB_CTRL_TITLE@(vm_fenetre_TTU,"LI_status",vl_text)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_valider",False)
+
+	/*A sur reception de poke */
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vm_fenetre_TTU)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+			vl_fermeture = TRUE
+
+		ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+ENDMACRO
+
+
+/*E*/
+/*
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER ITMA_TTU_LTN.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de Commande des eqp LTN.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* A.Bertola 14/05/2007    : IHM supervision NICE en mode dégradé
+* A.Bertola 04/05/2009 : remise à niveau du code avec ajout gestion lignes
+*			 de présence tension pour la partie energie
+* A.Bertola 15/11/2009 : renommer les noms de LTN en noms liés à l'ouvrage
+---------------------------------------------------------------------------- */
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commande des eqp LTN
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_LTN(va_appelant, va_liste_LTN,va_trigramme)
+
+/*
+* ARGUMENTS EN ENTREE :
+* 
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant résultat
+*
+* CONDITION D'UTILISATION
+*   
+*
+* FONCTION
+*    Pilote l'état des equipement LTN
+*
+---------------------------------------------------------------------------- */
+/*A Déclaration des variables statiques */
+var vl_fenetre_active
+var vl_tunnel
+var	vl_color
+var	vl_titre_fen
+var i, j, vl_index, vl_index2
+var	vl_controle_sortie
+var vl_sens
+var vl_F_tunnel
+var vl_LTN
+var tl_color
+var tl_param
+var vl_Xpos, vl_Ypos
+var vl_retour
+var vl_meme_sens
+var vl_ligne
+var vl_taille, vl_taille2
+var vl_F_tpm
+var vl_tab
+var vl_panneau
+var vl_etat
+var vl_message,vl_mess, vl_messageDecoupe
+var vl_cmd
+var vl_existe
+var vl_rang
+var vl_icon
+var vl_text
+var vl_objet
+var vl_nom_fichier
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN(COM_NOK)
+}
+
+vm_NomSite = SYSTEM_VAR@("vg_nom_site")
+vm_District = SYSTEM_VAR@("vg_site")
+
+vm_LTN = va_liste_LTN
+
+/* récupération du numéro ouvrage pour abonnement */
+vm_num_LTN = vm_LTN[4]
+
+/*A Chargement du fichier de config des eqp LTN */
+vm_Eqp_LTN = null
+
+vl_nom_fichier = REP_RENOVE ++ "/ConfigEqt" ++ vm_LTN[1] ++ ".cfg"
+
+vl_F_tpm = READ_ASCII_FILE@(vl_nom_fichier)
+vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+vl_index = 1
+for i = 0 to vl_taille
+  vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+  vl_tab = ARRAY_SIZE@(vl_ligne)
+  if substring@(vl_F_tpm[i],1,1) <> "#" and vl_tab > 1
+  {
+
+	vl_taille2 = ARRAY_SIZE@(vl_ligne) -1
+	for j = 0 to vl_taille2
+		vm_Eqp_LTN[vl_index,j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+	next j
+	vl_index = vl_index + 1
+  }
+next i
+
+vl_LTN = TRUE
+while (vl_LTN)
+
+/*A Chargement de la fenetre & assignation des sockets 
+*   -------------------------------------------------- */
+vm_Nom_Fenetre = vm_LTN[3]
+vm_fenetre_TTU = DB_LOAD@(vm_Nom_Fenetre)
+
+vm_messages_acceptes[0] = COM_CANAL_FIN
+vm_messages_acceptes[1] = COM_CANAL_MTTU_ALM
+vm_messages_acceptes[2] = COM_CANAL_MTTU_EQP_LT
+DB_ACCEPT_POKES@ (vm_fenetre_TTU, vm_messages_acceptes)
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(vm_fenetre_TTU, 0)
+DB_YPOS@(vm_fenetre_TTU, 115)
+DB_WIDTH@(vm_fenetre_TTU, 993)
+'--DB_HEIGHT@(vm_fenetre_TTU, 715)
+
+DEFINE_HELPFILE@("gerer_pilotage_tunnel", "./aid/ITMA_TTU_tunnel.aide")
+DB_HELP_TOPIC@(vm_fenetre_TTU,"gerer_LTN")
+ 
+/*A affichage du titre de la boite 
+*   -------------------------------- */
+vm_Titre_Fenetre = "Surveillance de l'etat des equipements du local technique  " ++
+							vm_LTN[2]
+
+DB_TITLE@(vm_fenetre_TTU,vm_Titre_Fenetre)
+
+DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_nom","Local technique  " ++ 
+							vm_LTN[2])
+
+'' creation des equipements LTN
+ITMA_TTU_creation_eqp_LTN
+
+/*A Abonnement au differents services */ 
+ITMA_TTU_Abt_Etat_Eqp_LTN(XDC_DEBUT_ABONNEMENT_EQUEXT)
+
+DB_DISPLAY_ONLY@(vm_fenetre_TTU,True)
+DB_DISPLAY@(vm_fenetre_TTU)
+DB_DISPLAY_ONLY@(vm_fenetre_TTU,False)
+
+vl_fenetre_active = TRUE
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	
+	/* affichage de la liste */
+	DB_DISPLAY@(vm_fenetre_TTU)
+	vl_titre_fen = DB_GET_TITLE@(vm_fenetre_TTU)
+	''PROMOTE_DIALOG@(vl_titre_fen)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vm_fenetre_TTU)
+
+	/*A si l'evenement n'est pas un poke & verrou=vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		{ vl_controle_sortie = NULL }
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action aide */
+	CASE "BP_aide"
+		COM33_Aide_Renov("ITMA_TTU_ltn")
+
+	/*A sur reception de poke */
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vm_fenetre_TTU)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+			RETURN
+
+		/*A si poke de reception d'abonnement état eqp LT */
+		CASE COM_CANAL_MTTU_EQP_LT	
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre_TTU)
+			vl_messageDecoupe = ARRAY_FROM_STRING@(vl_message[0],"|")
+			vl_taille2 = ARRAY_SIZE@(vl_messageDecoupe)
+
+			/*A trace de la reception du message */
+			vm_text = COM09_Date_Courante() ++ "   MsgPoke MTTU_LTN : "
+			for i = 0 to vl_taille2 - 1
+				vm_text = vm_text ++ vl_messageDecoupe[i] ++ " / "
+			next i
+			COM01_Trace(0,vm_text)
+
+			'-- parcours du tableau des messages
+			for i = 0 to vl_taille2 - 1
+            
+                vl_mess = ARRAY_FROM_STRING@(vl_messageDecoupe[i],",")
+       vl_index2 = -1           
+
+                if vl_mess[0] = XDC_EQT_LTN
+       {				
+                    /*A on  boucle sur tout les panneau présent sur l'IHM */
+                    if ( vl_mess[2] <> 0 )
+                    {
+                        vl_taille = ARRAY_SIZE@(vm_F_bouton)
+                        for j = 0 to vl_taille-1
+            if ( vm_F_bouton[j,12] = vl_mess[2] and vm_F_bouton[j,4] = vl_mess[3] )
+              {				
+                                vl_index2 = j
+                                break j
+                                }
+                        next j
+                    }
+
+		/*A MAJ du panneau sur l'IHM (avec gestion defaut et mode) */
+		if vl_index2<>-1 
+		{
+			/* si c'est un equipement de type ligne de presence tension
+			on le traite de façon spécial car dejà existants dans l'IHM */
+			vl_objet = vm_Eqp_LTN[vl_index2,14]
+
+			if STRING_INDEX@(vl_objet,  "tension") <> 0
+				if STRING_INDEX@(vl_objet,  "tension_LTN") <> 0
+					' cas pour LTN356+magnan
+					ITMA_TTU_MAJ_ligne_tension_LTN356MAG(vl_index2,
+										vl_mess[4],"_etat")
+
+				else
+					' cas pour LTN PC Pyramide
+					ITMA_TTU_MAJ_ligne_tension_LTN(vl_index2,
+										vl_mess[4],"_etat")
+			else
+				ITMA_TTU_MAJ_ID_eqp_LTN(vl_index2,vl_mess)
+
+		}
+                }
+
+            next i
+			
+	ENDCASE
+
+	/*A sur action quitter */
+	CASE "BP_quitter"
+		/*A la fenetre n'est plus active */
+		vl_fenetre_active = FALSE
+		vl_LTN = FALSE
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+DB_CLOSE@()
+
+/*B Fermer des abonnements */
+DELAY@(1)
+ITMA_TTU_Abt_Etat_Eqp_LTN(XDC_FERMER_ABONNEMENT_EQUEXT)
+
+/*A fin tant que */
+WEND
+
+RETURN
+
+
+ENDMACRO
+
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU : creation generique des equipements	
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_creation_eqp_LTN()
+var vl_taille
+var i, j
+var vl_num_eqp
+var vl_idEqp
+var vl_numero
+var vl_icon
+var vl_color
+var vl_xpos, vl_ypos, vl_xpos2, vl_ypos2
+var vl_titre,vl_titre1,vl_titre2,vl_titre3
+var vl_nom_tunnel
+var vl_long
+var vl_haut
+
+/*A Créer et positionner les panneaux */
+vl_color[0] = 255
+vl_color[1] = 0,0,0
+vl_color[0] = 1
+vl_color[1] = 255,255,255
+
+vm_F_bouton = null
+vl_taille = ARRAY_SIZE@(vm_Eqp_LTN)-1
+for i = 1 to vl_taille
+	vl_numero = i
+	vl_num_eqp = vm_Eqp_LTN[vl_numero,4]
+	vm_F_bouton[vl_numero,0]	= 0					' le n° du picto associé
+	vm_F_bouton[vl_numero,1]	= vm_Eqp_LTN[vl_numero,0] 'num eqt
+	vm_F_bouton[vl_numero,2]	= vm_Eqp_LTN[vl_numero,14] 'picto par defaut
+	vm_F_bouton[vl_numero,3]	= vm_Eqp_LTN[vl_numero,1]  'type (T ou E)
+	vm_F_bouton[vl_numero,4]	= vm_Eqp_LTN[vl_numero,4]  'n° eqt en base
+	vm_F_bouton[vl_numero,5]	= vm_Eqp_LTN[vl_numero,7] 'defaut critique
+	vm_F_bouton[vl_numero,6]	= vm_Eqp_LTN[vl_numero,8] 'defaut majeur
+	vm_F_bouton[vl_numero,7]	= vm_Eqp_LTN[vl_numero,9] 'defaut mineur
+	vm_F_bouton[vl_numero,8]	= vm_Eqp_LTN[vl_numero,10] 'hors service
+	vm_F_bouton[vl_numero,9]	= vm_Eqp_LTN[vl_numero,11] 'pas de defaut
+	vm_F_bouton[vl_numero,10] = vm_Eqp_LTN[vl_numero,12] 'mode local
+	vm_F_bouton[vl_numero,11] = vm_Eqp_LTN[vl_numero,13] 'mode distant
+    vm_F_bouton[vl_numero,12] = vm_Eqp_LTN[vl_numero,3]	'type equipement (SAE)
+
+	vl_icon 	= vm_Eqp_LTN[vl_numero,14]  'le picto à afficher par defaut
+	vl_long 	= vm_Eqp_LTN[vl_numero,15]  'longueur BP pour eqp sans picto
+	vl_haut 	= vm_Eqp_LTN[vl_numero,16]  'hauteur BP pour eqp sans picto
+	vl_xpos 	= vm_Eqp_LTN[vl_numero,5]	' la position X
+	vl_ypos 	= vm_Eqp_LTN[vl_numero,6]	' la position Y
+	vl_idEqp	= vm_Eqp_LTN[vl_numero,3]
+
+	/* creation des objets cadre */
+	vl_titre = "BP_cadre" ++ vl_numero
+
+	if STRING_INDEX@(vl_icon,  "40_10") <> 0
+	{
+		'' equipement eclairage
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_titre,
+			vm_Eqp_LTN[vl_numero,11],vl_xpos-3,vl_ypos - 4,0)
+	}
+	else
+	{
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_titre,
+			vm_Eqp_LTN[vl_numero,11],vl_xpos-3,vl_ypos - 3,0)
+	}
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_titre,FALSE)
+
+	vl_xpos2 = vl_xpos+50
+	vl_ypos2 = vl_ypos+30
+	
+	vl_titre1 = "BP_local" ++ vl_numero
+	DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_titre1,
+			vm_Eqp_LTN[vl_numero,12],vl_xpos2,vl_ypos2,0)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_titre1,FALSE)
+
+	/* creation des objets BP etat */
+	vl_titre2 = "BP_panneau" ++ vl_numero
+	DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_titre2,vl_icon,vl_xpos,vl_ypos,0)
+	DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_panneau"++vl_numero,4)
+	DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_panneau"++vl_numero,True)
+
+	/*!! Ajout des numeros de panneaux au dessus des cadres */
+  	vl_titre3  = "BP_Lib_Pan" ++ vl_numero
+	vl_num_eqp = vl_idEqp ++ "-" ++ vl_num_eqp
+
+ 	DB_CREATE_CTRL@(vm_fenetre_TTU,3,vl_titre3,vl_num_eqp,vl_xpos-1,vl_ypos-18,0)
+	DB_CTRL_WIDGET_COLOR@(vm_fenetre_TTU,vl_titre3,vl_color)
+	DB_CTRL_FONT@(vm_fenetre_TTU, vl_titre3,
+	 "-adobe-courier-bold-r-normal--10-100-75-75-m-65-iso8859-1")
+	'DB_CTRL_GRAYED@(vm_fenetre_TTU,vl_titre3,True)
+
+next i
+
+RETURN
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	MAJ du panneau dans la vue actuelle
+* 
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_MAJ_ID_eqp_LTN(va_num,va_msg)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_num	: le N° du panneau à modifier
+*	va_msg	: msg recu
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   appel de cette procedure
+*
+* FONCTION
+*    MAJ du panneau dans la vue actuelle
+*
+---------------------------------------------------------------------------- */
+
+var	vl_picto, vl_picto_etat, vl_picto_mode
+var	vl_objet, vl_objet_etat, vl_objet_mode
+var	i
+var	vl_size
+var	vl_taille
+var	vl_icon
+var	vl_xpos
+var	vl_ypos
+var	vl_pos
+var	vl_etat
+var	vl_mode
+var	vl_numeqp
+var	vl_text
+var	vl_libelle
+
+/* utilisation des cst pour les defaut equipement
+XDC_NORMAL		0
+XDC_EQP_DEF_CRIT	3
+XDC_EQP_DEF_MAJEUR	2
+XDC_EQP_DEF_MINEUR	1
+XDC_EQP_HS		4
+vl_mess[2]	type panneau (SAE)
+vl_mess[3]	id panneau (SAE)
+vl_mess[4]	position panneau
+vl_mess[5]	etat defaut du panneau
+vl_mess[6]	mode local /distant du panneau
+*/
+
+/*A si le bouton existe */
+if vm_F_bouton[va_num,1] = ""
+	Return(COM_NOK)
+
+vl_numeqp = va_num
+vl_pos = va_msg[4]
+vl_etat =  va_msg[5]
+vl_mode =  va_msg[6]
+
+vl_xpos = vm_Eqp_LTN[vl_numeqp,5]
+vl_ypos = vm_Eqp_LTN[vl_numeqp,6]
+
+/* mode de l'equipement */
+vl_objet_mode = "BP_local" ++ vl_numeqp 
+if vl_mode = 0
+{
+	'mode distant
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_objet_mode,FALSE)
+}
+else
+{
+	'mode local
+	vl_picto_mode = vm_Eqp_LTN[va_num,12]
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_objet_mode,TRUE)
+}
+/* selon l'état de l'equipement */
+CASE OF vl_etat
+
+/*A etat normal */
+CASE XDC_EQP_DEF_CRIT
+	vl_text = "Equipement "++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]++" avec défaut critique !"
+	vl_picto_etat = vm_Eqp_LTN[va_num,7]
+CASE XDC_EQP_DEF_MAJEUR
+	vl_text = "Equipement "++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]++" avec défaut majeur !"
+	vl_picto_etat = vm_Eqp_LTN[va_num,8]
+
+CASE XDC_EQP_DEF_MINEUR
+	vl_text = "Equipement "++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]++" avec défaut mineur !"
+	vl_picto_etat = vm_Eqp_LTN[va_num,9]
+
+CASE XDC_EQP_HS
+	vl_text = "Equipement "++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]++" hors service !"
+	vl_picto_etat = vm_Eqp_LTN[va_num,10]
+
+CASE XDC_NORMAL
+	vl_text = "Réception état équipement " ++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]
+	vl_picto_etat = vm_Eqp_LTN[va_num,11]
+
+ENDCASE
+DB_CTRL_TITLE@( vm_fenetre_TTU,"Li_status",vl_text)
+
+
+vl_objet_etat = "BP_cadre" ++ vl_numeqp 
+DB_DESTROY_CTRL@(vm_fenetre_TTU,vl_objet_etat)
+DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_objet_etat,
+					vl_picto_etat,vl_xpos-3,vl_ypos - 3,0)
+
+/*A construction du nom de l'objet vl_objet */
+vl_objet = "BP_panneau" ++ vl_numeqp
+
+/*A lecture du picto disponible à cette position dans vl_picto */
+vl_picto = vm_Eqp_LTN[vl_numeqp,vl_pos+14]
+
+/*A si le picto existe pour cette position : MAJ du bouton */
+if TRIM@(vl_picto) <>  ""
+{  
+	vl_xpos = DB_CTRL_GET_XPOS@(vm_fenetre_TTU, vl_objet)
+	vl_ypos = DB_CTRL_GET_YPOS@(vm_fenetre_TTU, vl_objet)
+	DB_DESTROY_CTRL@(vm_fenetre_TTU,vl_objet)
+	if STRING_INDEX@(vl_picto,  "40_10") <> 0
+	{
+		'' equipement eclairage
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_objet,vl_picto,vl_xpos,vl_ypos,0)
+	}
+	else
+	{
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,vl_objet,vl_picto,vl_xpos,vl_ypos,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,vl_objet,4)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,vl_objet,True)
+	}
+}
+Return(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner à l'état des eqp.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Abt_Etat_Eqp_LTN(va_Abonnement)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_Abonnement	:	Type d'abonnement (debut ou fin)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   
+*
+* FONCTION :
+*	Permet de s'abonner à l'état des panneaux.
+* ------------------------------------------------------------------------------- */
+
+VAR vl_cmd
+VAR vl_text
+VAR vl_TypeEqt
+VAR vl_taille
+VAR j
+
+	vl_TypeEqt = XDC_EQT_LTN
+
+	/*A trace de l'appel de procedure */
+	vm_text = COM09_Date_Courante()
+	vm_text =  vm_text ++ " --> XZEA18_Abt_Eqp_LTN "
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B Identifiant de la fonction LTN */
+	vl_cmd[1]=MTTU_FCT_LT		
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA18
+
+	/*B arguments */
+	vl_cmd[3]= va_Abonnement ++ MTAR_CAR_SEPAR ++ vm_NomSite   ++ MTAR_CAR_SEPAR ++
+			vl_TypeEqt ++ MTAR_CAR_SEPAR ++ vm_num_LTN
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émission */
+	vl_text = COM09_Date_Courante() ++ " - DB_SEND_POKE@(COM_CANAL_TAR01," ++
+			vl_cmd[0]++ ","++vl_cmd[1]++","++vl_cmd[2]++","++vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	MAJ des eqp presence tension dans la vue actuelle
+* 				
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_MAJ_ligne_tension_LTN(va_num,va_pos,va_type)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_num	: le N° du panneau à modifier
+*	va_pos	: position eqp
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   appel de cette procedure
+*
+* FONCTION
+*    MAJ des eqp presence tension dans la vue actuelle
+*
+---------------------------------------------------------------------------- */
+
+var vl_liaison
+var vl_position1, vl_position2, vl_position
+var vl_eqp
+var vl_picto
+var vl_pos
+var vl_numeqp
+var vl_type
+
+vl_type = va_type
+vl_numeqp = va_num
+vl_pos = va_pos
+
+if vl_pos <> 1 and vl_pos <> 2
+	Return(COM_NOK)
+
+vl_liaison = UPPERCASE@(vm_Eqp_LTN[vl_numeqp,14])
+vl_position1 = vm_Eqp_LTN[vl_numeqp,15]
+vl_position2 = vm_Eqp_LTN[vl_numeqp,16]
+
+if vl_pos = 1
+	vl_position = vl_position1
+else
+	vl_position = vl_position2
+
+if STRING_INDEX@(vl_liaison,  "JDBN1") <> 0
+{	
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg1_1","pix_barre_150_3",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg1_2","pix_barre_150_3",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg1_3","pix_barre_3_50",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg1_4","pix_barre_3_50",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg1_5","pix_diag_NS_120_120",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg1_6","pix_barre_50_3",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg1_7","pix_barre_3_20",vl_type)
+}
+if STRING_INDEX@(vl_liaison,  "JDBN2") <> 0
+{	
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg2_1","pix_barre_150_3",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg2_2","pix_barre_150_3",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg2_3","pix_barre_3_50",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg2_4","pix_barre_3_50",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg2_5","pix_diag_SN_120_120",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg2_6","pix_barre_50_3",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg2_7","pix_barre_3_20",vl_type)
+}
+
+if STRING_INDEX@(vl_liaison,  "CDI1") <> 0
+{	
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"cdi1","pix_barre_3_50",vl_type)
+}
+if STRING_INDEX@(vl_liaison,  "CDI2") <> 0
+{	
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"cdi2","pix_barre_3_50",vl_type)
+}
+
+if STRING_INDEX@(vl_liaison,  "CAR1") <> 0
+{	
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"caa1_1","pix_barre_3_50",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"caa1_2","pix_diag_NS_10_5",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"caa1_3","pix_diag_SN_10_5",vl_type)
+}
+
+if STRING_INDEX@(vl_liaison,  "CAR2") <> 0
+{	
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"caa2_1","pix_barre_3_50",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"caa2_2","pix_diag_NS_10_5",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"caa2_3","pix_diag_SN_10_5",vl_type)
+}
+
+Return(COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	MAJ des eqp presence tension dans la vue actuelle
+* 				
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_MAJ_ligne_tension_LTN356MAG(va_num,va_pos,va_type)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_num	: le N° du panneau à modifier
+*	va_pos	: position eqp
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   appel de cette procedure
+*
+* FONCTION
+*    MAJ des eqp presence tension dans la vue actuelle
+*
+---------------------------------------------------------------------------- */
+
+var vl_liaison
+var vl_position1, vl_position2, vl_position
+var vl_eqp
+var vl_picto
+var vl_pos
+var vl_numeqp
+var vl_type
+
+vl_type = va_type
+vl_numeqp = va_num
+vl_pos = va_pos
+
+if vl_pos <> 1 and vl_pos <> 2
+	Return(COM_NOK)
+
+vl_liaison = UPPERCASE@(vm_Eqp_LTN[vl_numeqp,14])
+vl_position1 = vm_Eqp_LTN[vl_numeqp,15]
+vl_position2 = vm_Eqp_LTN[vl_numeqp,16]
+
+if vl_pos = 1
+	vl_position = vl_position1
+else
+	vl_position = vl_position2
+
+if STRING_INDEX@(vl_liaison,  "JDBN1") <> 0
+{	
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg1_3","pix_barre_3_50",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg2_3","pix_barre_3_50",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg1_1","pix_barre_150_3",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg2_1","pix_barre_150_3",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg1_2","pix_barre_150_3",vl_type)
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"atg3_1","pix_barre_3_50",vl_type)
+}
+
+if STRING_INDEX@(vl_liaison,  "CDI1") <> 0
+{	
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"cdi1","pix_barre_3_50",vl_type)
+}
+if STRING_INDEX@(vl_liaison,  "CDI2") <> 0
+{	
+	ITMA_TTU_MAJ_ID_LTN(vl_position,"cdi2","pix_barre_3_50",vl_type)
+}
+
+
+Return(COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	MAJ des eqp presence tension dans la vue actuelle
+* 				
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_MAJ_ID_LTN(va_position,va_id_eqp, va_picto, va_type)
+
+var	vl_xpos
+var	vl_ypos
+var vl_eqp
+var vl_position
+var vl_picto
+
+vl_eqp = va_id_eqp ++ va_type
+vl_position = va_position
+
+if vl_position = "noir"
+	vl_picto = va_picto
+else
+	vl_picto = va_picto ++ "_" ++ "vert"
+
+vl_xpos = DB_CTRL_GET_XPOS@(vm_fenetre_TTU,vl_eqp)
+vl_ypos = DB_CTRL_GET_YPOS@(vm_fenetre_TTU,vl_eqp)
+
+DB_DESTROY_CTRL@(vm_fenetre_TTU,vl_eqp)
+DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_eqp,vl_picto,vl_xpos,vl_ypos,0)
+
+Return(COM_OK)
+
+ENDMACRO
+

@@ -1,0 +1,887 @@
+/*E*/
+/* Fichier : $Id: ITMA_MEC_scrutation_Easy_Cam.am,v 1.9 2013/03/11 09:51:47 gesconf Exp $      Release :$Revision: 1.9 $     Date : $Date: 2013/03/11 09:51:47 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE * FICHIER ITMA_MEC_scrutation_Easy_Cam.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Gestion des demandes de travaux.
+*   INTERFACE entre les SGBDR SYBASE et INFORMIX.
+*
+*   Cf. DCG 2.7
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* T.Fournel     27 Dec 1994 : Creation                                    V1.1
+* JPL		29 Mai 1995 : Ajout arg "forcage" a XZAM05 (supp. alarme) V1.7
+* PN		02 Jui 1997 : Suppression des traces debug1 v1.8
+* JPL		11/03/2013 : Renommage macros Applix obsoletes  1.9
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+
+/*A Description des constantes générales
+ * ------------------------------------- */
+DEFINE	C_MODULE			"MMEC"	' Nom du module
+
+/* Parametres de la Connexion SGBDR SYBASE */
+/*
+** Le vendeur est "Sybase", le compte migrazur
+** et le serveur sur laquelle se situe le moteur SYBASE est "SQL_CI"
+*/
+
+DEFINE	COM_NOM_SGBD_SYB	"Sybase"
+DEFINE	COM_USER_SYB		"MIGRAZUR"
+DEFINE	COM_MOT_PASSE_SYB	"MIGRAZUR"
+DEFINE	COM_BASE_SYB		""
+DEFINE	COM_HOTE_SYB		""
+DEFINE	COM_SERVEUR_SYB	"SQL_"
+
+/* Parametres de la Connexion SGBDR INFORMIX */
+/*
+Le vendeur est "Informix", la base de donnees EASYCAM est "isicam'
+et la machine sur laquelle se situe le SE (moteur Informix) est "POCMA"
+*/
+
+DEFINE	COM_NOM_SGBD_IFX	"Informix"
+DEFINE	COM_USER_IFX		""
+DEFINE	COM_MOT_PASSE_IFX	""
+DEFINE	COM_BASE_IFX		"isicam"
+DEFINE	COM_HOTE_IFX		"POCMA"
+DEFINE	COM_SERVEUR_IFX	""
+
+/*A
+** Delai au dela duquel une alarme doit etre reveillee
+** ---------------------------------------------------
+*/
+DEFINE	C_FREQUENCE	30 	'En secondes
+
+/* Fichiers d'inclusion globaux */
+INCLUDE	"../../GESIHM/inc/ITMA_COM.h"
+INCLUDE	"../../GESIHM/inc/ITMA_TDO.h"
+
+
+/*A Description des procedures stockées à appeler
+* ------------------------------------------------ */
+INCLUDE	"../inc/xzam05sp.h"
+INCLUDE	"../inc/xzam11sp.h"
+INCLUDE	"../inc/xzat10sp.h"
+INCLUDE	"../inc/xzat11sp.h"
+
+
+
+/* Variables globales */
+var	vg_canal_SGBD_IFX		'Canal de communication INFORMIX
+var	vg_canal_SGBD_SYB		'Canal de communication SYBASE
+
+var rien
+
+
+/*X*/
+/*----------------------------------------------------------------------
+* SERVICE RENDU :	Gestion des demandes de travaux Tache principale
+*------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_MEC_scrutation_Easy_Cam()
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant       : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+
+*
+* CODE RETOUR         : XDC_OK en cas d'execution correcte
+*			        XDC_NOK sinon.
+*
+* CONDITION D'UTILISATION
+* Lancer par la tache principale APLLIX du module GESIHM lors du
+* lancement du logiciel de maintenance EASY CAM.
+*
+* FONCTION
+* Interface entre SYBASE et INFORMIX pour la gestion des demandes de
+* travaux (DT)
+* Se met en attente d'un signal (timer).
+*
+--------------------------------------------------------------------- */
+
+
+VAR vl_fenetre_fictive		'Nom de la fenetre fictive
+VAR 	vl_la_fenetre_est_active	'Quitter le module
+VAR 	vl_type_evnt			'Type d'evenement
+VAR vl_nom_site			'Nom du site
+VAR	vl_Status				'Code retour de fonction
+
+	/*A
+ 	** Traitements en cas d'erreur durant l'initialisation :
+ 	** informer l'operateur, tracer l'erreur et abandonner
+ 	** -----------------------------------------------------
+ 	*/
+	ON ERROR {
+		ERROR_BOX@
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		SQL_DISCONNECT@(vg_canal_SGBD_IFX)
+		RETURN (XDC_NOK)
+	}
+
+	/* Nom du site (Centre d'Information) */
+	vl_nom_site = "CI"
+
+	/*A
+	** Etablir une connexion SGBD SYBASE (s'il n'y en a pas deja une
+	** - pour pouvoir reexecuter, en phase de developpement ).
+	** -------------------------------------------------------
+	*/
+
+	IF SYSTEM_VAR@ (vg_canal_SGBD) = NULL {
+
+    		vg_canal_SGBD_SYB = SQL_CONNECT@ (	COM_NOM_SGBD_SYB,
+								COM_USER_SYB,
+								COM_MOT_PASSE_SYB,
+								COM_BASE_SYB,
+ 								COM_HOTE_SYB,
+ 								COM_SERVEUR_SYB ++
+ 										vl_nom_site)
+
+		/* Test de la demande de connexion */
+		if (IS_NULL@ (vg_canal_SGBD_SYB) = TRUE)
+		begin
+			'info_message@ ("Connexion Sybase impossible...")
+			COM01_Trace(COM_WARNING, C_MODULE ++ ": Connexion Sybase impossible")
+			return(XDC_NOK)
+		end
+
+		SQL_CHANNEL_MASTER@ (vg_canal_SGBD_SYB, 0)
+
+   		SET_SYSTEM_VAR@ (vg_canal_SGBD, vg_canal_SGBD_SYB)
+	}
+
+	/*A
+	* Etablir une connexion SGBD INFORMIX.
+	* ------------------------------------
+	*/
+	vg_canal_SGBD_IFX = SQL_CONNECT@ (COM_NOM_SGBD_IFX,
+							COM_USER_IFX,
+	 						COM_MOT_PASSE_IFX,
+				 			COM_BASE_IFX,
+							COM_HOTE_IFX,
+							COM_SERVEUR_IFX)
+	/* Test de la demande de connexion */
+	if (IS_NULL@ (vg_canal_SGBD_IFX) = TRUE)
+	begin
+		'info_message@ ("Connexion Informix impossible...")
+		COM01_Trace(COM_WARNING, C_MODULE ++ ": Connexion Informix impossible")
+		return(XDC_NOK)
+	end
+
+	SQL_CHANNEL_MASTER@ (vg_canal_SGBD_IFX, 0)
+
+	/*A trace connexion SGBD */
+	COM01_Trace(COM_DEBUG1, C_MODULE ++ ": Connexion Sybase/Informix faite")
+
+
+	/*
+	** Principe : créer une fenetre "fictive" sur laquelle nous sommes
+	** en attente d'un evenement. Lorsqu'un evenement se produit et
+	** qu'il est de type "timer", le traitement est alors effectue.
+	** La boite de dialogue porte le nom de "MMEC_BdD_Fictive".
+	*/
+
+	/*A Chargement de la BdD fictive */
+	vl_fenetre_fictive = DB_LOAD@("MMEC_BdD_Fictive")
+
+
+	/* L'evenement TIMER est "envoye" a la BdD fictive */
+	DB_TIMER@ (vl_fenetre_fictive, C_FREQUENCE)
+
+
+	/* Boucle permanente d'attente sur evenement.*/
+	vl_la_fenetre_est_active = TRUE
+
+	WHILE vl_la_fenetre_est_active
+
+		/* Trace Attente evenement */
+		/* COM01_Trace(COM_DEBUG1, C_MODULE ++ ": ------- Attente evenement TIMER -------") */
+
+		/*A Attente d'un evenement sur la BdD fictive */
+		DB_DISPLAY@ (vl_fenetre_fictive)
+
+		/* Decodage du type d'evenement */
+		vl_type_evnt = DB_EXIT_CTRL@ (vl_fenetre_fictive)
+
+		/* En fonction du type d'evenement ...*/
+		if vl_type_evnt = "timer_"
+		begin
+			/* Reception d'un evenement de type TIMER */
+
+			/* Gestion des equipements */
+			vl_Status = MMEC_Gestion_Eqt()
+		end
+		else
+		begin
+			/* Trace evenement de fin de tache */
+			COM01_Trace(COM_DEBUG1, C_MODULE ++ ": Evenement fin de tache recu")
+
+			vl_la_fenetre_est_active = FALSE
+		end
+
+	WEND /* Fin de boucle d'attente sur evenement BdD */
+
+
+	/*A Deconnection INFORMIX */
+	SQL_DISCONNECT@(vg_canal_SGBD_IFX)
+
+	/* Trace Fin de tache */
+	COM01_Trace(COM_DEBUG1, C_MODULE ++ ": Fin de la tache")
+
+	/*A Fin du module */
+	RETURN (XDC_OK)
+
+ENDMACRO
+
+
+/*X*/
+/*----------------------------------------------------------------------
+* SERVICE RENDU :	Gestion des demandes de travaux
+*------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO MMEC_Gestion_Eqt
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_OK en cas d'execution correcte
+*			        XDC_NOK sinon.
+*
+* CONDITION D'UTILISATION
+* Active par la tache principale APPLIX du module MMEC
+*
+* FONCTION
+* Interface entre SYBASE et INFORMIX pour la gestion des demandes de
+* travaux (DT).
+*
+--------------------------------------------------------------------- */
+/* Utilisation Procedure SYBASE */
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+var	vl_Liste_DT		'liste des demandes de travaux
+var	vl_Result_IFX		'Resultat requete INFORMIX
+var	vl_Result_SYB		'Resultat requete SYBASE
+var	vl_indice			'Compteur de boucle
+var	vl_Nb_DT			'Nombre de DT obtenues
+var	vl_requete		'Requete SQL a construire (Informix)
+
+
+	/*A
+ 	** Traitements en cas d'erreur durant l'initialisation :
+ 	** informer l'operateur, tracer l'erreur et abandonner
+ 	** -----------------------------------------------------
+ 	*/
+	ON ERROR {
+		ERROR_BOX@
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		'SQL_DISCONNECT@(vg_canal_SGBD_IFX)
+		RETURN (XDC_NOK)
+	}
+
+	/*A trace debut de macro */
+	/*COM01_Trace(COM_DEBUG1, C_MODULE ++ " Gestion Eqt")*/
+
+	/*A
+	** Recherche de la liste des demandes de travaux (Sybase).
+	*/
+	/* RQ : Cette procedure stockee ne necessite pas d'arguments */
+  	IF COM05_SQL_Procedure
+		(XZAM11_Liste_Demande_Travaux,
+			NULL,
+			vl_resultats,
+			C_MODULE) <> XDC_OK
+	{
+		'SQL_DISCONNECT@(vg_canal_SGBD_IFX)
+		RETURN (XDC_NOK)
+	}
+
+	/* Récuperation du select dans la liste 'liste_select' */
+	vl_Liste_DT = vl_resultats.select_results[0]
+
+	/*	Le type d'alarme (SYBASE): 					vl_Liste_DT[i,0]
+	**	Le type d'equipement (SYBASE): 				vl_Liste_DT[i,1]
+	**	Le numero d'equipement (SYBASE): 			vl_Liste_DT[i,2]
+	**	L'Id de la demande de travaux (INFORMIX): 	vl_Liste_DT[i,3]
+	*/
+
+	/* Nombre de demandes de travaux recuperees */
+	vl_Nb_DT = ARRAY_SIZE@(vl_Liste_DT)
+
+	/*A S'il exite des demandes de travaux */
+
+	if (vl_Nb_DT > 0)
+	{
+		/*A
+		** pour chaque demande de travaux obtenue
+		*/
+		for vl_indice = 0 to (vl_Nb_DT -1)
+			/*B Trace infos de la DT traitee */
+			/*COM01_Trace(COM_DEBUG1,
+						"------------------------------------------------")
+			COM01_Trace(COM_DEBUG1,
+						FORMAT@("%s: DT traitee: Type ALM=%s, Type Eqt=%s, Num Eqt=%s, IdDT=%s",
+								C_MODULE,
+								vl_Liste_DT[vl_indice,0],
+								vl_Liste_DT[vl_indice,1],
+								vl_Liste_DT[vl_indice,2],
+								vl_Liste_DT[vl_indice,3]))*/
+
+			/*A
+			** la demande de Travaux est-elle terminée ? (Informix)
+			*/
+			vl_result_IFX = MMEC_DT_Terminee (vl_Liste_DT[vl_indice,3])
+
+			if vl_result_IFX = XDC_OK
+			{
+				/* Trace */
+				/*COM01_Trace(COM_DEBUG1, C_MODULE ++ ": La DT est Terminee")*/
+
+				/*A
+				** Si la demande de travaux est terminée
+				** suppression de l'alarme correspondante (Sybase).
+				*/
+				/* Trace */
+				/*COM01_Trace(COM_DEBUG1, FORMAT@("%s: Suppression de la DT %s",
+												C_MODULE,
+												vl_Liste_DT[vl_indice,3]))*/
+
+				/* Preparation des arguments en entree */
+				vl_parametres = null
+				vl_resultats = null
+
+				/* Le type de l'alarme */
+				vl_parametres[0].type	= SYB#INT2_
+				vl_parametres[0].data	= vl_Liste_DT[vl_indice,0]
+				vl_parametres[0].output	= FALSE
+
+				/* Le type de l'équipement */
+				vl_parametres[1].type	= SYB#INT2_
+				vl_parametres[1].data	= vl_Liste_DT[vl_indice,1]
+				vl_parametres[1].output	= FALSE
+
+				/* Le numero d'équipement */
+				vl_parametres[2].type	= SYB#INT2_
+				vl_parametres[2].data	= vl_Liste_DT[vl_indice,2]
+				vl_parametres[2].output	= FALSE
+
+				/* Le flag de forcage de suppression (ici ne pas la forcer) */
+				vl_parametres[3].type	= SYB#BIT_
+				vl_parametres[3].data	= XDC_FAUX
+				vl_parametres[3].output	= FALSE
+
+				vl_Result_SYB = COM05_SQL_Procedure
+									(XZAM05_Supprimer_Fiche_Alarme,
+										vl_parametres,
+										vl_resultats,
+										C_MODULE)
+				IF vl_Result_SYB <> XDC_OK AND vl_Result_SYB <> XDC_ACT_REFUSEE
+				{
+					'SQL_DISCONNECT@(vg_canal_SGBD_IFX)
+   					RETURN (XDC_NOK)
+				}
+
+				/*A
+				** Une DT existe-t-elle ? (Informix).
+				*/
+
+				vl_result_IFX =
+					MMEC_DT_Existe(vl_Liste_DT[vl_indice,3],
+									vl_Liste_DT[vl_indice,1],
+									vl_Liste_DT[vl_indice,2])
+
+				if vl_result_IFX = XDC_OK
+				{
+					/* Trace */
+					/*COM01_Trace(COM_DEBUG1,
+								C_MODULE ++ ": Pas d'autre DT pour cet eqt")*/
+
+					/*A
+					** S'il n'en existe pas : mettre l'eqt dans
+					** la liste des eqts a reactiver (Sybase).
+					*/
+					/* Preparation des arguments en entree */
+					vl_parametres = null
+					vl_resultats = null
+
+					/* Le N° d'équipement */
+					vl_parametres[0].type	= SYB#INT2_
+					vl_parametres[0].data	= vl_Liste_DT[vl_indice,2]
+					vl_parametres[0].output	= FALSE
+
+					/* Le type d'équipement */
+					vl_parametres[1].type	= SYB#INT2_
+					vl_parametres[1].data	= vl_Liste_DT[vl_indice,1]
+					vl_parametres[1].output	= FALSE
+
+					IF COM05_SQL_Procedure
+						(XZAT11_Eqt_A_Reactiver,
+								vl_parametres,
+								vl_resultats,
+								C_MODULE) <> XDC_OK
+					{
+						'info_message@ ("Prob Appel de XZAT11 !!!")
+						'SQL_DISCONNECT@(vg_canal_SGBD_IFX)
+   						RETURN (XDC_NOK)
+					}
+
+				} /* Fin de DT n'existe pas */
+				else {
+					/* Trace */
+					/*COM01_Trace(COM_DEBUG1,
+					 	C_MODULE ++ ": Au moins une autre DT pour cet equipement")*/
+					rien=0
+				}
+			} /* Fin de DT terminée */
+			else
+			{
+				/*A
+				** La demande de travaux n'est pas terminée.
+				*/
+				/* Trace */
+				/*COM01_Trace(COM_DEBUG1,C_MODULE ++ ": La DT n'est pas terminee")*/
+
+				/*A
+				** La demande de travaux est-elle commencée ?
+				** (Informix).
+				*/
+				vl_result_IFX = MMEC_DT_Commencee(vl_Liste_DT[vl_indice,3])
+
+				if vl_result_IFX = XDC_OK
+				{
+					/* Trace */
+					/*COM01_Trace(COM_DEBUG1, C_MODULE ++ ": La DT est commencee")*/
+
+					/*A
+					** Si elle est commencée : mettre l'eqt dans
+					** la liste des eqts a desactiver (Sybase).
+					*/
+					/* Preparation des arguments en entree */
+					vl_parametres = null
+					vl_resultats = null
+
+					/* Le N° d'équipement */
+					vl_parametres[0].type	= SYB#INT2_
+					vl_parametres[0].data	= vl_Liste_DT[vl_indice,2]
+					vl_parametres[0].output	= FALSE
+
+					/* Le type d'équipement */
+					vl_parametres[1].type	= SYB#INT2_
+					vl_parametres[1].data	= vl_Liste_DT[vl_indice,1]
+					vl_parametres[1].output	= FALSE
+
+					IF COM05_SQL_Procedure
+						(XZAT10_Eqt_A_Desactiver,
+								vl_parametres,
+								vl_resultats,
+								C_MODULE) <> XDC_OK
+					{
+						'info_message@ ("Prob Appel de XZAT10 !!!")
+						'SQL_DISCONNECT@(vg_canal_SGBD_IFX)
+   						RETURN (XDC_NOK)
+					}
+				} /* Fin du si la DT est commencée */
+				else {
+					/* Trace */
+					/*COM01_Trace(COM_DEBUG1,
+								C_MODULE ++ ": La DT n'est pas commencee")*/
+rien=0
+				}
+			} /* Fin de DT pas terminée */
+
+		next vl_indice
+		/* Fin du tant qu'il a des DT */
+	}
+	else
+	{
+		/* Trace existence DT */
+		/*COM01_Trace(COM_DEBUG1, C_MODULE ++ ": Il n'exite pas de DT")*/
+rien=0
+	}
+	/*A Fin du module */
+	RETURN (XDC_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/*----------------------------------------------------------------------
+* SERVICE RENDU : Permet de savoir si une Demande de Travaux est
+*			 terminee.
+*------------------------------------------------------------------*
+SEQUENCE D'APPEL :
+*/
+
+MACRO MMEC_DT_Terminee (va_IdDT_in)
+/*
+* ARGUMENTS EN ENTREE :
+*   va_IdDT_in       : Indentifiant de la demande de travaux.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_OK si la DT est terminee
+*			        XDC_NOK sinon.
+*
+* CONDITION D'UTILISATION
+* MMEC_Gestion_Eqt
+*
+* FONCTION
+*
+*
+--------------------------------------------------------------------- */
+
+VAR	vl_Result_IFX		'Resultat de la requete INFORMIX
+VAR	vl_requete			'Requete SQL a construire (Informix)
+
+
+	/*A trace debut de macro */
+	/*COM01_Trace(COM_DEBUG1, "MMEC_DT_Terminee IdDT : " ++ va_IdDT_in)*/
+
+
+	/*B
+	** Consultation de la table T_PLAN_FIC1 pour savoir si la demande
+	** est encore a l'etat DT ou si le travail est en cours.
+	** Si un enregistrement existe dans la table T_PLAN_FIC1,
+	** alors nous sommes encore dans l'etat "Demande de Travaux".
+	** Par consequent, elle n'est pas encore traitee ni terminee.
+	*/
+
+	/* Construction de la requete INFORMIX */
+	vl_Result_IFX = null
+
+	vl_requete = FORMAT@("select NUM_FIC1 from T_PLAN_FIC1 where NUM_FIC1='%s'",
+							va_IdDT_in)
+
+	/* Interrogation de la Base de donnees */
+	vl_Result_IFX = sql_select@(vg_canal_SGBD_IFX, vl_requete)
+
+	/*
+	** Test du nombre d'enregistrements retournes : Il n'est pas
+	** necessaire de continuer la recherche si la DT est encore
+	** a l'etat de demande (DT pas encore planifiee)....
+	*/
+	if  ARRAY_SIZE@(vl_Result_IFX) = 1	and	/* Un resultat au moins */
+		(IS_NULL@ (vl_Result_IFX[0][0]) = FALSE)
+	{
+		return (XDC_NOK)
+	}
+
+
+	/*B
+	** Consultation de la table T_JOURN_JOT1 pour savoir si la
+	** demande est en cours de traitement.
+	** Si un enregistrement existe dans cette table, l'etat (champ :
+	** "etat_jot1") doit etre  = 2 ou null pour considerer la DT comme
+	** terminee.
+	** La valeur 2 correspond a l'etat termine.
+	** La valeur null est rencontree lorsqu'un compte rendu a ete
+	** genere sans que le travail ne soit execute.
+	*/
+
+	/* Construction de la requete INFORMIX */
+	vl_Result_IFX = null
+
+	vl_requete =
+			FORMAT@("select ETAT_JOT1 from T_JOURN_JOT1 where CODPL_JOT1='%s'",
+					va_IdDT_in)
+
+	/* Interrogation de la Base de donnees */
+	vl_Result_IFX = sql_select@(vg_canal_SGBD_IFX, vl_requete)
+
+	/*
+	** Test du nombre d'enregistrements retournes :
+	** Il ne doit y avoir qu'un seul resultat.
+	*/
+	if  array_size@(vl_Result_IFX) = 0 	/* Pas de resultat */
+	{
+		return (XDC_OK)
+	}
+
+	/*
+	** Si l'etat est NULL ou s'il est = 2  alors, ou peut considerer la
+	** DT comme terminee.
+	*/
+	if  vl_Result_IFX[0][0] = 2 or
+		(IS_NULL@ (vl_Result_IFX[0][0]) = TRUE)
+	{
+		return (XDC_OK)
+	}
+	else 	/* Sinon */
+	{
+		return (XDC_NOK)
+	}
+ENDMACRO
+
+
+
+/*X*/
+/*----------------------------------------------------------------------
+* SERVICE RENDU :	Savoir si une DT existe pour un equipement donne
+*------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO MMEC_DT_Existe (va_IdDT_in, va_TypeEqt_in, va_NumeroEqt_in)
+/*
+* ARGUMENTS EN ENTREE :
+* va_IdDT_in		: Indetifiant de la demande de travaux.
+* va_TypeEqt_in	: Numero du type de l'equipement (SYBASE)
+* va_NumeroEqt_in	: Numero de l'equipement (SYBASE)
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_OK si aucune DT n'existe
+*			        XDC_NOK sinon.
+*
+* CONDITION D'UTILISATION
+* MMEC_Gestion_Eqt
+*
+* FONCTION
+*
+--------------------------------------------------------------------- */
+
+var	vl_Result_IFX		'Resultat de la requete INFORMIX
+var	vl_requete		'Requete SQL a construire (Informix)
+var	vl_IdEqt			'Identifiant de l'equipement (SGBD Informix)
+var	vl_TypeEqt		'Libelle du type de l'equipement (SGBD SYBASE)
+var 	vl_Indice			'Indice de boucle
+
+	/*A trace debut de macro */
+	/*COM01_Trace(COM_DEBUG1, "MMEC_DT_Existe")*/
+
+	/*B
+	** Premiere etape: Recherche du numero d'eqt INFORMIX.
+	** (Correspondance entre le type et le numero SYBASE et l'ID INFORMIX).
+	** Consultation de T_AP_AP (type et sit)
+	*/
+	/* Recheche du libelle du type d'equipement en fonction du type */
+	/* d'equipement SYBASE */
+	vl_TypeEqt = ITMA_TTE_Type_Equipement(va_TypeEqt_in)
+
+	/* Test le libelle resultat */
+	if vl_TypeEqt = "INCONNU"
+	begin
+		/* trace test equipement */
+		/*COM01_Trace(COM_DEBUG1, "MMEC_DT_Existe: Equipement inconnu")*/
+		return (XDC_NOK)
+	end
+
+
+	/* Construction de la requete INFORMIX */
+	vl_Result_IFX = null
+
+	vl_requete = FORMAT@("select NUM_AP from T_AP_AP where AP_AP='%s' and SIT_AP='%s'",
+							va_NumeroEqt_in,
+							vl_TypeEqt)
+
+	/* Interrogation de la Base de donnees */
+	vl_Result_IFX = sql_select@(vg_canal_SGBD_IFX, vl_requete)
+
+	/* B
+	** Si la requete ne retourne aucun resultat, la correspondance n'a
+	** pu etre etablie. Ceci est peut etre du au fait que l'equipement
+	** en question n'a pas ete declare dans la BD INFORMIX.
+	** (Pas de prise en compte a partir du produit EASYCAM).
+	*/
+
+	/*
+	** Test du nombre d'enregistrements retournes :
+	** Il ne doit y avoir qu'un seul equipement qui satisfasse a la
+	** requete.
+	*/
+	if  array_size@(vl_Result_IFX) <> 1		/* Pas de resultat */
+			and (IS_NULL@ (vl_Result_IFX[0][0]) = FALSE)
+	{
+		/* trace test equipement */
+		/*COM01_Trace(COM_DEBUG1, "MMEC_DT_Existe : Equipement inconnu d'EASYCAM")*/
+		return (XDC_NOK)
+	}
+
+	vl_IdEqt =  vl_Result_IFX[0][0]
+
+
+	/*B
+	** Deuxieme etape: Une DT existe elle ? (etat demande de travaux)
+	** Consultation de T_PLAN_FIC1 pour l'equipement considere.
+	*/
+
+	/* Construction de la requete INFORMIX */
+	vl_Result_IFX = null
+
+	vl_requete=FORMAT@("select NUM_FIC1 from T_PLAN_FIC1 where CODAP_FIC1='%s'",
+							vl_IdEqt)
+
+	/* Interrogation de la Base de donnees */
+	vl_Result_IFX = sql_select@(vg_canal_SGBD_IFX, vl_requete)
+
+	/* Test du nombre d'enregistrements retournes */
+	if array_size@(vl_Result_IFX) <> 0 and
+		(IS_NULL@ (vl_Result_IFX[0][0]) = FALSE)
+	begin
+		/*
+		** Si le resultat n'est pas NULL, c'est qu'il existe
+		** au moins une DT pour cet equipement.
+		** Il n'est donc pas necessaire de continuer le traitement.
+		*/
+		/* trace autres demandes trouvee */
+		/*COM01_Trace(COM_DEBUG1,
+			"MMEC_DT_Existe: Existe d'autres DT pour l'equipement " ++ vl_IdEqt)*/
+		return (XDC_NOK)
+	end
+
+
+	/*B
+	** Troisieme etape: Travail en cours ?
+	** Consultation de T_JOURN_FIC1 pour cet equipement
+	*/
+	/* Construction de la requete INFORMIX */
+	vl_Result_IFX = null
+
+	vl_requete=FORMAT@("select ETAT_JOT1 from T_JOURN_JOT1 where CODAP_JOT1='%s'",
+						vl_IdEqt)
+
+	/* Interrogation de la Base de donnees */
+	vl_Result_IFX = sql_select@(vg_canal_SGBD_IFX, vl_requete)
+
+
+	/*
+	**  Test du nombre d'enregistrements retournes :
+	*/
+	if array_size@(vl_Result_IFX) = 1	/* Il n'y a rien en cours */
+			and (IS_NULL@ (vl_Result_IFX[0][0]) = FALSE)
+	{
+		return (XDC_OK)
+	}
+	else			/* Plusieurs DT sont historisees (en cours ou terminees)*/
+	{
+		/*
+		** Parcours de chaque etat. Il suffit d'un seul etat soit
+		** non termine pour arreter la recherche
+		*/
+		for vl_Indice = 0  to (array_size@(vl_Result_IFX) -1)
+			/*
+			** Si l'etat est NULL ou s'il est = 2  alors, ou peut
+			** considerer la DT comme terminee.
+			*/
+			if  vl_Result_IFX[vl_indice][0] = 2 or
+				(IS_NULL@ (vl_Result_IFX[0][0]) = TRUE)
+			begin
+				/* trace OT Terminee ... */
+				/*COM01_Trace(COM_DEBUG1,
+					"MMEC_DT_Existe : OT : Etat Terminee pour l'equipement " ++
+					vl_IdEqt)*/
+				rien=0
+			end
+			else
+			begin
+				/* trace OT en cours ... */
+				/*COM01_Trace(COM_DEBUG1,
+					"MMEC_DT_Existe : OT : Etat en cours pour l'equipement " ++
+					vl_IdEqt)*/
+				return (XDC_NOK)
+			end
+
+		next vl_Indice	/* DT suivante */
+	}
+
+	return (XDC_OK)
+ENDMACRO
+
+
+
+/*X*/
+/*----------------------------------------------------------------------
+* SERVICE RENDU :	Une DT est elle commencee ?
+*------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO MMEC_DT_Commencee(va_IdDT_in)
+/*
+* ARGUMENTS EN ENTREE :
+*  va_IdDT_in       : Identifiant de la demande de travaux.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_OK si la DT est commencee
+*			        XDC_NOK sinon.
+*
+* CONDITION D'UTILISATION
+* MMEC_Gestion_Eqt.
+*
+* FONCTION
+*
+*
+--------------------------------------------------------------------- */
+
+var	vl_Result_IFX		'Resultat de la requete INFORMIX
+var	vl_requete			'Requete SQL a construire (Informix)
+
+
+	/*A trace debut de macro */
+	/*COM01_Trace(COM_DEBUG1, "MMEC_DT_Commencee : IdDT=" ++ va_IdDT_in)*/
+
+	/*B
+	** Consultation de la table T_JOURN_JOT1. Si le champ "etat_jot1"
+	** est > 2, alors le travail est en cours (valeurs 3 et4).
+	*/
+
+	/* Construction de la requete INFORMIX */
+	vl_Result_IFX = null
+
+	vl_requete=FORMAT@("select ETAT_JOT1 from T_JOURN_JOT1 where CODPL_JOT1='%s'",
+						va_IdDT_in)
+
+
+	/* Interrogation de la Base de donnees */
+	vl_Result_IFX = sql_select@(vg_canal_SGBD_IFX, vl_requete)
+
+	/*
+	** Test du nombre d'enregistrements retournes :
+	** Il ne doit y avoir qu'un seul equipement qui
+	** satisfasse la requete.
+	*/
+	/* Si rien n'est trouve, la DT n'est donc pas commencee */
+	if array_size@(vl_Result_IFX) = 0
+	begin
+		return (XDC_NOK)
+	end
+
+	/*
+	** Si ETAT_JOT1 est > 2 alors le travail est en cours
+	** (donc commencee)
+	*/
+
+	if vl_Result_IFX[0][0] > 2
+	   'and (IS_NULL@ (vl_Result_IFX[0][0]) = FALSE)
+		return (XDC_OK)
+	else	/* Sinon */
+		return (XDC_NOK)
+ENDMACRO

@@ -1,0 +1,569 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCV_Courbe_Trafic_3D.am,v 1.10 1998/09/22 13:17:52 gaborit Exp $      Release : $Revision: 1.10 $        Date : $Date: 1998/09/22 13:17:52 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TCV * FICHIER ITMA_TCV_Courbe_Trafic_3D.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fiche de definition des criteres de visualisation d'une courbe trafic 3D.
+*
+*   Cf. DCG 2.4.21
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 25 Jan 1995	: Creation                                        V1.1
+* Lecrivain 29 Mai 1995	: Ajout du sens de circulation (reserve 694)      V1.6
+* Torregros 01 Jui 1995	: limite sens de circulation a nord et sud        V1.7
+* Torregrossa  24 Oct 1995 : Prise en compte des sens des autoroutes au niveau
+*                            du test de cohenrence de PR (A57)               V1.8
+* Guilhou	04 nov 1996 : date saisie doit etre < 24h a l'horodate courante (DEM/1262) V1.9
+* Niepceron   03 Jul 1998 : Connexion a SQL_HIS (dem/1699) v1.10
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzas04sp.h"
+INCLUDE	"../inc/ic3d_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTCV"				' Nom du module
+
+
+
+/*A
+ * Format des donnees de stations RADT et de mesures lues en base
+ * --------------------------------------------------------------
+ */
+
+DEFINE	TCV_NUMERO_STATION	0
+
+FORMAT	TCV_station_RADT
+	num_station,
+	PR
+
+
+FORMAT	TCV_mesure_RADT
+	num_station,
+	date,
+	mesure_Q,
+	validite_Q,
+	mesure_V,
+	validite_V,
+	mesure_TO,
+	validite_TO
+
+
+
+VAR     vm_fichier_mesures				' Nom du fichier produit
+
+VAR FORMAT TDO_Autoroute vm_l_autoroutes		' Liste autoroutes
+VAR vm_l_sens		' Liste des sens nord et sud
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Definition des donnees de trafic a visualiser en 3D.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCV_Courbe_Trafic_3D (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_appelant       : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option "Analyser -> Courbe -> Trafic 3D" dans MTMT.
+*
+* FONCTION
+*   Permet la saisie des donnees trafic a visualiser en 3 dimensions.
+*   Demande ensuite la visualisation au module de visualisation 3D.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (COM_NOK)
+}
+
+
+/*A
+ * Charger la fenetre "Courbe Trafic 3D"
+ * -------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TCV_TRAFIC_3D")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+/*B Decaler la fenetre pour permettre la selection de l'icone PV-Wave */
+DB_XPOS@ (vl_fenetre, 70)
+DB_YPOS@ (vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX - 70, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TCV_Courbe_Trafic_3D")
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_Jour_Debut", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_Mois_Debut", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_Annee_Debut", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_Heure_Debut", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_Minute_Debut", COM_CHIFFRES)
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_PR_Debut", COM_CHIFFRES ++ ".,")
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_PR_Fin", COM_CHIFFRES ++ ".,")
+
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Autoroutes", 0)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Autoroutes", TRUE)
+
+DB_CTRL_VALUE@ (vl_fenetre, "BO_Sens", 0)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_Sens", TRUE)
+
+
+/*A
+ * Initialiser la visualisation (liste des autoroutes)
+ * ---------------------------------------------------
+ */
+
+IF TCV_Init_Visu_3D (vl_fenetre) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> COM_ERR_VAL_INVAL
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Visualiser", FALSE)
+    }
+WEND
+
+
+DB_TIMER@ (vl_fenetre, 10)
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  vl_objet_selecte <> "timer_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    /*A
+     * Sur choix "Quitter", envoyer l'ordre d'arret a la visu 3D et terminer
+     * ---------------------------------------------------------------------
+     */
+
+    CASE "BP_Quitter"
+	NEW_TASK@ ("TCV_Exec_Visu_3D", IC3D_FIN_SESSION, NULL)
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur saisie de nouveaux criteres ou expiration du delai
+     * autoriser une nouvelle visualisation de la courbe
+     * ------------------------------------------------------
+     */
+
+    CASE "timer_"
+    CASE "BL_Autoroutes"
+    CASE "BO_Sens"
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Visualiser", FALSE)
+
+
+    /*A
+     * Sur choix "Heure Courante", proposer l'horodate de debut courante
+     * -----------------------------------------------------------------
+     */
+
+    CASE "BP_horohelp"
+	COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+				    "BS_Jour_Debut", "BS_Mois_Debut",
+				    "BS_Annee_Debut",
+				    "BS_Heure_Debut", "BS_Minute_Debut")
+
+
+    /*A
+     * Sur choix "Visualiser", verifier la validite des criteres
+     * saisis puis envoyer la demande au module de visualisation
+     * ---------------------------------------------------------
+     */
+
+    CASE "BP_Visualiser"
+	MACRO_WINS_BUSY@ ()
+	IF TCV_Visu_3D (vl_fenetre) = COM_OK
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_Visualiser", TRUE)
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation (listes des autoroutes).
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCV_Init_Visu_3D (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCV_Courbe_Trafic_3D
+*
+* FONCTION
+*   Initialise les valeurs de la liste des autoroutes.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_cr
+    VAR     vl_noms_sens
+
+
+vm_fichier_mesures = IC3D_REP_MES ++ "/" ++ IC3D_FIC_MES
+
+
+/*A
+ * Lancer le programme de visualisation 3D
+ * ---------------------------------------
+ */
+
+vl_cr = SHELL_COMMAND@ ("ic3d_lanc.x &")
+IF (vl_cr[0] <> 0) {
+    BEEP@ ()
+    INFO_MESSAGE@("Le lancement de la visualisation 3D a échoué")
+    RETURN (COM_NOK)
+}
+
+
+
+/*A
+ * Afficher la liste des autoroutes
+ * --------------------------------
+ */
+
+vm_l_autoroutes = SYSTEM_VAR@ (vg_les_autoroutes)
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Autoroutes",
+		     ARRAY_COLUMN@ (vm_l_autoroutes, TDO_NOM_AUTOROUTE))
+
+
+/*A
+ * Afficher la liste des sens de circulation (sauf "Inconnu")
+ * ----------------------------------------------------------
+ */
+
+vm_l_sens = XDC_SENS_SUD, XDC_SENS_NORD
+vl_noms_sens = XDC_LIB_SENS_SUD, XDC_LIB_SENS_NORD
+DB_CTRL_STRINGS@ (va_fenetre, "BO_Sens", vl_noms_sens)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Verifie la validite des criteres saisies, demande la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCV_Visu_3D (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les valeurs saisies.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCV_Courbe_Trafic_3D
+*
+* FONCTION
+*   Lit les valeurs saisies dans la fenetre d'identifiant indique en argument,
+*   verifie leur validite puis envoie la requete de visualisation.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TCV_station_RADT vl_l_stations		' Liste stations lue
+    VAR     vl_l_num_stations				' Liste numeros stations
+    VAR FORMAT TCV_mesure_RADT vl_t_mesures		' Liste de mesures lue
+
+    VAR     vl_l_mesures				' Liste mesures produite
+    VAR     vl_une_seule_station			' Indic. validite mesure
+
+    VAR     vl_date
+    VAR     vl_autoroute, vl_sens
+    VAR     vl_PR_debut, vl_PR_fin
+    VAR     vl_mesure
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     i, j
+
+
+/*A
+ * Lire l'horodate de debut et controler sa validite
+ * -------------------------------------------------
+ */
+
+vl_date = COM23_Horodate (va_fenetre, "BS_Jour_Debut", "BS_Mois_Debut",
+			    "BS_Annee_Debut","BS_Heure_Debut","BS_Minute_Debut")
+
+IF COM17_Difference_Dates (COM09_Date_Courante(), vl_date) < 1440 {
+    DB_CURSOR_IN_ENTRY@ (va_fenetre, "BS_Heure_Debut", FALSE)
+    ERROR@ (COM_ERR_DATE_INVAL,
+	"L'horodate doit etre antérieure à la date courante d'au moins 24 heures")
+}
+
+
+/*A
+ * Lire l'autoroute, le sens et les PR de debut et de fin
+ * puis controler la coherence des PR par rapport au sens
+ * ------------------------------------------------------
+ */
+
+vl_autoroute = DB_CTRL_GET_VALUE@ (va_fenetre, "BL_Autoroutes")
+vl_autoroute = vm_l_autoroutes[vl_autoroute].numero
+
+
+vl_sens = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_Sens")
+vl_sens = vm_l_sens[vl_sens]
+
+
+vl_PR_debut = COM26_Valeur_PR (va_fenetre, "BS_PR_Debut")
+vl_PR_fin = COM26_Valeur_PR (va_fenetre, "BS_PR_Fin")
+
+IF ITMA_TMC_coherence_pr (vl_autoroute, vl_PR_fin, vl_PR_debut, vl_sens) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Lire en base les donnees RADT correspondant aux criteres saisis
+ * ---------------------------------------------------------------
+ */
+
+vl_parametres[0].type = COM_Identifiant_Autoroute
+vl_parametres[0].data = vl_autoroute
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_PR
+vl_parametres[1].data = vl_PR_debut
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_PR
+vl_parametres[2].data = vl_PR_fin
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#DATETIME_
+vl_parametres[3].data = vl_date
+vl_parametres[3].output = FALSE
+
+IF COM50_DateHistorique(vl_date)
+{
+	IF COM41_SQL_Procedure_HIS (XZAS04_Graphe_3D,
+			    vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    		RETURN (COM_NOK)
+}
+ELSE
+{
+	IF COM05_SQL_Procedure (XZAS04_Graphe_3D,
+			    vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    		RETURN (COM_NOK)
+}
+
+
+/*A
+ * Construire la liste des mesures
+ * -------------------------------
+ */
+
+vl_l_stations = vl_resultats.select_results[0]
+vl_l_num_stations = ARRAY_COLUMN@ (vl_l_stations, TCV_NUMERO_STATION)
+
+vl_t_mesures = SUBARRAY@(vl_resultats.select_results[1], ARRAY_SIZE@(vl_l_stations))
+
+
+IF ARRAY_SIZE@ (vl_t_mesures) = 0 {
+    BEEP@ ()
+    INFO_MESSAGE@ ("Pas de données de mesures correspondant aux critères")
+    RETURN (COM_QUITTE)
+}
+
+
+
+vl_une_seule_station = TRUE
+FOR i = 0  TO ARRAY_SIZE@ (vl_t_mesures) - 1
+    j = ARRAY_INDEX@ (vl_l_num_stations, vl_t_mesures[i].num_station)
+    IF vl_t_mesures[i].num_station <> vl_t_mesures[0].num_station
+	vl_une_seule_station = FALSE
+
+    vl_date = COM18_Date_SGBD_Formatee (vl_t_mesures[i].date)
+
+    /*A
+     * Valuer a zero les mesures manquantes
+     * ------------------------------------
+     */
+
+    IF vl_t_mesures[i].mesure_Q = NULL {
+	vl_t_mesures[i].mesure_Q = 0
+	vl_t_mesures[i].validite_Q = XDC_RADT_INCONNU
+    }
+    IF vl_t_mesures[i].mesure_V = NULL {
+	vl_t_mesures[i].mesure_V = 0
+	vl_t_mesures[i].validite_V = XDC_RADT_INCONNU
+    }
+    IF vl_t_mesures[i].mesure_TO = NULL {
+	vl_t_mesures[i].mesure_TO = 0
+	vl_t_mesures[i].validite_TO = XDC_RADT_INCONNU
+    }
+
+    vl_mesure = SUBSTRING@ (vl_date, 1, 10),
+		   SUBSTRING@ (vl_date, 12, 2) ++ SUBSTRING@ (vl_date, 15, 2),
+		   vl_l_stations[j].PR,
+		   vl_t_mesures[i].mesure_Q,
+		   vl_t_mesures[i].validite_Q,
+		   vl_t_mesures[i].mesure_V,
+		   vl_t_mesures[i].validite_V,
+		   vl_t_mesures[i].mesure_TO,
+		   vl_t_mesures[i].validite_TO
+    vl_l_mesures[i] = ARRAY_TO_STRING@ (vl_mesure, ",")
+NEXT i
+
+
+IF vl_une_seule_station {
+    BEEP@ ()
+    INFO_MESSAGE@ ("Les données de deux stations de comptage au moins sont nécessaires")
+    RETURN (COM_QUITTE)
+}
+
+
+/*A
+ * Envoyer la demande de visualisation au module de visualisation 3D
+ * -----------------------------------------------------------------
+ */
+
+WRITE_ASCII_FILE@ (vm_fichier_mesures, vl_l_mesures)
+
+IF NEW_TASK@ ("TCV_Exec_Visu_3D", IC3D_LIRE_FICHIER, NULL) <> COM_OK
+    RETURN (COM_NOK)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+MACRO TCV_Exec_Visu_3D (va_fonction, va_arguments)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fonction       : Fonction a executer par le synoptique ;
+*   va_arguments      : Arguments de la fonction.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* VALEUR RETOURNEE    : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   Toute macro.
+*
+* FONCTION
+*   Effectue une connexion a la tache de visualisation 3D par communication RPC;
+*   Envoie ensuite une demande d'execution de la fonction indiquee avec les
+*   arguments indiques, puis clot la connexion.
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_retour_fonction, vl_statut
+
+
+ITMA_TPC_init_connection ("", IC3D_Socket_RPC)
+
+vl_statut = ITMA_TPC_appel_fct (va_fonction, va_arguments, vl_retour_fonction)
+
+ITMA_TPC_fin_connection ()
+
+IF vl_statut = XDC_OK
+    RETURN (COM_OK)
+ELSE RETURN (COM_NOK)
+
+ENDMACRO

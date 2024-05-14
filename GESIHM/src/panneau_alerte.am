@@ -1,0 +1,159 @@
+/*E*/
+/* Fichier : $Id: panneau_alerte.am,v 1.1 2002/12/24 16:48:06 gesconf Exp $      Release : $Revision: 1.1 $        Date : $Date: 2002/12/24 16:48:06 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE UTIL * FICHIER panneau_alerte.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*  panneau_alerte simplifie
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* cluchague	20/12/99	creation
+-------------------------------------------------------------------------------
+*/
+
+INCLUDE	"dbase_.am"
+INCLUDE	"app_ids_.am"				'pour récupérer le nom des appli Applix
+INCLUDE	"windows_.am"				'pour récupérer le nom des appli Applix
+
+DEFINE	C_MODULE	"MTOU"			' Nom du module
+DEFINE	CL_TRI_ALPHA	4			' tri par ordre alphabetique
+
+DEFINE	VUE_COMMUN	"VUES_Commun.elo"
+DEFINE	VUE_APPLIX	"CVUEM_ApplixData.elo"
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Creation d'une boite de dialogue pour permettre le  pilotage des panneaux d'alerte
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO panneau_alerte()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Appel depuis le menu principal
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR 	vl_exit_value
+	VAR	vl_la_fenetre_est_active
+	VAR 	vl_fenetre			 
+
+     VAR vl_liste_machines
+	VAR vl_indice
+     VAR vl_indice_action
+	VAR vl_fichier_commande
+	VAr vl_fichier_resultat
+      VAR vl_index
+      VAR vl_machine
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	RETURN
+}
+
+
+/*A
+ * Charger la fenetre "menu principal"
+ * ----------------------------------
+ */
+INSTALL_FILE@ ("/produits/migrazur/appliSD/exec/ITMA_TIE_fenetre_LCR.elo")
+vl_fenetre = DB_LOAD@ ("panneau_alerte")
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, -35)
+
+vl_la_fenetre_est_active = TRUE
+/*A boucle infinie de traitement des evenements*/
+WHILE vl_la_fenetre_est_active
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+
+	/*B si demande d'execution */
+	CASE "BP_valider"
+		MACRO_WINS_BUSY@()
+
+		/*recupere le panneau d'alerte */
+		vl_indice=DB_CTRL_GET_VALUE@(vl_fenetre,"BO_panneau")
+		vl_indice_action=DB_CTRL_GET_VALUE@(vl_fenetre,"BO_action")
+		If vl_indice=-1
+			INFO_MESSAGE@("Choisir d'abord un panneau")
+		ELSE
+		{		
+                        if ( vl_indice = 0 )
+                        {
+                          vl_fichier_resultat = "resultatFS.lcr"
+                          if ( vl_indice_action = 0 )
+                             vl_fichier_commande = "allumageFS.lcr"
+                          else
+                             vl_fichier_commande = "extinctionFS.lcr"
+                        }
+                        else if ( vl_indice = 1 )
+                        {
+                          vl_fichier_resultat = "resultat146.lcr"
+                          if ( vl_indice_action = 0 )
+                             vl_fichier_commande = "allumage146.lcr"
+                          else
+                             vl_fichier_commande = "extinction146.lcr"
+                        }
+                         else if ( vl_indice = 2 )
+                        {
+                          vl_fichier_resultat = "resultat148.lcr"
+                          if ( vl_indice_action = 0 )
+                             vl_fichier_commande = "allumage148.lcr"
+                          else
+                             vl_fichier_commande = "extinction148.lcr"
+                        }
+                       else if ( vl_indice = 3 )
+                        {
+                          vl_fichier_resultat = "resultat149.lcr"
+                          if ( vl_indice_action = 0 )
+                             vl_fichier_commande = "allumage149.lcr"
+                          else
+                             vl_fichier_commande = "extinction149.lcr"
+                        }
+                        vl_machine = "POLTM12"
+                        ITMA_TIE_XZEX01( 23 , 7 , vl_fichier_commande , vl_fichier_resultat ,  0 , 0 , 0 , vl_machine )
+                }
+		INFO_MESSAGE@("Commande executee")
+
+
+	CASE "BP_quitter"
+		RETURN
+	ENDCASE	
+
+WEND
+ENDMACRO

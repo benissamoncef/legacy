@@ -1,0 +1,382 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPA_form_creation.am,v 1.5 1996/01/30 10:40:04 gaborit Exp $      Release : $Revision: 1.5 $       Date : %G
+---------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPA * FICHIER ITMA_TPA_form_creation.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Affiche la liste des actions proposées a l'operateur par le SAD
+* permet au formateur de les refuser, de les accepter et de les commenter
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	15 jan 1994	: Creation						V1.1
+* Torregrossa	30 jan 1995	: modif repertoire de stockage des fichiers V 1.5
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+DEFINE	C_MODULE	"MTPA"			' Nom du module
+
+/*position des infos dans la structure XZAPT_plan_actions*/
+DEFINE	POS_LIBELLE	0
+DEFINE	POS_ORDRE		1
+DEFINE	POS_TYPE		2
+DEFINE	POS_DISTRICT	3
+DEFINE	POS_REAL		4
+
+
+FORMAT TPA_actions
+	libelle,
+	real
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Afficher la liste des actions 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPA_form_creation (va_appelant,FORMAT TPA_actions ta_actions,
+						ta_titres,ta_icones,ta_numeroFiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR vl_taille,vl_code
+	VAR FORMAT TPA_actions tl_actions	
+	VAR FORMAT TPA_actions tl_data
+	VAR tl_args,vl_indice,vl_index
+	VAR vl_message						' message receptionne d'un poke
+	VAR vl_sel
+	VAR vl_action
+	VAR vl_icone
+	VAR tl_icones
+	VAR tl_comment
+	VAR vl_horodate
+	VAR vl_fichier,vl_string
+	VAR vl_numero
+	VAR tl_listeFichiers
+	VAR vl_repertoire
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A
+ * Charger la fenetre 
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TPA_form_creation")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TPA_form_creation")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+/*A
+ * afficher les libelles des actions dans la boite avec une icone si realisable
+ */
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+MACRO_WINS_BUSY@()
+
+/*A recherche la solution associee a ce plan d'actions*/
+vl_numero=SYSTEM_VAR@(vg_numero_scenario)
+
+vl_horodate=SYSTEM_VAR@(vg_horodate_formation)
+vl_string=SUBSTRING@ (vl_horodate, 7, 4)++
+					SUBSTRING@ (vl_horodate, 4, 2)++
+					SUBSTRING@ (vl_horodate, 1, 2)++
+					SUBSTRING@ (vl_horodate, 12,2)++
+					SUBSTRING@ (vl_horodate, 15,2)++
+					SUBSTRING@ (vl_horodate, 18,2)
+
+/*A genere le nom du fichier a lire*/
+vl_fichier=SYSTEM_VAR@(vg_numero_scenario)++"_"++
+						vl_string++"_"++
+						"P"++"_"++
+						ta_numeroFiche[0]++"_"++
+						ta_numeroFiche[1]++".fmt"
+
+/*A recupere la liste des fichiers .fmt du repertoire*/
+vl_repertoire=SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_DYN
+tl_listeFichiers=FILE_SYSTEM_FILES@(vl_repertoire,"*.fmt",FALSE)
+
+/*A cherche si une solution a deja ete creee par le formateur*/
+vl_indice=ARRAY_INDEX@(tl_listeFichiers,vl_fichier)
+
+DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre,"TA_plan",25)
+/*A si non, affiche simplement la liste des actions*/
+IF (vl_indice=-1)
+{
+	tl_icones=ta_icones
+	DB_TABLE_SET_DATA@(vl_fenetre,"TA_plan",ta_actions,ta_titres,ta_icones)
+}
+ELSE
+{
+	/*A lecture du fichier solution*/
+	tl_actions=READ_ASCII_FILE@(vl_repertoire++vl_fichier)
+
+	/*A afficher le commentaire du formateur*/
+	DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_comment",
+					ARRAY_FROM_STRING@(tl_actions[0],MTAR_CAR_SEPAR))
+	tl_actions=ARRAY_DELETE@(tl_actions,0)
+
+	/*A afficher les actions du formateur avec les bonnes icones*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_actions)-1)
+		tl_data[vl_indice]=ARRAY_FROM_STRING@(tl_actions[vl_indice],
+											MTAR_CAR_SEPAR)
+		/*A recherche la bonne icone*/
+		IF (tl_data[vl_indice].real=0)
+			tl_icones[vl_indice]="pix_vous",""
+		ELSE IF (tl_data[vl_indice].real=1)
+			tl_icones[vl_indice]="pix_vous_refuse",""
+		ELSE IF (tl_data[vl_indice].real=2)
+			tl_icones[vl_indice]="pix_vous_fin",""
+	NEXT vl_indice
+	DB_TABLE_SET_DATA@(vl_fenetre,"TA_plan",tl_data,ta_titres,tl_icones)
+}
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_plan",TRUE)
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+
+
+						
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			MACRO_WINS_BUSY@()
+
+			/* A recupere les donnees affichees*/
+			tl_actions=DB_TABLE_GET_DATA@(vl_fenetre,"TA_plan")
+			tl_comment=DB_EDITBOX_GET_DATA@(vl_fenetre,"BE_comment")
+
+			/*A formatte ces donnees*/
+			tl_data[0]=ARRAY_TO_STRING@(tl_comment,MTAR_CAR_SEPAR)
+
+			FOR vl_indice=0 TO (ARRAY_SIZE@(tl_actions)-1)
+				tl_data[vl_indice+1]=ARRAY_TO_STRING@(tl_actions[vl_indice],
+											MTAR_CAR_SEPAR)
+			NEXT vl_indice
+
+			vl_horodate=SYSTEM_VAR@(vg_horodate_formation)
+			vl_string=SUBSTRING@ (vl_horodate, 7, 4)++
+					SUBSTRING@ (vl_horodate, 4, 2)++
+					SUBSTRING@ (vl_horodate, 1, 2)++
+					SUBSTRING@ (vl_horodate, 12,2)++
+					SUBSTRING@ (vl_horodate, 15,2)++
+					SUBSTRING@ (vl_horodate, 18,2)
+
+			/*A genere le nom du fichier a creer*/
+			vl_fichier=SYSTEM_VAR@(vg_numero_scenario)++"_"++
+						vl_string++"_"++
+						"P"++"_"++
+						ta_numeroFiche[0]++"_"++
+						ta_numeroFiche[1]++".fmt"
+			WRITE_ASCII_FILE@(vl_repertoire++vl_fichier,tl_data)
+
+			/*A je ferme le plan d'actions*/
+			DB_SEND_POKE@(COM_CANAL_MTPA,"FIN")
+
+			/*A je ferme la fiche main courante*/
+			DB_SEND_POKE@(COM_CANAL_MTMC)
+			RETURN
+
+		/*A appui sur la fleche vers le haut*/
+		CASE "BP_haut"
+			/*A si une ligne de definition est selectionnee*/
+			IF ((vl_sel++"")<>null)
+			{
+				/*A recupere la ligne courante*/
+				vl_action=tl_actions[vl_sel]
+				vl_icone=tl_icones[vl_sel]
+
+				/*A si ce n'est pas la premiere*/
+				IF (vl_sel)
+				{
+					/*A je la decale vers le haut*/
+					tl_actions[vl_sel]=tl_actions[vl_sel-1]
+					tl_actions[vl_sel-1]=vl_action
+
+					tl_icones[vl_sel]=tl_icones[vl_sel-1]
+					tl_icones[vl_sel-1]=vl_icone
+
+					/*A je mets a jour l'affichage*/
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_plan",tl_actions)
+					DB_TABLE_MARKER_PIXMAPS@(vl_fenetre,"TA_plan",0,tl_icones)
+
+					/*A je reselectionne la ligne deplacee*/
+					vl_sel=vl_sel-1
+					vl_indice[0]=vl_sel
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_plan",vl_indice)
+				}
+			}
+
+		/*A appui sur la fleche vers le bas*/
+		CASE "BP_bas"
+			/*A si une action est selectionnee*/
+			IF ((vl_sel++"")<>null)
+			{
+				/*A recupere la ligne courante*/
+				vl_action=tl_actions[vl_sel]
+				vl_icone=tl_icones[vl_sel]
+
+				/*A si ce n'est pas la derniere*/
+				IF (vl_sel<(ARRAY_SIZE@(tl_actions)-1))
+				{
+					/*A je la decale vers le bas*/
+					tl_actions[vl_sel]=tl_actions[vl_sel+1]
+					tl_actions[vl_sel+1]=vl_action
+
+					tl_icones[vl_sel]=tl_icones[vl_sel+1]
+					tl_icones[vl_sel+1]=vl_icone
+
+					/*A je mets a jour l'affichage*/
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_plan",tl_actions)
+					DB_TABLE_MARKER_PIXMAPS@(vl_fenetre,"TA_plan",0,tl_icones)
+
+					/*A je reselectionne la ligne deplacee*/
+					vl_sel=vl_sel+1
+					vl_indice[0]=vl_sel
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_plan",vl_indice)
+				}
+			}
+		/*A
+		* selection d'un element dans la liste des actions*/
+		CASE "TA_plan"
+			/*A
+			* je recupere les caracteristiques de l'element selectionne*/
+			vl_sel=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_plan")
+			vl_sel=vl_sel[0]
+
+			tl_actions=DB_TABLE_GET_DATA@(vl_fenetre,"TA_plan")
+
+		/*A choix de refuser*/
+		CASE "BP_refuser"
+			IF (vl_sel++"")<>null
+			{
+				tl_icones[vl_sel]="pix_vous_refuse",""
+				tl_actions[vl_sel][1]=1
+				DB_TABLE_SET_DATA@(vl_fenetre,"TA_plan",
+									tl_actions,ta_titres,tl_icones)
+			}
+
+		/*A choix d'accepter*/
+		CASE "BP_accepter"
+			IF (vl_sel++"")<>null
+			{
+				tl_icones[vl_sel]="pix_vous_fin",""
+				tl_actions[vl_sel][1]=2
+				DB_TABLE_SET_DATA@(vl_fenetre,"TA_plan",
+									tl_actions,ta_titres,tl_icones)
+			}
+
+		/*A choix de ne pas traiter l'action*/
+		CASE "BP_pas_traiter"
+			IF (vl_sel++"")<>null
+			{
+				tl_icones[vl_sel]="pix_vous",""
+				tl_actions[vl_sel][1]=2
+				DB_TABLE_SET_DATA@(vl_fenetre,"TA_plan",
+									tl_actions,ta_titres,tl_icones)
+			}
+
+		/*A
+		* reception d'un poke*/
+		CASE "poke_"
+			vl_code= DB_GET_POKE@(vl_fenetre)
+			CASE OF vl_code
+				/*A
+				* poke de fin*/
+				CASE COM_CANAL_FIN
+					RETURN				
+				
+			ENDCASE
+
+	ENDCASE
+			
+WEND
+ENDMACRO
+
+
+

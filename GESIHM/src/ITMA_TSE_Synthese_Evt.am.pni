@@ -1,0 +1,1168 @@
+/*E*/
+/* Fichier : $Id: ITMA_TSE_Synthese_Evt.am,v 1.31 2014/11/10 11:35:07 gesconf Exp $        Release : $Revision: 1.31 $        Date : $Date: 2014/11/10 11:35:07 $
+-------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------
+* MODULE ITMA_TSE * FICHIER ITMA_TSE_Synthese_Evt.am
+-------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Affiche la synthèse d'une fiche main courante
+*
+*   Cf. DCG 2.4.65
+*
+-------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou    27 Sep 1994 : Creation                                       V1.1
+* Lecrivain  02 Dec 1994 : Inclusion de xdc_ax.h depuis XDMICG            V1.2
+* Guilhou    27 Dec 1994 : repositionnement                               V1.5
+* Lecrivain  25 Avr 1995 : Ajout de l'impression                          V1.8
+* Lecrivain  22 Mai 1995 : Ajout des pictogrammes de config. des voies    V1.9
+* Lecrivain  02 Jun 1995 : Test de presence des voies pour visu config.   V1.10
+* Lecrivain  07 Jun 1995 : Appel direct de la FMC, verification droits    V1.11
+* Guillou    07 Aou 1995 : Ajout lignes de separations et affichage config V1.12
+* Torregrossa 09 Jun 1995 : Correction erreur de selection de ligne dans 
+*                          synthese    					  V1.13
+* Noel	     21 Sep 1995 : Introduction de la procédure commune 
+*				d'impression				  V1.14
+* Torregrossa 19 Oct 1995 : Modif test ligne --- pour version 4.1         V1.15 
+* Torregrossa 21 Nov 1995 : Modif presentant pictogrammes         V1.16
+* Torregrossa 30 Jan 1996 : Ajout ds interface d'appel aITMA_TMC_Fiche_Main_Courante
+*                        l'indicateur d'enrichissement V1.17
+* Torregrossa 18 Jui 1996 : Ajout test si fmc est close et purgee alors 
+*                           non enrichissable (V1.18)
+* Guilhou	05 sep 1996 : appel depuis la liste des FMC locales (RADT) V1.19
+* Guilhou	13 sep 1996 : griser le bouton consulter (RADT) V1.20
+* Torregrossa 25 Nov 1996 : Ajout affichage picto bau etroite V1.21 
+* Torregrossa 28 Avr 1998 : Executer la proc au CI si l'evt n'est local (1639) V1.22
+* Niepceron   03 Jul 1998 : Connexion a SQL_HIS (dem/1699) v1.24
+* JPL		22/02/07 : Homogeneisation arguments d'appel MTMC 1.26
+* JPL		31/10/07 : Ajout du bouton 'Ajout Commentaire' (DEM 722) 1.27
+* JPL		12/05/09 : Interdire la selection des lignes de fin d'evenement (DEM 881) 1.28
+* PNI		5/07/10	: La sélection de la dernière appelle la FMC avec la date de cloture (DEM940) 1.29
+* PNI		24/09/12 : impression manuelle de la synthèse 1.30 DEM1053
+* PNI		7/11/14	: synthèse evt sur CI (et non HIS) pour les postes RVA de Vedene DEM1103 1.31
+---------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"wp_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TMC.h"
+INCLUDE	"../inc/ITMA_TBR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzaec_ax.h"
+INCLUDE	"../inc/xzae02sp.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+DEFINE	C_MODULE	"MTSE"			' Nom du module
+
+
+
+/*A
+ * Definition des images digitalisees visualisant les configurations de voies
+ * --------------------------------------------------------------------------
+ */
+
+DEFINE	C_PICTO_INEXISTANT		"\\i(pix_neutre_16_16)"			' Pour cadrage
+DEFINE	C_PICTO_BAU_NORMALE		"\\i(pix_cadre_16_16)"
+DEFINE	C_PICTO_VOIE_BLOQUEE	"\\i(pix_croix_rouge_16_16)"
+DEFINE	C_PICTO_NEUTRALISEE		"\\i(pix_balise_16_16)"
+DEFINE	C_PICTO_BLOQ_NEUTRALISE	"\\i(pix_balise_barree_16_16)"
+DEFINE	C_PICTO_VOIE_NORMALE	"\\i(pix_fleche_haut_verte_16_16)"
+DEFINE	C_PICTO_VOIE_INVERSE	"\\i(pix_fleche_bas_bleue_16_16)"
+DEFINE	C_PICTO_VOIE_I_NORMALE	"\\i(pix_fleche_bas_verte_16_16)"
+DEFINE	C_PICTO_VOIE_I_INVERSE	"\\i(pix_fleche_haut_bleue_16_16)"
+DEFINE	C_PICTO_ETROIT_INEXISTANT	"\\i(pix_etroit_neutre_16_16)"	' Pour cadrage
+DEFINE	C_PICTO_ETROIT_BAU_NORMALE	"\\i(pix_etroit_cadre_16_16)"
+DEFINE	C_PICTO_ETROIT_VOIE_BLOQUEE	"\\i(pix_etroit_croix_rouge_16_16)"
+DEFINE	C_PICTO_ETROIT_NEUTRALISEE	"\\i(pix_etroit_balise_16_16)"
+DEFINE	C_PICTO_ETROIT_BLOQ_NEUTRALISE	"\\i(pix_etroit_balise_barree_16_16)"
+DEFINE	C_PICTO_ETROIT_VOIE_NORMALE	"\\i(pix_etroit_fleche_haut_verte_16_16)"
+DEFINE	C_PICTO_ETROIT_VOIE_INVERSE	"\\i(pix_etroit_fleche_bas_bleue_16_16)"
+DEFINE	C_PICTO_ETROIT_VOIE_I_NORMALE	"\\i(pix_etroit_fleche_bas_verte_16_16)"
+DEFINE	C_PICTO_ETROIT_VOIE_I_INVERSE	"\\i(pix_etroit_fleche_haut_bleue_16_16)"
+
+DEFINE	C_PICTO_SEPARATION		"\\i(pix_barreV_neutre_16_16)"
+
+DEFINE	W_PICTO_INEXISTANT		"pix_neutre_16_16.im"			' Pour cadrage
+DEFINE	W_PICTO_BAU_NORMALE		"pix_cadre_16_16.im"
+DEFINE	W_PICTO_VOIE_BLOQUEE	"pix_croix_rouge_16_16.im"
+DEFINE	W_PICTO_NEUTRALISEE		"pix_balise_16_16.im"
+DEFINE	W_PICTO_BLOQ_NEUTRALISE	"pix_balise_barree_16_16.im"
+DEFINE	W_PICTO_VOIE_NORMALE	"pix_fleche_haut_verte_16_16.im"
+DEFINE	W_PICTO_VOIE_INVERSE	"pix_fleche_bas_bleue_16_16.im"
+DEFINE	W_PICTO_VOIE_I_NORMALE	"pix_fleche_bas_verte_16_16.im"
+DEFINE	W_PICTO_VOIE_I_INVERSE	"pix_fleche_haut_bleue_16_16.im"
+
+DEFINE	W_PICTO_ETROIT_INEXISTANT		"pix_etroit_neutre_16_16.im"			' Pour cadrage
+DEFINE	W_PICTO_ETROIT_BAU_NORMALE		"pix_etroit_cadre_16_16.im"
+DEFINE	W_PICTO_ETROIT_VOIE_BLOQUEE	"pix_etroit_croix_rouge_16_16.im"
+DEFINE	W_PICTO_ETROIT_NEUTRALISEE		"pix_etroit_balise_16_16.im"
+DEFINE	W_PICTO_ETROIT_BLOQ_NEUTRALISE	"pix_etroit_balise_barree_16_16.im"
+DEFINE	W_PICTO_ETROIT_VOIE_NORMALE	"pix_etroit_fleche_haut_verte_16_16.im"
+DEFINE	W_PICTO_ETROIT_VOIE_INVERSE	"pix_etroit_fleche_bas_bleue_16_16.im"
+DEFINE	W_PICTO_ETROIT_VOIE_I_NORMALE	"pix_etroit_fleche_bas_verte_16_16.im"
+DEFINE	W_PICTO_ETROIT_VOIE_I_INVERSE	"pix_etroit_fleche_haut_bleue_16_16.im"
+
+DEFINE	W_PICTO_SEPARATION		"pix_barreV_neutre_16_16.im"
+
+DEFINE	W_LIGNE		"-------------------------------------------------------------------------------------------"
+DEFINE	C_LIGNE		"--------------------------------------------------------------------------------------------------------------------------------------------"
+
+DEFINE	C_MODELE_SYNTHESE	"ITMA_TSE_Synthese_Evt"	' Modele d'impression
+DEFINE	C_SOUS_REP_MODELES	COM_SOUS_REP_IHM		' Repertoire des modeles
+
+/*A
+ * position des infos des picto des pmv lus dans le fichier de config
+ * ------------------------------------------------------------------
+ */
+DEFINE	C_TRIGRAM_PICTO_PMV	3		' position du trigramme dans structure
+DEFINE	C_FICHIER_PICTO_PMV	1		' position du fichier du picto dans structure
+DEFINE	C_LIBELLE_PICTO_PMV	4		' position du libelle du picto dans structure
+
+/*A
+ * position des infos de la synthese
+ * ---------------------------------
+ */
+DEFINE	C_COL_BAU		6
+DEFINE	C_COL_BAU_I	11
+
+FORMAT TSE_Synthese
+	libelle,
+	horodate,
+	vr,
+	vm2,
+	vm1,
+	vl,
+	bau,
+	vr_i,
+	vm2_i,
+	vm1_i,
+	vl_i,
+	bau_i,
+	bau_etroite,
+	bau_i_etroite,
+	picto
+
+format DOC_FORMAT_
+    NAME,
+    DOCID,
+    ON_DISK,
+    SAVE_MODE,
+    GRP_ACCESS,
+    ALL_ACCESS,
+    WRITEABLE,
+    ORIG_REV,
+    NON_NATIVE
+
+
+    var NAME
+    var format DOC_FORMAT_ DOC_INFO
+
+
+VAR vm_l_picto_voies						' Liste de pictos des voies normales
+VAR vm_l_picto_voies_i						' Liste de pictos des voies inverses
+
+VAR vm_etat_fmc
+VAR vm_cloture_fmc
+VAR vm_modif_autorisee
+VAR vm_commentaire_autorise
+
+VAR tm_pictos,tm_pictos_i
+VAR tm_picto_pmv
+
+VAR vm_appel_pcs
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* afficher la synthèse d'une fiche main courante
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TSE_Synthese_Evt (va_appelant,FORMAT COM_Identifiant_FMC ta_numero_fiche, va_type)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_numero_fiche: numero de la fiche main courante
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+
+	VAR FORMAT TSE_Synthese tl_synthese
+	VAR FORMAT TMC_comment tl_comment
+	VAR FORMAT TSE_Synthese tl_nouv_synthese
+	VAR vl_horodate
+	VAR vl_fichier, vl_fichier_config_picto_pmv
+	VAR vl_cmd, vl_params
+	VAR vl_liste, vl_sel, i, j
+	VAR vl_indice,vl_picto
+	VAR vl_index
+	VAR FORMAT TSE_Synthese tl_commentaire
+	VAR tl_lignes
+	VAR tm_tab
+	VAR vl_repertoire_picto_pmv
+	VAR vl_site_local
+	VAR vl_enrichir
+	VAR vl_etat
+	VAR vl_menu
+	VAR vl_id_menu
+	VAR vl_cpt
+	var NAME
+    var FILENAME
+    var OBJECTNAME
+    var NAME_IN
+    var INFRAME
+    var CVTMACRO
+    var APPMACRO
+    var VIEW
+    var LASTSECTION
+    var SHRINKTOFIT
+    var DOCTYPE
+    var APPNAME
+    var PICTURE
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Synthese Evenement"
+ * ---------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TSE")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TSE_Synthese_Evt")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_synthese", TRUE)
+DB_CTRL_MONOSPACE@ (vl_fenetre, "BL_synthese", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_synthese", -1)
+
+DB_CTRL_GRAYED@(vl_fenetre,"BP_consulter",TRUE)
+DB_CTRL_GRAYED@(vl_fenetre,"BP_commentaire",TRUE)
+
+/*!!! La fonction d'ajout de commentaire est fournie par MTMC !!! */
+DB_CTRL_DISPLAY@ (vl_fenetre, "BP_commentaire", FALSE)
+
+/*A Le bouton "Quitter" est choisi par defaut */
+DB_CTRL_DEFAULT_BUTTON@(vl_fenetre,"BP_quitter",TRUE)
+
+/*si on appelle depuis le PC simplifie*/
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) {
+  /*je le memorise*/
+  vm_appel_pcs=TRUE
+}
+else
+  vm_appel_pcs=FALSE
+
+/*A
+ * Initialiser les tables de pictogrammes de configuration des picto des pmv
+ * -------------------------------------------------------------------------
+ */
+vl_repertoire_picto_pmv=SYSTEM_VAR@(vg_repertoire_migrazur) ++ COM_SOUS_REP_PICTOS 
+vl_fichier_config_picto_pmv=SYSTEM_VAR@(vg_repertoire_migrazur) ++ COM_SOUS_REP_PMV ++ COM_FICH_CONFIG_PICTO
+IF FILE_EXISTS@(vl_fichier_config_picto_pmv) = TRUE
+{
+	tl_lignes = READ_ASCII_FILE@(vl_fichier_config_picto_pmv)
+	tl_lignes = ARRAY_DELETE@(tl_lignes, 0)
+	FOR i=0 TO ARRAY_SIZE@(tl_lignes)- 1
+		tm_tab = ARRAY_FROM_STRING@(tl_lignes[i],",")
+		FOR j=0 TO ARRAY_SIZE@(tm_tab)- 1
+			tm_picto_pmv[i][j] = TRIM@(TABS_TO_SPACES@( tm_tab[j]))
+		NEXT j
+	NEXT i
+}
+ELSE tm_picto_pmv = NULL
+
+/*A
+ * Initialiser les tables de pictogrammes de configuration des voies
+ * -----------------------------------------------------------------
+ */
+
+vm_l_picto_voies[XDC_VOIE_SENS_NORMAL] = C_PICTO_VOIE_NORMALE
+vm_l_picto_voies[XDC_VOIE_SENS_INVERSE] = C_PICTO_VOIE_INVERSE
+vm_l_picto_voies[XDC_VOIE_BLOQUEE] = C_PICTO_VOIE_BLOQUEE
+vm_l_picto_voies[XDC_VOIE_NEUTRALISEE] = C_PICTO_NEUTRALISEE
+vm_l_picto_voies[XDC_VOIE_BLOQUEE_NEUTRALISEE] = C_PICTO_BLOQ_NEUTRALISE
+vm_l_picto_voies[XDC_VOIE_BAU_NORMALE] = C_PICTO_BAU_NORMALE
+
+vm_l_picto_voies[XDC_VOIE_SENS_NORMAL + XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_VOIE_NORMALE
+vm_l_picto_voies[XDC_VOIE_SENS_INVERSE + XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_VOIE_INVERSE
+vm_l_picto_voies[XDC_VOIE_BLOQUEE + XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_VOIE_BLOQUEE
+vm_l_picto_voies[XDC_VOIE_NEUTRALISEE + XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_NEUTRALISEE
+vm_l_picto_voies[XDC_VOIE_BLOQUEE_NEUTRALISEE + XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_BLOQ_NEUTRALISE
+vm_l_picto_voies[XDC_VOIE_BAU_NORMALE + XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_BAU_NORMALE
+
+vm_l_picto_voies_i[XDC_VOIE_SENS_NORMAL] = C_PICTO_VOIE_I_NORMALE
+vm_l_picto_voies_i[XDC_VOIE_SENS_INVERSE] = C_PICTO_VOIE_I_INVERSE
+vm_l_picto_voies_i[XDC_VOIE_BLOQUEE] = C_PICTO_VOIE_BLOQUEE
+vm_l_picto_voies_i[XDC_VOIE_NEUTRALISEE] = C_PICTO_NEUTRALISEE
+vm_l_picto_voies_i[XDC_VOIE_BLOQUEE_NEUTRALISEE] = C_PICTO_BLOQ_NEUTRALISE
+vm_l_picto_voies_i[XDC_VOIE_BAU_NORMALE] = C_PICTO_BAU_NORMALE
+
+vm_l_picto_voies_i[XDC_VOIE_SENS_NORMAL + XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_VOIE_I_NORMALE
+vm_l_picto_voies_i[XDC_VOIE_SENS_INVERSE + XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_VOIE_I_INVERSE
+vm_l_picto_voies_i[XDC_VOIE_BLOQUEE + XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_VOIE_BLOQUEE
+vm_l_picto_voies_i[XDC_VOIE_NEUTRALISEE + XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_NEUTRALISEE
+vm_l_picto_voies_i[XDC_VOIE_BLOQUEE_NEUTRALISEE + XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_BLOQ_NEUTRALISE
+vm_l_picto_voies_i[XDC_VOIE_BAU_NORMALE + XDC_VOIE_BAU_ETROITE] = C_PICTO_ETROIT_BAU_NORMALE
+
+
+tm_pictos[XDC_VOIE_SENS_NORMAL] = W_PICTO_VOIE_NORMALE
+tm_pictos[XDC_VOIE_SENS_INVERSE] = W_PICTO_VOIE_INVERSE
+tm_pictos[XDC_VOIE_BLOQUEE] = W_PICTO_VOIE_BLOQUEE
+tm_pictos[XDC_VOIE_NEUTRALISEE] = W_PICTO_NEUTRALISEE
+tm_pictos[XDC_VOIE_BLOQUEE_NEUTRALISEE] = W_PICTO_BLOQ_NEUTRALISE
+tm_pictos[XDC_VOIE_BAU_NORMALE] = W_PICTO_BAU_NORMALE
+
+tm_pictos[XDC_VOIE_SENS_NORMAL + XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_VOIE_NORMALE
+tm_pictos[XDC_VOIE_SENS_INVERSE + XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_VOIE_INVERSE
+tm_pictos[XDC_VOIE_BLOQUEE + XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_VOIE_BLOQUEE
+tm_pictos[XDC_VOIE_NEUTRALISEE + XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_NEUTRALISEE
+tm_pictos[XDC_VOIE_BLOQUEE_NEUTRALISEE + XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_BLOQ_NEUTRALISE
+tm_pictos[XDC_VOIE_BAU_NORMALE + XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_BAU_NORMALE
+
+tm_pictos_i[XDC_VOIE_SENS_NORMAL] = W_PICTO_VOIE_I_NORMALE
+tm_pictos_i[XDC_VOIE_SENS_INVERSE] = W_PICTO_VOIE_I_INVERSE
+tm_pictos_i[XDC_VOIE_BLOQUEE] = W_PICTO_VOIE_BLOQUEE
+tm_pictos_i[XDC_VOIE_NEUTRALISEE] = W_PICTO_NEUTRALISEE
+tm_pictos_i[XDC_VOIE_BLOQUEE_NEUTRALISEE] = W_PICTO_BLOQ_NEUTRALISE
+tm_pictos_i[XDC_VOIE_BAU_NORMALE] = W_PICTO_BAU_NORMALE
+
+tm_pictos_i[XDC_VOIE_SENS_NORMAL + XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_VOIE_I_NORMALE
+tm_pictos_i[XDC_VOIE_SENS_INVERSE + XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_VOIE_I_INVERSE
+tm_pictos_i[XDC_VOIE_BLOQUEE + XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_VOIE_BLOQUEE
+tm_pictos_i[XDC_VOIE_NEUTRALISEE + XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_NEUTRALISEE
+tm_pictos_i[XDC_VOIE_BLOQUEE_NEUTRALISEE + XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_BLOQ_NEUTRALISE
+tm_pictos_i[XDC_VOIE_BAU_NORMALE + XDC_VOIE_BAU_ETROITE] = W_PICTO_ETROIT_BAU_NORMALE
+
+
+/*A
+ * ligne de separation a ajouter
+ *-------------------------------
+ */
+tl_commentaire.libelle=C_LIGNE
+tl_commentaire.horodate=NULL
+tl_commentaire.vr=XDC_VOIE_INCONNUE
+tl_commentaire.vm1=XDC_VOIE_INCONNUE
+tl_commentaire.vm2=XDC_VOIE_INCONNUE
+tl_commentaire.vl=XDC_VOIE_INCONNUE
+tl_commentaire.bau=XDC_VOIE_INCONNUE
+tl_commentaire.vl_i=XDC_VOIE_INCONNUE
+tl_commentaire.vm1_i=XDC_VOIE_INCONNUE
+tl_commentaire.vm2_i=XDC_VOIE_INCONNUE
+tl_commentaire.vr_i=XDC_VOIE_INCONNUE
+tl_commentaire.bau_i=XDC_VOIE_INCONNUE
+
+/*A
+ * Recuperer la liste des fiches constituant la synthese et l'afficher
+ * -------------------------------------------------------------------
+ */
+
+tl_synthese = ITMA_TSE_Recup_Synthese (ta_numero_fiche)
+
+/* si pas de synthese : sortir */
+IF IS_NULL@(tl_synthese)
+	RETURN (COM_QUITTE)
+
+tl_nouv_synthese = tl_synthese
+vl_horodate = NULL
+vl_index=0
+FOR i = 0  TO ARRAY_SIZE@ (tl_synthese) - 1
+	IF (tl_synthese[i].horodate <> NULL)
+	IF (SUBSTRING@(tl_synthese[i].horodate,1,4) <> XDC_DATE_NULLE)
+	{
+		/* Memoriser la premiere date pour determiner le droit de commentaire */
+		IF IS_NULL@ (vl_horodate)
+			vl_horodate = COM18_Date_SGBD_Formatee (tl_synthese[i].horodate)
+
+		tl_nouv_synthese=ARRAY_INSERT@(tl_nouv_synthese, tl_commentaire, vl_index)
+		vl_liste[vl_index]=C_LIGNE
+
+		vl_index=vl_index+1
+
+		/* supprimer la possibilite de selection dans la synthese affichee */
+		/* des lignes de cause, consequences, commentaires et fin d'evenement */
+		IF (STRING_INDEX@(tl_nouv_synthese[vl_index].libelle, XZAEC_SYN_CAUSE) > 0) OR
+		   (STRING_INDEX@(tl_nouv_synthese[vl_index].libelle, XZAEC_SYN_CONSEQ) > 0) OR
+		   (STRING_INDEX@(tl_nouv_synthese[vl_index].libelle, TRIM@(XZAEC_SYN_COM)) > 0) OR
+		   (STRING_INDEX@(tl_nouv_synthese[vl_index].libelle, XZAEC_SYN_FINIE) > 0)
+		{
+			tl_nouv_synthese[vl_index].horodate = NULL
+		}
+		IF (STRING_INDEX@(tl_nouv_synthese[vl_index].libelle, XZAEC_SYN_FINIE) > 0) AND 
+                   (vm_etat_fmc= XDC_FMC_ETAT_CLOS )
+		{
+			tl_nouv_synthese[vl_index].horodate = vm_cloture_fmc
+		}
+	}
+
+	IF TSE_Voies_Decrites (tl_synthese[i]) {
+		vl_liste[vl_index] = TSE_Libelle_Evt_Et_Voies (tl_synthese[i])
+	} ELSE {
+		vl_liste[vl_index] = tl_synthese[i].libelle
+	}
+
+	IF NOT IS_NULL@(tl_synthese[i].picto) AND (tl_synthese[i].picto<>NULL) {
+		vl_liste[vl_index] = TSE_Libelle_Evt_Picto_PMV (tl_synthese[i])
+	}
+	vl_index=vl_index+1
+NEXT i
+
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_synthese", vl_liste)
+tl_synthese = tl_nouv_synthese
+
+/*A Determiner les droits de consultation des FMC */
+vm_modif_autorisee =
+	(vm_etat_fmc = XDC_FMC_ETAT_PREV  AND
+		COM04_Operateur_A_Le_Droit_De(XDC_FAM_PREVISION))  OR
+	((vm_etat_fmc = XDC_FMC_ETAT_CLOS OR vm_etat_fmc = XDC_FMC_ETAT_CLOS_PURGE) AND
+		COM04_Operateur_A_Le_Droit_De(XDC_FAM_MODIF_HISTORIQUE))
+
+/* L'ajout de commentaires n'est autorise que pour des FMC datant de moins d'un mois */
+vm_commentaire_autorise = FALSE
+IF ((vm_etat_fmc = XDC_FMC_ETAT_CLOS OR vm_etat_fmc = XDC_FMC_ETAT_CLOS_PURGE) AND
+    NOT IS_NULL@ (vl_horodate) AND
+    COM04_Operateur_A_Le_Droit_De (XDC_FAM_MODIF_HISTORIQUE))
+{
+	IF (COM50_DateHistorique (vl_horodate) = FALSE) {
+		vm_commentaire_autorise = TRUE
+	}
+}
+
+/*sur PC simplifie, aucun droit de modification*/
+IF vm_appel_pcs = TRUE {
+	vm_modif_autorisee = FALSE
+	vm_commentaire_autorise = FALSE
+}
+
+/*A Recuperation du site local */
+vl_site_local = SYSTEM_VAR@(vg_site)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+	DB_DISPLAY@(vl_fenetre)
+	DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+
+		/*A
+		* appui sur le bouton quitter*/
+		CASE "BP_quitter"
+			/*A Bye*/
+			RETURN (COM_QUITTE)
+
+
+		/*A
+		* demande d'impression*/
+		CASE "BP_imprimer"
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_imprimer", TRUE)
+			DB_DISPLAY@ (vl_fenetre)
+
+			/*B Ouvrir une fenetre ApplixWord non visible et charger le modele*/
+			WP_APPLICATION_DLG@ (NULL, TRUE)
+			WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+							C_SOUS_REP_MODELES ++ C_MODELE_SYNTHESE ++ ".aw")
+			WP_SET_DOC_VAR@ ("evenement", ta_numero_fiche.numero)
+			WP_GOTO_END@()
+			WP_TEXT_COURIER@()
+
+			/*B Se positionner a la table et ecrire chacune des lignes */
+			FOR i = 0  TO ARRAY_SIZE@ (tl_synthese) - 1
+				IF (tl_synthese[i].horodate = NULL) AND (tl_synthese[i].libelle = C_LIGNE)
+				{
+					WP_ENTER_TEXT@(W_LIGNE)
+					WP_ENTER_TEXT@ ("\n")
+				}
+				ELSE {
+					/* ajouter une ligne vide avant la ligne de localisation de l'evt */
+					IF TSE_Voies_Decrites (tl_synthese[i])
+						WP_ENTER_TEXT@ ("\n")
+					
+					/* imprimer le libelle du picto du pmv */
+					IF NOT IS_NULL@(tl_synthese[i].picto) AND (tl_synthese[i].picto<>NULL)
+					{
+						vl_picto = TSE_Libelle_picto_PMV(tl_synthese[i].picto)
+						WP_ENTER_TEXT@ (tl_synthese[i].libelle++" "++vl_picto)
+					}
+					ELSE	WP_ENTER_TEXT@ (tl_synthese[i].libelle)
+
+					/* imprimer la configuration des voies */
+					IF TSE_Voies_Decrites (tl_synthese[i]) {
+						WP_ENTER_TEXT@ ("	")
+						FOR vl_indice=C_COL_BAU_I TO (C_COL_BAU+1) STEP -1
+							IF (vl_indice=C_COL_BAU_I)
+								vl_picto = tm_pictos_i[tl_synthese[i] 
+										[vl_indice]+ XDC_VOIE_BAU_ETROITE * tl_synthese[i].bau_i_etroite]
+							ELSE	vl_picto = tm_pictos_i[tl_synthese[i] 
+												[vl_indice]]
+							IF (vl_picto<>null)
+								WP_LINK_EXT_AXBITMAP@( SYSTEM_VAR@ (vg_repertoire_migrazur)
+										++"fichiers/pic/"++vl_picto)
+							IF (vl_indice=C_COL_BAU_I)
+								WP_ENTER_TEXT@("  ")	
+						NEXT vl_indice
+
+						WP_LINK_EXT_AXBITMAP@(SYSTEM_VAR@ (vg_repertoire_migrazur)
+								++"fichiers/pic/"++W_PICTO_SEPARATION)
+
+						FOR vl_indice=(C_COL_BAU-4) TO C_COL_BAU
+							IF (vl_indice=C_COL_BAU)
+								vl_picto = tm_pictos[tl_synthese[i] 
+										[vl_indice] + XDC_VOIE_BAU_ETROITE * tl_synthese[i].bau_etroite]
+							ELSE	vl_picto = tm_pictos[tl_synthese[i] 
+												[vl_indice]]
+							IF (vl_picto<>null)
+								WP_LINK_EXT_AXBITMAP@(SYSTEM_VAR@ (vg_repertoire_migrazur)
+								++"fichiers/pic/"++vl_picto)
+							IF (vl_indice=C_COL_BAU-1)
+								WP_ENTER_TEXT@("  ")	
+						NEXT vl_indice
+						WP_ENTER_TEXT@ ("\n")
+					}
+					WP_ENTER_TEXT@ ("\n")
+				}
+			NEXT i
+
+			/*B Produire un fichier contenant le document en format PCL */
+			vl_fichier = C_MODELE_SYNTHESE ++ "_" ++SYSTEM_VAR@(vg_numero_poste)
+			COM36_Imprimer_Texte(vl_fichier)
+
+		/*A
+		* demande d'impression*/
+		CASE "BP_imprimer_partiel"
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_imprimer_partiel", TRUE)
+			DB_DISPLAY@ (vl_fenetre)
+			vl_cpt=0
+			INFRAME = 0
+    			CVTMACRO = null
+    			APPMACRO = null
+    			VIEW = null
+    			LASTSECTION = null
+    			SHRINKTOFIT = 0
+    			DOCTYPE = 201
+    			APPNAME = "Graphics_"
+    			PICTURE = -1
+
+    			DOC_INFO.DOCID = 0
+    			DOC_INFO.ON_DISK = -1
+    			DOC_INFO.SAVE_MODE = 11
+    			DOC_INFO.GRP_ACCESS = 2
+    			DOC_INFO.ALL_ACCESS = 0
+    			DOC_INFO.WRITEABLE = 0
+    			DOC_INFO.ORIG_REV = 610
+    			DOC_INFO.NON_NATIVE = 0
+
+			/*B Ouvrir une fenetre ApplixWord non visible et charger le modele*/
+
+			vl_menu = READ_DATA_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+                              COM_SOUS_REP_IHM ++ "itex_men_wp2.syn")
+			SET_SELECTIONS@ (vl_id_menu, vl_menu)
+			/*vl_menu = ITMA_TBR_Menu_Appli_Applix (TBR_MENU_WP_GEN)*/
+				WP_APPLICATION_DLG@ (vl_id_menu, FALSE)
+			
+			WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+							C_SOUS_REP_MODELES ++ C_MODELE_SYNTHESE ++ ".aw")
+			WP_SET_DOC_VAR@ ("evenement", ta_numero_fiche.numero)
+			WP_GOTO_END@()
+			WP_TEXT_COURIER@()
+
+			/*B Se positionner a la table et ecrire chacune des lignes */
+			FOR i = 0  TO ARRAY_SIZE@ (tl_synthese) - 1
+				IF (tl_synthese[i].horodate = NULL) AND (tl_synthese[i].libelle = C_LIGNE)
+				{
+					WP_ENTER_TEXT@(W_LIGNE)
+					WP_ENTER_TEXT@ ("\n")
+				}
+				ELSE {
+					/* ajouter une ligne vide avant la ligne de localisation de l'evt */
+					IF TSE_Voies_Decrites (tl_synthese[i])
+						WP_ENTER_TEXT@ ("\n")
+					
+					/* imprimer le libelle du picto du pmv */
+					IF NOT IS_NULL@(tl_synthese[i].picto) AND (tl_synthese[i].picto<>NULL)
+					{
+						vl_picto = TSE_Libelle_picto_PMV(tl_synthese[i].picto)
+						WP_ENTER_TEXT@ (tl_synthese[i].libelle++" "++vl_picto)
+					}
+					ELSE	WP_ENTER_TEXT@ (tl_synthese[i].libelle)
+
+					/* imprimer la configuration des voies */
+					IF TSE_Voies_Decrites (tl_synthese[i]) {
+						WP_ENTER_TEXT@ ("	")
+						FOR vl_indice=C_COL_BAU_I TO (C_COL_BAU+1) STEP -1
+							IF (vl_indice=C_COL_BAU_I)
+								vl_picto = tm_pictos_i[tl_synthese[i] 
+										[vl_indice]+ XDC_VOIE_BAU_ETROITE * tl_synthese[i].bau_i_etroite]
+							ELSE	vl_picto = tm_pictos_i[tl_synthese[i] 
+												[vl_indice]]
+							IF (vl_picto<>null) {
+								/*WP_LINK_EXT_AXBITMAP@( SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto)*/
+								Gr_application_dlg@
+								WP_GENERATE_NEW_OBJECT_NAME@
+								vl_picto= SUBSTRING@ (vl_picto,1,LEN@(vl_picto)-3)
+								IF NOT FILE_EXISTS@ (SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto++".ag") {
+								
+								NAME = SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto++".im"
+								GR_IMPORT_IM@(NAME)
+								DOC_INFO.NAME = SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto++".ag"
+								GR_SAVE_AS@(DOC_INFO)
+								vl_picto=vl_picto++".ag"
+
+								}
+    								FILENAME = SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto
+    								OBJECTNAME = "object"++vl_cpt
+info_message@("ajout01"++OBJECTNAME++" "++FILENAME)
+								/*if WP_OBJECT_IS_REFERENCED@(OBJECTNAME)<>TRUE {
+    								info_message@("ajout1:"++OBJECTNAME)*/ 
+								WP_ADD_OBJECT@(FILENAME,OBJECTNAME)
+								
+
+								NAME_IN = "object"++vl_cpt
+								vl_cpt=vl_cpt+1
+ 
+    WP_INSERT_EMBEDDED_OBJ_FIELD@(NAME_IN,INFRAME,CVTMACRO,APPMACRO,VIEW,LASTSECTION,SHRINKTOFIT,DOCTYPE,APPNAME,PICTURE)
+							}
+							IF (vl_indice=C_COL_BAU_I)
+								WP_ENTER_TEXT@("  ")	
+						NEXT vl_indice
+
+						/*WP_LINK_EXT_AXBITMAP@(SYSTEM_VAR@ (vg_repertoire_migrazur)
+								++"fichiers/pic/"++W_PICTO_SEPARATION)*/
+								Gr_application_dlg@
+								WP_GENERATE_NEW_OBJECT_NAME@
+								vl_picto=W_PICTO_SEPARATION
+								vl_picto= SUBSTRING@ (vl_picto,1,LEN@(vl_picto)-3)
+								IF NOT FILE_EXISTS@ (SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto++".ag") {
+								info_message@("ici")
+
+								NAME = SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto++".im"
+								info_message@("ici1")
+GR_IMPORT_IM@(NAME)
+								info_message@("ici2")
+DOC_INFO.NAME = SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto++".ag"
+								Ginfo_message@("ici3")
+R_SAVE_AS@(DOC_INFO)
+								vinfo_message@("ici4")
+vl_picto=vl_picto++".ag"
+								}
+
+
+								FILENAME = SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto
+    								OBJECTNAME = "object"++vl_cpt
+
+								/*if WP_OBJECT_IS_REFERENCED@(OBJECTNAME)<>TRUE {
+    								info_message@("ajout2:"++OBJECTNAME)*/
+								 WP_ADD_OBJECT@(FILENAME,OBJECTNAME)
+								
+
+								NAME_IN = "object"++vl_cpt
+								vl_cpt=vl_cpt+1
+    								
+    WP_INSERT_EMBEDDED_OBJ_FIELD@(NAME_IN,INFRAME,CVTMACRO,APPMACRO,VIEW,LASTSECTION,SHRINKTOFIT,DOCTYPE,APPNAME,PICTURE)
+						FOR vl_indice=(C_COL_BAU-4) TO C_COL_BAU
+							IF (vl_indice=C_COL_BAU)
+								vl_picto = tm_pictos[tl_synthese[i] 
+										[vl_indice] + XDC_VOIE_BAU_ETROITE * tl_synthese[i].bau_etroite]
+							ELSE	vl_picto = tm_pictos[tl_synthese[i] 
+												[vl_indice]]
+							IF (vl_picto<>null) {
+								/*WP_LINK_EXT_AXBITMAP@(SYSTEM_VAR@ (vg_repertoire_migrazur)
+								++"fichiers/pic/"++vl_picto)*/
+								Gr_application_dlg@
+								WP_GENERATE_NEW_OBJECT_NAME@
+
+								vl_picto= SUBSTRING@ (vl_picto,1,LEN@(vl_picto)-3)
+								IF NOT FILE_EXISTS@ (SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto++".ag") {
+								info_message@("ici")
+
+								NAME = SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto++".im"
+								info_message@("ici1")
+
+GR_IMPORT_IM@(NAME)
+								info_message@("ici2")
+DOC_INFO.NAME = SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto++".ag"
+								Ginfo_message@("ici3")
+R_SAVE_AS@(DOC_INFO)
+								vinfo_message@("ici4")
+vl_picto=vl_picto++".ag"
+								}
+
+    								FILENAME = SYSTEM_VAR@ (vg_repertoire_migrazur)++"fichiers/pic/"++vl_picto
+    								OBJECTNAME = "object"++vl_cpt
+info_message@("ajout02"++OBJECTNAME++" "++FILENAME)
+								/*if WP_OBJECT_IS_REFERENCED@(OBJECTNAME)<>TRUE {
+    								info_message@("ajout2:"++OBJECTNAME)*/
+								 WP_ADD_OBJECT@(FILENAME,OBJECTNAME)
+								
+
+								NAME_IN = "object"++vl_cpt
+								vl_cpt=vl_cpt+1
+     WP_INSERT_EMBEDDED_OBJ_FIELD@(NAME_IN,INFRAME,CVTMACRO,APPMACRO,VIEW,LASTSECTION,SHRINKTOFIT,DOCTYPE,APPNAME,PICTURE)
+								}
+							IF (vl_indice=C_COL_BAU-1)
+								WP_ENTER_TEXT@("  ")	
+						NEXT vl_indice
+						WP_ENTER_TEXT@ ("\n")
+					}
+					WP_ENTER_TEXT@ ("\n")
+				}
+			NEXT i
+			/*B Produire un fichier contenant le document en format PCL */
+			vl_fichier = C_MODELE_SYNTHESE ++ "_"++ta_numero_fiche.numero++"-"++ta_numero_fiche.cle++"_" ++SYSTEM_VAR@(vg_numero_poste)
+			WP_SAVE_RENAME@(vl_fichier++".aw")
+			WP_SAVE_RENAME@("/tmp/" ++ vl_fichier++".pcl")
+			/*WP_SET_VIEW_ONLY@(TRUE)*/
+			WP_SET_PRINT_CLASS@(COM_FORMAT_PCL)
+			WP_SET_PRINT_CLASS@(PostScript)
+			WP_EXPORT_RTF@(vl_fichier++".rtf")
+
+
+
+
+		/*A
+		* choix d'un element dans la table*/
+		CASE "BL_synthese"
+			vl_sel = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_synthese")
+	
+			/*A Si l'element ne peut pas etre selectionne*/
+			IF ((NOT vm_modif_autorisee) OR  (tl_synthese[vl_sel].horodate = NULL) OR
+				(SUBSTRING@(tl_synthese[vl_sel].horodate,1,4) = XDC_DATE_NULLE))
+
+			{
+				/*A tout deselectionner et griser le bouton consulter*/
+				DB_CTRL_VALUE@ (vl_fenetre, "BL_synthese", -1)
+				DB_CTRL_GRAYED@ (vl_fenetre, "BP_consulter", TRUE)
+				DB_CTRL_GRAYED@ (vl_fenetre, "BP_commentaire", TRUE)
+			}
+			ELSE
+			{
+				/*A sinon degriser le bouton consulter */
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_consulter",FALSE)
+				IF vm_commentaire_autorise {
+					DB_CTRL_GRAYED@ (vl_fenetre, "BP_commentaire", FALSE)
+				}
+
+				/*A et memoriser l'horodate de la fiche main courante*/
+				vl_horodate=tl_synthese[vl_sel].horodate
+			}
+
+
+
+
+		/*A
+		* appui sur le bouton Consulter*/
+		CASE "BP_consulter" 
+			/*A
+			* si la fmc est en prevision ou close*/
+			IF ((vm_etat_fmc=XDC_FMC_ETAT_PREV) OR
+				 (vm_etat_fmc=XDC_FMC_ETAT_CLOS_PURGE) OR
+				 (vm_etat_fmc=XDC_FMC_ETAT_CLOS))
+			{
+				IF SYSTEM_VAR@ (vg_fmc_ouverte)
+					INFO_MESSAGE@("Fermer d'abord la fiche main courante en cours")
+				ELSE
+				{
+					/*! si le site local n'est pas le site de creation de la fmc en prevision */
+					/*! ouverture de la fmc en consultation seulement                         */
+					IF vm_etat_fmc=XDC_FMC_ETAT_PREV AND 
+						ta_numero_fiche.cle <> vl_site_local
+					{
+						vl_enrichir= XDC_FAUX
+						vl_etat= vm_etat_fmc
+					}
+					ELSE IF vm_etat_fmc=XDC_FMC_ETAT_CLOS_PURGE
+					{
+						vl_enrichir= XDC_FAUX
+						vl_etat= XDC_FMC_ETAT_CLOS
+					}
+					ELSE {
+						vl_enrichir= XDC_VRAI
+						vl_etat= vm_etat_fmc
+					}
+
+
+					/*A Ouvrir la fiche main courante */
+					vl_params = NULL
+					vl_params[0] = va_type
+					vl_params[1] = vl_horodate
+					vl_params[2] = ta_numero_fiche.numero
+					vl_params[3] = ta_numero_fiche.cle
+
+					PEND_FOR_NEW_TASK@ ("ITMA_TMC_Fiche_Main_Courante",
+								"ITMA_TSE_Synthese_Evenement",
+								vl_params, vl_enrichir, vl_etat)
+				}
+			} ELSE {
+				INFO_MESSAGE@("La fiche est en cours de traitement sur un poste")				
+			}
+
+
+		/*A appui sur le bouton 'Ajouter Commentaire' */
+		CASE "BP_commentaire"
+			IF SYSTEM_VAR@ (vg_fmc_ouverte) {
+				INFO_MESSAGE@ ("Fermer d'abord la fiche main courante en cours")
+			} ELSE {
+				/*A Ajouter un commentaire */
+				tl_comment = PEND_FOR_NEW_TASK@ ("ITMA_TMC_ajout_comment",
+				                                    NULL, ta_numero_fiche, TMC_MODE_CLOS)
+			}
+	ENDCASE
+WEND
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* recupere la liste des fiches constituant la synthese
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TSE_Recup_Synthese (FORMAT COM_Identifiant_FMC ta_numero_fiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_numero_fiche: numero de la fiche main courante
+*
+* ARGUMENTS EN SORTIE : Synthese de la fiche
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR vl_msg, vl_site,vl_poste
+VAR vl_cr
+
+MACRO_WINS_BUSY@()
+
+	vl_site = SYSTEM_VAR@(vg_site)
+	vl_poste = SYSTEM_VAR@(vg_poste)
+
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = ta_numero_fiche.numero
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#INT4_
+	vl_parametres[1].data = ta_numero_fiche.cle
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type=SYB#INT4_
+	vl_parametres[2].output=TRUE
+
+	vl_parametres[3].type=SYB#DATETIME_
+	vl_parametres[3].output=TRUE
+
+	/* si on est sur un pc niveau 3 ou la fmc n'est pas locale au site */
+	/* alors la synthese est effectuee en base historique */
+	IF (vl_site <> XDC_CI) AND ((vm_appel_pcs) OR (ta_numero_fiche.cle <> vl_site)) {
+		vl_cr = COM41_SQL_Procedure_HIS (XZAE02_Synthese_Fmc,
+		                                    vl_parametres, vl_resultats, C_MODULE)
+	}
+	ELSE
+	{
+		IF (vl_site= XDC_CI) AND (vl_poste<> "PORVAV1") and (vl_poste<>"PORVAV2")
+		{
+			vl_cr = COM41_SQL_Procedure_HIS (XZAE02_Synthese_Fmc,
+			                                    vl_parametres, vl_resultats, C_MODULE)
+		}
+		ELSE
+		{
+			vl_cr = COM05_SQL_Procedure (XZAE02_Synthese_Fmc,
+			                                vl_parametres, vl_resultats, C_MODULE)
+		}
+	}
+
+	IF vl_cr <> COM_OK
+	{
+		INFO_MESSAGE@("Erreur en base de données lors de la génération de la synthèse")
+		RETURN (NULL)
+	}
+
+	IF vl_resultats.status <> XDC_OK {
+		CASE OF (vl_resultats.status)
+			CASE XDC_PAS_SYN
+				vl_msg="Pas de synthèse... L'événement n'a jamais été validé"
+
+			DEFAULT
+				vl_msg="Une erreur est survenue. La synthèse n'a pu être produite complètement"
+		ENDCASE
+
+		INFO_MESSAGE@(vl_msg)
+		RETURN (NULL)
+	}
+
+	/* etat de la fmc */
+	vm_etat_fmc=vl_resultats.return_parameters[0]
+	vm_cloture_fmc=vl_resultats.return_parameters[1]
+
+	RETURN (vl_resultats.select_results[0])
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Rechercher le libelle du picto d'une action PMV .
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TSE_Libelle_Picto_PMV ( va_picto)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_picto            : trigramme du picto
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Le libelle representant le trigramme
+*
+* CONDITION D'UTILISATION
+*   ITMA_TSE_Synthese_Evt
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+	VAR	vl_index
+
+vl_index = ARRAY_INDEX@(ARRAY_COLUMN@( tm_picto_pmv, C_TRIGRAM_PICTO_PMV), va_picto)
+
+IF vl_index > -1
+	RETURN (tm_picto_pmv[vl_index][C_LIBELLE_PICTO_PMV])
+ELSE	RETURN (XDC_CHAINE_VIDE)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Construit et retourne le libelle d'une action PMV de l'evenement indique,  
+* contenant le pictogramme d'un pmv.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TSE_Libelle_Evt_Picto_PMV (FORMAT TSE_Synthese ta_evt)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   ta_evt            : Informations evenement brutes (libelle, config. voies, picto)
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Le libelle construit
+*
+* CONDITION D'UTILISATION
+*   ITMA_TSE_Synthese_Evt
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+	VAR	vl_index
+
+vl_index = ARRAY_INDEX@(ARRAY_COLUMN@( tm_picto_pmv, C_TRIGRAM_PICTO_PMV), ta_evt.picto)
+
+IF vl_index > -1
+	RETURN (FORMAT@ ("%-55s", ta_evt.libelle) ++ "\\i("++tm_picto_pmv[vl_index][C_FICHIER_PICTO_PMV]++")")
+ELSE	RETURN (FORMAT@ ("%-55s", ta_evt.libelle))
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Construit et retourne le libelle de l'evenement indique, contenant les
+*  pictogrammes de description des voies.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TSE_Libelle_Evt_Et_Voies (FORMAT TSE_Synthese ta_evt)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   ta_evt            : Informations evenement brutes (libelle, config. voies)
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Le libelle construit
+*
+* CONDITION D'UTILISATION
+*   ITMA_TSE_Synthese_Evt
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_voies
+	VAR	i
+
+/*A
+ * Construire la liste des configurations des voies de sens inverse
+ * ----------------------------------------------------------------
+ */
+
+FOR i = C_COL_BAU_I  TO (C_COL_BAU+1)  STEP -1
+	CASE OF ta_evt[i]
+	CASE XDC_VOIE_INCONNUE, XDC_VOIE_INEXISTANTE
+		vl_voies = C_PICTO_INEXISTANT ++ vl_voies
+
+	DEFAULT
+	IF i = C_COL_BAU_I
+		vl_voies = vl_voies ++ vm_l_picto_voies_i[ta_evt[i] + 
+						ta_evt.bau_i_etroite * XDC_VOIE_BAU_ETROITE]
+	ELSE	vl_voies = vl_voies ++ vm_l_picto_voies_i[ta_evt[i]]
+	ENDCASE
+
+	/* Distinguer la BAU des autres voies */
+	IF i = C_COL_BAU_I
+		vl_voies = vl_voies ++ "  "
+NEXT i
+
+
+/*A
+ * Ajouter la separation puis les configurations des autres voies
+ * --------------------------------------------------------------
+ */
+
+vl_voies = vl_voies ++ C_PICTO_SEPARATION
+
+FOR i = (C_COL_BAU-4)  TO C_COL_BAU
+	CASE OF ta_evt[i]
+	CASE XDC_VOIE_INCONNUE, XDC_VOIE_INEXISTANTE
+		NOTHING
+
+	DEFAULT
+	IF i = C_COL_BAU
+		vl_voies = vl_voies ++ vm_l_picto_voies[ta_evt[i] + 
+						ta_evt.bau_etroite * XDC_VOIE_BAU_ETROITE]
+	ELSE	vl_voies = vl_voies ++ vm_l_picto_voies[ta_evt[i]]
+	ENDCASE
+
+	/* Distinguer la BAU des autres voies */
+	IF i = C_COL_BAU - 1
+		vl_voies = vl_voies ++ "  "
+NEXT i
+
+
+/*A
+ * Ajouter les configurations de voies au libelle, formate pour les aligner
+ * ------------------------------------------------------------------------
+ */
+
+RETURN (FORMAT@ ("%-90s", ta_evt.libelle) ++ vl_voies)
+
+ENDMACRO
+
+
+
+MACRO TSE_Voies_Decrites (FORMAT TSE_Synthese ta_evt)
+
+RETURN
+	((ta_evt.vl <> XDC_VOIE_INCONNUE AND ta_evt.vl <> XDC_VOIE_INEXISTANTE) OR
+	 (ta_evt.vr <> XDC_VOIE_INCONNUE AND ta_evt.vr <> XDC_VOIE_INEXISTANTE) OR
+	 (ta_evt.vl_i <> XDC_VOIE_INCONNUE AND ta_evt.vl_i <> XDC_VOIE_INEXISTANTE) OR
+	 (ta_evt.vr_i <> XDC_VOIE_INCONNUE AND ta_evt.vr_i <> XDC_VOIE_INEXISTANTE))
+
+ENDMACRO

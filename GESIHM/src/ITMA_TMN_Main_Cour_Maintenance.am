@@ -1,0 +1,780 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMN_Main_Cour_Maintenance.am,v 1.17 2013/01/29 10:59:00 pc2dpdy Exp $      Release : $Revision: 1.17 $        Date : $Date: 2013/01/29 10:59:00 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TMN * FICHIER ITMA_TMN_Main_Cour_Maintenance.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Main Courante Maintenance.
+*
+*   Cf. DCG 2.4.53
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 09 Jan 1995	: Creation                                        V1.1
+* Lecrivain 10 Jan 1995	: Ajout "Modifier" et "Supprimer" alarme          V1.5
+* Lecrivain 22 Fev 1995	: Suppression modif. commentaire                  V1.7
+* Lecrivain 09 Mar 1995	: Ajout visualisation du nombre d'apparitions     V1.8
+* Lecrivain 29 Mar 1995	: Modif. interface EasyCam                   V1.9, 1.10
+* Lecrivain 13 Avr 1995	: Transmission du type d'alarme a EasyCam          1.11
+* Lecrivain 30 Mai 1995	: Forcage suppression alarme active apres confirm. 1.12
+* Torregrossa 29 Aou 1995	: Modif appel a la creation de dt 1.13
+* Guilhou 07 Mai 1996   : Ajout nom operateur qui a acquitte DEM/919 V1.14
+* Guilhou 19 Sep 1996 	: plus de supprimer sur pc simplifie degrade (RADT) V1.15
+* JP	22/02/12 : Suppression : aussi fichier semaphore alarme sur le POLT (DEM 1020)  1.16
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_TCM.h"
+INCLUDE "GESIHM/inc/xzao05sp.h"
+
+INCLUDE	"../inc/ITMA_TCM.h"
+INCLUDE "../inc/xzam02sp.h"
+INCLUDE "../inc/xzam03sp.h"
+INCLUDE "../inc/xzam05sp.h"
+INCLUDE "../inc/xzam10sp.h"
+
+
+
+DEFINE	C_MODULE	"MTMN"				' Nom du module
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+DEFINE	C_LIB_DATE_HORS_BORNES	"La date de fin prévue est hors bornes"
+DEFINE	C_LIB_CREATION_DT	"Création de demande de travaux erronée"
+DEFINE	C_LIB_EQUIP_INCONNU	"Equipement non connu du logiciel de maintenance"
+DEFINE	C_LIB_CONFIRM_SUP_ACTIV	"Cette alarme est active. Voulez-vous vraiment la supprimer ?"
+
+
+
+/*A
+ * Definition du delai maximal pour une demande de travaux
+ * -------------------------------------------------------
+ */
+
+DEFINE	C_DELAI_MAXIMUM		999
+
+
+
+/*A
+ * Definition du type d'un identifiant de demande de travaux
+ * ---------------------------------------------------------
+ */
+
+DEFINE	TMN_Identifiant_DT	SYB#INT4_
+
+
+
+VAR	vm_date_apparition			' Date 1ere apparition alarme
+VAR	vm_etat_alarme				' Etat active ou non de l'alarme
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation de la main courante maintenance d'une alarme.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMN_Main_Cour_Maintenance (va_appelant,
+				    FORMAT COM_Identifiant_Alarme va_alarme,
+				    va_type_equip, va_nom_equip, va_type_alarme,
+				    va_etat, va_urgence, va_acquittee,va_operateur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*  va_alarme          : Identifiant de l'alarme ;
+*  va_type_equip      : Type de l'equipement en alarme ;
+*  va_nom_equip       : Nom de l'equipement en alarme ;
+*  va_type_alarme     : Nom du type d'alarme ;
+*  va_etat            : Libelle de l'etat de l'alarme ;
+*  va_urgence         : Libelle du niveau d'urgence de l'alarme ;
+*  va_acquittee       : Indicateur d'acquittement.
+*  va_id_DT	      : identifiant de la DT creee.
+*  va_operateur	      : Operateur qui a acquitte l alarme
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_QUITTE sur terminaison de la visualisation ;
+*			COM_SUPPRIME sur action de suppression de l'alarme ;
+*			COM_NOK en cas de probleme lors de l'execution.
+*
+* CONDITION D'UTILISATION
+*  Selection d'une alarme dans la liste des alarmes (voir MTLM).
+*
+* FONCTION
+*  Lit en base de donnees et visualise les informations sur l'alarme indiquee
+*  en argument.
+*   Permet la creation d'une demande de travaux sur l'equipement en alarme.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_maint			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_delai				' Delai de fin de travaux
+    VAR     vl_id_DT				' Identifiant demande de travaux
+    VAR     vl_date, vl_symptome
+    VAR     vl_confirme, vl_statut
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Main Courante Maintenance"
+ * ----------------------------------------------
+ */
+
+vl_fenetre_maint = DB_LOAD@ ("ITMA_TMN")
+DB_WINDOW_REMAIN@ (vl_fenetre_maint, TRUE)
+
+DB_XPOS@ (vl_fenetre_maint, 0)
+DB_YPOS@ (vl_fenetre_maint, 93)
+COM27_Agrandir_Fenetre (vl_fenetre_maint, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+COM02_Attacher_Aide (vl_fenetre_maint, "ITMA_TMN_Main_Cour_Maintenance")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_maint, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques des objets graphiques
+ * Si l'alarme est active alors inhiber sa suppression
+ * ---------------------------------------------------
+ */
+
+DB_CTRL_TITLE@ (vl_fenetre_maint, "LI_Type_Equipement", va_type_equip)
+
+DB_CTRL_TITLE@ (vl_fenetre_maint, "LI_Nom_Equipement", va_nom_equip)
+
+DB_CTRL_TITLE@ (vl_fenetre_maint, "LI_Type_Alarme", va_type_alarme)
+
+DB_CTRL_TITLE@ (vl_fenetre_maint, "LI_Etat", va_etat)
+
+DB_CTRL_TITLE@ (vl_fenetre_maint, "LI_Urgence", va_urgence)
+
+DB_CTRL_TITLE@ (vl_fenetre_maint, "LI_Acquittement", va_acquittee++" "++va_operateur)
+
+
+/*sur pc simplifie en mode degrade*/
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) and (SYSTEM_VAR@(vg_comm_CI)<>COM_OK) {
+  DB_CTRL_GRAYED@(vl_fenetre_maint,"BP_Supprimer",TRUE)
+  DB_CTRL_GRAYED@(vl_fenetre_maint,"BP_Creer_DT",TRUE)
+}
+
+/*A
+ * Initialiser la visualisation (champs de la fiche alarme)
+ * --------------------------------------------------------
+ */
+
+IF TMN_Init_Visualisation (vl_fenetre_maint, va_alarme) <> COM_OK
+{
+	vl_statut[0]=COM_NOK
+    RETURN (vl_statut)
+}
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_maint)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_maint)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "BP_Quitter"
+	vl_statut[0] = COM_QUITTE
+	vl_la_fenetre_est_active = FALSE
+
+
+    CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre_maint)
+	CASE COM_CANAL_FIN
+	    vl_statut[0] = COM_QUITTE
+	    vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    /*A
+     * Sur choix "Supprimer", demander la suppression et si l'operation se
+     * deroule correctement, terminer en retournant le compte-rendu adequat
+     * --------------------------------------------------------------------
+     */
+
+    CASE "BP_Supprimer"
+	if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) and (SYSTEM_VAR@(vg_comm_CI)<>COM_OK) {
+	  INFO_MESSAGE@(C_LIB_PERTE_CI)
+	  DB_CTRL_GRAYED@(vl_fenetre_maint,"BP_Supprimer",TRUE)
+  	  DB_CTRL_GRAYED@(vl_fenetre_maint,"BP_Creer_DT",TRUE)
+	}
+	else {
+	/*A
+	 * Si l'alarme est active, demander confirmation
+	 * ---------------------------------------------
+	 */
+
+	IF vm_etat_alarme = TCM_ETAT_ACTIVE
+	    vl_confirme = PEND_FOR_NEW_TASK@ ("ITMA_TCF_Demande_Confirmation",
+						C_LIB_CONFIRM_SUP_ACTIV)
+	ELSE vl_confirme = COM_OK
+
+	IF vl_confirme = COM_OK {
+	    IF TMN_Supprimer_Alarme (va_alarme) = COM_OK {
+		TMN_Supprimer_Semaphore_Alarme (va_alarme)
+		vl_statut[0] = COM_SUPPRIME
+		vl_la_fenetre_est_active = FALSE
+	    }
+	}
+	}
+
+    /*A
+     * Sur choix "Demande de Travaux", verifier qu'une date valide
+     * est saisie pour delai puis creer la demande de travaux et si la
+     * creation est correcte, associer la demande de travaux a l'alarme
+     * ----------------------------------------------------------------
+     */
+
+    CASE "BP_Creer_DT"
+	if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) and (SYSTEM_VAR@(vg_comm_CI)<>COM_OK) {
+	  INFO_MESSAGE@(C_LIB_PERTE_CI)
+	  DB_CTRL_GRAYED@(vl_fenetre_maint,"BP_Supprimer",TRUE)
+  	  DB_CTRL_GRAYED@(vl_fenetre_maint,"BP_Creer_DT",TRUE)
+	}
+	MACRO_WINS_BUSY@()
+/*! ****** Ces informations (delai et symptome) ne sont plus saisies ici ******
+	vl_date = COM23_Horodate (vl_fenetre_maint, "BS_Jour_Fin",
+				     "BS_Mois_Fin", "BS_Annee_Fin", NULL, NULL)
+	vl_delai = COM17_Difference_Dates (vl_date, COM09_Date_Courante ())
+	vl_delai = (vl_delai + 1440) \ 1440
+	IF vl_delai < 0  OR  vl_delai >= C_DELAI_MAXIMUM
+	    ERROR@ (C_ERR_IHM, C_LIB_DATE_HORS_BORNES)
+	vl_symptome = DB_CTRL_GET_VALUE@ (vl_fenetre_maint, "BS_Symptome")
+******************************************************************************/
+	vl_statut = MTMA_TDT_Creer_DT (va_alarme.num_type_equip,
+					  va_alarme.num_equip,
+					  vm_date_apparition,
+					  0,			' vl_delai,
+					  va_type_alarme,	' vl_symptome,
+					  SYSTEM_VAR@ (vg_operateur),
+					DB_CTRL_GET_TITLE@ (vl_fenetre_maint, "LI_Commentaire"),
+					  vl_id_DT)
+
+	IF vl_statut = COM_REFUSE
+	    ERROR@ (C_ERR_IHM, C_LIB_EQUIP_INCONNU)
+	IF vl_statut = COM_NOK
+	    ERROR@ (C_ERR_IHM, C_LIB_CREATION_DT)
+
+	DB_CTRL_GRAYED@ (vl_fenetre_maint, "BP_Creer_DT", TRUE)
+	TMN_Associer_DT (va_alarme, vl_id_DT)
+
+	vl_statut[0] = COM_VALIDE
+	vl_statut[1] = vl_id_DT
+
+	vl_la_fenetre_est_active = FALSE
+    ENDCASE
+WEND
+
+RETURN (vl_statut)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la fiche alarme.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMN_Init_Visualisation (va_fenetre, FORMAT COM_Identifiant_Alarme va_alarme)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_alarme         : Identifiant de l'alarme.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMN_Main_Cour_Maintenance
+*
+* FONCTION
+*   Lit en base de donnees et affiche les champs de la fiche de l'alarme
+*   indiquee en argument.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+/*A
+ * Lire la fiche alarme
+ * --------------------
+ */
+
+vl_parametres[0].type = TCM_Identifiant_Type_Alarme
+vl_parametres[0].data = va_alarme.num_type_alarme
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Type_Equip
+vl_parametres[1].data = va_alarme.num_type_equip
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Equipement
+vl_parametres[2].data = va_alarme.num_equip
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#DATETIME_			' Date 1ere apparition
+vl_parametres[3].output = TRUE
+
+vl_parametres[4].type = SYB#DATETIME_			' Date 1ere disparition
+vl_parametres[4].output = TRUE
+
+vl_parametres[5].type = SYB#DATETIME_			' Date dernier changt.
+vl_parametres[5].output = TRUE
+
+vl_parametres[6].type = SYB#INT2_			' Nombre d'apparitions
+vl_parametres[6].output = TRUE
+
+vl_parametres[7].type = SYB#BIT_			' Etat
+vl_parametres[7].output = TRUE
+
+vl_parametres[8].type = SYB#CHAR_			' Commentaire
+vl_parametres[8].output = TRUE
+
+vl_parametres[9].type = TMN_Identifiant_DT		' Id. demande de travaux
+vl_parametres[9].output = TRUE
+
+vl_parametres[10].type = SYB#INT4_			' Nb. total apparitions
+vl_parametres[10].output = TRUE
+
+
+IF COM05_SQL_Procedure (XZAM02_Lire_Fiche_Alarme,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+vm_date_apparition = COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[0])
+DB_CTRL_TITLE@ (va_fenetre, "LI_Date_Prem_Apparition", vm_date_apparition)
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Date_Prem_Disparition",
+		   COM18_Date_SGBD_Formatee (vl_resultats.return_parameters[1]))
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Date_Dernier_Chang",
+		   COM18_Date_SGBD_Formatee (vl_resultats.return_parameters[2]))
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Nombre_Apparitions",
+		   vl_resultats.return_parameters[3])
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Nombre_Total_Apparitions",
+		   vl_resultats.return_parameters[7])
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Commentaire", vl_resultats.return_parameters[5])
+
+vm_etat_alarme = vl_resultats.return_parameters[4]
+
+
+/*A
+ * Si une demande de travaux a deja ete faite, inhiber la demande
+ * --------------------------------------------------------------
+ */
+
+IF NOT IS_NULL@ (vl_resultats.return_parameters[6])
+    DB_CTRL_GRAYED@ (va_fenetre, "BP_Creer_DT", TRUE)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Associe une demande de travaux a une fiche alarme.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMN_Associer_DT (FORMAT COM_Identifiant_Alarme va_alarme, va_id_DT)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_alarme         : Identifiant de l'alarme ;
+*   va_id_DT          : Identifiant de la demande de travaux.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMN_Main_Cour_Maintenance
+*
+* FONCTION
+*   Execute la requete adequate pour associer la demande de travaux
+*   d'identifiant indique a l'alarme indiquee en argument.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TCM_Identifiant_Type_Alarme
+vl_parametres[0].data = va_alarme.num_type_alarme
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Type_Equip
+vl_parametres[1].data = va_alarme.num_type_equip
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Equipement
+vl_parametres[2].data = va_alarme.num_equip
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = TMN_Identifiant_DT
+vl_parametres[3].data = va_id_DT
+vl_parametres[3].output = FALSE
+
+
+IF COM05_SQL_Procedure (XZAM10_Associer_Demande_Trav,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Supprime une fiche alarme.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMN_Supprimer_Alarme (FORMAT COM_Identifiant_Alarme va_alarme)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_alarme         : Identifiant de l'alarme.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMN_Main_Cour_Maintenance
+*
+* FONCTION
+*   Execute la requete adequate pour supprimer l'alarme d'identifiant indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TCM_Identifiant_Type_Alarme
+vl_parametres[0].data = va_alarme.num_type_alarme
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Type_Equip
+vl_parametres[1].data = va_alarme.num_type_equip
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Equipement
+vl_parametres[2].data = va_alarme.num_equip
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#BIT_
+vl_parametres[3].data = XDC_VRAI
+vl_parametres[3].output = FALSE
+
+
+IF COM05_SQL_Procedure (XZAM05_Supprimer_Fiche_Alarme,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Supprime le fichier semaphore de l'alarme sur le poste maitre de l'equipement
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMN_Supprimer_Semaphore_Alarme (FORMAT COM_Identifiant_Alarme va_alarme)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_alarme         : Identifiant de l'alarme.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMN_Main_Cour_Maintenance
+*
+* FONCTION
+*   Lit en base le poste maitre de l'equipement. Puis execute une commande
+*   distante sur ce poste pour supprimer le fichier semaphore de l'alarme.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT	SQL_Procedure_Params@	vl_parametres
+	VAR FORMAT	SQL_Procedure_Result@	vl_resultats
+
+	VAR	vl_poste_maitre, vl_nom_tache_equip
+	VAR	vl_nom_semaphore
+	VAR	vl_cmd, vl_cr
+
+/*A Lire en base le nom du poste maitre de l'equipement */
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	COM_Identifiant_Equipement,	va_alarme.num_equip },
+	{ FALSE,	COM_Identifiant_Type_Equip,	va_alarme.num_type_equip },
+	{ TRUE,		SYB#CHAR_,			NULL }
+} )
+
+IF COM05_SQL_Procedure (XZAO05_Nom_Machine_LT,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+	RETURN (COM_NOK)
+}
+
+vl_poste_maitre = TRIM@ (vl_resultats.return_parameters[0])
+
+
+/*A Determiner le nom de la tache equipement utilise pour le semaphore d'alarme */
+IF TMN_Nom_Tache_Equipement (va_alarme.num_type_equip, vl_nom_tache_equip) <> COM_OK
+{
+	RETURN (COM_NOK)
+}
+
+
+/*B Formater les donnees pour construire le nom du fichier semaphore d'alarme */
+vl_nom_semaphore = FORMAT@ ("Ala_%s_%s_%03d_%03d", vl_poste_maitre, vl_nom_tache_equip,
+						   va_alarme.num_equip, va_alarme.num_type_alarme)
+
+
+/*A Executer la commande de suppression du fichier semaphore d'alarme */
+vl_cmd = "/bin/rm -f " ++ XDC_PATHFIC ++ "/ala/" ++ vl_nom_semaphore
+vl_cr = RUN_PROGRAM@ (FORMAT@ ("xzsx_cmd_sur.sh %s \"%s\"", vl_poste_maitre, vl_cmd))
+
+IF (vl_cr <> 0)
+	RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Determine le nom de la tache associee a un type d'equipement, tel que
+*  defini EQUEXT (module de donnees, surcharge pour "picto" par module alarme)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMN_Nom_Tache_Equipement (va_type_equip, va_nom_tache)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_type_equip     : Identifiant du type d'equipement.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_nom_tache      : Nom tache associee, utilise pour les semaphores d'alarmes.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   Toute macro
+*
+* FONCTION
+*   Retourne le nom de la tache selon le type d'equipement,
+*   de la meme maniere que la fonction "ex_nom_eqt" d'EQUEXT.
+*
+---------------------------------------------------------------------------- */
+
+va_nom_tache = NULL
+
+CASE OF va_type_equip
+	CASE XDC_EQT_RAU			' XZECC_TYPE_EQT_RAU
+	CASE XDC_EQT_PAU
+		va_nom_tache = "rau"
+
+	CASE XDC_EQT_GEN_LCR
+		va_nom_tache = "qtx"
+
+	CASE XDC_EQT_TDP
+	CASE XDC_EQT_ZDP
+		va_nom_tache = "tdp"
+
+	CASE XDC_EQT_MAA			' XZECC_TYPE_EQT_TEL
+		va_nom_tache = "tel"
+
+	CASE XDC_EQT_OPE			' XZECC_TYPE_EQT_OPE
+		va_nom_tache = "ope"
+
+	CASE XDC_EQT_SYV			' XZECC_TYPE_EQT_VID
+	CASE XDC_EQT_MAG			' XZECC_TYPE_EQT_MAGN
+		va_nom_tache = "vid"
+
+	CASE XDC_EQT_NIC			' XZECC_TYPE_EQT_NIC
+	CASE XDC_EQT_TUBE
+	CASE XDC_EQT_ECHANGEUR
+	CASE XDC_EQT_CPT
+	CASE XDC_EQT_PAN
+		va_nom_tache = "nic"
+
+	CASE XDC_EQT_SAT			' XZECC_TYPE_EQT_SAT
+		va_nom_tache = "sat"
+
+	CASE XDC_EQT_RAD			' XZECC_TYPE_EQT_RDT
+		va_nom_tache = "rdt"
+
+	CASE XDC_EQT_PAL			' XZECC_TYPE_EQT_PAL
+		va_nom_tache = "pal"
+
+	CASE XDC_EQT_DAI			' XZECC_TYPE_EQT_DAI
+	CASE XDC_EQT_ANA			' XZECC_TYPE_EQT_ANA
+		va_nom_tache = "dai"
+
+	CASE XDC_EQT_PMV			' XZECC_TYPE_EQT_PMV
+		va_nom_tache = "pmv"
+	CASE XDC_EQT_PCT			' XZECC_TYPE_EQT_PICTO
+		va_nom_tache = "picto"
+
+	CASE XDC_EQT_PMVA			' XZECC_TYPE_EQT_PMVA
+		va_nom_tache = "pma"
+
+	CASE XDC_EQT_NAV			' XZECC_TYPE_EQT_NAV
+	CASE XDC_EQT_FAU
+	CASE XDC_EQT_FAC
+	CASE XDC_EQT_MOD
+		va_nom_tache = "nav"
+
+	CASE XDC_EQT_BAF			' XZECC_TYPE_EQT_BAF
+	CASE XDC_EQT_MODBAF
+		va_nom_tache = "baf"
+
+	CASE XDC_EQT_BAD			' XZECC_TYPE_EQT_BAD
+	CASE XDC_EQT_MODBAD
+		va_nom_tache = "bad"
+
+	CASE XDC_EQT_GTC			' XZECC_TYPE_EQT_GTC
+	CASE XDC_EQT_TOR
+		va_nom_tache = "gtc"
+
+	DEFAULT
+		IF (va_type_equip >= XDC_DEBUT_TYPEQT_GTCRENOVEE) {
+			va_nom_tache = "nic"
+		} ELSE {
+			va_nom_tache = "qtx"
+		}
+ENDCASE
+
+IF (va_nom_tache = NULL)
+	RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO

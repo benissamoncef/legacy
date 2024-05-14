@@ -1,0 +1,884 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPU02_Config_Utilisateurs.am,v 1.5 1996/03/04 15:53:51 gaborit Exp $      Release : $Revision: 1.5 $        Date : $Date: 1996/03/04 15:53:51 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TPU * FICHIER ITMA_TPU02_Config_Utilisateurs.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Configuration des utilisateurs.
+*
+*   Cf. DCG 2.4.59
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	03 Nov 1994	: Creation
+* Torregrossa	04 Mar 1996	: Ajout controle longueur mot de passe (6 car. max) (1.5)
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TPU.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"../inc/xzau05sp.h"
+INCLUDE	"../inc/xzau06sp.h"
+INCLUDE	"../inc/xzau08sp.h"
+INCLUDE	"../inc/xzau10sp.h"
+INCLUDE	"../inc/xzau12sp.h"
+INCLUDE	"../inc/xzau14sp.h"
+INCLUDE	"../inc/xzau15sp.h"
+
+
+
+DEFINE	C_MODULE	"MTPU"			' Nom du module
+
+
+
+/*A
+ * Definition des codes et libelles
+ * des erreurs specifiques au module
+ * ---------------------------------
+ */
+
+DEFINE  C_ERR_CHOISIR_UTIL	1
+DEFINE  C_LIB_CHOISIR_UTIL	"Sélectionner d'abord un utilisateur"
+
+DEFINE  C_ERR_UTIL_EXISTE	2
+DEFINE	C_LIB_UTIL_EXISTE	"Un utilisateur portant ce nom existe déjà"
+
+DEFINE  C_ERR_PROFIL_EXISTE	3
+DEFINE	C_LIB_PROFIL_EXISTE	"Cet utilisateur possède déjà ce profil"
+
+DEFINE  C_ERR_CHOISIR_PROFIL	4
+DEFINE  C_LIB_CHOISIR_PROFIL	"Sélectionner d'abord un profil"
+
+DEFINE  C_ERR_LOGIN_EXISTE	5
+DEFINE	C_LIB_LOGIN_EXISTE	"Ce nom de login existe déjà"
+
+DEFINE  C_ERR_MDP_COURT		6
+DEFINE	C_LIB_MDP_COURT		"Le mot de passe doit comporter au moins 6 caractères"
+
+
+/*A
+ * Format des donnees utilisateur affichees
+ * ----------------------------------------
+ */
+
+DEFINE	TPU_NOM_UTIL	0
+
+FORMAT	TPU_Utilisateur
+	nom,
+	login,
+	profil
+
+
+/*A
+ * Format des donnees utilisateur lues en base de donnees
+ * ------------------------------------------------------
+ */
+
+FORMAT	TPU_Donnees_Utilisateur
+	numero,
+	nom,
+	login,
+	num_profil,
+	profil
+
+
+
+VAR FORMAT TPU_Utilisateur vm_l_util		' Liste utilisateurs affichee
+VAR vm_l_num_util				' Liste des numeros utilisateurs
+VAR vm_l_num_profils				' Liste des numeros de profils
+
+VAR vm_util					' Rang de l'utilisateur selecte
+
+VAR FORMAT TPU_Profil vm_l_profils		' Liste des profils
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Gestion des profils utilisateurs.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPU02_Config_Utilisateurs (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option "Administrer -> Configurer utilisateurs"  ou
+*                         "Administrer -> Consulter utilisateurs" dans MTMT
+*
+* FONCTION
+*   Permet de visualiser les utilisateurs declares, de les modifier,
+*   d'en definir de nouveaux et d'en supprimer.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_util			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR FORMAT TPU_Famille_Fonctions vl_l_fam	' Familles fonctions du profil
+    VAR FORMAT TPU_Utilisateur vl_utilisateur	' Valeurs d'utilisateur saisies
+    VAR     vl_nom				' Nom d'utilisateur saisi
+    VAR     vl_num_util				' Numero d'un utilisateur cree
+    VAR     vl_mot_de_passe			' Nouveau mot de passe saisi
+    VAR     vl_index				' Rang de l'item selecte
+    VAR     vl_statut, vl_existe, i
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Configuration utilisateurs"
+ * -----------------------------------------------
+ */
+
+vl_fenetre_util = DB_LOAD@ ("ITMA_TPU02")
+DB_WINDOW_REMAIN@ (vl_fenetre_util, TRUE)
+
+DB_XPOS@ (vl_fenetre_util, 0)
+DB_YPOS@ (vl_fenetre_util, 93)
+DB_WIDTH@ (vl_fenetre_util,1264)
+
+COM02_Attacher_Aide (vl_fenetre_util, "ITMA_TPU02_Config_Utilisateurs")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_util, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_VALUE@ (vl_fenetre_util, "BL_Profils", -1)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_util, "BL_Profils", TRUE)
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_util, "TA_Utilisateurs", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_util, "TA_Utilisateurs", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_util, "TA_Utilisateurs", TRUE)
+
+DB_CTRL_VALUE@ (vl_fenetre_util, "BL_Familles", -1)
+
+DB_CTRL_TRIM@ (vl_fenetre_util, "BS_Nom", TRUE)
+
+DB_CTRL_NO_ECHO@ (vl_fenetre_util, "BS_Mot_De_Passe", TRUE)
+
+
+/*A
+ * Initialiser les donnees a visualiser (listes des utilisateurs et profils)
+ * -------------------------------------------------------------------------
+ */
+
+IF TPU02_Init_Util_Et_Profils (vl_fenetre_util) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_CHOISIR_UTIL  AND
+	   ERROR_NUMBER@() <> C_ERR_UTIL_EXISTE  AND
+	   ERROR_NUMBER@() <> C_ERR_PROFIL_EXISTE  AND
+	   ERROR_NUMBER@() <> C_ERR_CHOISIR_PROFIL  AND
+	   ERROR_NUMBER@() <> C_ERR_LOGIN_EXISTE  AND
+	   ERROR_NUMBER@() <> COM_ERR_NON_SAISI
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_util)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_util)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_util)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur choix "Imprimer", ecrire les utilisateurs et leurs profils
+     * dans un fichier puis demander l'impression de ce fichier
+     * --------------------------------------------------------------
+     */
+
+    CASE "BP_Imprimer"
+	NOTHING
+
+
+    /*A
+     * Sur selection d'un profil, lire les familles associees et les
+     * afficher, et ecrire le nom du profil dans la boite de saisie
+     * -------------------------------------------------------------
+     */
+
+    CASE "BL_Profils"
+	vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre_util, "BL_Profils")
+	IF ITMA_TPU_Lire_Familles_Profil (vm_l_profils[vl_index].numero,
+					     C_MODULE, vl_l_fam) = COM_OK
+	    DB_CTRL_STRINGS@ (vl_fenetre_util, "BL_Familles",
+				 ARRAY_COLUMN@(vl_l_fam, TPU_NOM_FAMILLE))
+	DB_CTRL_VALUE@(vl_fenetre_util, "BS_Profil", vm_l_profils[vl_index].nom)
+
+
+    /*A
+     * Sur selection d'une ligne de la table ecrire le nom de l'utilisateur,
+     * le nom de login et le profil dans leurs boites de saisie respectives
+     * puis annuler la selection (eventuelle) dans la liste des profils
+     * ---------------------------------------------------------------------
+     */
+
+    CASE "TA_Utilisateurs"
+	vl_index = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_util, "TA_Utilisateurs")
+	vm_util = vl_index[0]
+	DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Nom", vm_l_util[vm_util].nom)
+	DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Login", vm_l_util[vm_util].login)
+	DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Mot_De_Passe", NULL)
+	DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Profil", vm_l_util[vm_util].profil)
+
+	DB_CTRL_VALUE@ (vl_fenetre_util, "BL_Profils", -1)
+	DB_CTRL_STRINGS@ (vl_fenetre_util, "BL_Familles", NULL)
+
+
+    /*A
+     * Sur choix "Ajouter Utilisateur", verifier qu'un nom DIFFERENT des
+     * noms existants est saisi puis si l'ajout est effectue correctement
+     * en base de donnees, ajouter le nom a la liste avec un profil indefini
+     * ---------------------------------------------------------------------
+     */
+
+    CASE "BP_Ajouter_Util"
+	vl_nom = DB_CTRL_GET_VALUE@ (vl_fenetre_util, "BS_Nom")
+	IF ARRAY_INDEX@ (ARRAY_COLUMN@ (vm_l_util, TPU_NOM_UTIL), vl_nom) >= 0
+	    ERROR@ (C_ERR_UTIL_EXISTE, C_LIB_UTIL_EXISTE)
+	IF TPU02_Creer_Utilisateur (vl_nom, vl_num_util) = COM_OK {
+	    vl_index = ARRAY_SIZE@ (vm_l_util)
+	    vm_l_util[vl_index].nom = vl_nom
+	    vm_l_num_util[vl_index] = vl_num_util
+	    vm_l_num_profils[vl_index] = NULL
+	   DB_TABLE_SET_NEW_DATA@(vl_fenetre_util,"TA_Utilisateurs",vm_l_util,0)
+
+	    vm_util = vl_index
+	    vl_index[0] = vm_util
+	    DB_TABLE_SET_SELECTIONS@(vl_fenetre_util,"TA_Utilisateurs",vl_index)
+	    DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Login", NULL)
+	    DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Mot_De_Passe", NULL)
+	    DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Profil", NULL)
+
+	    DB_CTRL_VALUE@ (vl_fenetre_util, "BL_Profils", -1)
+	    DB_CTRL_STRINGS@ (vl_fenetre_util, "BL_Familles", NULL)
+	}
+
+
+    /*A
+     * Sur choix "Modifier Utilisateur", verifier qu'un utilisateur est
+     * choisi et qu'un nom DIFFERENT des noms existants est saisi, puis
+     * si la modification est effectuee correctement en base de donnees,
+     * remplacer le nom par celui saisi dans la liste des utilisateurs
+     * -----------------------------------------------------------------
+     */
+
+    CASE "BP_Modifier_Util"
+	IF IS_NULL@ (vm_util)
+	    ERROR@ (C_ERR_CHOISIR_UTIL, C_LIB_CHOISIR_UTIL)
+	vl_nom = DB_CTRL_GET_VALUE@ (vl_fenetre_util, "BS_Nom")
+	IF ARRAY_INDEX@ (ARRAY_COLUMN@ (vm_l_util, TPU_NOM_UTIL), vl_nom) >= 0
+	    ERROR@ (C_ERR_UTIL_EXISTE, C_LIB_UTIL_EXISTE)
+	IF TPU02_Modifier_Utilisateur(vm_l_num_util[vm_util], vl_nom) = COM_OK {
+	    FOR i = 0  TO ARRAY_SIZE@ (vm_l_util) - 1
+		IF vm_l_num_util[i] = vm_l_num_util[vm_util]
+		    vm_l_util[i].nom = vl_nom
+	    NEXT i
+	   DB_TABLE_SET_NEW_DATA@(vl_fenetre_util,"TA_Utilisateurs",vm_l_util,0)
+
+	    vl_index[0] = vm_util
+	    DB_TABLE_SET_SELECTIONS@(vl_fenetre_util,"TA_Utilisateurs",vl_index)
+	}
+
+
+    /*A
+     * Sur choix "Ajouter Profil", verifier qu'un utilisateur ainsi qu'un
+     * profil, un nom de login et un mot de passe sont choisis puis ajouter
+     * --------------------------------------------------------------------
+     */
+
+    CASE "BP_Ajouter_Profil"
+	IF IS_NULL@ (vm_util)
+	    ERROR@ (C_ERR_CHOISIR_UTIL, C_LIB_CHOISIR_UTIL)
+	vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre_util, "BL_Profils")
+	IF vl_index < 0
+	    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "Profil ")
+	vl_utilisateur[0].login = DB_CTRL_GET_VALUE@(vl_fenetre_util,"BS_Login")
+	IF vl_utilisateur[0].login = NULL
+	    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "Login ")
+	vl_mot_de_passe = DB_CTRL_GET_VALUE@(vl_fenetre_util, "BS_Mot_De_Passe")
+	IF vl_mot_de_passe = NULL
+	    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "Mot de passe ")
+
+	FOR i = 0  TO ARRAY_SIZE@ (vm_l_util) - 1
+	    IF vm_l_num_util[i] = vm_l_num_util[vm_util]  AND
+		vm_l_num_profils[i] = vm_l_profils[vl_index].numero
+		ERROR@ (C_ERR_PROFIL_EXISTE, C_LIB_PROFIL_EXISTE)
+	NEXT i
+
+	vl_statut = TPU02_Ajouter_Profil (vm_l_num_util[vm_util],
+					    vm_l_profils[vl_index].numero,
+					    vl_utilisateur[0].login,
+					    vl_mot_de_passe)
+	IF vl_statut = COM_QUITTE
+	    ERROR@ (C_ERR_LOGIN_EXISTE, C_ERR_LOGIN_EXISTE)
+	IF vl_statut = COM_OK {
+	    vl_utilisateur[0].nom = vm_l_util[vm_util].nom
+	    vl_utilisateur[0].profil = vm_l_profils[vl_index].nom
+	    IF vm_l_num_profils[vm_util] = NULL {
+		vm_l_num_profils[vm_util] = vm_l_profils[vl_index].numero
+		vm_l_util[vm_util] = vl_utilisateur[0]
+		DB_TABLE_SET_NEW_DATA@ (vl_fenetre_util, "TA_Utilisateurs",
+					   vl_utilisateur, vm_util)
+	    } ELSE {
+		vm_l_num_util = ARRAY_INSERT@ (vm_l_num_util,
+						vm_l_num_util[vm_util], vm_util)
+		vm_l_num_profils = ARRAY_INSERT@ (vm_l_num_profils,
+						  vm_l_profils[vl_index].numero,
+						  vm_util)
+		vm_l_util = ARRAY_INSERT@(vm_l_util, vl_utilisateur[0], vm_util)
+		DB_TABLE_SET_NEW_DATA@ (vl_fenetre_util, "TA_Utilisateurs",
+					   vm_l_util, 0)
+	    }
+
+	    vl_index[0] = vm_util
+	    DB_TABLE_SET_SELECTIONS@(vl_fenetre_util,"TA_Utilisateurs",vl_index)
+	    DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Mot_De_Passe", NULL)
+	}
+
+
+    /*A
+     * Sur choix "Supprimer Profil", verifier qu'un utilisateur et un
+     * profil sont choisis et si la suppression est correctement effectuee,
+     * supprimer la ligne correspondante dans la liste des utilisateurs
+     * --------------------------------------------------------------------
+     */
+
+    CASE "BP_Supprimer_Profil"
+	IF IS_NULL@ (vm_util)
+	    ERROR@ (C_ERR_CHOISIR_PROFIL, C_LIB_CHOISIR_PROFIL)
+	IF vm_l_num_profils[vm_util] = NULL
+	    ERROR@ (C_ERR_CHOISIR_PROFIL, C_LIB_CHOISIR_PROFIL)
+
+	IF TPU02_Supprimer_Profil (vm_l_num_util[vm_util],
+				      vm_l_num_profils[vm_util]) = COM_OK {
+	    IF vm_l_num_util[vm_util + 1] = vm_l_num_util[vm_util]
+		vl_existe = TRUE
+	    ELSE IF vm_util = 0
+		vl_existe = FALSE
+	    ELSE vl_existe = (vm_l_num_util[vm_util-1] = vm_l_num_util[vm_util])
+
+	    IF vl_existe {
+		vm_l_num_util = ARRAY_DELETE@ (vm_l_num_util, vm_util)
+		vm_l_num_profils = ARRAY_DELETE@ (vm_l_num_profils, vm_util)
+		vm_l_util = ARRAY_DELETE@ (vm_l_util, vm_util)
+	    } ELSE {
+		vm_l_num_profils[vm_util] = NULL
+		vm_l_util[vm_util].login = NULL
+		vm_l_util[vm_util].profil = NULL
+	    }
+	    DB_TABLE_CLEAR_DATA@ (vl_fenetre_util, "TA_Utilisateurs", 0, -1)
+	    DB_TABLE_SET_NEW_DATA@ (vl_fenetre_util, "TA_Utilisateurs",
+				       vm_l_util, 0)
+
+	    vm_util = NULL
+	    DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Nom", NULL)
+	    DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Login", NULL)
+	    DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Mot_De_Passe", NULL)
+	    DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Profil", NULL)
+	}
+
+
+    /*A
+     * Sur choix "Nouveau Mot de Passe", verifier qu'un login utilisateur
+     * est choisi et qu'un mot de passe est saisi, puis modifier en base
+     * ------------------------------------------------------------------
+     */
+
+    CASE "BP_Mot_De_Passe"
+	IF IS_NULL@ (vm_util)
+	    ERROR@ (C_ERR_CHOISIR_UTIL, C_LIB_CHOISIR_UTIL)
+	vl_mot_de_passe = DB_CTRL_GET_VALUE@(vl_fenetre_util, "BS_Mot_De_Passe")
+	IF vl_mot_de_passe = NULL
+	    ERROR@(COM_ERR_NON_SAISI,COM_LIB_NON_SAISI, "Nouveau mot de passe ")
+	IF LEN@ (vl_mot_de_passe)<COM_NB_MIN_CAR_PWD
+	    ERROR@ (C_ERR_MDP_COURT, C_LIB_MDP_COURT)
+
+	TPU02_Nouveau_Mot_De_Passe (vm_l_num_util[vm_util],
+				       vm_l_num_profils[vm_util],
+				       vl_mot_de_passe)
+	DB_CTRL_VALUE@ (vl_fenetre_util, "BS_Mot_De_Passe", NULL)
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les listes utilisateurs et des profils.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TPU02_Init_Util_Et_Profils (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPU02_Config_Utilisateurs
+*
+* FONCTION
+*   Initialise les valeurs de la table des utilisateurs et de la liste des
+*   profils.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_t_titres				   ' Titres colonnes de la table
+
+    VAR FORMAT TPU_Donnees_Utilisateur vl_data	   ' Donnees lues en base
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     i
+
+
+/*A
+ * Lire la liste des profils
+ * -------------------------
+ */
+
+IF COM05_SQL_Procedure (XZAU08_Lire_Liste_Profils,
+			   NULL, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+vm_l_profils = vl_resultats.select_results[0]
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Profils",
+		     ARRAY_COLUMN@ (vm_l_profils, TPU_NOM_PROFIL))
+
+
+/*A
+ * Lire la liste des utilisateurs
+ * ------------------------------
+ */
+
+IF COM05_SQL_Procedure (XZAU10_Lire_Liste_Utilisateurs,
+			   NULL, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+vl_data = vl_resultats.select_results[0]
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+    vm_l_util[i].nom = vl_data[i].nom
+    vm_l_util[i].login = vl_data[i].login
+    vm_l_util[i].profil = vl_data[i].profil
+
+    vm_l_num_util[i] = vl_data[i].numero
+    vm_l_num_profils[i] = vl_data[i].num_profil
+NEXT i
+
+
+
+/*A
+ * Definir les titres des colonnes de la table
+ * -------------------------------------------
+ */
+
+vl_t_titres[0] = "Nom",		255		' Titre colonne,taille en pixels
+vl_t_titres[1] = "Login",	86
+vl_t_titres[2] = "Profil",	255
+vl_t_titres[3] = "", 0
+
+
+/*A
+ * Valuer la table a afficher
+ * --------------------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)			' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)				'  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@(va_fenetre, "TA_Utilisateurs", vm_l_util, vl_t_titres)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Cree un nouvel utilisateur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TPU02_Creer_Utilisateur (va_nom_util, va_numero_util)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_nom_util       : Nom de l'utilisateur a creer.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_numero_util    : Numero de l'utilisateur cree, NULL s'il n'est pas cree.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPU02_Config_Utilisateurs
+*
+* FONCTION
+*   Execute la requete adequate pour creer un nouvel utilisateur avec le nom
+*   indique ;
+*   value en retour le numero de l'utilisateur cree, NULL s'il ne l'a pas ete.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = va_nom_util
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TPU_Ident_Utilisateur
+vl_parametres[1].output = TRUE
+
+vl_parametres[2].type = SYB#INT4_			' Statut : util. cree
+vl_parametres[2].output = TRUE				' ou deja present
+
+IF COM05_SQL_Procedure (XZAU05_Ajouter_Utilisateur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+IF vl_resultats.return_parameters[1] = XDC_AJOUT
+    va_numero_util = vl_resultats.return_parameters[0]
+ELSE va_numero_util = NULL
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Modifie le nom d'un utilisateur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TPU02_Modifier_Utilisateur (va_numero_util, va_nom_util)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_numero_util    : Numero de l'utilisateur ;
+*   va_nom_util       : Nouveau nom de l'utilisateur.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK si l'action a ete effectuee correctement ;
+*                     : COM_QUITTE si un utilisateur possede deja ce nom ;
+*                     : COM_NOK en cas de probleme lors de l'execution.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPU02_Config_Utilisateurs
+*
+* FONCTION
+*   Execute la requete adequate pour modifier le nom de l'utilisateur de numero
+*   indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TPU_Ident_Utilisateur
+vl_parametres[0].data = va_numero_util
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#CHAR_
+vl_parametres[1].data = va_nom_util
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT4_			' Statut : utilisateur
+vl_parametres[2].output = TRUE				' modifie ou homonymie
+
+IF COM05_SQL_Procedure (XZAU06_Modifier_Utilisateur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+IF vl_resultats.return_parameters[0] = XDC_MODIF
+    RETURN (COM_OK)
+ELSE RETURN (COM_QUITTE)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Ajoute un nouveau profil a un utilisateur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TPU02_Ajouter_Profil (va_num_util, va_num_profil, va_login, va_mot_passe)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_util       : Numero de l'utilisateur a qui ajouter un profil ;
+*   va_num_profil     : Numero du profil a ajouter a l'utilisateur ;
+*   va_login          : Nom de login de l'utilisateur pour ce profil ;
+*   va_mot_passe      : Mot de passe associe au login.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK si l'action a ete effectuee correctement ;
+*                     : COM_QUITTE si un login identique existe deja ;
+*                     : COM_NOK en cas de probleme lors de l'execution.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPU02_Config_Utilisateurs
+*
+* FONCTION
+*   Execute la requete adequate pour ajouter un nouveau profil (defini par son
+*   numero, un nom de login et un mot de passe associes) a un utilisateur.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TPU_Ident_Utilisateur
+vl_parametres[0].data = va_num_util
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TPU_Ident_Profil
+vl_parametres[1].data = va_num_profil
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#CHAR_
+vl_parametres[2].data = va_login
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#CHAR_
+vl_parametres[3].data = COM16_Chaine_Cryptee (va_mot_passe)
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#INT4_
+vl_parametres[4].output = TRUE
+
+IF COM05_SQL_Procedure (XZAU14_Ajou_Profil_Utilisateur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+IF vl_resultats.return_parameters[0] = XDC_ECHEC
+    RETURN (COM_QUITTE)
+ELSE RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Supprime un profil a un utilisateur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TPU02_Supprimer_Profil (va_num_util, va_num_profil)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_util       : Numero de l'utilisateur a qui supprimer le profil ;
+*   va_num_profil     : Numero du profil a supprimer a l'utilisateur.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPU02_Config_Utilisateurs
+*
+* FONCTION
+*   Execute la requete adequate pour supprimer le profil de numero indique
+*   l'utilisateur de numero indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TPU_Ident_Utilisateur
+vl_parametres[0].data = va_num_util
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TPU_Ident_Profil
+vl_parametres[1].data = va_num_profil
+vl_parametres[1].output = FALSE
+
+IF COM05_SQL_Procedure (XZAU12_Supp_Profil_Utilisateur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Attribue un nouveau mot de passe a un login utilisateur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TPU02_Nouveau_Mot_De_Passe (va_num_util, va_num_profil, va_mot_passe)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_util       : Numero de l'utilisateur ;
+*   va_num_profil     : Numero du profil associe au login ;
+*   va_mot_passe      : Nouveau mot de passe de l'utilisateur pour le login.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPU02_Config_Utilisateurs
+*
+* FONCTION
+*   Execute la requete adequate pour attribuer un nouveau mot de passe au login
+*   utilisateur defini par le numero de profil indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TPU_Ident_Utilisateur
+vl_parametres[0].data = va_num_util
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TPU_Ident_Profil
+vl_parametres[1].data = va_num_profil
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#CHAR_
+vl_parametres[2].data = COM16_Chaine_Cryptee (va_mot_passe)
+vl_parametres[2].output = FALSE
+
+IF COM05_SQL_Procedure (XZAU15_Creer_MdP,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO

@@ -1,0 +1,207 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_choix_type_fmc.am,v 1.9 2007/02/27 15:42:16 gesconf Exp $      Release : $Revision: 1.9 $        Date : $Date: 2007/02/27 15:42:16 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TMC * FICHIER ITMA_TMC_choix_type_fmc.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Module Main courante ; Choix d'un type FMC par l'operateur.
+*
+*   Cf. DCG 2.4.52
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain  11 Avr 1995 : Extraction du module ecran textuel	V1.1
+* Torregrossa  28 Nov 1996 : Modif tri des types de fmc (1106) V1.2
+* Torregrossa  12 Dec 1996 : Ajout liste des fmc pour cause (FMC9) V1.3
+* Guilhou	28 mai 1997 : la liste des fmc causes doit rester afficher (FMC9) 1.4
+* Guilhou 03 oct 1997 : liste des FMC cause a le m look que celle des FMC a traiter (ana/65) 1.8
+* Lecrivain   27 fev 2007 : Ajout argument pour saisie type sans cause (DEM 624) 1.9
+--------------------------------------------------------------------------------- */
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TMC.h"
+INCLUDE	"../inc/xzae112sp.h"
+INCLUDE	"../../XDMICG/inc/xzaec_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+DEFINE	C_MODULE	"ITMA_TMC_choix_type_fmc"
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* permet de choisir un type de fiche main courante
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_choix_type_fmc (va_mode, va_avec_choix_cause)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : type de fmc choisi
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   
+*
+---------------------------------------------------------------------------- */
+VAR FORMAT TDO_Type_FMC tl_types
+VAR FORMAT TDO_Type_FMC tl_typesPrev
+VAR vl_fenetre
+VAR vl_exit_value
+VAR vl_ret
+VAR vl_index,vl_indice
+VAR tl_titres
+VAR tl_data, tl_liste_causes
+VAR FORMAT TMC_fmc_a_creer vl_fiche
+
+	/*A charge la fenetre*/
+	vl_fenetre=DB_LOAD@("ITMA_TMC_choix_type_fmc")
+	DB_XPOS@(vl_fenetre,0)
+	DB_YPOS@(vl_fenetre,93)
+
+	/*A si le choix de la cause n'est pas a proposer, inhiber la saisie */
+	IF (va_avec_choix_cause = FALSE) {
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Cause", TRUE)
+	}
+
+	/*A recupere les types de fmc*/
+	vl_ret=TMC_liste_type_fmc_tries(tl_types)
+
+	if vl_ret <> COM_OK
+	{
+		RETURN (NULL)
+	}
+
+	/*A
+	 * Ne jamais proposer les types "fiche operateur" et "tete de bouchon" ;
+	 * en mode prevision, ne proposer que les operations
+	 */
+	vl_index=0
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_types)-1)
+		IF tl_types[vl_indice].numero <> XZAEC_FMC_PosteOperateur  AND
+			tl_types[vl_indice].numero <> XZAEC_FMC_TeteBouchon  AND
+			(va_mode <> XDC_FMC_ETAT_PREV  OR
+			 tl_types[vl_indice].operation = XDC_VRAI)
+		{
+			tl_typesPrev[vl_index]=tl_types[vl_indice]
+			vl_index=vl_index+1
+		}			
+	NEXT vl_indice
+
+	/*A les affiche*/
+	DB_CTRL_STRINGS@(vl_fenetre,"BO_types",ARRAY_COLUMN@(tl_typesPrev,TDO_NOM_FMC))
+
+	/*A attente d'un evenement*/
+	WHILE 1
+		DB_DISPLAY@(vl_fenetre)
+		vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+		CASE OF vl_exit_value
+                /*B appui sur le bouton cause*/
+                CASE "BP_Cause"
+                    MACRO_WINS_BUSY@()
+                    /*B on lance la tache de recherche d'evt cause*/
+                    tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+                                                "ITMA_TMC_choix_type_fmc")
+                    tl_liste_causes=tl_data[0]
+
+                    /*B affiche la liste des evts a traiter*/
+                    DB_CTRL_DISPLAY@(vl_fenetre,"TA_Evenements",TRUE)
+                    DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_Evenements",TRUE)
+ 				DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre, "TA_Evenements", 25)
+                   tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+                    tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+                    tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+                    tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+                    tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+                    DB_TABLE_SET_DATA@(vl_fenetre,"TA_Evenements",tl_data[1],tl_titres)
+				DB_TABLE_MARKER_PIXMAPS@(vl_fenetre, "TA_Evenements", 0, tl_data[2])
+
+                /*A selection d'un element dans la liste des fiches a traiter*/
+                CASE "TA_Evenements"
+                    MACRO_WINS_BUSY@()
+                    tl_data=ITMA_COM_Validite_Cause("ITMA_TMC_Choix_Type",vl_fenetre,
+											tl_liste_causes)
+
+                    /*B recupere num et cle de l'evenement cause*/
+                    vl_fiche.cause=tl_data[0][0]
+                    vl_fiche.cle_cause=tl_data[0][1]
+                    vl_fiche.libelle_cause=tl_data[1]
+
+                    /*B on affiche le libelle de l'evenement cause*/
+                    DB_CTRL_TITLE@(vl_fenetre,"LI_Cause",tl_data[1])
+
+			/*A appui sur le bouton valider*/
+			CASE "BP_valider"
+				/*A recupere le type choisi et le renvoie*/
+				vl_ret=DB_CTRL_GET_VALUE@(vl_fenetre,"BO_types")
+				vl_fiche.type = tl_typesPrev[vl_ret].numero
+
+				RETURN (vl_fiche)
+
+			/*A appui sur le bouton Annuler*/
+			CASE "BP_annuler"
+				/*A renvoie null*/
+				RETURN (NULL)
+		ENDCASE
+	WEND
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* permet de choisir un type de fiche main courante
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMC_liste_type_fmc_tries (FORMAT TDO_Type_FMC ta_liste_types)
+
+/*
+* ARGUMENTS EN ENTREE : neant
+*
+*
+* ARGUMENTS EN SORTIE : liste des types de fmc tries
+*
+*
+* CODE RETOUR         : COM_OK ou COM_NOK
+*
+* CONDITION D'UTILISATION
+*   
+*
+---------------------------------------------------------------------------- */
+
+VAR FORMAT TDO_Type_FMC			vl_les_types_FMC
+VAR FORMAT SQL_Procedure_Params@	vl_parametres
+VAR FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR i, j
+
+IF COM05_SQL_Procedure (XZAE112_Liste_Types_FMC_Tries,
+			   NULL, vl_resultats, C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+
+vl_les_types_FMC = vl_resultats.select_results[0]
+FOR i = 0  TO ARRAY_SIZE@ (vl_les_types_FMC) - 1
+	IF (vl_les_types_FMC[i].supprime = XDC_FAUX) {
+		ta_liste_types[j] = vl_les_types_FMC[i]
+		j = j + 1
+	}
+NEXT i
+
+RETURN (COM_OK)
+
+ENDMACRO

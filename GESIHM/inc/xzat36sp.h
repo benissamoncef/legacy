@@ -1,0 +1,1 @@
+DEFINE	XZAT36_Utilisation_BAD		"XZAT36"

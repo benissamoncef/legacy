@@ -1,0 +1,495 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_Nature.am,v 1.8 2020/11/03 17:40:35 pc2dpdy Exp $        Release : $Revision: 1.8 $        Date : $Date: 2020/11/03 17:40:35 $
+-----------------------------------------------------------------------
+*  GTIE  *  PROJET MIGRAZUR
+-----------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-----------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMC_Nature.am
+-----------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*
+*   Gere les donnees specifiques aux types FMC de classe Nature
+*   et les champs correspondants dans la fenetre de saisie FMC
+*
+-----------------------------------------------------------------------
+*  HISTORIQUE :
+*
+* Hilmarcher	18/07/2005 : Creation DEM487 v1.1
+* Lecrivain	23/03/2007 : Afficher/effacer champs pour retypage (dem/637) 1.2
+* Lecrivain	04/04/2007 : Ecriture en table du CODE nature et non son rang 1.3
+* Lecrivain	05/04/2007 : Prise en compte des types fmc 'Pieton' et 'Autre evt' (DEM 639) 1.4
+* Lecrivain	23/11/2009 : Ajout macros d'affichage / saisie / controles (vides) 1.5
+* JPL		26/06/2012 : Prise en compte du type FMC 'Hold-up' (DEM 1034)  1.6
+* JPL		06/08/2012 : Afficher le libelle "Victimes" pour une FMC 'Hold-up' (DEM 1034)  1.7
+* LCL   	22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+-----------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+INCLUDE	"XDMICG/inc/xzaec_ax.h"
+
+INCLUDE	"GESIHM/inc/xzae207sp.h"
+INCLUDE	"GESIHM/inc/xzae208sp.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TMC.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+
+/*A Définition des constantes */
+
+DEFINE	C_MODULE		"MTMC"		' Nom du module
+
+
+VAR	FORMAT TDO_Libelle_Predefini	tm_types_nature, tm_types_nature_valide
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche / masque dans la fenetre FMC les champs specifiques au type d'événement
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Nature (va_fenetre, va_type_fmc, va_visible)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : id de la boite de dialogue ou afficher les champs
+*  va_type_fmc        : type de la fmc
+*  va_visible         : indicateur de visibilite demandee
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------------------- */
+VAR tl_controles
+VAR vl_indice
+VAR vl_fenetre
+VAR vl_droits
+
+
+/*A Traitements en cas d'erreur :
+ *   informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN
+}
+
+vl_fenetre = va_fenetre
+
+IF va_visible {
+	ITMA_TMC_Nature_init (vl_fenetre, va_type_fmc)
+}
+
+
+/*A rendre visibles ou masquer les champs associes au type fmc */
+
+/* Modif SAGA : la visibilite depend du droit de propriete */
+vl_droits = SYSTEM_VAR@ (vg_datex_propriete)
+
+tl_controles = {
+	/* donnees de l'application */
+	"BO_nature"
+}
+FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+	DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice], va_visible)
+	DB_CTRL_GRAYED@ (vl_fenetre, tl_controles[vl_indice],
+	                    va_visible AND (vl_droits = XDC_FAUX))
+NEXT vl_indice
+
+	RETURN (vl_fenetre)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialiser certaines données et champs specifiques aux FMC du type specifie
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Nature_init (va_fenetre, va_type_fmc)
+
+VAR	type_libelle
+
+/*B Initialisations a effectuer a chaque affichage des champs (retypage FMC) */
+
+/*B Lire en base de donnees les types de nature d'événement */
+CASE OF va_type_fmc
+CASE XZAEC_FMC_Obstacle
+	type_libelle = XDC_TYPE_LIB_OBSTACLE
+CASE XZAEC_FMC_PietonChaussee
+	type_libelle = XDC_TYPE_LIB_PIETON
+CASE XZAEC_FMC_Autre
+	type_libelle = XDC_TYPE_LIB_AUTRE_EVT
+CASE XZAEC_FMC_HoldUpVol
+	type_libelle = XDC_LIB_TYPE_HOLD_UP
+ENDCASE
+
+COM37_Lit_Libelles_Predefinis (type_libelle, tm_types_nature,tm_types_nature_valide)
+DB_CTRL_STRINGS@ (va_fenetre, "BO_nature",
+                     ARRAY_COLUMN@ (tm_types_nature, TDO_TEXTE_LIBELLE))
+DB_CTRL_VALUE@ (va_fenetre, "BO_nature", 0)
+
+IF (va_type_fmc = XZAEC_FMC_HoldUpVol)
+	DB_CTRL_TITLE@ (va_fenetre, "BO_nature", "Victimes :")
+ELSE
+	DB_CTRL_TITLE@ (va_fenetre, "BO_nature", "Nature :")
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit en base les données specifiques aux fiches de classe Nature
+*  et les visualise dans la zone specifique de la fenetre FMC
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Nature_charge (va_fenetre, FORMAT COM_Identifiant_FMC ta_num_evt,
+					va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fenetre            : id de la boite de dialogue fiche main courante
+* ta_num_evt            : numero et cle d'evenement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*
+--------------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+VAR	vl_indice
+VAR	FORMAT TMC_nature	vl_tampon
+VAR	vl_fenetre
+VAR	tl_retour, i
+
+/*A
+ * Traitements en cas d'erreur :
+ *  informer l'operateur, tracer l'erreur et abandonner
+ * ----------------------------------------------------
+ */
+
+ON ERROR
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN
+}
+
+	vl_fenetre=va_fenetre
+
+	vl_indice=0
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].data=va_horodate
+	vl_parametres[vl_indice].output=false
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=ta_num_evt.numero
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=false
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=ta_num_evt.cle
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=false
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT1_
+	vl_parametres[vl_indice].output=true
+	vl_indice=vl_indice+1
+
+	IF COM05_SQL_Procedure (XZAE207_Lire_nature_obstacle,
+				  vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		/* Ignorer l'erreur pour les anciennes FMC qui n'ont pas de nature associee */
+/*		INFO_MESSAGE@("Erreur lors de la lecture en base de la nature evenement")*/
+
+		vl_tampon = NULL
+		i = 0
+	} ELSE {
+		vl_tampon = vl_resultats.return_parameters
+		i =COM45_IndexEnColonne(tm_types_nature,TDO_CODE_LIBELLE,vl_tampon.nature)
+		IF i < 0 {
+			i = 0
+		}
+	}
+
+	/* Afficher le libelle de la nature evenement */
+	DB_CTRL_VALUE@ (vl_fenetre, "BO_nature", i)
+
+	tl_retour[0]=vl_fenetre
+	tl_retour[1]=vl_tampon
+	RETURN (tl_retour)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Ecrit en base les données spécifiques d'une fiche de classe Nature
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Nature_sauve (FORMAT COM_Identifiant_FMC ta_num_evt,
+                                FORMAT TMC_nature va_tampon,
+                                va_mode, va_horodate, va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_num_evt		: numero et cle d'evenement
+* va_tampon		: valeurs des controles
+* va_mode		: prevision, traiter, clos
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+VAR	vl_indice, i
+
+	/*A lire a l'ecran la valeur actuellement selectionnee */
+	i = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_nature")
+	IF i < 0 {
+		i = 0
+	}
+
+/*A
+ * Traitements en cas d'erreur :
+ *  informer l'operateur, tracer l'erreur et abandonner
+ * ----------------------------------------------------
+ */
+
+ON ERROR
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN
+}
+
+	vl_indice=0
+
+	/*A preparation des parametres de la procedure stockee*/
+	vl_parametres[vl_indice].data=ta_num_evt.numero
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=ta_num_evt.cle
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_horodate
+	vl_parametres[vl_indice].type=SYB#DATETIME_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=tm_types_nature[i].libelle
+	vl_parametres[vl_indice].type=SYB#CHAR_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=tm_types_nature[i].code
+	vl_parametres[vl_indice].type=SYB#INT1_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+		vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste_surcharge)
+	ELSE
+		vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste)
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=va_mode
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+
+/*B Site local */
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#CHAR_
+        vl_parametres[vl_indice].data = SYSTEM_VAR@(vg_nom_site)
+        vl_parametres[vl_indice].output = FALSE
+
+	IF COM05_SQL_Procedure (XZAE208_Ecrire_nature_obstacle,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@ ("Impossible de sauver le tampon nature evenement en base")
+		RETURN (COM_NOK)
+	}
+	ELSE IF (vl_resultats.status <> XZAEC_FMC_PAS_ENR) AND
+		(vl_resultats.status <> XZAEC_FMC_CLOSE_PAS_ENR) AND
+		(vl_resultats.status <> COM_OK)
+		INFO_MESSAGE@ ("Impossible de sauver le tampon nature evenement en base")
+
+	RETURN (vl_resultats.status)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche les donnees specifiques d'une fiche Nature
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Nature_affiche (va_fenetre, FORMAT TMC_nature va_nature)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*  va_nature          : Données de la fiche Nature
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur ouverture fiche Nature
+*
+* FONCTION
+*  Value les champs de saisie spécifiques aux FMC de classe Nature
+*
+--------------------------------------------------------------------------------- */
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit les donnees specifiques d'une fiche Nature saisies dans la fenetre
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Nature_saisie (va_fenetre, FORMAT TMC_nature va_nature)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_nature          : Donnees de la fiche Nature
+*
+*
+* CODE RETOUR         : XDC_NOK si une valeur saisie est incorrecte, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Nature
+*
+* FONCTION
+*  Remplit la fiche avec les donnees des champs de saisie specifiques.
+*
+--------------------------------------------------------------------------------- */
+
+	RETURN (XDC_OK)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Effectue les controles de validite des donnees specifiques d'une fiche Nature
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Nature_controle (FORMAT TMC_fmc va_fiche, FORMAT TMC_nature va_nature)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fiche           : Donnees generiques de la Fmc ;
+*  va_nature          : Donnees specifiques a la Fmc Nature
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_NOK si les donnees sont incorrectes, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Nature
+*
+* FONCTION
+*
+--------------------------------------------------------------------------------- */
+
+	RETURN (XDC_OK)
+ENDMACRO

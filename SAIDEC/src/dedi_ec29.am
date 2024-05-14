@@ -1,0 +1,1329 @@
+/*E*/
+/* Fichier : $Id: dedi_ec29.am,v 1.9 1999/02/26 11:59:17 gaborit Exp $	      Release : $Revision: 1.9 $        Date : $Date: 1999/02/26 11:59:17 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec29.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* definition des perturbations PMV
+* relation entre objectif et perturbation pmv
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	29 nov 1994	: Creation						V1.1
+* Thomas	15 sep 1995	: lien entre dedi_ec29 et dedi_ec37	V1.2
+* Thomas	15 nov 1995	: ajout de fonctions et de l'elt proba	V1.3
+* Thomas	14 dec 1995	: ajout de controles dans ec29_verif_def	V1.4
+* Thomas	30 jan 1996	: modif 756 ( bug sur le bouton fonction)	V1.5
+* Guilhou	11 sep 1996	: correction recup BS_valeur (DEM/1184) 	V1.6
+* Guilhou	07 dec 1996	: ajout temps de parcours 			V1.7
+* Niepceron 20 Jan 1999	: modif intergest dem/1725	v1.8
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+DEFINE	CAR_SEPAR_DEF			"$"
+DEFINE	PROPOSITION			"P"	/* ne pas utiliser le nom d'un operateur */
+DEFINE	NON					"NON"
+DEFINE	ET					"ET"
+DEFINE	OU					"OU"
+
+
+VAR FORMAT dedi_perturbation	 	tm_perts,tm_perts_indices
+VAR FORMAT dedi_perturbation		tm_perts_init,tm_perts_indices_init
+VAR FORMAT dedi_picto			tm_pictos
+VAR							tm_types_evts
+VAR							tm_predicats
+VAR							tm_operateurs
+VAR 							tm_elements,tm_elements_init
+VAR							vm_appel_menu
+VAR							tm_definition
+VAR							tm_alternat
+VAR							tm_comp
+VAR							tm_fonctions
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition des relations objectifs/perturbations pmv
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec29 (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+var vl_fenetre
+var vl_evt
+var vl_indice,vl_selection
+var vl_nom
+var tl_data
+var vl_ok
+var tl_pokes
+var tl_editbox_sel
+var vl_pos
+var vl_priorite,vl_def
+var tl_definition
+var vl_comp, vl_val
+
+/*A je ferme dedi_ec37 */
+DB_SEND_POKE@(dedi_canal_ec37_fin)
+
+/*A j'indique aux autres taches que je suis lancee*/
+SET_SYSTEM_VAR@(vg_presence_ec29,TRUE)
+
+/*A je note l'appelant*/
+IF (va_appelant="dedi_ec27")
+	vm_appel_menu=FALSE
+ELSE
+	vm_appel_menu=TRUE
+
+/*A chargement de la fenetre*/
+vl_fenetre = DB_LOAD@("dedi_ec29")
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,656)
+DB_YPOS@(vl_fenetre,72)
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+tl_pokes[1]=dedi_canal_ec29_valide
+tl_pokes[2]=dedi_canal_ec29_ajobj
+tl_pokes[3]=dedi_canal_ec29_modifobj
+tl_pokes[4]=dedi_canal_ec29_supobj
+tl_pokes[5]=dedi_canal_ec29_annule
+tl_pokes[6]=dedi_canal_ec29_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+
+/* initialisation des parametres de la fenetre */
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec29_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+/* boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE OF vl_evt
+		/*A appui sur le bouton supprimer*/
+		CASE "BP_supprimer"
+			/*A si un element est selectionne*/
+			IF (vl_selection++""<>null)
+			{
+				/*A efface l'element de tm_alternat*/
+				tm_alternat=ARRAY_DELETE@(tm_alternat,vl_selection)
+
+				/*A efface l'element des listes des perturbations*/
+				tm_perts=ARRAY_DELETE@(tm_perts,vl_selection)
+				tm_perts_indices=ARRAY_DELETE@(tm_perts_indices,
+												vl_selection)
+				tm_definition=ARRAY_DELETE@(tm_definition,vl_selection)
+
+				/*A met a jour la boite*/
+				DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_perts",0,-1)
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_perts",tm_perts,0)
+
+				/*A effacer les valeurs des controles*/
+				DB_CTRL_VALUE@(vl_fenetre,"BS_nom",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_priorite",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_ligne1",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_ligne2",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_ligne3",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_proba1",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_proba2",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_proba3",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_proba4",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_proba5",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_proba6",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bifurc1",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bifurc2",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bifurc3",null)
+				DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_obj1",0)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_obj2",0)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_obj3",0)	
+				DB_CTRL_VALUE@(vl_fenetre,"BO_picto",0)
+
+				vl_selection=null
+				tl_definition=null
+			}
+			
+		/*A appui sur effacer (pour la definition: predicat ou operateur*/
+		CASE "BP_effacer"
+			tl_editbox_sel=DB_EDITBOX_GET_SELECTION@(vl_fenetre,"BE_def")
+			tl_definition=ec29_calc_def(null,
+											vl_evt,
+											tl_editbox_sel,
+											vl_selection,
+											tl_definition)
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",null)
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",tl_definition)
+
+		/*A choix d'un predicat dans la liste*/
+		CASE "BL_predicats"
+			/*A ajout de ce predicat dans la definition*/
+			IF ((vl_selection++"")=null)
+				vl_selection=ARRAY_SIZE@(tm_perts)
+			vl_pos=DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)
+			tl_editbox_sel=DB_EDITBOX_GET_SELECTION@(vl_fenetre,"BE_def")
+			tl_definition=ec29_calc_def(vl_pos,
+								vl_evt,
+									tl_editbox_sel,
+									vl_selection,
+									tl_definition)
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",tl_definition)	
+			DB_CTRL_DISPLAY@(vl_fenetre, "BL_predicats", FALSE)
+
+		/*A choix d'une fonction dans la liste*/
+		CASE "BL_fonctions"
+			/* on affiche le comparateur, la zone de saisie et le bouton OK */
+			DB_CTRL_DISPLAY@(vl_fenetre, "BO_comparateur", TRUE)
+			DB_CTRL_DISPLAY@(vl_fenetre, "BS_valeur", TRUE)
+			DB_CTRL_DISPLAY@(vl_fenetre, "BP_OK", TRUE)
+
+		/*A 	choix du bouton OK */
+		CASE "BP_OK"
+			/* on verifie qu'une valeur a bien ete saisie */
+			vl_val=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_valeur")
+			IF vl_val=NULL
+				INFO_MESSAGE@("Vous devez saisir une valeur.")
+			ELSE
+			{
+				/* on calcule la definition */
+				vl_pos=DB_CTRL_GET_VALUE@(vl_fenetre,"BL_fonctions")
+				tl_editbox_sel=DB_EDITBOX_GET_SELECTION@(vl_fenetre,"BE_def")
+				IF ((vl_selection++"")=null)
+					vl_selection=ARRAY_SIZE@(tm_perts)
+				vl_comp=tm_comp[DB_CTRL_GET_VALUE@(vl_fenetre,"BO_comparateur")]
+				tl_definition=ec29_calc_def(vl_pos,
+								"BL_fonctions",
+								tl_editbox_sel,
+								vl_selection,
+								tl_definition,
+								vl_comp ++ " " ++ vl_val)
+	
+				/* on met a jour la boite de definition */
+				DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",tl_definition)
+
+				/* on efface les controles */
+				DB_CTRL_DISPLAY@(vl_fenetre, "BO_comparateur", FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre, "BS_valeur", FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre, "BP_OK", FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre, "BL_fonctions", FALSE)
+			}
+	
+		/*A choix d'un operateur dans la liste*/
+		CASE "BL_operateurs"
+			/*A ajout de cet operateur dans la definition*/
+			IF ((vl_selection++"")=null)
+				vl_selection=ARRAY_SIZE@(tm_perts)
+			tl_editbox_sel=DB_EDITBOX_GET_SELECTION@(vl_fenetre,"BE_def")
+			vl_pos=DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)
+			tl_definition=ec29_calc_def(vl_pos,
+											vl_evt,
+											tl_editbox_sel,
+											vl_selection,
+											tl_definition)
+
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",tl_definition)
+			DB_CTRL_DISPLAY@(vl_fenetre, "BL_operateurs", FALSE)
+
+
+		/*A appui sur le bouton predicats*/
+		CASE "BP_predicats"
+			/*A affiche la liste des predicats*/
+			DB_CTRL_DISPLAY@(vl_fenetre, "BL_predicats",
+					NOT DB_CTRL_GET_DISPLAY@(vl_fenetre,"BL_predicats"))
+
+
+		/*A appui sur le bouton fonctions*/
+		CASE "BP_fonctions"
+			/*A affiche la liste des fonctions*/
+			DB_CTRL_DISPLAY@(vl_fenetre, "BL_fonctions",
+					NOT DB_CTRL_GET_DISPLAY@(vl_fenetre,"BL_fonctions"))
+
+		/*A appui sur le bouton operateurs*/
+		CASE "BP_operateurs"
+			/*A affiche la liste des operateurs*/
+			DB_CTRL_DISPLAY@(vl_fenetre, "BL_operateurs", 
+					NOT DB_CTRL_GET_DISPLAY@(vl_fenetre,"BL_operateurs"))
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A si la validation s'est bien passee*/
+			IF (ec29_valide(vl_fenetre)=TRUE)
+			{
+				/*A j'indique que je ne suis plus presente*/
+				SET_SYSTEM_VAR@(vg_presence_ec29,FALSE)
+				RETURN
+
+				/*A je ferme dedi_ec37 */
+				DB_SEND_POKE@(dedi_canal_ec37_fin)
+
+			}	
+			
+		/*A choix d'une perturbation dans la liste*/
+		CASE "TA_perts"
+			/* on recupere l'indice de la perturbation selectionnee */
+			vl_indice = DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_perts")
+			vl_selection = vl_indice[0]
+
+			/*A si un element est selectionne*/
+			IF (vl_selection++""<>null)
+			{
+				/*A afficher ses caracteristiques*/
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_modifier",FALSE)
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_supprimer",FALSE)
+	
+				DB_CTRL_VALUE@(vl_fenetre,"BS_nom",
+								tm_perts_indices[vl_selection].nom)
+				DB_CTRL_VALUE@(vl_fenetre, "BO_obj1", 
+								tm_perts_indices[vl_selection].obj1)
+	
+				DB_CTRL_VALUE@(vl_fenetre, "BO_obj2", 
+								tm_perts_indices[vl_selection].obj2)
+				DB_CTRL_VALUE@(vl_fenetre, "BO_obj3", 
+								tm_perts_indices[vl_selection].obj3)
+
+				DB_CTRL_VALUE@(vl_fenetre,"BS_priorite",
+								tm_perts[vl_selection].priorite)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_picto",
+								tm_perts_indices[vl_selection].picto)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_ligne1", 
+								tm_perts[vl_selection].pmvl1)	
+				DB_CTRL_VALUE@(vl_fenetre, "BS_ligne2", 
+								tm_perts[vl_selection].pmvl2)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_ligne3", 
+								tm_perts[vl_selection].pmvl3)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_proba1",
+										tm_perts[vl_selection].proba1)	
+				DB_CTRL_VALUE@(vl_fenetre, "BS_proba2",
+										tm_perts[vl_selection].proba2)					
+				DB_CTRL_VALUE@(vl_fenetre, "BS_proba3",
+										tm_perts[vl_selection].proba3)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_proba4",
+										tm_perts[vl_selection].proba4)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_proba5",
+										tm_perts[vl_selection].proba5)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_proba6",
+										tm_perts[vl_selection].proba6)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_bifurc1",
+								tm_perts[vl_selection].bifurc1)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_bifurc2",
+								tm_perts[vl_selection].bifurc2)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_bifurc3",
+								tm_perts[vl_selection].bifurc3)
+				DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",
+								tm_definition[vl_selection])
+				tl_definition=tm_definition[vl_selection]
+			}	
+
+		/*A appui sur le bouton modifier*/
+		CASE "BP_modifier"
+			/*A si un element est selectionne*/
+			IF (vl_selection++""<>null) 
+			{
+				vl_priorite=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_priorite")
+				vl_def=DB_EDITBOX_GET_DATA@(vl_fenetre,"BE_def")
+
+				/*A si la priorite ou le nom sont nuls*/
+				IF ((vl_priorite=null) OR (vl_def=null))
+					INFO_MESSAGE@("La priorite et la definition doivent etre saisies")
+				/*A sinon si la syntaxe est incorrecte*/
+				ELSE IF (ec29_verif_def(tl_definition)=FALSE)
+					INFO_MESSAGE@("La syntaxe de la définition n'est pas correcte.")
+				ELSE
+				{
+					/*A on met a jour ses caracteristiques*/
+					tm_alternat[vl_selection][0]=
+								DB_CTRL_GET_VALUE@(vl_fenetre, "BS_nom")
+					tm_perts_indices[vl_selection].nom=
+								DB_CTRL_GET_VALUE@(vl_fenetre, "BS_nom")
+					tm_perts_indices[vl_selection].obj1=
+								DB_CTRL_GET_VALUE@(vl_fenetre, "BO_obj1")
+					tm_perts_indices[vl_selection].obj2=
+								DB_CTRL_GET_VALUE@(vl_fenetre, "BO_obj2")
+					tm_perts_indices[vl_selection].obj3=
+								DB_CTRL_GET_VALUE@(vl_fenetre, "BO_obj3")
+					tm_perts_indices[vl_selection].picto=
+								DB_CTRL_GET_VALUE@(vl_fenetre, "BO_picto")
+					tm_perts_indices[vl_selection].priorite=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_priorite")
+					tm_perts_indices[vl_selection].pmvl1=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne1")
+					tm_perts_indices[vl_selection].pmvl2=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne2")
+					tm_perts_indices[vl_selection].pmvl3=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne3")
+					tm_perts_indices[vl_selection].proba1=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba1")
+					tm_perts_indices[vl_selection].proba2=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba2")
+					tm_perts_indices[vl_selection].proba3=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba3")
+					tm_perts_indices[vl_selection].proba4=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba4")
+					tm_perts_indices[vl_selection].proba5=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba5")
+					tm_perts_indices[vl_selection].proba6=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba6")
+					tm_perts_indices[vl_selection].bifurc1=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc1")
+					tm_perts_indices[vl_selection].bifurc2=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc2")
+					tm_perts_indices[vl_selection].bifurc3=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc3")
+
+					tm_perts[vl_selection].nom = 
+						tm_perts_indices[vl_selection].nom
+					tm_perts[vl_selection].obj1= 
+						tm_elements[tm_perts_indices[vl_selection].obj1]
+					tm_perts[vl_selection].obj2 = 
+						tm_elements[tm_perts_indices[vl_selection].obj2]
+					tm_perts[vl_selection].obj3 = 		
+						tm_elements[tm_perts_indices[vl_selection].obj3]
+					tm_perts[vl_selection].picto = 		
+						tm_pictos[tm_perts_indices[vl_selection].picto][0]
+					tm_perts[vl_selection].priorite=
+						tm_perts_indices[vl_selection].priorite
+					tm_perts[vl_selection].pmvl1=
+						tm_perts_indices[vl_selection].pmvl1
+					tm_perts[vl_selection].pmvl2=
+						tm_perts_indices[vl_selection].pmvl2
+					tm_perts[vl_selection].pmvl3=
+						tm_perts_indices[vl_selection].pmvl3
+					tm_perts[vl_selection].proba1=
+						tm_perts_indices[vl_selection].proba1
+					tm_perts[vl_selection].proba2=
+						tm_perts_indices[vl_selection].proba2
+					tm_perts[vl_selection].proba3=
+						tm_perts_indices[vl_selection].proba3
+					tm_perts[vl_selection].proba4=
+						tm_perts_indices[vl_selection].proba4
+					tm_perts[vl_selection].proba5=
+						tm_perts_indices[vl_selection].proba5
+					tm_perts[vl_selection].proba6=
+						tm_perts_indices[vl_selection].proba6
+					tm_perts[vl_selection].bifurc1=
+						tm_perts_indices[vl_selection].bifurc1
+					tm_perts[vl_selection].bifurc2=
+						tm_perts_indices[vl_selection].bifurc2
+					tm_perts[vl_selection].bifurc3=
+						tm_perts_indices[vl_selection].bifurc3
+					tm_definition[vl_selection]=tl_definition
+
+					/*A on rafraichit l'affichage*/
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_perts",0,-1)
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_perts", tm_perts, 0)
+					vl_indice[0]=vl_selection
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_perts",vl_indice)
+				}
+			}
+	
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			/*A je ferme dedi_ec37 */
+			DB_SEND_POKE@(dedi_canal_ec37_fin)
+			
+			RETURN
+	
+		/*A appui sur le bouton ajouter*/
+		CASE "BP_ajouter"
+			/*A on verifie qu'il n'existe pas de perturbation de meme nom */
+			vl_nom =  DB_CTRL_GET_VALUE@(vl_fenetre, "BS_nom")
+			vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_perts,0),vl_nom)
+
+			IF (vl_indice<>-1)
+				INFO_MESSAGE@("Il existe deja un perturbation de meme nom. Creation refusee.")
+			ELSE
+			{					
+				/*A on ajoute la perturbation, dans le tableau*/
+				vl_indice=ARRAY_SIZE@(tm_perts)
+				tm_perts_indices[vl_indice].nom = vl_nom
+				tm_perts_indices[vl_indice].obj1=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BO_obj1")
+
+				/*A si le 1° element ou le nom est null*/
+				IF (tm_perts_indices[vl_indice].nom=null)
+				{
+					INFO_MESSAGE@("Le nom doit être non nul")
+				}
+				/*A sinon si la syntaxe est incorrecte */
+				ELSE IF (ec29_verif_def(tl_definition)=FALSE)
+					INFO_MESSAGE@("La syntaxe de la définition n'est pas correcte.")
+				ELSE
+				{
+					/*A ajoute cet element dans tm_alternat */
+					tm_alternat[vl_indice][0]= vl_nom
+
+					/*A ajoute cet element dans la liste*/
+					tm_perts_indices[vl_indice].obj2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BO_obj2")
+					tm_perts_indices[vl_indice].obj3=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BO_obj3")
+					tm_perts_indices[vl_indice].picto=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BO_picto")
+					tm_perts_indices[vl_indice].priorite=					
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_priorite")
+					tm_perts_indices[vl_indice].pmvl1=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne1")
+					tm_perts_indices[vl_indice].pmvl2=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne2")
+					tm_perts_indices[vl_indice].pmvl3=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne3")
+					tm_perts_indices[vl_indice].proba1=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba1")
+					tm_perts_indices[vl_indice].proba2=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba2")
+					tm_perts_indices[vl_indice].proba3=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba3")
+					tm_perts_indices[vl_indice].proba4=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba4")
+					tm_perts_indices[vl_indice].proba5=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba5")
+					tm_perts_indices[vl_indice].proba6=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_proba6")
+					tm_perts_indices[vl_indice].bifurc1=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc1")
+					tm_perts_indices[vl_indice].bifurc2=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc2")
+					tm_perts_indices[vl_indice].bifurc3=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc3")
+
+					tm_perts[vl_indice].nom=tm_perts_indices[vl_indice].nom
+					tm_perts[vl_indice].priorite=
+							tm_perts_indices[vl_indice].priorite
+					tm_perts[vl_indice].picto= 
+						tm_pictos[tm_perts_indices[vl_indice].picto][0]
+					tm_perts[vl_indice].obj1= 
+						tm_elements[tm_perts_indices[vl_indice].obj1]
+					tm_perts[vl_indice].obj2= 
+						tm_elements[tm_perts_indices[vl_indice].obj2]
+					tm_perts[vl_indice].obj3= 	
+						tm_elements[tm_perts_indices[vl_indice].obj3]
+					tm_perts[vl_indice].pmvl1=tm_perts_indices[vl_indice].pmvl1
+					tm_perts[vl_indice].pmvl2=tm_perts_indices[vl_indice].pmvl2
+					tm_perts[vl_indice].pmvl3=tm_perts_indices[vl_indice].pmvl3
+					tm_perts[vl_indice].proba1=
+						tm_perts_indices[vl_indice].proba1
+					tm_perts[vl_indice].proba2=
+						tm_perts_indices[vl_indice].proba2
+					tm_perts[vl_indice].proba3=
+						tm_perts_indices[vl_indice].proba3
+					tm_perts[vl_indice].proba4=
+						tm_perts_indices[vl_indice].proba4
+					tm_perts[vl_indice].proba5=
+						tm_perts_indices[vl_indice].proba5
+					tm_perts[vl_indice].proba6=
+						tm_perts_indices[vl_indice].proba6
+					tm_perts[vl_indice].bifurc1=
+						tm_perts_indices[vl_indice].bifurc1
+					tm_perts[vl_indice].bifurc2=
+						tm_perts_indices[vl_indice].bifurc2
+					tm_perts[vl_indice].bifurc3=
+						tm_perts_indices[vl_indice].bifurc3
+					tm_definition[vl_indice]=tl_definition
+
+					/*A met a liste a jour*/
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_perts",0,-1)
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_perts",
+												tm_perts, 0)
+
+					/*A effacer les valeurs des controles*/
+					DB_CTRL_VALUE@(vl_fenetre,"BS_nom",null)
+					DB_CTRL_VALUE@(vl_fenetre,"BO_obj1",0)
+					DB_CTRL_VALUE@(vl_fenetre,"BO_obj2",0)
+					DB_CTRL_VALUE@(vl_fenetre,"BO_obj3",0)	
+					DB_CTRL_VALUE@(vl_fenetre,"BO_picto",0)
+					DB_CTRL_VALUE@(vl_fenetre,"BS_priorite",null)
+					DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",null)
+					vl_selection=null
+				}
+			}
+
+		/*A je recois un message*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+				CASE dedi_canal_ec29_fin
+					SET_SYSTEM_VAR@(vg_presence_ec29,FALSE)
+					RETURN
+
+				/*A la  definition des objectifs a ete annulee*/
+				CASE dedi_canal_ec29_annule
+					/*A je peux valider et annuler*/
+					DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",FALSE)
+					DB_CTRL_GRAYED@(vl_fenetre,"BP_annuler",FALSE)
+
+					/*A je reaffiche les obj et pert initiales*/
+					tm_elements=tm_elements_init
+					tm_elements=ARRAY_COLUMN@(tm_elements,0)
+					tm_elements=ARRAY_INSERT@(tm_elements,"",0)
+					tm_perts=tm_perts_init
+					tm_perts_indices=tm_perts_indices_init
+
+					DB_CTRL_STRINGS@(vl_fenetre,"BO_obj1",tm_elements)
+					DB_CTRL_STRINGS@(vl_fenetre,"BO_obj2",tm_elements)
+					DB_CTRL_STRINGS@(vl_fenetre,"BO_obj3",tm_elements)
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_perts",0,-1)
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_perts",tm_perts,0)
+					
+				/*A la  definition des objectifs a ete valide*/
+				CASE dedi_canal_ec29_valide
+					/*A je peux donc valider*/
+					DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",FALSE)
+
+				/*A un objectif a ete ajoute */
+				CASE dedi_canal_ec29_ajobj
+					/*A je recupere la nouvelle liste*/
+					tm_elements=DB_GET_POKE_DATA@(vl_fenetre)
+					tm_elements=ARRAY_COLUMN@(tm_elements,0)
+					tm_elements=ARRAY_INSERT@(tm_elements,"",0)
+
+					/*A met a jour les boutons*/
+					/*A affichage de cette liste*/
+					DB_CTRL_STRINGS@(vl_fenetre,"BO_obj1",tm_elements)
+					DB_CTRL_STRINGS@(vl_fenetre,"BO_obj2",tm_elements)
+					DB_CTRL_STRINGS@(vl_fenetre,"BO_obj3",tm_elements)
+
+				/*A un objectif a ete supprime*/
+				CASE dedi_canal_ec29_supobj
+					/*A je recupere l'indice de la suppression*/
+					vl_indice=DB_GET_POKE_DATA@(vl_fenetre)
+					
+					/*A je met a jour ma liste des objectifs*/
+					tm_elements=ARRAY_DELETE@(tm_elements,vl_indice+1)
+
+					/*A met a jour les boutons*/
+					/*A affichage de cette liste*/
+					DB_CTRL_STRINGS@(vl_fenetre,"BO_obj1",tm_elements)
+					DB_CTRL_STRINGS@(vl_fenetre,"BO_obj2",tm_elements)
+					DB_CTRL_STRINGS@(vl_fenetre,"BO_obj3",tm_elements)
+
+					/*A je mets a jour la liste des perturbations*/
+					ec29_maj_pert(vl_indice,null)
+
+					/*A j'affiche cette nouvelle liste*/
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_perts",0,-1)
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_perts",tm_perts,0)
+
+				/*A un objectif a ete modifie*/
+				CASE dedi_canal_ec29_modifobj
+					/*A je recupere l'indice de l'element modifie
+					* et son nouveau nom*/
+					tl_data=DB_GET_POKE_DATA@(vl_fenetre)
+					vl_indice=tl_data[0]
+					
+					/*A je met a jour ma liste des objectifs*/
+					tm_elements[vl_indice+1]=tl_data[1]
+
+					/*A affichage de cette liste*/
+					DB_CTRL_STRINGS@(vl_fenetre,"BO_obj1",tm_elements)
+					DB_CTRL_STRINGS@(vl_fenetre,"BO_obj2",tm_elements)
+					DB_CTRL_STRINGS@(vl_fenetre,"BO_obj3",tm_elements)
+
+					/*A je mets a jour la liste des perturbations*/
+					ec29_maj_pert(vl_indice+1,tm_elements[vl_indice+1])
+
+					/*A j'affiche cette nouvelle liste*/
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_perts",0,-1)
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_perts",tm_perts,0)
+			ENDCASE
+	ENDCASE
+WEND
+
+endmacro
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec29_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_titre_perts
+VAR tl_data
+VAR vl_indice
+
+	/*A lecture du fichier de config dedi_ec37.ie*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_ALTERNAT_PMV)
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tm_alternat[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+												DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+	/*A caracteres valides pour le nom de l'objectif*/
+	'DB_CTRL_VALID_CHARS@(va_fenetre,"BS_nom",DEDI_CAR_VALIDES)
+	
+	/*A caracteres valides pour la priorite*/
+	DB_CTRL_VALID_CHARS@(va_fenetre,"BS_priorite","0123456789 ")
+
+	/*A initialisation de la variable globale tm_pictos */
+	tm_pictos = SYSTEM_VAR@(vg_pictos)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_picto",ARRAY_COLUMN@(tm_pictos,1))
+	
+	/*A recupere les types d'evenements*/
+	tm_types_evts=SYSTEM_VAR@(vg_types_evts)
+
+	/*A initialisation de la liste des predicats */
+	tm_predicats = "toutes voies bloquees", "toutes voies neutralisees",
+				"sur bau", "sur section courante", "sur lit d'arret",
+				"sur echangeur",
+				"sur bretelle d'entree", "sur bretelle de sortie",
+				"signale", "confirme",
+				"trafic dense", "trafic ralenti",
+				"trafic bouche", "trafic bloque",
+				"voies retrecies",
+				"entree fermee", "sortie fermee",
+				"depassement de seuil sur une ZdP",
+				"datex", "fluide", "pré-saturé", "saturé",
+				"durée < 1h", "1h <= durée < 6h", "durée >= 6h" ,
+				"A51_chaussée_Ouest","A51_chaussée_Est"
+	tm_predicats=ARRAY_APPEND@(tm_predicats,tm_types_evts)
+
+	/*A affiche et active la liste des predicats*/
+	DB_CTRL_PICKABLE@(va_fenetre, "BL_predicats", TRUE)
+	DB_CTRL_STRINGS@(va_fenetre, "BL_predicats", tm_predicats)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "BL_predicats", TRUE)
+
+	/*A initialisation de la liste des fonctions */
+	tm_fonctions = "nb_voies_bloquees", 
+				"nb_voies_neutralisees", 
+				"nb_voies_ouvertes"
+
+	/*A affiche et active la liste des fonctions*/
+	DB_CTRL_PICKABLE@(va_fenetre, "BL_fonctions", TRUE)
+	DB_CTRL_STRINGS@(va_fenetre, "BL_fonctions", tm_fonctions)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "BL_fonctions", TRUE)
+
+	/* initialisation de la liste des operateurs */
+	tm_operateurs = OU, ET, NON,"(",")"
+	DB_CTRL_PICKABLE@(va_fenetre, "BL_operateurs", TRUE)
+	DB_CTRL_STRINGS@(va_fenetre, "BL_operateurs", tm_operateurs)
+	DB_CTRL_DISPLAY@(va_fenetre, "BL_operateurs", FALSE)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "BL_operateurs", TRUE)
+
+	/* initialisation de la zone de saisie du comparateur et de la valeur */
+	tm_comp = "<", "<=", ">",">=","=", "<>"
+	DB_CTRL_DISPLAY@(va_fenetre, "BO_comparateur", FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre, "BS_valeur", FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre, "BP_OK", FALSE)
+
+	/*A si je suis appele depuis ec27*/
+	IF (vm_appel_menu=FALSE)
+	{
+		/*A je grise le bouton valider*/
+		DB_CTRL_GRAYED@(va_fenetre,"BP_valider",TRUE)
+		DB_CTRL_GRAYED@(va_fenetre,"BP_annuler",TRUE)
+	}	
+
+	DB_CTRL_GRAYED@(va_fenetre,"BP_modifier",TRUE)
+	DB_CTRL_GRAYED@(va_fenetre,"BP_supprimer",TRUE)
+
+	/*A charger les objectifs*/
+	tm_elements=SYSTEM_VAR@(vg_objectifs_pmv)
+	
+	/*! je met de cote la liste initiale des objectifs*/
+	tm_elements_init=tm_elements
+
+	/*A j'extraits les noms des objectifs*/
+	tm_elements=ARRAY_COLUMN@(tm_elements,0)
+	tm_elements=ARRAY_INSERT@(tm_elements,"",0)
+
+	/*A affichage de cette liste*/
+	DB_CTRL_STRINGS@(va_fenetre,"BO_obj1",tm_elements)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_obj2",tm_elements)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_obj3",tm_elements)
+
+	/*A active ces listes*/
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BO_obj1",TRUE)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BO_obj2",TRUE)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BO_obj3",TRUE)
+
+	/*A initialisation du tableau des perturbations */
+	tl_titre_perts[0][0] = "Perturbations"
+	tl_titre_perts[0][1] = 180
+	tl_titre_perts[1][0] = "Prio."
+	tl_titre_perts[1][1] = 35
+	tl_titre_perts[2][0] = "Objectif 1"
+	tl_titre_perts[2][1] = 120
+	tl_titre_perts[3][0] = "Objectif 2"
+	tl_titre_perts[3][1] = 120
+	tl_titre_perts[4][0] = "Objectif 3"
+	tl_titre_perts[4][1] = 120
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_perts", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_perts",TRUE)
+
+	/*A chargement des perturbations*/
+	tm_perts=SYSTEM_VAR@(vg_perturbations_pmv)
+
+	/*! je met de cote la liste initiale des perturbations*/
+	tm_perts_init=tm_perts
+
+	/*A parcourt le tableau des perturbations pour remplacer le nom des elements
+	* par leur indice dans le tableau tm_elements
+	* meme chose pour le trigramme picto*/
+	tm_perts_indices=tm_perts
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_perts)-1)
+		tm_perts_indices[vl_indice].obj1=ARRAY_INDEX@(tm_elements,
+									tm_perts[vl_indice].obj1)
+		tm_perts_indices[vl_indice].obj2=ARRAY_INDEX@(tm_elements,
+									tm_perts[vl_indice].obj2)
+		tm_perts_indices[vl_indice].obj3=ARRAY_INDEX@(tm_elements,
+									tm_perts[vl_indice].obj3)
+		tm_perts_indices[vl_indice].picto=ARRAY_INDEX@(
+								ARRAY_COLUMN@(tm_pictos,0),
+								tm_perts[vl_indice].picto)
+
+		/*! transforme la definition en un tableau*/
+		tm_definition[vl_indice]=ARRAY_FROM_STRING@(tm_perts[vl_indice].def,
+										CAR_SEPAR_DEF)
+
+	NEXT vl_indice
+
+	/*! je mets de cote cette liste*/
+	tm_perts_indices_init=tm_perts_indices
+
+	/*A j'affiche la liste des perturbations*/
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_perts", tm_perts, tl_titre_perts,null)
+ENDFUNCTION
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation des perturbations
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec29_valide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+* maj le fichier de donnee des alternats associes aux perturbations
+---------------------------------------------------------------------------- */
+VAR tl_titre_perts
+VAR tl_data, tl_data_datex,tl_alternat,vl_ligne
+VAR vl_indice,vl_indice_gen,vl_indice_datex,vl_ok
+VAR vl_index
+VAR tl_obj
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	/*A je verifie que tous les objectifs sont associes a au moins
+	* une perturbation*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_elements)-1)
+		/*recherche cet element dans la liste des objectifs en position 1*/
+		vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_perts,dedi_pos_obj1),
+						tm_elements[vl_indice])
+
+		/*A recherche dans les objectifs en pos 2*/
+		IF (vl_index=-1)
+			vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_perts,dedi_pos_obj2),
+						tm_elements[vl_indice])
+
+		/*A recherche dans les objectifs en pos 3*/
+		IF (vl_index=-1)
+			vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_perts,dedi_pos_obj3),
+						tm_elements[vl_indice])
+
+		/*A si l'objectif n'a pas ete trouve*/
+		IF (vl_index=-1)
+		{
+			/*A affiche un warning*/
+			INFO_MESSAGE@("Attention: l'objectif "++tm_elements[vl_indice]++
+						" n'est associe a aucune perturbation")
+			
+			/*A arrete ici la generation du fichier pour le rtie*/
+			return (FALSE)
+		}
+	NEXT vl_indice
+
+	vl_indice_gen=0
+	vl_indice_datex=0
+	/*A on genere le fichier de config*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_perts)-1)	
+		vl_ok=TRUE
+		/*A si une perturbation n'a pas d'objectif associe*/
+		IF (tm_perts[vl_indice].obj1=null)
+		{
+			INFO_MESSAGE@("Toutes les perturbations doivent avoir un 1° objectif non nul!")
+			RETURN (FALSE)
+		}
+		ELSE
+		{
+			/*A transforme la definition en une chaine et 
+			* je l'affecte a tm_perts*/
+			tm_perts[vl_indice].def=ARRAY_TO_STRING@(tm_definition[vl_indice],
+											CAR_SEPAR_DEF)
+
+			/*A transforme le tableau en une chaine*/
+			vl_ligne=ARRAY_TO_STRING@(tm_perts[vl_indice],
+											DEDI_CAR_SEPAR)
+
+			/* Si c'est un cas datex alors on memorise dans le tableau datex sinon le tableau general */
+			if ( STRING_INDEX@(vl_ligne,"datex") <> 0 )
+			{
+				tl_data_datex[vl_indice_datex]=vl_ligne
+				vl_indice_datex=vl_indice_datex+1
+			}
+			else
+			{
+				tl_data[vl_indice_gen]=vl_ligne
+				vl_indice_gen=vl_indice_gen+1
+			}
+			/*A meme chose pour tm_alternat*/
+			tl_alternat[vl_indice]=ARRAY_TO_STRING@(tm_alternat[vl_indice],
+											DEDI_CAR_SEPAR)
+		}
+	NEXT vl_indice
+
+	/*A met a jour la variable globale*/
+	SET_SYSTEM_VAR@(vg_perturbations_pmv,tm_perts)
+
+	/*A sauve les perturbations dans le fichier rtie*/
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_PERT_PMV,tl_data)
+	/*A sauve les perturbations datex dans le fichier rtie*/
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_PERT_PMV_DATEX,tl_data_datex)
+
+	/*A je met a jour dedi_ec37.ie */
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_ALTERNAT_PMV,tl_alternat)
+	
+RETURN (TRUE)
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* met a jour la liste des perturbations quand un objectif a ete efface de la liste
+* ou quand il a ete modifie
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec29_maj_pert (va_indice,va_objectif)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR tl_indices
+VAR vl_index
+VAR vl_posPerturbation
+VAR vl_indice
+
+	/*A je commence par recuperer toutes les perturbations qui
+	* contenaient cet objectif*/
+	tl_indices=ec29_recup_pert(va_indice)
+
+	/*A je parcoure le tableau retourne*/
+	FOR vl_index=0 TO (ARRAY_SIZE@(tl_indices)-1)
+		/*A position de la perturbation dans la liste des perturbations*/
+		vl_posPerturbation=tl_indices[vl_index][0]
+
+		/*A selon l'objectif qui est a mettre a jour*/
+		CASE OF tl_indices[vl_index][1]
+			/*A premier objectif*/
+			CASE 1
+				tm_perts[vl_posPerturbation].obj1=va_objectif
+
+			/*A deuxieme objectif*/
+			CASE 2
+				tm_perts[vl_posPerturbation].obj2=va_objectif
+
+			/*A troisieme objectif*/
+			CASE 3
+				tm_perts[vl_posPerturbation].obj3=va_objectif
+		ENDCASE
+	NEXT vl_index
+
+	/*A parcourt le tableau des perturbations pour remplacer le nom des elements
+	* par leur indice dans le tableau tm_elements*/
+	tm_perts_indices=tm_perts
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_perts)-1)
+		tm_perts_indices[vl_indice].obj1=ARRAY_INDEX@(tm_elements,
+									tm_perts[vl_indice].obj1)
+		tm_perts_indices[vl_indice].obj2=ARRAY_INDEX@(tm_elements,
+									tm_perts[vl_indice].obj2)
+		tm_perts_indices[vl_indice].obj3=ARRAY_INDEX@(tm_elements,
+									tm_perts[vl_indice].obj3)
+		tm_perts_indices[vl_indice].picto=ARRAY_INDEX@(
+								ARRAY_COLUMN@(tm_pictos,0),
+								tm_perts[vl_indice].picto)
+	NEXT vl_indice
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* retourne la liste des perturbations qui contiennent l'objectif dont la position
+* dans la liste des elements est va_indice
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec29_recup_pert (va_indice)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR tl_indices
+VAR vl_index,vl_indice
+
+	vl_index=0
+
+	/*A parcourt la liste des perturbations*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_perts_indices)-1)
+		IF (tm_perts_indices[vl_indice].obj1=va_indice) 
+		{
+			tl_indices[vl_index][0]=vl_indice
+			tl_indices[vl_index][1]=1
+			vl_index=vl_index+1
+		}
+		ELSE IF (tm_perts_indices[vl_indice].obj2=va_indice)
+		{
+			tl_indices[vl_index][0]=vl_indice
+			tl_indices[vl_index][1]=2
+			vl_index=vl_index+1
+		}
+		ELSE IF (tm_perts_indices[vl_indice].obj3=va_indice)
+		{
+			tl_indices[vl_index][0]=vl_indice
+			tl_indices[vl_index][1]=3
+			vl_index=vl_index+1
+		}
+	NEXT vl_indice
+
+	RETURN (tl_indices)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* affiche la nouvelle valeur de la definition apres selection d'un predicat
+* ou d'un operateur
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec29_calc_def (va_pos,va_idliste,ta_selection,va_indice,ta_definition, ta_fin_ligne)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_pos: indice de l'element selectionne dans va_idliste
+* va_idliste: BL_predicats ou BL_fonctions ou BL_operateurs
+* ta_selection: ligne depart, colonne depart, ligne arrivee, colonne arrivee
+*			de la selection dans la boite d'edition de la definition
+* va_indice:indice de la perturbation selectionnee
+* ta_fin_ligne : les arguments dans le cas predicat avec comparateur et valeur
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+VAR vl_sel
+VAR vl_ligneDepart
+VAR vl_nombreLignes
+VAR tl_data
+VAR vl_indice
+VAR tl_liste
+VAR tl_fin_ligne
+
+	/*A je prepare la fin de ligne */
+	IF ta_fin_ligne <> NULL
+		tl_fin_ligne = " "++ta_fin_ligne++" "
+	ELSE
+		tl_fin_ligne = ""
+	
+	/*A je determine quelle est la liste de termes que j'utilise*/
+	CASE OF va_idliste
+		CASE "BL_predicats"
+			tl_liste=tm_predicats
+
+		CASE "BL_fonctions"
+			tl_liste=tm_fonctions
+
+		CASE "BL_operateurs"
+			tl_liste=tm_operateurs
+
+		CASE "BP_effacer"
+			tl_liste=null
+	ENDCASE
+
+	/*A je lis le texte de la definition*/
+	tl_data=ta_definition
+
+	/*A je regarde d'abord si une ligne est bien selectionnee*/
+	IF ((ta_selection[0]=ta_selection[2]) AND (ta_selection[1]=ta_selection[3]))
+	{
+		IF (va_idliste<>"BP_effacer")
+			/*A je rajoute l'element a la fin*/
+			tl_data[ARRAY_SIZE@(tl_data)]=tl_liste[va_pos]++tl_fin_ligne
+
+		RETURN (tl_data)
+	}
+
+	/*A determine ligne de depart et nb de lignes selectionnees*/
+	vl_ligneDepart=ta_selection[0]
+'	vl_nombreLignes=(ta_selection[2]-ta_selection[0])+1
+	vl_nombreLignes=1
+
+	/*A remplace ou efface les lignes selectionnees*/
+	FOR vl_indice=vl_ligneDepart TO ((vl_ligneDepart+vl_nombreLignes)-1)
+		/*A si ce n'est pas une demande d'effacement*/
+		IF (va_idliste<>"BP_effacer")
+		{
+			/*A j'insere cet element dans la definition*/
+			tl_data=ARRAY_INSERT@(tl_data,
+							tl_liste[va_pos]++tl_fin_ligne,vl_indice)
+
+			goto POS_FIN
+
+			tl_data[vl_indice]=tl_liste[va_pos]
+		}
+		ELSE
+		{
+			/*A je mets a null la ligne selectionnee*/
+			tl_data[vl_indice]=null
+		}
+	NEXT vl_indice
+
+POS_FIN:
+	/*A parcourt le tableau pour eliminer les null*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		IF (vl_indice>=ARRAY_SIZE@(tl_data))
+			RETURN (tl_data)
+		IF (tl_data[vl_indice]=null)
+		{
+			tl_data=ARRAY_DELETE@(tl_data,vl_indice)
+			vl_indice=vl_indice-1
+		}
+	NEXT vl_indice
+
+	RETURN (tl_data)
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* verifie la syntaxe de la definition 
+*-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec29_verif_def (ta_def)
+
+/*
+* ARGUMENTS EN ENTREE : ta_def : definition dont on veut verifier la syntaxe
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : TRUE / FALSE
+*
+* CONDITION D'UTILISATION : sur creation ou modification d'une perturbation
+*
+* FONCTION : la grammaire est la suivante
+*	DEFINITION : au moins une COND
+*	COND : PROPOSITION / ( COND ) / NON COND / COND ET COND / COND OU COND
+* 
+---------------------------------------------------------------------------- */
+VAR vl_indice, vl_i
+VAR vl_op
+VAR tl_syntaxe
+VAR vl_modification
+
+	/*A on construit la representation syntaxique de la definition */
+	FOR vl_indice=0 TO (ARRAY_SIZE@(ta_def)-1)
+	{
+		vl_op = FALSE
+
+		/*B si je rencontre un operateur, je l'ecris*/
+		FOR vl_i=0 TO (ARRAY_SIZE@(tm_operateurs)-1)
+			IF (tm_operateurs[vl_i] = ta_def[vl_indice])
+			{
+				tl_syntaxe[vl_indice] = ta_def[vl_indice]
+				vl_op = TRUE
+			}
+		NEXT vl_i
+
+		/*B sinon j'ecris PROPOSITION */
+		IF (vl_op = FALSE)
+			tl_syntaxe[vl_indice] = PROPOSITION
+	}
+	NEXT vl_indice
+
+	/*A on simplifie la representation syntaxique de la definition : */
+
+	/*A tant qu'on a fait au moins une simplification, on itere le processus suivant */
+	vl_modification=TRUE
+	WHILE (vl_modification = TRUE)
+	{
+		vl_modification=FALSE
+
+		/*B si je rencontre  (PROPOSITION), je supprime ( et ) */
+		vl_indice=0
+		WHILE ( vl_indice < (ARRAY_SIZE@(tl_syntaxe)-2) )
+			IF (	tl_syntaxe[vl_indice] = "(" 
+				AND tl_syntaxe[vl_indice+1] = PROPOSITION
+				AND tl_syntaxe[vl_indice+2] = ")"	)
+			{
+				tl_syntaxe = ARRAY_DELETE@(tl_syntaxe, vl_indice)
+				tl_syntaxe = ARRAY_DELETE@(tl_syntaxe, vl_indice+1)
+				vl_modification = TRUE
+			}
+			vl_indice = vl_indice+1
+		WEND
+
+		/*B si je rencontre NON PROPOSITION, je supprime NON */
+		vl_indice=0
+		WHILE ( vl_indice < (ARRAY_SIZE@(tl_syntaxe)-1) )
+			IF (	tl_syntaxe[vl_indice] = NON
+				AND tl_syntaxe[vl_indice+1] = PROPOSITION	)
+			{
+				tl_syntaxe = ARRAY_DELETE@(tl_syntaxe, vl_indice)
+				vl_modification = TRUE
+			}
+			vl_indice = vl_indice+1
+		WEND
+
+		/*B si je rencontre  PROPOSITION ET PROPOSITION, je supprime PROPOSITION ET */
+		vl_indice=0
+		WHILE ( vl_indice < (ARRAY_SIZE@(tl_syntaxe)-2) )
+			IF (	tl_syntaxe[vl_indice] = PROPOSITION 
+				AND tl_syntaxe[vl_indice+1] = ET
+				AND tl_syntaxe[vl_indice+2] = PROPOSITION)
+			{
+				tl_syntaxe = ARRAY_DELETE@(tl_syntaxe, vl_indice)
+				tl_syntaxe = ARRAY_DELETE@(tl_syntaxe, vl_indice)
+				vl_modification = TRUE
+			}
+			vl_indice = vl_indice+1
+		WEND
+
+		/*B si je rencontre  PROPOSITION OU PROPOSITION, je supprime PROPOSITION OU */
+		vl_indice=0
+		WHILE ( vl_indice < (ARRAY_SIZE@(tl_syntaxe)-2) )
+			IF (	tl_syntaxe[vl_indice] = PROPOSITION 
+				AND tl_syntaxe[vl_indice+1] = OU
+				AND tl_syntaxe[vl_indice+2] = PROPOSITION)
+			{
+				tl_syntaxe = ARRAY_DELETE@(tl_syntaxe, vl_indice)
+				tl_syntaxe = ARRAY_DELETE@(tl_syntaxe, vl_indice)
+				vl_modification = TRUE
+			}
+			vl_indice = vl_indice+1
+		WEND
+	}
+	WEND
+
+	/*A si il ne reste dans tl_syntaxe que PROPOSITION, c'est gagne */
+	IF (ARRAY_SIZE@(tl_syntaxe)=1 AND tl_syntaxe[0]=PROPOSITION)
+		RETURN(TRUE)
+	ELSE
+		RETURN(FALSE)
+
+
+ENDFUNCTION
+
+
+

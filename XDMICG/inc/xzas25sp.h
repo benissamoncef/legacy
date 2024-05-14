@@ -1,0 +1,1 @@
+define XZAS25_Ind_COLOTRA	"XZAS;25" 

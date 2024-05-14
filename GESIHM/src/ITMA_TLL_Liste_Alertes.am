@@ -1,0 +1,846 @@
+/*E*/
+/* Fichier : $Id: ITMA_TLL_Liste_Alertes.am,v 1.40 2019/09/09 18:18:26 devgfi Exp $      Release : $Revision: 1.40 $        Date : $Date: 2019/09/09 18:18:26 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLL * FICHIER ITMA_TLL_Liste_Alertes.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Liste des Alertes.
+*
+*   Cf. DCG 2.4.46
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 23 Nov 1994 : Creation                                          V1.1
+* Noel      06 Dec 1994 : Modification position de la boite de dialogue     V1.?
+* Lecrivain 23 Dec 1994 : Changement localisation des fichiers pictogrammes V1.4
+* Guilhou   30 Dec 1994 : creation fmc a partir d'une alerte              V.1.5
+* Lecrivain 14 Avr 1995 : Appel fiche alerte par NEW_TASK                 V1.14
+* Lecrivain 27 Avr 1995 : Ouverture FMC effectuee par la fiche alerte     V1.15
+* Lecrivain 28 Avr 1995 : Reception msg fin reveil ou suppression de MTFL V1.16
+* Lecrivain 01 Jun 1995 : Message au menu pour maj icone sur alerte GN    V1.17
+* Torregrossa 11 Jul 1995 : Remplacer le BEEP par un poke de demande d'emission
+*                           de son                                        V1.18
+* Torregrossa 05 Sep 1995 : Initialisation de la liste a l'ouverture      V1.19
+* Noel	    29 Jan 1996 : Lancement du BEEP sonore uniquement sur création 
+				de l'alerte. (DEM 441)			  V1.20
+* Guilhou	26 aou 96 : Modif libelle de l'alerte passee a ITMA_TFL_Fiche_Alerte (DEM/1160) V1.21
+* Torregrossa 07 jan 1998 : ajout rechercher de la liste sur poste CI, administrateur, PC niveau 2 (1532) V1.22
+* Mismer 29 jan 1998 : modif pour basulement RAU PC2 (DEM/1542) V1.23
+* ESCOTA 12/01/99  : EVOL8 Redimentionnement le la fenetre 1.24
+* Niepceron 24 Nov 1998	: traitement des alertes DATEX (strada) dem/1723 V1.24
+* Niepceron 19 Mar 1999 : l'alerte DATEX devient Intergestionnaire dem/1742
+* Guilhou   18 jan 2000 : derniere alerte recue a afficher en haut de la liste 1.26
+* JMG		13/12/07: Au CI, ne garder que les alertes non RAU pour les PC2 bascules 1.26
+* PNI		22/03/07: Au CI,garder toutes les alertes pour les PC2 bascules 1.27 DEM978
+* JMG		04/04/11 : appel PAU virtuel 1.28 DEM 980
+* JMG		28/03/12: commu 1.30
+* JMG		04/07/12 : regul 1.31 DEM/1016
+* PNI		15/10/12 :Ajouter DP (sur modele CI) ;ne pas traiter les alertes meteo de PR au CI; traiter uniquement les alertes méteo PR au VD v1.32 DEM1055
+* PNI		27/05/13 : Correction inversion type - no eqt FI1817 DEM1069
+* PNI		15/10/12 :Ajouter CA (sur modele CI) ;ne pas traiter les alertes meteo de VE au CI; traiter uniquement les alertes méteo VE au CA v1.32 DEM1055
+* NDE		24/07/15 : position de fenetre changee pour le CI uniquement (DEM1338) 1.35
+* JMG		05/09/16: filtrage alertes RAU basculement troncon 1.36
+* JMG   09/03/17        : REGIONALISATION - DEM1220 1.37
+* XXX   xx/01/18        : Filtre appels PAU  1.38
+* XXX   xx/01/18        : Alertes communautaires  1.39
+* JPL	23/07/19 : Tailles des colonnes de la table, autorisation de redimensionnement (DEM 1325)  1.40
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+
+INCLUDE	"xdc_ax.h"
+INCLUDE	"xzaac_ax.h"
+INCLUDE	"xzic_ax.h"
+
+INCLUDE "xzaa06sp.h"
+INCLUDE "xzao912sp.h"
+
+INCLUDE	"ITMA_COM.h"
+INCLUDE	"ITMA_TDO.h"
+INCLUDE	"ITMA_TAR.h"
+INCLUDE	"ITMA_TFL.h"
+INCLUDE "itre_son_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTLL"			' Nom du module
+
+
+
+/*A
+ * Noms des images digitalisees particularisant les alertes
+ * --------------------------------------------------------
+ */
+
+DEFINE	C_PICTO_REVEILLEE	"pix_reveil"
+DEFINE	C_PICTO_PAR_DEFAUT	NULL
+
+
+
+/*A
+ * Delai au dela duquel une alarme doit etre reveillee
+ * et frequence de scrutation des reveils d'alarmes
+ * ---------------------------------------------------
+ */
+
+DEFINE	C_DELAI_REVEIL	30
+DEFINE	C_FREQUENCE	5
+
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	TLL_Alerte
+	type,					' Type de l'alerte (25 car)
+	equipement,				' Nom equipement (10 car)
+	localisation,				' Localisation (28 car)
+	date_debut,				' Date debut (16 car)
+	site
+
+VAR FORMAT TLL_Alerte vm_t_alertes		' Table des alertes affichee
+VAR	vm_l_picto				' Noms des pictogrammes
+
+VAR FORMAT TFL_Donnees_Alerte vm_t_info		' Table d'infos alertes internes
+VAR     vm_l_duree				' Liste des durees depuis reveil
+VAR vm_l_districts_concernes		' liste des districts dont le site gere les alertes
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation de la liste des alertes.
+*  Sur reception d'un message ajout, suppression ou reveil alerte dans la liste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLL_Liste_Alertes (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation a l'initialisation du poste.
+*
+* FONCTION
+*   Se met en attente d'un signal (message d'une autre tache) de modification
+*   de la liste des alertes et sur occurrence du signal, lit et visualise les
+*   modifications.
+*   Ne termine que sur reception d'un message de fin.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_fenetre_alertes			' Nom de la fenetre du module
+ 	VAR	vl_objet_selecte			' L'objet courant de la fenetre
+	VAR	vl_les_messages_acceptes		' Pour reception de signaux
+	VAR	vl_la_fenetre_est_active
+	VAR	vl_installer_traitement_erreur
+
+	VAR	vl_message				' Message recu d'une autre tache
+	VAR FORMAT TFL_Donnees_Alerte vl_args_msg	' Arguments du message
+
+	VAR	vl_nb_alrt				' Taille table des alertes
+	VAR	vl_select					' Alerte selectee dans la table
+	VAR	vl_libelle_alerte			' Libelle fourni a MTFL
+
+    VAR FORMAT COM_Localisation vl_local	' Localisation alerte
+   	VAR	vl_alerte_reveillee
+	VAR FORMAT COM_Localisation vl_local_alerte ' Localisation alerte
+	VAR	vl_les_districts 			' tab. des districts
+	VAR	vl_droits_adm				' TRUE ou FALSE
+	VAR	vl_site					' site changeant d'état de commexion
+	VAR	vl_statut
+	VAR	i
+	VAR	vl_cmd
+        VAR FORMAT TLL_Alerte vl_alerte		' Table des alertes affichee
+	VAR	vl_picto
+	VAR	vl_nom
+	VAR	vl_tmp
+	VAR	vl_fenetre_xpos
+	VAR	vl_evenement
+	
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Liste des alertes"
+ * --------------------------------------
+ */
+
+vl_fenetre_alertes = DB_LOAD@ ("ITMA_TLL")
+DB_WINDOW_REMAIN@ (vl_fenetre_alertes, TRUE)
+
+ /* ESCOTA EVOL8  anciennement 1014  */ 
+
+IF (GET_ENV_VAR@("RTARCH") = "hp700_hpux")
+	vl_fenetre_xpos = 780
+ELSE
+	vl_fenetre_xpos = 1390 
+
+DB_XPOS@ (vl_fenetre_alertes, vl_fenetre_xpos)
+DB_YPOS@ (vl_fenetre_alertes, 105)
+
+
+COM02_Attacher_Aide (vl_fenetre_alertes, "ITMA_TLL_Liste_Alertes")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_MTLL
+vl_les_messages_acceptes[2] = COM_CANAL_MTLL_FIN
+vl_les_messages_acceptes[3] = COM_CANAL_MTLL_MODIF
+vl_les_messages_acceptes[4] = COM_CANAL_TRAU_BASCUL
+IF SYSTEM_VAR@ (vg_site) = XDC_CI or SYSTEM_VAR@ (vg_site) = XDC_DP or SYSTEM_VAR@ (vg_site) = XDC_VC /*DEM1055+DEM1079*/
+	vl_les_messages_acceptes[5] = COM_CANAL_MTMT_ETAT_PCSIMPL
+DB_ACCEPT_POKES@ (vl_fenetre_alertes, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre_alertes, "TA_Alertes", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_alertes, "TA_Alertes", TRUE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_alertes, "TA_Alertes", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_alertes, "TA_Alertes", TRUE)
+
+
+/*A
+ * Initialiser la visualisation (liste des evenements)
+ * ---------------------------------------------------
+ */
+
+IF TLL_Init_Visualisation (vl_fenetre_alertes) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Armer une horloge pour le reveil des alertes
+ * --------------------------------------------
+ */
+
+DB_TIMER@ (vl_fenetre_alertes, C_FREQUENCE)
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_alertes)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_alertes)
+
+    IF vl_objet_selecte <> "poke_"  AND  vl_objet_selecte <> "timer_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre_alertes)
+
+	CASE COM_CANAL_FIN
+	CASE COM_CANAL_MTLL_FIN
+	    vl_la_fenetre_est_active = FALSE
+
+	CASE COM_CANAL_TRAU_BASCUL
+		/*basculement d un troncon RAU*/
+		/*Reinitialiser la visualisation au CI*/
+		TLL_Init_Visualisation (vl_fenetre_alertes)
+		DB_TABLE_CLEAR_DATA@(vl_fenetre_alertes, "TA_Alertes", 0,-1)
+		DB_TABLE_SET_NEW_DATA@ (vl_fenetre_alertes, "TA_Alertes",
+				vm_t_alertes, 0)
+		 DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre_alertes, "TA_Alertes",
+		 	0, vm_l_picto)
+
+	/*A
+	 * Reinitialiser la visualisation au CI (liste des alertes)
+	 * ---------------------------------------------------
+	 */
+	CASE COM_CANAL_MTMT_ETAT_PCSIMPL
+	    /*A recupere les donnees du message */
+	    vl_message = DB_GET_POKE_DATA@ (vl_fenetre_alertes)
+		SET_SYSTEM_VAR@(vl_message[0],vl_message[1])
+
+  		/*extrait le nom du site de la variable d'etat*/
+  		vl_site=SUBSTRING@(vl_message[0],LEN@(vl_message[0])-1)
+		vl_les_districts = SYSTEM_VAR@ (vg_les_districts)
+
+		/* si le message correspond à un PC niveau 2 et l'operateur n'est pas l'admistrateur, ou  à un PC niveau 3 alors reinitialiser la liste */
+		i = ARRAY_INDEX@( ARRAY_COLUMN@(vl_les_districts, TDO_CODE_DISTRICT), vl_site)
+		vl_droits_adm = COM04_Operateur_A_Le_Droit_De (XDC_FAM_ADMINISTRATION)
+COM01_Trace(COM_DEBUG1,"i="++i++"vl_droits_adm ="++ vl_droits_adm ++ "/"++ vl_site)
+		IF i >= 0
+			IF (vl_les_districts[i][TDO_TYPE_DISTRICT] = XDC_TYPE_PCNIVEAU2 AND
+				 vl_droits_adm <> TRUE) OR
+				(vl_les_districts[i][TDO_TYPE_DISTRICT] = XDC_TYPE_PCNIVEAU3 AND
+				vl_droits_adm = TRUE)
+			{
+				/* rechercher la liste des alertes */
+	    			TLL_Init_Visualisation (vl_fenetre_alertes)
+
+				/* réaffichage de la liste */
+				DB_TABLE_CLEAR_DATA@(vl_fenetre_alertes, "TA_Alertes", 0,-1)
+				DB_TABLE_SET_NEW_DATA@ (vl_fenetre_alertes, "TA_Alertes",
+						vm_t_alertes, 0)
+				DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre_alertes, "TA_Alertes",
+						0, vm_l_picto)
+			}
+
+
+	/*A
+	 * Sur reception d'un message de la tache relais, extraire les
+	 * informations sur la nouvelle alerte et l'ajouter dans la table
+	 * --------------------------------------------------------------
+	 */
+
+	CASE COM_CANAL_MTLL
+	    /*A recupere les donnees du message */
+	    vl_message = DB_GET_POKE_DATA@ (vl_fenetre_alertes)
+	    vl_args_msg = ARRAY_FROM_STRING@ (vl_message[0], COM_SEPAR_CHAMPS)
+	    vl_args_msg.numero = vl_args_msg.numero + 0
+	    vl_args_msg.num_type = vl_args_msg.num_type + 0
+	    vl_tmp = vl_args_msg.num_type_equip + 0 /* inversion num_type et num DEM1069*/
+	    vl_args_msg.num_type_equip = vl_args_msg.num_equip + 0
+	    vl_args_msg.num_equip = vl_tmp
+	    vl_args_msg.autoroute = vl_args_msg.autoroute + 0
+	    vl_args_msg.PR = vl_args_msg.PR + 0
+	    vl_args_msg.sens_circul = vl_args_msg.sens_circul + 0
+	    vl_args_msg.creation = vl_args_msg.creation + 0
+	    vl_args_msg.sit = vl_args_msg.sit + 0
+		if ( vl_args_msg.num_equip = XDC_EQT_ZONE_REGUL) {
+			vl_args_msg.num_equip = vl_args_msg.num_type_equip
+			vl_args_msg.num_type_equip = XDC_EQT_ZONE_REGUL
+		}
+	    /*A si c'est un information sur l'ecoute GN informer le menu */
+	    CASE OF vl_args_msg.num_type
+	    CASE XDC_GN_ECOUTE_PAU
+	    CASE XDC_GN_FIN_ECOUTE_PAU
+	    CASE XDC_GN_DEM_SECR_PAU
+	    CASE XDC_GN_REPR_SAE_PAU
+	    CASE XDC_GN_PREND_RAU
+	    CASE XDC_GN_DONNE_RAU
+		DB_SEND_POKE@ (COM_CANAL_MTMT_COMM_GN, vl_message)
+	    ENDCASE
+COM01_Trace(COM_DEBUG1,"Alerte sur "++SYSTEM_VAR@(vg_site)++" de " ++ vl_args_msg.sit ++ "de type "++vl_args_msg.num_type) 
+	    /*A si l'alerte est a effacer de la liste*/
+	    IF (vl_args_msg.creation=0)
+	    {
+		/*A position de l'alerte*/
+		i = ARRAY_INDEX@(ARRAY_COLUMN@(vm_t_info,0), vl_args_msg.numero)
+		
+		IF (i >= 0)
+		{
+		    vm_t_alertes = ARRAY_DELETE@ (vm_t_alertes, i)
+		    vm_l_picto = ARRAY_DELETE@ (vm_l_picto, i)
+		    vm_t_info = ARRAY_DELETE@ (vm_t_info, i)
+		    vm_l_duree = ARRAY_DELETE@ (vm_l_duree, i)
+
+		    DB_TABLE_CLEAR_DATA@(vl_fenetre_alertes,"TA_Alertes",0,-1)
+		    DB_TABLE_SET_NEW_DATA@(vl_fenetre_alertes,"TA_Alertes",vm_t_alertes, 0)
+		    DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_alertes,"TA_Alertes",0,vm_l_picto)
+		}
+	    }
+	    ELSE IF ( (SYSTEM_VAR@(vg_site)<>XDC_CI AND SYSTEM_VAR@(vg_site)<>XDC_DP) AND SYSTEM_VAR@(vg_site)<>XDC_VC)/* je suis ni au ci ni a vd DEM1055 ni a CA DEM1079*/
+		 OR
+		(SYSTEM_VAR@(vg_site) = vl_args_msg.sit AND (vl_args_msg.num_type<>XZAAC_APPEL_PAU))
+		OR
+	(SYSTEM_VAR@(vg_site) = vl_args_msg.sit AND (vl_args_msg.num_type=XZAAC_APPEL_PAU) AND
+		NOT filtrage_bascul(vl_args_msg.autoroute, vl_args_msg.PR,vl_args_msg.num_type)) 
+		OR
+                      (      (SYSTEM_VAR@(vg_site)=XDC_CI) and ((vl_args_msg.sit = XDC_CI) /* je suis au ci et ( c'est une alerte ci ou (ce n'est pas une alerte METEO de PR et le site de l'alerte est ferme )) */
+                             OR
+                             (  (vl_args_msg.num_type<>XZAAC_ALERTE_N4 or (vl_args_msg.sit<>XDC_DP and vl_args_msg.sit<>XDC_VE)) /* DEM1055+DEM1079 VH */
+                                  AND
+                                 (ARRAY_INDEX@(vm_l_districts_concernes, vl_args_msg.sit) >= 0)
+                             )))
+		 OR
+			
+                      (      (SYSTEM_VAR@(vg_site)=XDC_VC)	 /* je suis a VD ou CA et ( c'est une alerte vd ou (c'est une alerte METEO de PRou VE  et le site de l'alerte est ferme )) */
+                             and
+			     (	(vl_args_msg.sit = XDC_VC) or
+                             (  (vl_args_msg.num_type=XZAAC_ALERTE_N4 and (vl_args_msg.sit=XDC_VE) ) /* DEM1055+DEM1079 VH */
+                                  AND
+                                 (ARRAY_INDEX@(vm_l_districts_concernes, vl_args_msg.sit) >= 0)
+                             )))
+		OR
+			(	(SYSTEM_VAR@(vg_site)=XDC_CI) AND (vl_args_msg.num_type=XZAAC_APPEL_PAU) 
+					AND filtrage_bascul(vl_args_msg.autoroute, vl_args_msg.PR, vl_args_msg.num_type))
+                    
+/*(ARRAY_INDEX@(vm_l_districts_concernes, vl_args_msg.sit) >= 0)*/
+	    {
+			if ( (vl_args_msg.num_type <> XZAAC_ALERTE_COMMUNAUTAIRE) or
+						((vl_args_msg.num_type=XZAAC_ALERTE_COMMUNAUTAIRE) and (vl_args_msg.autoroute <>0))
+			) {
+
+		i = ARRAY_INDEX@ (ARRAY_COLUMN@ (vm_t_info, 0), vl_args_msg.numero)
+		if ( i < 0) {
+			vl_local.NumAuto = vl_args_msg.autoroute
+			vl_local.PR = vl_args_msg.PR
+			vl_local.sens_circulation = vl_args_msg.sens_circul
+		
+			vl_nb_alrt = ARRAY_SIZE@ (vm_t_alertes)
+		
+			vl_alerte.type=vl_args_msg.nom_type
+			vl_alerte.equipement=vl_args_msg.nom_equip
+			vl_alerte.date_debut=vl_args_msg.date_debut
+			vl_alerte.localisation=COM10_Localisation(vl_local)
+			vl_alerte.site = vl_args_msg.sit
+			IF ( (vl_args_msg.num_type=XZAAC_APPEL_IPHONE)  or 
+			   (vl_args_msg.num_type=XZAAC_ALERTE_COMMUNAUTAIRE)){
+				vl_alerte.equipement=vl_alerte.localisation
+			}
+			vm_t_alertes=ARRAY_INSERT@(vm_t_alertes,vl_alerte,0)
+			vm_t_info=ARRAY_INSERT@(vm_t_info,vl_args_msg,0)
+			vm_l_duree=ARRAY_INSERT@(vm_l_duree,C_DELAI_REVEIL,0)
+			vl_picto=C_PICTO_REVEILLEE, NULL
+			vm_l_picto=ARRAY_INSERT@(vm_l_picto,vl_picto,0)
+
+		
+			DB_TABLE_CLEAR_DATA@(vl_fenetre_alertes,"TA_Alertes",0,-1)
+			DB_TABLE_SET_NEW_DATA@(vl_fenetre_alertes,"TA_Alertes",vm_t_alertes,0)
+					} ELSE {
+			vm_l_picto[i] = C_PICTO_REVEILLEE, NULL
+				
+		}
+	    	DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_alertes,"TA_Alertes",0,vm_l_picto)
+		/*! demande d'emettre le bip denomme ITRE_SON_BASE */
+	    	vl_cmd = MTAR_MSG_EXEC, 1, MTAR_FCT_SONALERTE, ITRE_SON_BASE
+	    	DB_SEND_POKE@(COM_CANAL_TAR01, vl_cmd)
+		}
+	    }
+
+
+	/*A
+	 * Sur reception d'un message de la fiche alerte
+	 * supprimer le reveil ou supprimer l'alerte indiquee
+	 * --------------------------------------------------
+	 */
+
+	CASE COM_CANAL_MTLL_MODIF
+	    vl_message = DB_GET_POKE_DATA@ (vl_fenetre_alertes)
+
+	    /*B Chercher l'alerte dans la liste */
+	    i = ARRAY_INDEX@ (ARRAY_COLUMN@ (vm_t_info, 0), vl_message[0])
+	    IF i >= 0 {
+		IF vl_message[1] = "SUPPRIMER" {
+		    vm_t_alertes = ARRAY_DELETE@ (vm_t_alertes, i)
+		    vm_l_picto = ARRAY_DELETE@ (vm_l_picto, i)
+		    vm_t_info = ARRAY_DELETE@ (vm_t_info, i)
+		    vm_l_duree = ARRAY_DELETE@ (vm_l_duree, i)
+
+		    DB_TABLE_CLEAR_DATA@(vl_fenetre_alertes, "TA_Alertes", 0,-1)
+		    DB_TABLE_SET_NEW_DATA@ (vl_fenetre_alertes, "TA_Alertes",
+						vm_t_alertes, 0)
+		    DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre_alertes, "TA_Alertes",
+						0, vm_l_picto)
+		} ELSE {
+		    vm_l_duree[i] = 0
+		    vm_l_picto[i] = C_PICTO_PAR_DEFAUT, NULL
+		    DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre_alertes, "TA_Alertes",
+						0, vm_l_picto)
+		}
+	    }
+	ENDCASE
+
+
+    /*A
+     * A chaque top de l'horloge, ajouter au compteur attache a
+     * chaque alerte la periode d'horloge et si la duree maximale
+     * est atteinte, reveiller l'alerte (bip et pictogramme)
+     * ----------------------------------------------------------
+     */
+
+    CASE "timer_"
+	vl_alerte_reveillee = FALSE
+	FOR i = 0  TO ARRAY_SIZE@ (vm_t_alertes) - 1
+	    IF (vm_t_alertes[i].type <> "Intergestionnaire") {
+		 IF vm_l_duree[i] < C_DELAI_REVEIL {
+			vm_l_duree[i] = vm_l_duree[i] + C_FREQUENCE
+		  IF vm_l_duree[i] >= C_DELAI_REVEIL {
+		    vm_l_picto[i] = C_PICTO_REVEILLEE, NULL
+		    vl_alerte_reveillee = TRUE
+		}
+		}
+	    }
+	NEXT i
+
+	IF vl_alerte_reveillee {
+	    DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre_alertes, "TA_Alertes", 0, vm_l_picto)
+	    
+	    /*! demande d'emettre le bip denomme ITRE_SON_BASE */
+	    vl_cmd = MTAR_MSG_EXEC, 1, MTAR_FCT_SONALERTE, ITRE_SON_BASE
+	    DB_SEND_POKE@(COM_CANAL_TAR01, vl_cmd)
+
+	}
+
+
+    /*A
+     * Sur selection dans la table, visualiser la fiche de l'alerte choisie
+     * --------------------------------------------------------------------
+     */
+
+    CASE "TA_Alertes"
+	vl_evenement = DB_EXIT_CODE@ (vl_fenetre_alertes)
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_alertes, "TA_Alertes")
+
+	CASE OF	vl_evenement
+	CASE EV_TBL_DBLCLICK_
+	CASE EV_TBL_KEYPRESS_
+	CASE EV_TBL_COLUMN_RESIZE_
+		NOTHING
+
+	CASE EV_TBL_SELECTION_CHANGE_
+	    vl_select = vl_select[0]
+	    vl_libelle_alerte = vm_t_alertes[vl_select].type ++ "  " ++
+				vm_t_alertes[vl_select].equipement ++ "  " ++
+				vm_t_alertes[vl_select].localisation
+		vl_nom=vm_t_alertes[vl_select].equipement
+
+	    IF (vm_t_alertes[vl_select].type = "Intergestionnaire") {
+			NEW_TASK@ ("ITMA_TFL_Fiche_AlerteDatex", "ITMA_TLL_Liste_Alertes",
+			   vm_t_info[vl_select],
+			   vm_t_alertes[vl_select].equipement)
+		}
+		ELSE  {
+			NEW_TASK@ ("ITMA_TFL_Fiche_Alerte", "ITMA_TLL_Liste_Alertes",
+			   vm_t_info[vl_select],
+			   vl_nom)
+		}
+	ENDCASE
+   ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLL_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLL_Liste_Alertes
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+	VAR     vl_t_titres				' Titres colonnes de la table
+	VAR	vl_Indice, i
+	VAR     vl_nb_alrt
+	VAR     vl_site
+	VAR     vl_les_districts
+	VAR     vl_TypeAlerte, vl_TypeSite
+	VAR FORMAT COM_Localisation vl_local	' Localisation alerte	
+VAR FORMAT COM_Localisation vl_local_alerte	' Localisation alerte
+
+	VAR FORMAT SQL_Procedure_Params@        vl_Parametres
+	VAR FORMAT SQL_Procedure_Result@        vl_Resultats
+	VAR FORMAT TFL_Donnees_Alerte vl_ListeAlertes
+	VAR FORMAT TFL_Donnees_Alerte vl_ListeAlertes2
+
+	VAR vl_indice2
+	VAR vl_filtrage
+vl_site = SYSTEM_VAR@ (vg_site)
+vl_les_districts = SYSTEM_VAR@ (vg_les_districts)
+vm_l_districts_concernes = NULL
+vm_t_alertes = NULL
+vm_l_picto = NULL 
+vm_t_info = NULL
+vm_l_duree = NULL 
+
+/*A
+ * Types d'alerte rechercher en fonction du poste utilisateur 
+ * ----------------------------------------------------------
+ */
+IF (vl_site = XDC_CI) AND (COM04_Operateur_A_Le_Droit_De (XDC_FAM_ADMINISTRATION) = TRUE)
+{
+	vl_TypeAlerte = XDC_EQT_MET
+	vl_TypeSite = XDC_TYPE_PCNIVEAU3
+
+	/* rechercher les PC niveau 3 en mode bascule */
+	i = 0
+	FOR vl_Indice = 0 TO ARRAY_SIZE@(vl_les_districts)-1
+		IF vl_les_districts[vl_Indice][TDO_TYPE_DISTRICT] = XDC_TYPE_PCNIVEAU3
+		{
+			IF (SYSTEM_VAR@(vg_comm_++vl_les_districts[vl_Indice][TDO_CODE_DISTRICT]) = XDC_OK) AND
+				(SYSTEM_VAR@(vg_operateur_++vl_les_districts[vl_Indice][TDO_CODE_DISTRICT]) <> XDC_VRAI)
+			{
+				vm_l_districts_concernes[i] = vl_les_districts[vl_Indice][TDO_NUMERO_DISTRICT]
+				i = i + 1
+			}
+		}
+	NEXT vl_Indice
+}
+ELSE IF (vl_site = XDC_CI)
+{
+	vl_TypeSite = XDC_TYPE_PCNIVEAU2
+	vl_TypeAlerte = NULL
+
+	/* rechercher les PC niveau 2 en mode bascule */
+	i = 0
+	FOR vl_Indice = 0 TO ARRAY_SIZE@(vl_les_districts)-1
+COM01_Trace(COM_DEBUG1,vg_operateur_ ++ vl_les_districts[vl_Indice] [TDO_CODE_DISTRICT] ++ "=" ++ SYSTEM_VAR@(vg_operateur_ ++ vl_les_districts[vl_Indice] [TDO_CODE_DISTRICT]))
+		IF vl_les_districts[vl_Indice][TDO_TYPE_DISTRICT] = XDC_TYPE_PCNIVEAU2
+		{
+			IF (SYSTEM_VAR@(vg_comm_ ++ vl_les_districts[vl_Indice] [TDO_CODE_DISTRICT]) = XDC_OK) AND
+				(SYSTEM_VAR@(vg_operateur_ ++ vl_les_districts[vl_Indice] [TDO_CODE_DISTRICT]) <> XDC_VRAI)
+			{
+				vm_l_districts_concernes[i] = vl_les_districts[vl_Indice][TDO_NUMERO_DISTRICT]
+				i = i + 1
+			}
+		}
+		IF vl_les_districts[vl_Indice][TDO_TYPE_DISTRICT] = XDC_TYPE_PCCI
+			{
+				vm_l_districts_concernes[i] = vl_les_districts[vl_Indice][TDO_NUMERO_DISTRICT]
+				i = i + 1
+			}
+	NEXT vl_Indice
+}
+ELSE IF (vl_site = XDC_DP) /* DEM1055*/
+{
+	vl_TypeSite = XDC_TYPE_PCNIVEAU2
+	vl_TypeAlerte = NULL
+
+	/* rechercher les PC niveau 2 en mode bascule */
+	i = 0
+	FOR vl_Indice = 0 TO ARRAY_SIZE@(vl_les_districts)-1
+COM01_Trace(COM_DEBUG1,vg_operateur_ ++ vl_les_districts[vl_Indice] [TDO_CODE_DISTRICT] ++ "=" ++ SYSTEM_VAR@(vg_operateur_ ++ vl_les_districts[vl_Indice] [TDO_CODE_DISTRICT]))
+		IF vl_les_districts[vl_Indice][TDO_TYPE_DISTRICT] = XDC_TYPE_PCNIVEAU2 AND vl_les_districts[vl_Indice] [TDO_NUMERO_DISTRICT] = XDC_DP
+		{
+			IF (SYSTEM_VAR@(vg_comm_ ++ vl_les_districts[vl_Indice] [TDO_CODE_DISTRICT]) = XDC_OK) AND
+				(SYSTEM_VAR@(vg_operateur_ ++ vl_les_districts[vl_Indice] [TDO_CODE_DISTRICT]) <> XDC_VRAI)
+			{
+				vm_l_districts_concernes[i] = vl_les_districts[vl_Indice][TDO_NUMERO_DISTRICT]
+				i = i + 1
+			}
+		}
+	NEXT vl_Indice
+}
+ELSE IF (vl_site = XDC_VC) /* + DEM1079 */
+{
+	vl_TypeSite = XDC_TYPE_PCNIVEAU2
+	vl_TypeAlerte = NULL
+
+	/* rechercher les PC niveau 2 en mode bascule */
+	i = 0
+	FOR vl_Indice = 0 TO ARRAY_SIZE@(vl_les_districts)-1
+COM01_Trace(COM_DEBUG1,vg_operateur_ ++ vl_les_districts[vl_Indice] [TDO_CODE_DISTRICT] ++ "=" ++ SYSTEM_VAR@(vg_operateur_ ++ vl_les_districts[vl_Indice] [TDO_CODE_DISTRICT]))
+		IF vl_les_districts[vl_Indice][TDO_TYPE_DISTRICT] = XDC_TYPE_PCNIVEAU2 AND vl_les_districts[vl_Indice] [TDO_NUMERO_DISTRICT] = XDC_VE
+		{
+			IF (SYSTEM_VAR@(vg_comm_ ++ vl_les_districts[vl_Indice] [TDO_CODE_DISTRICT]) = XDC_OK) AND
+				(SYSTEM_VAR@(vg_operateur_ ++ vl_les_districts[vl_Indice] [TDO_CODE_DISTRICT]) <> XDC_VRAI)
+			{
+				vm_l_districts_concernes[i] = vl_les_districts[vl_Indice][TDO_NUMERO_DISTRICT]
+				i = i + 1
+			}
+		}
+	NEXT vl_Indice
+}
+ELSE
+{
+	vl_TypeSite = NULL
+	vl_TypeAlerte = NULL
+	vm_l_districts_concernes[0] = vl_site
+}
+
+/*A
+ * Definir les titres des colonnes de la table
+ * puis afficher les titres et une table vide
+ * -------------------------------------------
+ */
+
+vl_t_titres[0] = "Type Alerte",		220	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Equipement",		105
+vl_t_titres[2] = "Localisation",	105
+vl_t_titres[3] = "Date de début",	140
+vl_t_titres[4] = "", 0
+
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+/*A
+ * Rechercher des alertes du site
+ * ------------------------------
+ */
+
+vl_Indice = 0
+vl_parametres[vl_Indice].type	= SYB#INT4_
+vl_parametres[vl_Indice].data	= vl_TypeAlerte
+vl_parametres[vl_Indice].output	= FALSE
+
+vl_Indice = vl_Indice + 1
+vl_parametres[vl_Indice].type	= SYB#INT4_
+vl_parametres[vl_Indice].data	= vl_TypeSite
+vl_parametres[vl_Indice].output	= FALSE
+
+IF COM05_SQL_Procedure (XZAA06_ListeAlertes, 
+			vl_Parametres,vl_Resultats, C_MODULE) <> COM_OK
+{
+	INFO_MESSAGE@("Erreur d'accès à la base")
+	RETURN (COM_NOK)
+}
+
+vl_nb_alrt = ARRAY_SIZE@ (vl_Resultats.select_results[0])
+vl_ListeAlertes = vl_Resultats.select_results[0]
+i=0
+FOR vl_Indice=0 TO vl_nb_alrt-1
+COM01_Trace(COM_DEBUG1,"site="++vl_site++"/typealerte="++vl_ListeAlertes[vl_Indice].num_type++"/sitealerte="++vl_ListeAlertes[vl_Indice].sit++"/gestiosite="++ARRAY_INDEX@(vm_l_districts_concernes, vl_ListeAlertes[vl_Indice].sit))
+
+	IF (vl_Site <> XDC_CI and vl_Site <> XDC_VC and vl_Site <> XDC_DP) OR 
+	(vl_site = vl_ListeAlertes[vl_Indice].sit AND (vl_ListeAlertes[vl_Indice].num_type<>XZAAC_APPEL_PAU)) OR
+	(vl_site = vl_ListeAlertes[vl_Indice].sit AND (vl_ListeAlertes[vl_Indice].num_type=XZAAC_APPEL_PAU) AND
+		NOT filtrage_bascul(vl_ListeAlertes[vl_Indice].autoroute, vl_ListeAlertes[vl_Indice].PR,
+					vl_ListeAlertes[vl_Indice].num_type)) OR
+	(vl_Site = XDC_CI AND (vl_ListeAlertes[vl_Indice].num_type<>XZAAC_ALERTE_N4 or (vl_ListeAlertes[vl_Indice].sit<>XDC_DP AND vl_ListeAlertes[vl_Indice].sit<>XDC_VE)) AND ARRAY_INDEX@(vm_l_districts_concernes, vl_ListeAlertes[vl_Indice].sit) >= 0) OR 
+	(vl_Site = XDC_VC AND (vl_ListeAlertes[vl_Indice].num_type=XZAAC_ALERTE_N4 and vl_ListeAlertes[vl_Indice].sit=XDC_VE) AND ARRAY_INDEX@(vm_l_districts_concernes, vl_ListeAlertes[vl_Indice].sit) >= 0)
+	OR 
+	(vl_Site = XDC_CI AND (vl_ListeAlertes[vl_Indice].num_type=XZAAC_APPEL_PAU) AND
+		filtrage_bascul(vl_ListeAlertes[vl_Indice].autoroute, vl_ListeAlertes[vl_Indice].PR,
+							vl_ListeAlertes[vl_Indice].num_type))
+ /*DEM1055+DEM1079*/
+	{
+		COM01_Trace(COM_DEBUG1,"j affiche!")
+		vl_local.NumAuto = vl_ListeAlertes[vl_Indice].autoroute
+		vl_local.PR = vl_ListeAlertes[vl_Indice].PR
+		vl_local.sens_circulation = vl_ListeAlertes[vl_Indice].sens_circul
+			
+		vl_local_alerte.NumAuto = vl_ListeAlertes[vl_Indice].autoroute_alerte
+		vl_local_alerte.PR = vl_ListeAlertes[vl_Indice].PR_alerte
+		vl_local_alerte.sens_circulation = vl_ListeAlertes[vl_Indice].sens_alerte
+
+		vm_t_alertes[i].date_debut = COM18_Date_SGBD_Formatee(vl_ListeAlertes[vl_Indice].date_debut)
+		vl_ListeAlertes[vl_Indice].date_debut = vm_t_alertes[i].date_debut
+		vm_t_alertes[i].type = vl_ListeAlertes[vl_Indice].nom_type
+		vm_t_alertes[i].equipement = vl_ListeAlertes[vl_Indice].nom_equip
+                IF (vl_local_alerte.NumAuto<>NULL) {
+                  vm_t_alertes[i].localisation =COM10_Localisation(vl_local_alerte)
+                   vl_ListeAlertes[vl_Indice].PR = vl_ListeAlertes[vl_Indice].PR_alerte
+                    vl_ListeAlertes[vl_Indice].autoroute = vl_ListeAlertes[vl_Indice].autoroute_alerte
+                    vl_ListeAlertes[vl_Indice].sens_circul = vl_ListeAlertes[vl_Indice].sens_alerte
+                  vm_t_alertes[i].equipement = vm_t_alertes[i].localisation
+                }
+                else
+                  vm_t_alertes[i].localisation = COM10_Localisation(vl_local)
+
+		vm_t_alertes[i].site = vl_ListeAlertes[vl_Indice].sit
+
+		vm_l_picto[i] = C_PICTO_REVEILLEE, NULL
+		vm_t_info[i] = vl_ListeAlertes[vl_Indice]
+		vm_l_duree[i] = C_DELAI_REVEIL
+		i = i + 1
+	}
+NEXT vl_Indice
+
+DB_TABLE_SET_DATA@(va_fenetre, "TA_Alertes", vm_t_alertes, vl_t_titres, vm_l_picto)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+FUNCTION filtrage_bascul(va_autoroute, va_pr, va_type)
+VAR FORMAT SQL_Procedure_Params@        vl_Parametres
+	VAR FORMAT SQL_Procedure_Result@        vl_Resultats
+var vl_filtrage
+
+if (va_type<>XZAAC_APPEL_PAU)
+  return (FALSE)
+
+vl_parametres[0].type	= SYB#INT2_
+vl_parametres[0].data	=  va_autoroute
+vl_parametres[0].output	= FALSE
+vl_parametres[1].type	= SYB#INT4_
+vl_parametres[1].data	=  va_pr
+vl_parametres[1].output	= FALSE
+vl_parametres[2].type	= SYB#BIT_
+vl_parametres[2].output	= TRUE
+
+IF COM05_SQL_Procedure (XZAO912_Filtrage_Alerte_RAU, 
+			vl_Parametres,vl_Resultats, C_MODULE) <> COM_OK
+{
+	COM01_Trace@(COM_DEBUG1, "Erreur d'accès à la base")
+	RETURN (FALSE)
+}
+else {
+  vl_filtrage = vl_resultats.return_parameters[0]
+  if (vl_filtrage=0) {
+    RETURN (TRUE)
+  }
+}
+
+
+RETURN (FALSE)
+ENDFUNCTION

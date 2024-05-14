@@ -1,0 +1,173 @@
+/*E*/
+/* Fichier : $Id: ITMA_COM_Validite_Cause.am,v 1.11 2012/05/29 09:54:58 pc2dpdy Exp $      Release : $Revision: 1.11 $        Date : $Date: 2012/05/29 09:54:58 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLT * FICHIER ITMA_COM_Validite_Cause.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* teste la validite d'une fiche liee
+* 
+*
+*   Cf. DCG 2.4.49
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	26 dec 1994	: Creation						V1.1
+* Guilhou	27 dec 1994	: bug test sur ligne selectionnee		V1.2
+* Torregrossa	05 dec 1995	: Refus de la selection d'une fmc operateur dans le 
+*                                 cas ou la boite est appelee par ITMA_TMO_     V1.3
+* Torregrossa	08 jan 1996	: Refus de la selection d'une fmc operateur dans le 
+*                                 cas ou la boite est appelee par ITMA_TFO_     V1.4
+* Guilhou	17 sep 1996	: chgt gestion liste des causes pour applix 4.2 V1.5
+* Guilhou	25 sep 1996	: correction libelle localisation sur pc simplifie (RADT) V1.6
+* Guilhou	13 jan 1997     : gestion droit d'enrichir (DEM/1358) 1.7
+* Guilhou	28 mai 1997 	: ne plus effacer la liste des evts si on vient du choix
+*				  de type d'une FMC (FMC9)		1.9
+* Guilhou	05 sep 1997	: traiter le cas d'une ligne vide (DEM/1502) 1.10
+* 					 : meme look que la liste des FMC a traiter
+* JMG		21/02/2012 	: ajout num type en sortie dem/1015
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+INCLUDE	"../inc/ITMA_TLV.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+
+
+DEFINE  C_FORMAT_INTITULE_FMC   "N%s %2s %10s %s %s"
+
+DEFINE	C_MODULE	"MTMC"			' Nom du module
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_COM_Validite_Cause (va_appelant,va_fenetre,ta_liste)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fenetre		: id de la fenetre fiche main courante
+
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR vl_selection
+VAR FORMAT TDO_Evt_Cause tl_liste_causes
+VAR FORMAT COM_Identifiant_FMC	vl_id_cause
+VAR vl_lib_cause
+VAR tl_retour
+VAR vl_cr
+VAR vl_chaine
+VAR vl_numero,vl_type
+VAR FORMAT TDO_Type_FMC     vl_les_types_FMC
+
+	/*A element selectionne dans la liste des causes*/
+	vl_selection = DB_TABLE_GET_SELECTIONS@(va_fenetre,"TA_Evenements")
+	vl_selection = vl_selection[0]
+	IF (vl_selection++""=NULL)
+	{
+		vl_id_cause=null
+		vl_lib_cause=null
+		goto POS_FIN_CAUSE
+	}
+
+	tl_liste_causes=ta_liste
+
+	if tl_liste_causes[vl_selection]=NULL
+	{
+		vl_id_cause=null
+		vl_lib_cause=null
+		goto POS_FIN_CAUSE
+	}
+
+
+	/*B si c'est une fiche poste operateur*/
+	IF (tl_liste_causes[vl_selection].info_evt.NumType=4)
+	{
+		vl_chaine = SUBSTRING@(va_appelant, 6, 3)
+
+		/*B si c'est une fiche operateur cause d'une action sur pmv */
+		IF vl_chaine="TMO" OR vl_chaine = "TFO"
+		{
+			/*B affiche un message*/
+			INFO_MESSAGE@("Une fiche opérateur ne peut pas être l'événement cause")
+			vl_id_cause=null
+			vl_lib_cause=null
+			goto POS_FIN_CAUSE
+		}
+		/*B si c'est ma fiche operateur*/
+		ELSE IF (tl_liste_causes[vl_selection].info_evt.IdFMC.numero=
+				SYSTEM_VAR@(vg_num_fiche_operateur))
+		AND
+		 (tl_liste_causes[vl_selection].info_evt.IdFMC.cle=
+				SYSTEM_VAR@(vg_cle_fiche_operateur))
+		{
+			/*B affiche un warning*/
+			INFO_MESSAGE@("Attention: l'événement cause choisi est votre fiche opérateur")
+		}
+		/*B sinon je n'ai pas le droit de me lier a cette fiche*/
+		ELSE
+		{
+			/*B affiche un message*/
+			INFO_MESSAGE@("Seule votre fiche opérateur peut être l'événement cause")
+			vl_id_cause=null
+			vl_lib_cause=null
+			goto POS_FIN_CAUSE
+		}
+	}
+	/*B recupere num et cle de l'evenement cause*/
+	vl_id_cause.numero=tl_liste_causes[vl_selection].info_evt.IdFMC.numero
+	vl_id_cause.cle=tl_liste_causes[vl_selection].info_evt.IdFMC.cle
+
+	/*B je formatte le libelle de l'evenement cause*/
+	if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) {
+		vl_les_types_FMC = SYSTEM_VAR@ (vg_les_types_FMC)
+		vl_type = ARRAY_INDEX@ (ARRAY_COLUMN@ (vl_les_types_FMC, TDO_NUMERO_FMC),
+                           tl_liste_causes[vl_selection].info_evt.NumType)
+		IF vl_type >= 0
+    			vl_type = vl_les_types_FMC[vl_type].abbrev
+		ELSE vl_type = ""
+
+		vl_numero = "0000" ++ vl_id_cause.numero
+		vl_numero = SUBSTRING@ (vl_numero, LEN@ (vl_numero) - 3)
+		vl_lib_cause = FORMAT@ (C_FORMAT_INTITULE_FMC,
+                    vl_numero,
+                   vl_id_cause.cle,
+                    vl_type,
+                   tl_liste_causes[vl_selection].localisation,
+                    tl_liste_causes[vl_selection].date_debut)
+	}
+	else
+	  vl_lib_cause=COM11_Libelle_FMC(tl_liste_causes[vl_selection].info_evt)
+
+POS_FIN_CAUSE:
+	/*B j'efface la table des evts cause*/
+	if (va_appelant<>"ITMA_TMC_Choix_Type")
+	  DB_CTRL_DISPLAY@(va_fenetre,"TA_Evenements",FALSE)
+
+	/*B retour*/
+	tl_retour[0]=vl_id_cause
+	tl_retour[1]=vl_lib_cause
+	tl_retour[2]=tl_liste_causes[vl_selection].droit_enrichir
+	tl_retour[3]=tl_liste_causes[vl_selection].info_evt.NumType
+	RETURN (tl_retour)
+ENDMACRO
+

@@ -1,0 +1,128 @@
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+
+DEFINE       REP_CONFIG                      "../fichiers/deq/"
+
+DEFINE	C_CMD_PEYRUIS	1
+DEFINE	C_CMD_AUBAGNE	2
+DEFINE	C_CMD_CANNET	3
+DEFINE	C_CMD_STMAX	4
+
+
+/*
+------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG   09/03/17        : REGIONALISATION - DEM1220 1.5
+-------------------------------------------------------
+*/
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* permet de quitter l'application
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRT_basculement_RAU ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   
+*
+---------------------------------------------------------------------------- */
+VAR vl_fenetre
+VAR vl_exit_value
+VAR vl_cmd, vl_arguments                ' Commande a envoyer, arguments
+VAR i, j
+VAR vl_liste_GN
+VAR vl_nom_GN
+VAR vl_chois_GN
+VAR vl_nom_site
+VAR vl_fichier_GN
+VAR vl_tmp
+VAR vl_cmd_bascul
+
+	/*
+	vl_fichier_GN = REP_CONFIG ++ "RAU_GN.txt"
+	if FILE_EXISTS@(vl_fichier_GN)
+	{
+		vl_liste_GN = READ_ASCII_FILE@(vl_fichier_GN)
+	}
+	j = 0
+	vl_nom_site = SYSTEM_VAR@(vg_nom_site)
+	for i= 0 to ARRAY_SIZE@(vl_liste_GN)-1
+		vl_tmp = COMMA_SPLIT@(vl_liste_GN[i])
+		if vl_tmp[0] = vl_nom_site	
+		{
+			vl_nom_GN[j] = vl_tmp
+			j = j + 1
+		}
+	NEXT i
+	*/
+	vl_fenetre=DB_LOAD@("ITMA_TRT_basculement_RAU")
+	DB_XPOS@(vl_fenetre,150)
+	DB_YPOS@(vl_fenetre,400)
+
+	/*DB_CTRL_STRINGS@(vl_fenetre,"BR_chois_GN",ARRAY_COLUMN@(vl_nom_GN,2))*/
+
+	if (SYSTEM_VAR@(vg_site)=XDC_DA)
+		vl_cmd_bascul=C_CMD_AUBAGNE
+	else if (SYSTEM_VAR@(vg_site)=XDC_VD)
+		vl_cmd_bascul=C_CMD_PEYRUIS
+	else if (SYSTEM_VAR@(vg_site)=XDC_VE)
+		vl_cmd_bascul=C_CMD_CANNET
+	else if (SYSTEM_VAR@(vg_site)=XDC_DP)
+		vl_cmd_bascul=C_CMD_STMAX
+	else
+		vl_cmd_bascul=0
+
+	/*A attente d'un evenement*/
+	WHILE 1
+		DB_DISPLAY@(vl_fenetre)
+		vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+		CASE OF vl_exit_value
+			/*A appui sur le bouton donner la main */
+			CASE "BP_donner"
+	/*			vl_chois_GN = DB_CTRL_GET_VALUE@(vl_fenetre,"BR_chois_GN")*/
+				vl_arguments = MTAR_FCT_XZEU07, 2, -vl_cmd_bascul,
+								SYSTEM_VAR@ (vg_nom_site)
+				vl_cmd = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEU00, 
+					ARRAY_TO_STRING@ (vl_arguments, MTAR_CAR_SEPAR)
+
+				DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+				RETURN 
+
+			/*A appui sur le bouton prendre la main */
+			CASE "BP_prendre"
+				/*A renvoie null*/
+				/*vl_chois_GN = DB_CTRL_GET_VALUE@(vl_fenetre,"BR_chois_GN")*/
+				vl_arguments = MTAR_FCT_XZEU06, 2, -vl_cmd_bascul, 
+								SYSTEM_VAR@ (vg_nom_site)
+				vl_cmd = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEU00, 
+					ARRAY_TO_STRING@ (vl_arguments, MTAR_CAR_SEPAR)
+
+				DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+				RETURN 
+
+			/*A appui sur le bouton annuler */
+			CASE "BP_annuler"
+				RETURN 
+
+		ENDCASE
+	WEND
+ENDMACRO

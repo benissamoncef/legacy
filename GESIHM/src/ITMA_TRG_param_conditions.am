@@ -1,0 +1,1481 @@
+/*E*/
+/* Fichier :@(#)ITMA_TRG_param_conditions.am	1.1       Release : 1.1        Date : 04/19/12
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TPL * FICHIER ITMA_TRG_param_conditions.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Param�trage des scenarios
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG 	20/03/12 : creation
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TRG.h"
+INCLUDE	"../inc/xzao552sp.h"
+INCLUDE	"../inc/xzao557sp.h"
+INCLUDE	"../inc/xzao561sp.h"
+INCLUDE	"../inc/xzao558sp.h"
+INCLUDE	"../inc/xzao578sp.h"
+INCLUDE	"../inc/xzao556sp.h"
+INCLUDE    "../../XDMICG/inc/xzaec_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../inc/xzao563sp.h"
+INCLUDE	"../inc/xzao579sp.h"
+
+
+
+DEFINE	C_MODULE	"MTRG"			' Nom du module
+
+DEFINE	C_TYPE_TRAFIC_ACTIV	0
+DEFINE	C_TYPE_TRAFIC_DESACTIV	1
+DEFINE	C_TYPE_HORAIRE	2
+
+DEFINE	C_PLAGE_HORODATE	0
+DEFINE	C_PLAGE_JOUR_HORODATE	1
+DEFINE	C_PLAGE_HEURE		2
+DEFINE	C_PLAGE_TYPE_JOUR	3
+
+DEFINE  C_PICTO_VERT            "pix_vert"
+DEFINE  C_PICTO_ROUGE           "pix_rouge"
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM			1
+
+/*A
+ * Noms des images digitalisees particularisant
+ *     les caracteristiques d'un evenement
+ * --------------------------------------------
+ */
+
+DEFINE	C_PICTO_FIGE		"pix_croix"
+DEFINE	C_PICTO_MODIFIABLE	"pix_crayon"
+DEFINE	C_PICTO_VERT		"pix_vert"
+DEFINE	C_PICTO_ROUGE		"pix_rouge"
+
+VAR FORMAT T_zone  vm_zones
+VAR vm_l_picto_lib
+VAR FORMAT T_condition vm_cond_courante
+VAR FORMAT T_condition tm_conditions
+VAR FORMAT T_condition tm_conditions_simples
+VAR FORMAT T_scenario tm_scenarios
+VAR FORMAT T_station tm_stations
+VAR vl_flag_typejour
+
+
+/*A
+ * Description du format des donnees provenant de la base
+ * ------------------------------------------------------
+ */
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+*
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRG_param_conditions ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation par menu principal.
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR     vl_fenetre_events			' Nom de la fenetre du module
+	VAR     vl_objet_selecte			' L'objet courant de la fenetre
+	VAR     vl_la_fenetre_est_active
+	VAR     vl_installer_traitement_erreur
+
+
+	VAR     vl_select				' Selection(s) dans la table
+	VAR     i
+	VAR vl_indice,vl_index
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_data
+	VAR vl_t_titres
+	VAR vl_num_param
+	VAR vl_type_select
+	VAR vl_lib_select
+	VAR vl_val
+	VAR vl_refer
+	VAr vl_valeur, vl_valeur2
+	VAR vl_flag
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A
+ * Charger la fenetre "Parametrage des libelles"
+ * ---------------------------------------------
+ */
+
+vl_fenetre_events = DB_LOAD@ ("ITMA_TRG_param_conditions")
+DB_WINDOW_REMAIN@ (vl_fenetre_events, TRUE)
+
+DB_XPOS@ (vl_fenetre_events, 100)
+DB_YPOS@ (vl_fenetre_events, 93)
+
+COM02_Attacher_Aide (vl_fenetre_events, "ITMA_TRG_param_conditions")
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_events, "TA_conditions", FALSE)
+DB_CTRL_VERT_SCROLL@ (vl_fenetre_events, "TA_conditions", TRUE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_events, "TA_conditions", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "TA_conditions", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BO_zone", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BO_refer", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BO_simple", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BO_type", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BA_alt", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BA_conjonction1", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BA_conjonction2", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BA_conjonction3", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BA_conjonction4", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BO_jour", TRUE)
+DB_CTRL_DISPLAY@(vl_fenetre_events, "BO_type_jour", TRUE)
+DB_CTRL_DISPLAY@(vl_fenetre_events, "BO_type_jour2", FALSE)
+DB_CTRL_VALUE@(vl_fenetre_events, "BO_zone", -1)
+DB_CTRL_VALUE@(vl_fenetre_events, "BO_type", -1)
+DB_CTRL_VALUE@(vl_fenetre_events, "BO_jour", -1)
+DB_CTRL_VALUE@(vl_fenetre_events, "BO_simple",0)
+DB_CTRL_GRAYED@(vl_fenetre_events, "BP_creer", true)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_events, "BO_alternative", true)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_events, "BO_conjonction1", true)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_events, "BO_conjonction2", true)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_events, "BO_conjonction3", true)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_events, "BO_conjonction4", true)
+
+
+/*A
+ * Initialiser la visualisation (liste des evenements)
+ * ---------------------------------------------------
+ */
+MACRO_WINS_BUSY@()
+IF TRG_SCE_Init_Visualisation (vl_fenetre_events) <> COM_OK
+    RETURN
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_type_select = -1
+vl_lib_select = -1
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_DISPLAY@ (vl_fenetre_events)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_events)
+
+    CASE OF vl_objet_selecte
+   
+
+		
+    /*A
+     * Sur selection d'un libelle predefini,
+     * -------------------------------------
+     */
+     /*A appui sur le bouton horohelp debut*/
+     CASE "BP_horodeb"
+	if(vm_cond_courante.type_horaire <> C_PLAGE_TYPE_JOUR)
+	{
+		/*A recupere l'heure courante et la formate*/
+	     COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre_events,
+     	"BS_Jour_Debut","BS_Mois_Debut","BS_Annee_Debut",
+     	"BS_Heure_Debut","BS_Minute_Debut")
+     }
+	else
+	{
+		/*A recupere l'heure courante et la formate*/
+     	COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre_events,
+     	"BS_Jour_Debut","BS_Mois_Debut","BS_Annee_Debut")
+	}
+
+
+     CASE "BP_horofin"
+	if(vm_cond_courante.type_horaire <> C_PLAGE_TYPE_JOUR)
+	{
+		/*A recupere l'heure courante et la formate*/
+	     COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre_events,
+     "BS_Jour_Fin","BS_Mois_Fin","BS_Annee_Fin",
+     "BS_Heure_Fin","BS_Minute_Fin")
+
+	}
+	else
+	{
+		/*A recupere l'heure courante et la formate*/
+          COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre_events,
+          "BS_Jour_Fin","BS_Mois_Fin","BS_Annee_Fin")
+	}
+
+
+	CASE "TA_conditions"
+		MACRO_WINS_BUSY@()
+		vl_select = DB_TABLE_GET_SELECTIONS@(vl_fenetre_events,"TA_conditions")
+		vl_lib_select = vl_select[0]
+		vm_cond_courante = tm_conditions[vl_lib_select]
+		
+		/*met a jour les PRV commandes*/
+		TRG_affiche_detail(vl_fenetre_events)	
+
+	CASE "BO_zone"
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+		TRG_recherche_conditions(vl_fenetre_events, 
+					vm_zones[vl_valeur].numero)
+		TRG_recherche_stations(vl_fenetre_events, 
+						vm_zones[vl_valeur].numero,
+						-1)
+		DB_CTRL_GRAYED@(vl_fenetre_events, "BP_creer", false)
+
+	CASE "BO_scenario"
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+		vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_scenario")
+		TRG_recherche_conditions(vl_fenetre_events, 
+						vm_zones[vl_valeur].numero,
+						tm_scenarios[vl_valeur2].numero)
+		DB_CTRL_GRAYED@(vl_fenetre_events, "BP_creer", false)
+
+	CASE "BO_type"
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_type")
+		affiche_controles(vl_fenetre_events,vl_valeur)
+		
+	CASE "BO_simple"
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_simple")
+		if (vl_valeur=0) { /*condition simple*/
+			DB_CTRL_VALUE@(vl_fenetre_events, "BO_type",0)
+			affiche_controles(vl_fenetre_events,0)
+		}
+		else {
+			affiche_controles(vl_fenetre_events,99)
+		}
+
+	CASE "BO_jour"
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_jour")
+		affiche_controles_jour(vl_fenetre_events,vl_valeur)
+
+	CASE "BO_alternative"
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_alt", true)
+
+	CASE  "BO_conjonction1"
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_conjonction1",true)
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_conjonction1")
+		vl_valeur2=	tm_conditions_simples[vl_valeur].type_horaire
+		db_ctrl_value@(vl_fenetre_events,"BO_type",vl_valeur2)
+
+	CASE  "BO_conjonction2"
+		 DB_CTRL_VALUE@(vl_fenetre_events, "BA_conjonction2",true)
+
+	CASE "BO_conjonction3"
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_conjonction3",true)
+
+	CASE "BO_conjonction4"
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_conjonction4",true)
+
+	CASE "BA_conjonction2"
+		if DB_CTRL_GET_VALUE@(vl_fenetre_events, "BA_conjonction2")=false
+		DB_CTRL_VALUE@(vl_fenetre_events, "BO_conjonction2",-1)
+
+	CASE "BA_conjonction3"
+		if DB_CTRL_GET_VALUE@(vl_fenetre_events, "BA_conjonction3")=false
+		DB_CTRL_VALUE@(vl_fenetre_events, "BO_conjonction3",-1)
+
+	CASE "BA_conjonction4"
+		if DB_CTRL_GET_VALUE@(vl_fenetre_events, "BA_conjonction4")=false
+		DB_CTRL_VALUE@(vl_fenetre_events, "BO_conjonction4",-1)
+
+	CASE "BA_conjonction1"
+		if DB_CTRL_GET_VALUE@(vl_fenetre_events, "BA_conjonction1")=false
+		DB_CTRL_VALUE@(vl_fenetre_events, "BO_conjonction1",-1)
+			
+	/*A
+     * Sur selection bouton modifier,
+     * ------------------------------
+     */
+	CASE "BP_modifier"
+	if IS_NULL@(vm_cond_courante)	{
+		INFO_MESSAGE@("D'abord choisir une condition")
+	}
+	else
+	{
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+'		vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_scenario")
+		TRG_cree_condition(vl_fenetre_events,vm_zones[vl_valeur].numero,
+					vm_cond_courante.scenario)
+	}
+
+	CASE "BP_creer"
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+	'	vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_scenario")
+		vm_cond_courante.numero = -1
+		vm_cond_courante.scenario = 0
+		TRG_cree_condition (vl_fenetre_events,vm_zones[vl_valeur].numero,
+				vm_cond_courante.scenario)
+				
+	/*A
+	 * Sur selection bouton supprimer conditions
+	 * -----------------------------------------
+	 */
+	CASE "BP_supprimer"
+	
+	if IS_NULL@(vm_cond_courante)	
+	{
+		INFO_MESSAGE@("D'abord choisir une condition")
+	}
+	else 
+	{
+'		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_scenario")
+		vl_valeur2 = DB_CTRL_GET_VALUE@(vl_fenetre_events, "BO_zone")
+
+		TRG_supprimer_condition(vl_fenetre_events, vm_cond_courante.numero, tm_scenarios[vl_valeur].numero, vm_zones[vl_valeur].numero)	
+	}
+
+	/*A
+	 * Sur selection bouton Quitter
+	 * ----------------------------
+	 */
+	CASE "BP_fermer"
+		vl_la_fenetre_est_active = FALSE
+
+	CASE "BP_Aide"
+		info_message@("AIDE !!")
+		COM02_Attacher_Aide (vl_fenetre_events, "ITMA_TNA_pilotage_NAV_LT")
+
+		
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_SCE_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_conditions
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+ 
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+
+TRG_SCE_Init_Zone(va_fenetre)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des zones
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_SCE_Init_Zone(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_conditions ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des libelles predefinis.
+*
+---------------------------------------------------------------------------- */
+
+
+    VAR vl_t_titres, vl_base
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j,vl_indice
+	var tl_data
+	var tl_data_simple
+
+
+/*A
+ * Lire en base de donnees la liste des libelles predefinis
+ * --------------------------------------------------------
+ */
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = XDC_BASE_CFG
+if vl_base = 1
+	vl_base = XDC_BASE_CFT
+
+
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT4_
+vl_parametres[1].data = SYSTEM_VAR@(vg_site)
+vl_parametres[1].output = FALSE
+vl_resultats = null
+
+	IF COM05_SQL_Procedure (XZAO557_Liste_Zones,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+vm_zones = vl_resultats.select_results[0]
+DB_CTRL_STRINGS@(va_fenetre,"BO_zone",ARRAY_COLUMN@(vm_zones,1))
+
+/*A  Affichage des libelles du type de libelles choisi */
+
+vl_t_titres[0] = " ",			0	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Libelle",			250
+vl_t_titres[2] = "Secours",			250
+
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_conditions",0,1)
+	
+DB_TABLE_SET_DATA@(va_fenetre, "TA_conditions", null, vl_t_titres)
+DB_TABLE_SET_MARKER_WIDTH@(va_fenetre, "TA_conditions", 25)
+DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_conditions", 0, vm_l_picto_lib)
+	
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des conditions de la zone
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_recherche_conditions(va_fenetre, va_zone,va_scenario)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_conditions ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des libelles predefinis.
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_t_titres, vl_base
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j,vl_indice
+
+	VAR tl_data
+
+/*A
+ * Lire en base de donnees la liste des libelles predefinis
+ * --------------------------------------------------------
+ */
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = "CFG"
+if vl_base = 1
+	vl_base = "CFT"
+
+
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_zone
+vl_parametres[1].output = FALSE
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = -1
+vl_parametres[2].output = FALSE
+vl_resultats = null
+
+	IF COM05_SQL_Procedure (XZAO561_Liste_Conditions,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+tm_conditions = vl_resultats.select_results[0]
+
+tl_data=null
+tm_conditions_simples=null
+vl_indice=0
+for i = 0 to ARRAY_SIZE@(tm_conditions)-1
+	tl_data[i][0]=tm_conditions[i].numero
+	tl_data[i][1]=tm_conditions[i].libelle
+	if (tm_conditions[i].cond_alternative > 0) {
+		j = ARRAY_INDEX@(ARRAY_COLUMN@(tm_conditions, 0), 
+				tm_conditions[i].cond_alternative)
+		if (j >=0)
+			tl_data[i][2]=tm_conditions[j].libelle
+	}
+	if (tm_conditions[i].conjonction1 > 0) {
+		tm_conditions[i].simple=0
+	}
+	else {
+		tm_conditions_simples[vl_indice]= tm_conditions[i]
+		tm_conditions[i].simple=1
+		vl_indice = vl_indice +1
+	}
+next i
+
+	DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_conditions",0,-1)
+
+DB_CTRL_STRINGS@(va_fenetre, "BO_conjonction1", NULL)
+DB_CTRL_STRINGS@(va_fenetre, "BO_conjonction2", NULL)
+DB_CTRL_STRINGS@(va_fenetre, "BO_conjonction3", NULL)
+DB_CTRL_STRINGS@(va_fenetre, "BO_conjonction4", NULL)
+
+	DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_conditions", 
+			tl_data, 0)	
+vm_cond_courante=null
+
+DB_CTRL_STRINGS@(va_fenetre, "BO_alternative", 
+	ARRAY_COLUMN@(tm_conditions_simples, 1))
+
+DB_CTRL_STRINGS@(va_fenetre, "BO_conjonction1", 
+	ARRAY_COLUMN@(tm_conditions_simples, 1))
+
+DB_CTRL_STRINGS@(va_fenetre, "BO_conjonction2", 
+	ARRAY_COLUMN@(tm_conditions_simples, 1))
+
+DB_CTRL_STRINGS@(va_fenetre, "BO_conjonction3", 
+	ARRAY_COLUMN@(tm_conditions_simples, 1))
+
+DB_CTRL_STRINGS@(va_fenetre, "BO_conjonction4", 
+	ARRAY_COLUMN@(tm_conditions_simples, 1))
+
+DB_CTRL_VALUE@(va_fenetre, "BO_alternative", -1)
+
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Cree un scenario
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_cree_condition (va_fenetre, va_zone,va_scenario)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*   va_proc		: Nom de la procedure stockee a executer
+*   va_type_select    : No de la ligne de "TA_Liste_Libelle" selectionne
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_conditions ;
+*
+* FONCTION
+*   creation ou modification d'un libelle predefini.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j, vl_num_param, vl_num_lib, vl_base
+	VAR vl_libelle, vl_valeur,vl_index
+VAr	vl_horodate, vl_horodate_fin
+VAr vl_complexe
+VAR vl_conjonction1, vl_conjonction2, vl_conjonction3, vl_conjonction4
+VAR vl_temp_typejour
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = "CFG"
+if vl_base = 1
+	vl_base = "CFT"
+
+vl_libelle = DB_CTRL_GET_VALUE@(va_fenetre,"BS_libelle")
+if (TRIM@(vl_libelle)="") {
+	INFO_MESSAGE@("Libelle obligatoire")
+	return
+}
+
+vl_complexe = DB_CTRL_GET_VALUE@(va_fenetre, "BO_simple")
+
+if (vl_complexe=0)
+  if (DB_CTRL_GET_VALUE@(va_fenetre, "BO_type")=-1) {
+	INFO_MESSAGE@("Type obligatoire")
+	return
+  }
+
+
+vl_parametres = null	
+/*base*/
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT2_
+if (vm_cond_courante.numero=-1)
+	vl_parametres[1].data = 0
+else
+	vl_parametres[1].data = vm_cond_courante.numero	
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = vm_cond_courante.scenario
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#INT2_
+vl_parametres[3].data = DB_CTRL_GET_VALUE@(va_fenetre, "BO_type") 
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#INT2_
+vl_parametres[4].data = DB_CTRL_GET_VALUE@(va_fenetre, "BO_jour")
+if vl_parametres[4].data = -1
+	vl_parametres[4].data = 99
+vl_parametres[4].output = FALSE
+
+vl_horodate=COM06_Date_Formatee(
+                                DB_CTRL_GET_VALUE@(va_fenetre,"BS_Jour_Debut"),
+                                DB_CTRL_GET_VALUE@(va_fenetre,"BS_Mois_Debut"),
+                                DB_CTRL_GET_VALUE@(va_fenetre,"BS_Annee_Debut"),
+                                DB_CTRL_GET_VALUE@(va_fenetre,"BS_Heure_Debut"),
+                                DB_CTRL_GET_VALUE@(va_fenetre,"BS_Minute_Debut"))
+
+vl_parametres[5].type = SYB#DATETIME_
+vl_parametres[5].data = vl_horodate
+vl_parametres[5].output = FALSE
+
+vl_horodate_fin=COM06_Date_Formatee(
+                                DB_CTRL_GET_VALUE@(va_fenetre,"BS_Jour_Fin"),
+                                DB_CTRL_GET_VALUE@(va_fenetre,"BS_Mois_Fin"),
+                                DB_CTRL_GET_VALUE@(va_fenetre,"BS_Annee_Fin"),
+                                DB_CTRL_GET_VALUE@(va_fenetre,"BS_Heure_Fin"),
+                                DB_CTRL_GET_VALUE@(va_fenetre,"BS_Minute_Fin"))
+vl_parametres[6].type = SYB#dATETIME_
+vl_parametres[6].data = vl_horodate_fin
+vl_parametres[6].output = FALSE
+
+vl_parametres[7].type = SYB#INT2_
+vl_parametres[7].data = DB_CTRL_GET_VALUE@(va_fenetre, "BS_debut")
+vl_parametres[7].output = FALSE
+
+vl_parametres[8].type = SYB#INT2_
+vl_parametres[8].data = DB_CTRL_GET_VALUE@(va_fenetre, "BS_debut_min")
+vl_parametres[8].output = FALSE
+
+vl_parametres[9].type = SYB#INT2_
+vl_parametres[9].data = DB_CTRL_GET_VALUE@(va_fenetre, "BS_fin")
+vl_parametres[9].output = FALSE
+
+vl_parametres[10].type = SYB#INT2_
+vl_parametres[10].data = DB_CTRL_GET_VALUE@(va_fenetre, "BS_fin_min")
+vl_parametres[10].output = FALSE
+
+vl_valeur=-1
+if (vl_complexe=0) {
+  if (DB_CTRL_GET_VALUE@(va_fenetre, "BA_alt")) {
+	vl_index = DB_CTRL_GET_VALUE@(va_fenetre, "BO_alternative")
+	if (vl_index <> -1) {
+		if (tm_conditions_simples[vl_index].numero = vm_cond_courante.numero){
+			INFO_MESSAGE@("La condition ne peut pas etre son alternative")
+			return
+		}
+		vl_valeur=tm_conditions_simples[vl_index].numero 
+	}
+  }
+}
+	
+vl_parametres[11].type = SYB#INT2_
+vl_parametres[11].data = vl_valeur	/*COND ALTERNATIVE*/
+vl_parametres[11].output = FALSE
+
+if (vl_complexe=0) {
+	if (vl_parametres[3].data<>C_TYPE_HORAIRE) {
+		vl_valeur = DB_CTRL_GET_VALUE@(va_fenetre, "BS_seuil")
+		if (vl_valeur <=0) {
+			INFO_MESSAGE@("Le seuil doit etre strictement positif")
+			return
+		}
+	}
+}
+vl_parametres[12].type = SYB#INT2_
+vl_parametres[12].data = DB_CTRL_GET_VALUE@(va_fenetre, "BS_seuil")
+vl_parametres[12].output = FALSE
+
+vl_parametres[13].type = SYB#INT2_
+vl_parametres[13].data = DB_CTRL_GET_VALUE@(va_fenetre, "BO_donnee")
+if vl_parametres[13].data = -1
+	vl_parametres[13].data = 99
+vl_parametres[13].output = FALSE
+
+vl_parametres[14].type = SYB#INT2_
+vl_parametres[14].data = DB_CTRL_GET_VALUE@(va_fenetre, "BO_operateur")
+if vl_parametres[14].data = -1
+	vl_parametres[14].data = 99
+vl_parametres[14].output = FALSE
+
+if (vl_complexe=0) {
+  vl_conjonction1=0
+  vl_conjonction2=0
+  vl_conjonction3=0
+  vl_conjonction4=0
+}
+/*else {
+	vl_conjonction1=DB_CTRL_GET_VALUE@(va_fenetre, "BO_conjonction1")
+
+if (vl_conjonction1>-1)
+	vl_conjonction1=tm_conditions_simples[vl_conjonction1].numero
+else
+	vl_conjonction1=0
+
+vl_conjonction2=DB_CTRL_GET_VALUE@(va_fenetre, "BO_conjonction2")
+
+if (vl_conjonction2>-1)
+	vl_conjonction2=tm_conditions_simples[vl_conjonction2].numero
+else
+	vl_conjonction1=DB_CTRL_VALUE@(va_fenetre, "BO_conjonction1", NULL)
+
+vl_conjonction3=DB_CTRL_GET_VALUE@(va_fenetre, "BO_conjonction3")
+
+if (vl_conjonction3>-1)
+ 	vl_conjonction3=tm_conditions_simples[vl_conjonction3].numero
+else
+	vl_conjonction3=0
+
+  vl_conjonction4=DB_CTRL_GET_VALUE@(va_fenetre, "BO_conjonction4")
+
+  if (vl_conjonction4>-1)
+	 vl_conjonction4=tm_conditions_simples[vl_conjonction4].numero
+  else
+	vl_conjonction4=0
+}*/
+
+
+else {
+	vl_conjonction1=DB_CTRL_GET_VALUE@(va_fenetre, "BO_conjonction1")
+
+if (DB_CTRL_GET_VALUE@(va_fenetre, "BA_conjonction1") <> 0)
+	vl_conjonction1=tm_conditions_simples[vl_conjonction1].numero
+else
+	vl_conjonction1=0
+
+vl_conjonction2=DB_CTRL_GET_VALUE@(va_fenetre, "BO_conjonction2")
+
+if (DB_CTRL_GET_VALUE@(va_fenetre, "BA_conjonction2") <> 0)	vl_conjonction2=tm_conditions_simples[vl_conjonction2].numero
+else
+	vl_conjonction1=DB_CTRL_VALUE@(va_fenetre, "BO_conjonction1", NULL)
+
+vl_conjonction3=DB_CTRL_GET_VALUE@(va_fenetre, "BO_conjonction3")
+
+if (DB_CTRL_GET_VALUE@(va_fenetre, "BA_conjonction3") <> 0)
+ 	vl_conjonction3=tm_conditions_simples[vl_conjonction3].numero
+else
+	vl_conjonction3=0
+
+  vl_conjonction4=DB_CTRL_GET_VALUE@(va_fenetre, "BO_conjonction4")
+
+if (DB_CTRL_GET_VALUE@(va_fenetre, "BA_conjonction4") <> 0)
+	 vl_conjonction4=tm_conditions_simples[vl_conjonction4].numero
+  else
+	vl_conjonction4=0
+}
+
+
+
+vl_parametres[15].type = SYB#INT2_
+vl_parametres[15].data = vl_conjonction1	/*conjonction 1 */
+vl_parametres[15].output = FALSE
+
+vl_parametres[16].type = SYB#INT2_
+vl_parametres[16].data = vl_conjonction2	/*conjonction 2 */
+vl_parametres[16].output = FALSE
+
+vl_parametres[17].type = SYB#INT2_
+vl_parametres[17].data = vl_conjonction3	/*conjonction 3 */
+vl_parametres[17].output = FALSE
+
+vl_parametres[18].type = SYB#INT2_
+vl_parametres[18].data = vl_conjonction4	/*conjonction 4 */
+vl_parametres[18].output = FALSE
+
+vl_valeur = DB_CTRL_GET_VALUE@(va_fenetre, "BO_station")
+if vl_valeur <> -1
+	vl_valeur = tm_stations[vl_valeur].numero
+
+else
+	vl_valeur = 0
+
+vl_parametres[19].type = SYB#INT2_
+vl_parametres[19].data = vl_valeur	/*station*/
+vl_parametres[19].output = FALSE
+
+vl_parametres[20].type = SYB#INT2_
+vl_parametres[20].data = va_zone	/*zone*/
+vl_parametres[20].output = FALSE
+
+vl_parametres[21].type = SYB#INT2_
+/* ################## D # E # B # U # G ################## */
+/* insertion des donnees de l'une ou l'autre listbox en fonction typejour */
+if(vl_flag_typejour = 1)
+{ 
+	/* type JOURS */
+	vl_parametres[21].data = DB_CTRL_GET_VALUE@(va_fenetre, "BO_type_jour")
+	/*info_message@("Insertion JOUR :" ++ vl_parametres[21].data )*/
+
+}else
+{
+	/*info_message@("Insertion TYPE JOURS")*/
+
+	/*type TYPE DE JOURS JrsOuvres = 8, WE = 9*/
+
+	if ( DB_CTRL_GET_VALUE@(va_fenetre, "BO_type_jour2") = 0)
+	{
+		/*info_message@("Insertion JOURS OUVRES")*/
+		vl_temp_typejour = 8
+
+	}else if (DB_CTRL_GET_VALUE@(va_fenetre, "BO_type_jour2") = 1)
+	{
+		/*info_message@("Insertion WEEK END")*/
+		vl_temp_typejour = 9
+
+	}else
+	{
+		/*info_message@("Insertion BUG")*/
+		vl_temp_typejour = 0
+
+	}
+	vl_parametres[21].data = vl_temp_typejour
+
+}
+
+if vl_parametres[21].data = -1
+	vl_parametres[21].data = 99
+
+
+
+vl_parametres[21].output = FALSE
+
+vl_parametres[22].type = SYB#CHAR_
+vl_parametres[22].data = vl_libelle
+vl_parametres[22].output = FALSE
+
+vl_parametres[23].type = SYB#INT2_
+vl_valeur = DB_CTRL_GET_VALUE@(va_fenetre, "BO_station")
+if vl_valeur <> -1
+	vl_valeur = tm_stations[vl_valeur].sens
+
+else
+	vl_valeur = 0
+vl_parametres[23].data = vl_valeur	/*sens station*/
+vl_parametres[23].output = FALSE
+
+
+vl_parametres[24].type = SYB#INT2_
+vl_parametres[24].data = vl_complexe	/*condition complexe*/
+vl_parametres[24].output = FALSE
+
+vl_resultats = null
+{
+	IF COM05_SQL_Procedure(XZAO578_Update_Conditions,vl_parametres, vl_resultats,C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+} 
+
+
+TRG_recherche_conditions(va_fenetre,va_zone, va_scenario)
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_affiche_detail(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_conditions ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des libelles predefinis.
+*
+---------------------------------------------------------------------------- */
+  VAr vl_index, vl_indice
+
+DB_CTRL_TITLE@(va_fenetre, "numero", vm_cond_courante.numero)
+DB_CTRL_VALUE@(va_fenetre, "BS_libelle", vm_cond_courante.libelle)
+DB_CTRL_VALUE@(va_fenetre, "BS_seuil", vm_cond_courante.seuil)
+DB_CTRL_VALUE@(va_fenetre, "BO_operateur", vm_cond_courante.operateur)
+DB_CTRL_VALUE@(va_fenetre, "BO_donnee", vm_cond_courante.donnee_trafic)
+DB_CTRL_VALUE@(va_fenetre, "BO_type", vm_cond_courante.type_horaire)
+DB_CTRL_VALUE@(va_fenetre, "BO_jour", vm_cond_courante.jour)
+
+/* ################## D # E # B # U # G ################## */
+/* affichage de l'un ou l'autre des type jour (jour ou type */
+if(DB_CTRL_DISPLAY@(va_fenetre, "BO_type_jour",FALSE) <> 0)
+{
+	DB_CTRL_VALUE@(va_fenetre, "BO_type_jour2", vm_cond_courante.type_jour)
+	 /* info_message@("Affichage IF : type_jour2") */
+}
+else
+{
+	DB_CTRL_VALUE@(va_fenetre, "BO_type_jour", vm_cond_courante.type_jour)
+	 /* info_message@("Affichage ELSE : type_jour") */
+}
+
+DB_CTRL_VALUE@(va_fenetre, "BS_debut", vm_cond_courante.heure_debut)
+DB_CTRL_VALUE@(va_fenetre, "BS_debut_min", vm_cond_courante.minute_debut)
+DB_CTRL_VALUE@(va_fenetre, "BS_fin", vm_cond_courante.heure_fin)
+DB_CTRL_VALUE@(va_fenetre, "BS_fin_min", vm_cond_courante.minute_fin)
+
+for vl_indice = 0 to ARRAY_SIZE@(tm_stations)-1
+	if ((tm_stations[vl_indice].numero = vm_cond_courante.station) AND
+		(tm_stations[vl_indice].sens = vm_cond_courante.sens))
+		vl_index=vl_indice
+next vl_indice
+DB_CTRL_VALUE@(va_fenetre, "BO_station", vl_index)
+
+
+if ( vm_cond_courante.cond_alternative>0) {
+	vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_conditions_simples, 0),
+			vm_cond_courante.cond_alternative)
+	DB_CTRL_VALUE@(va_fenetre, "BA_alt", true)
+	DB_CTRL_VALUE@(va_fenetre, "BO_alternative",vl_index)
+}
+else
+{
+	DB_CTRL_VALUE@(va_fenetre, "BA_alt", false)
+	DB_CTRL_VALUE@(va_fenetre, "BO_alternative",-1)
+}
+
+
+
+if (vm_cond_courante.conjonction1 >0) or 
+	(vm_cond_courante.conjonction2 >0) or	 
+	(vm_cond_courante.conjonction3 >0) or 
+	(vm_cond_courante.conjonction4 >0)  
+	vm_cond_courante.simple=0
+else
+	vm_cond_courante.simple =1
+
+DB_CTRL_VALUE@(va_fenetre, "BO_simple", 1-vm_cond_courante.simple)
+
+
+COM24_Afficher_Horodate (COM18_Date_SGBD_Formatee(vm_cond_courante.horodate_debut),
+				 va_fenetre,
+                                    "BS_Jour_Debut", "BS_Mois_Debut",
+                                    "BS_Annee_Debut", "BS_Heure_Debut",
+                                    "BS_Minute_Debut")
+
+COM24_Afficher_Horodate (COM18_Date_SGBD_Formatee(vm_cond_courante.horodate_fin),
+				 va_fenetre,
+                                    "BS_Jour_Fin", "BS_Mois_Fin",
+                                    "BS_Annee_Fin", "BS_Heure_Fin",
+                                    "BS_Minute_Fin")
+
+affiche_controles_jour(va_fenetre,vm_cond_courante.jour)
+
+
+if ( vm_cond_courante.simple=1) {
+	affiche_controles(va_fenetre,vm_cond_courante.type_horaire)
+}
+else {
+  if ( vm_cond_courante.conjonction1>0) {
+	vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_conditions_simples, 0),
+			vm_cond_courante.conjonction1)
+	DB_CTRL_VALUE@(va_fenetre, "BA_conjonction1", true)
+	DB_CTRL_VALUE@(va_fenetre, "BO_conjonction1",vl_index)
+  }
+  else
+  {
+	DB_CTRL_VALUE@(va_fenetre, "BA_conjonction1", false)
+	DB_CTRL_VALUE@(va_fenetre, "BO_conjonction1",-1)
+  }
+  if ( vm_cond_courante.conjonction2>0) {
+	vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_conditions_simples, 0),
+			vm_cond_courante.conjonction2)
+	DB_CTRL_VALUE@(va_fenetre, "BA_conjonction2", true)
+	DB_CTRL_VALUE@(va_fenetre, "BO_conjonction2",vl_index)
+  }
+  else
+  {
+	DB_CTRL_VALUE@(va_fenetre, "BA_conjonction2", false)
+	DB_CTRL_VALUE@(va_fenetre, "BO_conjonction2",-1)
+  }
+  if ( vm_cond_courante.conjonction3>0) {
+	vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_conditions_simples, 0),
+			vm_cond_courante.conjonction3)
+	DB_CTRL_VALUE@(va_fenetre, "BA_conjonction3", true)
+	DB_CTRL_VALUE@(va_fenetre, "BO_conjonction3",vl_index)
+  }
+  else
+  {
+	DB_CTRL_VALUE@(va_fenetre, "BA_conjonction3", false)
+	DB_CTRL_VALUE@(va_fenetre, "BO_conjonction3",-1)
+  }
+  if ( vm_cond_courante.conjonction4>0) {
+	vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_conditions_simples, 0),
+			vm_cond_courante.conjonction4)
+	DB_CTRL_VALUE@(va_fenetre, "BA_conjonction4", true)
+	DB_CTRL_VALUE@(va_fenetre, "BO_conjonction4",vl_index)
+  }
+  else
+  {
+	DB_CTRL_VALUE@(va_fenetre, "BA_conjonction4", false)
+	DB_CTRL_VALUE@(va_fenetre, "BO_conjonction4",-1)
+  }
+
+
+	affiche_controles(va_fenetre,99)
+}
+
+'INFO_MESSAGE@(vm_cond_courante.jour)
+
+	if (vm_cond_courante.jour<>1){
+		DB_CTRL_GRAYED@(va_fenetre, "BO_type_jour2", true)
+		DB_CTRL_GRAYED@(va_fenetre, "BO_type_jour", true)
+}
+else 
+{
+		DB_CTRL_GRAYED@(va_fenetre, "BO_type_jour2", false)
+		DB_CTRL_GRAYED@(va_fenetre, "BO_type_jour", false)
+}
+
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des stations de la zone
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_recherche_stations(va_fenetre, va_zone)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_scenarios ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des libelles predefinis.
+*
+---------------------------------------------------------------------------- */
+  	VAR vl_data
+
+    VAR vl_t_titres, vl_base
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j
+var tl_data
+
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = "CFG"
+if vl_base = 1
+	vl_base = "CFT"
+
+
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_zone
+vl_parametres[1].output = FALSE
+vl_resultats = null
+
+	IF COM05_SQL_Procedure (XZAO563_Liste_Comptage,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+tm_stations = vl_resultats.select_results[0]
+'DUMP_ARRAY@(tm_stations,2)
+for i=0 to ARRAY_SIZE@(tm_stations)-1
+	tl_data[i]=SUBSTRING@(tm_stations[i][5], 1,3)++" " 
+		++tm_stations[i].autoroute ++ " PR" ++ (tm_stations[i].PR/1000) ++ " S" ++ tm_stations[i].sens
+next i
+
+DB_CTRL_STRINGS@(va_fenetre, "BO_station", tl_data)
+
+ENDMACRO
+
+
+
+FUNCTION affiche_controles(va_fenetre, va_type)
+var flag_trafic
+var flag_horaire
+var flag_complexe
+
+if (va_type = C_TYPE_HORAIRE) {
+	flag_trafic=true
+	flag_horaire=false
+	flag_complexe=false
+}
+else if (va_type = C_TYPE_TRAFIC_ACTIV) {
+	flag_trafic=false
+	flag_horaire=true
+	flag_complexe=false
+}
+else if (va_type = C_TYPE_TRAFIC_DESACTIV) {
+	flag_trafic=false
+	flag_horaire=true
+	flag_complexe=false
+}
+else {
+	flag_trafic=true
+	flag_horaire=true
+	flag_complexe=true
+}
+
+DB_CTRL_GRAYED@(va_fenetre, "BO_station", flag_trafic)
+DB_CTRL_GRAYED@(va_fenetre, "BO_donnee", flag_trafic)
+DB_CTRL_GRAYED@(va_fenetre, "BO_operateur", flag_trafic)
+DB_CTRL_GRAYED@(va_fenetre, "BS_seuil", flag_trafic)
+DB_CTRL_GRAYED@(va_fenetre, "BO_jour", flag_horaire)
+
+DB_CTRL_GRAYED@(va_fenetre, "BO_type_jour", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BO_type_jour2", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BS_debut", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BS_debut_min", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BS_fin", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BS_fin_min", flag_horaire)
+
+DB_CTRL_GRAYED@(va_fenetre, "BS_Jour_Debut", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Mois_Debut", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Annee_Debut", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Heure_Debut", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Minute_Debut", flag_horaire)
+
+DB_CTRL_GRAYED@(va_fenetre, "BS_Jour_Fin", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Mois_Fin", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Annee_Fin", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Heure_Fin", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Minute_Fin", flag_horaire)
+
+DB_CTRL_GRAYED@(va_fenetre, "LI_Horodate_Debut", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "LI_Horodate_Fin", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BP_horodeb", flag_horaire)
+DB_CTRL_GRAYED@(va_fenetre, "BP_horofin", flag_horaire)
+
+
+/*if (va_type = C_TYPE_HORAIRE) OR 
+	(va_type = 99) {
+	DB_CTRL_VALUE@(va_fenetre,"BO_jour", 0)
+	affiche_controles_jour(va_fenetre,0)
+}
+else if (va_type = C_TYPE_TRAFIC_ACTIV) OR
+	(va_type = C_TYPE_TRAFIC_DESACTIV){
+	DB_CTRL_VALUE@(va_fenetre,"BO_jour", -1)
+	affiche_controles_jour(va_fenetre,-1)
+} else
+*/
+		
+
+DB_CTRL_GRAYED@(va_fenetre, "BO_conjonction1",not flag_complexe)
+DB_CTRL_GRAYED@(va_fenetre, "BO_conjonction2",not flag_complexe)
+DB_CTRL_GRAYED@(va_fenetre, "BO_conjonction3",not flag_complexe)
+DB_CTRL_GRAYED@(va_fenetre, "BO_conjonction4",not flag_complexe)
+DB_CTRL_GRAYED@(va_fenetre, "BA_conjonction1",not flag_complexe)
+DB_CTRL_GRAYED@(va_fenetre, "BA_conjonction2",not flag_complexe)
+DB_CTRL_GRAYED@(va_fenetre, "BA_conjonction3",not flag_complexe)
+DB_CTRL_GRAYED@(va_fenetre, "BA_conjonction4",not flag_complexe)
+DB_CTRL_GRAYED@(va_fenetre, "BA_alt",flag_trafic)
+DB_CTRL_GRAYED@(va_fenetre, "BO_alternative", flag_trafic)
+DB_CTRL_GRAYED@(va_fenetre, "BO_type", flag_complexe)
+
+ENDFUNCTION
+
+
+FUNCTION affiche_controles_jour(va_fenetre, va_type)
+var flag_horo
+var flag_heure
+var flag_type
+var type_jour
+
+type_jour = 0
+
+if (va_type=C_PLAGE_HORODATE) {
+	flag_horo=true
+	flag_heure=true
+	flag_type=false
+	type_jour = 0
+
+}
+else if (va_type=C_PLAGE_JOUR_HORODATE){
+	flag_horo=true
+	flag_heure=true
+	flag_type=true
+	type_jour = 0
+
+}
+else if (va_type=C_PLAGE_HEURE){
+	flag_horo=false
+	flag_heure=true
+	flag_type=false
+	type_jour = 0
+
+}
+else if (va_type=C_PLAGE_TYPE_JOUR) 
+{
+	flag_horo=true
+	flag_heure=true
+	flag_type=true	
+	type_jour = 1
+}
+else {
+	flag_horo=false
+	flag_heure=false
+	flag_type=false
+	type_jour = 0
+
+}
+
+
+DB_CTRL_GRAYED@(va_fenetre, "BS_Jour_Debut", not flag_horo)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Mois_Debut", not flag_horo)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Annee_Debut", not flag_horo)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Minute_Debut", not flag_horo)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Heure_Debut", not flag_horo)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Jour_Fin", not flag_horo)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Mois_Fin", not flag_horo)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Annee_Fin", not flag_horo)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Minute_Fin", not flag_horo)
+DB_CTRL_GRAYED@(va_fenetre, "BS_Heure_Fin", not flag_horo)
+
+DB_CTRL_GRAYED@(va_fenetre, "BS_debut", not flag_heure)
+DB_CTRL_GRAYED@(va_fenetre, "BS_fin", not flag_heure)
+DB_CTRL_GRAYED@(va_fenetre, "BS_debut_min", not flag_heure)
+DB_CTRL_GRAYED@(va_fenetre, "BS_fin_min", not flag_heure)
+DB_CTRL_GRAYED@(va_fenetre, "BO_type_jour", not flag_type)
+DB_CTRL_GRAYED@(va_fenetre, "BO_type_jour2", not flag_type)
+
+/* ################## D # E # B # U # G ################## */
+/* changement selection listbox type de plage horraire */
+if(type_jour = 0)
+{
+	DB_CTRL_DISPLAY@(va_fenetre, "BO_type_jour", TRUE)
+	DB_CTRL_DISPLAY@(va_fenetre, "BO_type_jour2", FALSE)
+/*	info_message@("Selection plage horraire type_jour = VRAI") */
+	vl_flag_typejour = 1
+}
+else{
+	DB_CTRL_DISPLAY@(va_fenetre, "BO_type_jour2", TRUE)
+	DB_CTRL_DISPLAY@(va_fenetre, "BO_type_jour", FALSE)
+	DB_CTRL_GRAYED@(va_fenetre, "BS_Minute_Debut", flag_horo)
+	DB_CTRL_GRAYED@(va_fenetre, "BS_Heure_Debut", flag_horo)
+	DB_CTRL_GRAYED@(va_fenetre, "BS_Minute_Fin", flag_horo)
+	DB_CTRL_GRAYED@(va_fenetre, "BS_Heure_Fin", flag_horo)
+/*	info_message@("Selection plage horraire type_jour2 = VRAI") */
+	vl_flag_typejour = 2
+}
+
+
+
+ENDFUNCTION
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des scenarios de la zone
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_supprimer_condition(va_fenetre, va_condition, va_scenario, va_zone)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_param_conditions ;
+*
+* FONCTION
+*   Supprime un scenario
+*
+---------------------------------------------------------------------------- */
+  	VAR vl_data
+
+    VAR vl_t_titres, vl_base, vl_valeur
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j
+	VAR FORMAT T_Condition tl_data
+	var index_act, index_desact, index_hor
+
+/*A
+ * Lire en base de donnees la liste des libelles predefinis
+ * --------------------------------------------------------
+ */
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = XDC_BASE_CFG 
+if vl_base = 1
+	vl_base = XDC_BASE_CFT
+
+
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_condition
+vl_parametres[1].output = FALSE
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = va_scenario
+vl_parametres[2].output = FALSE
+
+vl_resultats = null
+
+	IF COM05_SQL_Procedure (XZAO579_Supprimer_Conditions,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+TRG_recherche_conditions(va_fenetre, va_zone,va_scenario)
+
+return (COM_OK)
+ENDMACRO
+

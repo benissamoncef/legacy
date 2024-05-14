@@ -1,0 +1,257 @@
+/*E*/
+/* Fichier : $Id: dedi_ec37.am,v 1.2 1995/09/26 16:41:13 gesconf Exp $	      Release : $Revision: 1.2 $        Date : $Date: 1995/09/26 16:41:13 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  SAIDEC
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec37.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* alternat pour les PMV
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	06 fev 1994	: Creation						V1.1
+* Thomas	15 Sep 1995	: elargissement a une perturbation quelconque (1.2)
+---------------------------------------------------------------------------- */
+
+include "dedi_init.h"
+
+VAR tm_alternat
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* alternat pour les PMV
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec37 ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_selection
+var tl_pokes
+var vl_indice
+var tl_data
+
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec37")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+tl_pokes[1]=dedi_canal_ec37_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,5)
+DB_YPOS@(vl_fenetre,72)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec37_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton modifier*/
+		CASE "BP_modifier"
+			/*A si un element est bien selectionne*/
+			IF (vl_selection++"")<>null
+			{
+				/*A nouvelle expression associee au type*/
+				tm_alternat[vl_selection][1]=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_l1")
+				tm_alternat[vl_selection][2]=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_l2")
+				tm_alternat[vl_selection][3]=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_l3")
+
+				/*A met a jour la table*/
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_types",tm_alternat,0)
+
+				/*A reselectionne l'element dans la table*/
+				vl_indice[0]=vl_selection
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_types",vl_indice)
+			}
+
+		/*A choix d'un type dans la table*/
+		CASE "TA_types"
+			/*A indice du type choisi*/
+			vl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,vl_evt)
+			vl_selection=vl_selection[0]
+
+			/*A affiche les valeurs de ce type pour modif*/
+			DB_CTRL_TITLE@(vl_fenetre,"LI_type",tm_alternat[vl_selection][0])
+			DB_CTRL_VALUE@(vl_fenetre,"BS_l1",tm_alternat[vl_selection][1])
+			DB_CTRL_VALUE@(vl_fenetre,"BS_l2",tm_alternat[vl_selection][2])
+			DB_CTRL_VALUE@(vl_fenetre,"BS_l3",tm_alternat[vl_selection][3])
+			DB_CURSOR_IN_ENTRY@(vl_fenetre,"BS_l1",TRUE)
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			ec37_valide()
+			RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+				CASE dedi_canal_ec37_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec37_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_titres
+VAR tl_data
+VAR vl_indice
+
+	/*A var autorisees*/
+	tl_data=dedi_var_fenetre(IE_FILE_ALTERNAT_PMV)
+	DB_CTRL_STRINGS@(va_fenetre,"BL_var",tl_data)
+
+	/*A lecture du fichier de config*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_ALTERNAT_PMV)
+
+	/*A formate les donnees*/	
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tm_alternat[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+												DEDI_CAR_SEPAR)
+
+	NEXT vl_indice
+
+	/*A affiche la liste des perturbations*/
+	tl_titres[0][0] = "Perturbation"
+	tl_titres[0][1] = 250
+	tl_titres[1][0] = "Ligne 1"
+	tl_titres[1][1] = 300
+	tl_titres[2][0] = "Ligne 2"
+	tl_titres[2][1] = 300
+	tl_titres[3][0] = "Ligne 3"
+	tl_titres[3][1] = 300
+
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_types", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_types",TRUE)
+
+	DB_TABLE_SET_DATA@(va_fenetre,"TA_types",tm_alternat,tl_titres)
+
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation des objectifs
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec37_valide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* 
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	/*A formate les donnees de la table*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_alternat)-1)
+		tl_data[vl_indice]=ARRAY_TO_STRING@(tm_alternat[vl_indice],
+											DEDI_CAR_SEPAR)
+	NEXT vl_indice
+	
+	/*A sauvegarde dans le fichier*/
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_ALTERNAT_PMV,tl_data)
+
+ENDMACRO
+
+
+

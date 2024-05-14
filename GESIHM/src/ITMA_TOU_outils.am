@@ -1,0 +1,370 @@
+/*E*/
+/* Fichier : $Id: ITMA_TOU_outils.am,v 1.14 2012/03/13 12:18:45 gesconf Exp $      Release : $Revision: 1.14 $        Date : $Date: 2012/03/13 12:18:45 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTOU * FICHIER ITMA_TOU_outils.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Lancement d'un outil construit par l'administrateur
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Noel	28 Dec 1994	: Creation                                   V1.1
+* Noel	05 Fev 1996	: Mise en place du mécanisme d'arrêt d'un 
+*						traitement en cours.	(DEM 808)		V1.5
+* TORREGROSSA 26 Jui 1996 : Creation d'une nouvelle connexion sur le serveur
+*                           SQL_CI pour l'execution des fiches metiers V1.6
+* PENOT	11 jul 1997	: Tri de la liste des .elo par ordre alphanum. pas de dem v1.7
+* Guilhou 26/02/98	: tester la comm avec le CI d'abord (dem/1581) 1.8-1.9
+* TORREGROSSA 12/03/98	: Correction erreur d'execution (1.10)
+* TORREGROSSA 12/03/98	: Correction tester la comm avec le CI d'abord (dem/1581) 1.11
+* NIEPCERON   03/07/98	: Connexion a SQL_CI (dem/1699) 1.12
+* NIEPCERON   29/06/99	: ajout changement de directoy 1.13
+* JPL		12/03/12 : Restauration contexte a la fin dans tous les cas (DEM 987)  1.14
+-------------------------------------------------------------------------------
+*/
+
+INCLUDE	"dbase_.am"
+INCLUDE	"app_ids_.am"				'pour récupérer le nom des appli Applix
+INCLUDE	"windows_.am"				'pour récupérer le nom des appli Applix
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+
+
+
+DEFINE	CM_MODULE	"MTOU"			' Nom du module
+
+
+DEFINE	CM_LIB_ERR_CNX_OUTILS	"Impossible d'ouvrir une connexion sur le serveur d'historique"
+
+
+DEFINE	VUE_COMMUN	"VUES_Commun.elo"
+DEFINE	VUE_APPLIX	"CVUEM_ApplixData.elo"
+
+
+VAR	vm_repertoire_appli
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Module de controle de l'execution des outils MIGRAZUR
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TOU_outils ()
+
+ON ERROR {
+	SET_CURRENT_DIR@ (vm_repertoire_appli)
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	ITMA_TOU_Fin_Connexion_Outils ()
+	RETURN
+}
+
+/* Memoriser le repertoire d'execution de l'application */
+vm_repertoire_appli = CURRENT_DIR@()
+
+PEND_FOR_NEW_TASK@ ("ITMA_TOU_Choix_outil")
+
+/* Restaurer l'environnement d'execution de l'application */
+SET_CURRENT_DIR@ (vm_repertoire_appli)
+ITMA_TOU_Fin_Connexion_Outils ()
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Restaurer le contexte complet de l'application en fin d'execution des outils
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TOU_Fin_Connexion_Outils ()
+
+VAR	vl_canal_SGBD
+
+/* Ignorer ici toute erreur */
+ON ERROR {
+	RETURN
+}
+
+SET_SYSTEM_VAR@ (vg_requete_en_cours, FALSE)
+
+/* Fermer toute connexion existante */
+vl_canal_SGBD = SYSTEM_VAR@ (vg_canal_SGBD_Fiche)
+
+IF (vl_canal_SGBD <> NULL)
+{
+	SET_SYSTEM_VAR@(vg_canal_SGBD_Fiche, NULL)
+	SQL_DISCONNECT@(vl_canal_SGBD)
+}
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Creation d'une boite de dialogue pour permettre le choix d'un outil et le lancer
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TOU_Choix_outil ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Appel depuis le menu principal
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR 	vl_exit_value
+	VAR	vl_la_fenetre_est_active
+	VAR 	vl_fenetre			/* identifiant de la fenetre 		*/
+	VAR	vl_macro			/* Macro selectionnee			*/
+	VAR	tl_messages_acceptes		/* liste des pokes acceptés */
+
+	VAR	tl_taches			/* liste des tâches en exécution */
+	VAR	vl_tache_indice			/* indice de la tâche de la fiche métier */
+	VAR	vl_tache_identifiant		/* identifiant de la tâche métier */
+
+	VAR	vl_code				/* identifiant du poke recu */
+	VAR	vl_canal_SGBD_Fiche		/* connexion au serveur HIS */
+	VAR	vl_repertoire_outils
+	VAR	tl_outils			/* Liste des outils dans le repertoire dedie */
+	VAR	vl_sufx_outils, vl_lg_sufx
+	VAR	vl_macro_sans_sufx		/* Nom de la macro sans suffixe */
+	VAR	vl_longueur			/* longueur du nom du fichier */
+	VAR	vl_pos				/* Position du suffixe dans le nom du fichier */
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN
+}
+
+
+/*A
+** Charger et positionner la fenetre de dialogue
+** ---------------------------------------------
+*/
+
+vl_fenetre = DB_LOAD@ ("ITMA_TOU")
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, -35)
+
+
+/*A
+** Mettre en place la reception des messages
+** -----------------------------------------
+*/
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+tl_messages_acceptes[1] = COM_CANAL_MTOU_FIN_TRT
+
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+
+/*A Déclarer l'aide en ligne */
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TOU_outils")
+
+
+/*A dégriser le bouton "exécuter" et griser le bouton "annuler */
+DB_CTRL_GRAYED@(vl_fenetre, "BP_executer", FALSE)
+DB_CTRL_GRAYED@(vl_fenetre, "BP_annuler", TRUE)
+
+
+vl_repertoire_outils = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO
+INSTALL_FILE@(vl_repertoire_outils ++ "/" ++ VUE_COMMUN)
+INSTALL_FILE@(vl_repertoire_outils ++ "/" ++ VUE_APPLIX)
+
+
+if (SYSTEM_VAR@(vg_comm_CI)<>XDC_OK) AND (SYSTEM_VAR@(vg_site) <> XDC_CI) {
+	INFO_MESSAGE@(C_LIB_PERTE_CI)
+	RETURN
+}
+
+
+/*A Ouvrir une connexion sur le serveur d'historique pour executer les fiches */
+vl_canal_SGBD_Fiche = COM43_SQL_CONNECT(XDC_NOM_SITE_HIS)
+IF IS_NULL@(vl_canal_SGBD_Fiche)
+{
+	ERROR@ (1, CM_LIB_ERR_CNX_OUTILS)
+	RETURN
+}
+SQL_CHANNEL_MASTER@(vl_canal_SGBD_Fiche,0)
+SET_SYSTEM_VAR@(vg_canal_SGBD_Fiche,vl_canal_SGBD_Fiche)
+
+
+/*A Recuperer la liste des outils disponibles */
+vl_sufx_outils = ".elo"
+vl_lg_sufx = LEN@ (vl_sufx_outils)
+
+/*tl_outils = LIST_OF_FILES@(vl_repertoire_outils)*/
+tl_outils = SORT@(FILE_SYSTEM_FILES@(vl_repertoire_outils,"VUEM*"++vl_sufx_outils),FALSE)
+
+/*A Initialiser la liste */
+FOR vl_macro = 0  TO ARRAY_SIZE@ (tl_outils) - 1
+	vl_longueur = LEN@(tl_outils[vl_macro])
+	vl_macro_sans_sufx = SUBSTRING@(tl_outils[vl_macro], 1, vl_longueur - vl_lg_sufx)
+	tl_outils[vl_macro] = vl_macro_sans_sufx
+NEXT vl_macro
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_outils", tl_outils)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_outils", -1)
+
+
+/*A boucle infinie de traitement des evenements*/
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+	DB_DISPLAY@(vl_fenetre)
+
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+	CASE OF vl_exit_value
+
+	/*B si demande d'execution */
+	CASE "BP_executer"
+		/*B Recuperer la macro a lancer */
+		vl_macro = DB_CTRL_GET_VALUE@(vl_fenetre, "BL_outils")
+		IF (vl_macro >= 0)
+		{
+			/*B Charger la macro en memoire et la compiler */
+			vl_macro_sans_sufx = tl_outils[vl_macro]
+			INSTALL_FILE@(vl_repertoire_outils ++ vl_macro_sans_sufx ++ vl_sufx_outils)
+
+			/* griser le bouton "exécuter" et dégriser le bouton "annuler */
+			DB_CTRL_GRAYED@(vl_fenetre, "BP_executer", TRUE)
+			/*!!! DB_CTRL_GRAYED@(vl_fenetre, "BP_quitter", TRUE) Quand les autres seront prets !!! */
+			DB_CTRL_GRAYED@(vl_fenetre, "BP_annuler", FALSE)
+
+			/*B Lancer la macro dans le contexte outils */
+			SET_CURRENT_DIR@(vl_repertoire_outils)
+			NEW_TASK@(vl_macro_sans_sufx)
+		}
+
+
+	/*B Si demande d'annuler le traitement en cours */
+	CASE "BP_annuler"
+
+		/* pour fermer la ou les fenetres de dialogue outils ouvertes */
+		DB_SEND_POKE@ (COM_CANAL_MTOU_FIN_TRT, NULL)
+
+		/* arret de la connexion dediee aux outils */
+		ITMA_TOU_Fin_Connexion_Outils ()
+
+		/*!!!! en attendant des informations d'APPLIX sur l'arret d'une requete en cours */
+		/*!    arret de l'application */
+		NEW_TASK@("ITMA_TMT_quitter")
+
+		/*!!!! suite du code à supprimer si impossible a realiser apres info d'applix */
+
+		/* Récupérer l'identifiant de la dernière task "métier" lancée */
+		/* et tuer cette task si elle existe*/
+
+		tl_taches = TASK_LIST@()
+		vl_tache_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tl_taches,1), vl_macro_sans_sufx)
+		IF vl_tache_indice <> -1
+		{		
+			vl_tache_identifiant = tl_taches[vl_tache_indice][0]
+			KILL_TASK@(vl_tache_identifiant)
+		}
+
+		/* Récupérer l'identifiant de la dernière task spreadsheet lancée */
+		/* et tuer cette task si elle existe*/
+
+		vl_tache_indice = ARRAY_INDEX@(ARRAY_COLUMN@(tl_taches, 1), APPNAME#SS_)
+		IF vl_tache_indice <> -1
+		{		
+			vl_tache_identifiant = tl_taches[vl_tache_indice][0]
+			KILL_TASK@(vl_tache_identifiant)
+		}
+
+
+		/* Récupérer l'identifiant de la dernière task axdata lancée */
+		/* et tuer cette task si elle existe */
+
+		vl_tache_indice = ARRAY_INDEX@(ARRAY_COLUMN@(tl_taches, 1), APPNAME#DATA_)
+		IF vl_tache_indice <> -1
+		{		
+			vl_tache_identifiant = tl_taches[vl_tache_indice][0]
+			KILL_TASK@(vl_tache_identifiant)
+		}
+
+		/* reconnexion au serveur d'historique */
+		vl_canal_SGBD_Fiche = COM43_SQL_CONNECT(XDC_NOM_SITE_HIS)
+		IF (vl_canal_SGBD_Fiche = NULL) {
+			ERROR@ (1, CM_LIB_ERR_CNX_OUTILS)
+		}
+		SQL_CHANNEL_MASTER@(vl_canal_SGBD_Fiche,0)
+		SET_SYSTEM_VAR@(vg_canal_SGBD_Fiche,vl_canal_SGBD_Fiche)
+
+		/* dégriser le bouton "exécuter" et griser le bouton "annuler" */
+		DB_CTRL_GRAYED@(vl_fenetre, "BP_executer", FALSE)
+		DB_CTRL_GRAYED@(vl_fenetre, "BP_quitter", FALSE)
+		DB_CTRL_GRAYED@(vl_fenetre, "BP_annuler", TRUE)
+
+
+	CASE "BP_quitter"
+		vl_la_fenetre_est_active = FALSE
+
+		/* pour fermer la ou les fenetres de dialogue outils ouvertes */
+		/* devrait etre inutile ici, "quitter" accessible seulement en l'absence d'outil actif */
+		DB_SEND_POKE@ (COM_CANAL_MTOU_FIN_TRT, NULL)
+
+
+	/*A
+	* reception d'un poke*/
+	CASE "poke_"
+		vl_code = DB_GET_POKE@(vl_fenetre)
+		CASE OF vl_code
+			/*A poke de fin*/
+			CASE COM_CANAL_FIN
+				RETURN
+
+			/*A Fiche métier terminée*/
+			CASE COM_CANAL_MTOU_FIN_TRT
+				/* dégriser le bouton "exécuter" et griser le bouton "annuler */
+				DB_CTRL_GRAYED@(vl_fenetre, "BP_executer", FALSE)
+				DB_CTRL_GRAYED@(vl_fenetre, "BP_quitter", FALSE)
+				DB_CTRL_GRAYED@(vl_fenetre, "BP_annuler", TRUE)
+
+		ENDCASE
+
+	ENDCASE	
+
+WEND
+
+ENDMACRO
+

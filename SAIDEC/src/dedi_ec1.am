@@ -1,0 +1,239 @@
+/*E*/
+/* Fichier : $Id: dedi_ec1.am,v 1.2 1995/09/13 16:36:52 gesconf Exp $	      Release : $Revision: 1.2 $        Date : $Date: 1995/09/13 16:36:52 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec1.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* evenements a ne pas decrire dans un message tfm
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	07 dec 1994	: Creation						V1.1
+* Thomas	08 sep 1995	: ajout demande de confirmation (1.2)
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+
+VAR						tm_evts_tfm	'evenements a ne pas inclure
+VAR	FORMAT dedi_evenement	tm_evts		'evenements de la base
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* retourne la liste des evenements a ne pas decrire dans un message tfm
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec1 ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_selection
+var vl_indice
+var tl_pokes
+
+/*A initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec1")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,5)
+DB_YPOS@(vl_fenetre,72)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec1_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A choix d'un element dans la liste des evts a ne pas inclure*/
+		CASE "BL_evts_tfm"
+			/*A indice de l'evt selectionne*/
+			vl_selection=DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)
+
+			/*A je demande confirmation*/
+			IF YES_NO_PROMPT@("un message TFM pour les fmc de type " 
+						++ tm_evts_tfm[vl_selection] ++ " ?")
+			{
+				/*A je l'efface de la liste des evts a ne pas inclure*/
+				tm_evts_tfm=ARRAY_DELETE@(tm_evts_tfm,vl_selection)
+				DB_CTRL_STRINGS@(vl_fenetre,vl_evt,tm_evts_tfm)
+			}
+
+		/*A choix d'un element dans la liste des evts de la base*/
+		CASE "BL_evts_base"
+			/*A indice de l'evt selectionne*/
+			vl_selection=DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)
+
+			/*A je regarde s'il n'est pas deja dans la liste
+			* des evts a ne pas inclure*/
+			vl_indice=ARRAY_INDEX@(tm_evts_tfm,tm_evts[vl_selection])
+
+			/*A s'il n'y est pas*/
+			IF (vl_indice=-1)
+			{
+				/*A je demande confirmation */
+				IF YES_NO_PROMPT@("pas de message TFM pour les fmc de type "
+						++tm_evts[vl_selection] ++ " ?")
+				{
+					/*A je l'ajoute*/
+					tm_evts_tfm[ARRAY_SIZE@(tm_evts_tfm)]=tm_evts[vl_selection]
+					DB_CTRL_STRINGS@(vl_fenetre,"BL_evts_tfm",tm_evts_tfm)
+				}	
+			}	
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			ec1_valide()
+			RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN	
+
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec1_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR vl_boite
+VAR vl_index
+VAR vl_designation
+
+	/*A chargement des evenements de la base*/
+	tm_evts=SYSTEM_VAR@(vg_types_evts)
+'	tm_evts=ARRAY_COLUMN@(tm_evts,0)
+
+	/*A chargement des evenements a me pas inclure depuis le fichier de config*/
+	tm_evts_tfm=READ_ASCII_FILE@(AX_PATH++IE_FILE_EVT_TFM)
+
+	/*A parcourt le tableau lu et extrait les champs*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tm_evts_tfm[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+											DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+	/*A affichage des donnees lues*/
+	DB_CTRL_STRINGS@(va_fenetre,"BL_evts_base",tm_evts)
+	DB_CTRL_STRINGS@(va_fenetre,"BL_evts_tfm",tm_evts_tfm)
+
+	/*A active ces deux listes*/
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BL_evts_base",TRUE)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BL_evts_tfm",TRUE)
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec1_valide ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_EVT_TFM,tm_evts_tfm)	
+	RETURN 
+ENDMACRO
+
+
+

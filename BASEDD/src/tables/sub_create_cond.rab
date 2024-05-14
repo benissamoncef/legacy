@@ -1,0 +1,121 @@
+#!/bin/ksh
+# Fichier : $Id: sub_create_cond.rab,v 1.1 2009/10/05 10:43:11 gesconf Exp $        Release : $Revision: 1.1 $        Date : $Date: 2009/10/05 10:43:11 $
+##################################################################################
+# STERIA # PROJET MIGRAZUR
+##################################################################################
+# SOUS-SYSTEME BASEDD
+##################################################################################
+# SCRIPT sub_create.rab
+##################################################################################
+# DESCRIPTION DU SCRIPT : creation d'un abonnement sans condition
+#
+#
+##################################################################################
+# HISTORIQUE DES MODIFICATIONS :
+# P.V.	09/07/96	: Creation
+# C.T.	09/03/98	: ajout cas particulier pour ALT_EXP et tous les sites (1.2)
+##################################################################################
+
+if (($# < 5))
+then
+	echo "Syntaxe de la souscription (avec condition sur le site) : "
+	echo "     sub_create.rab NomBase NomTable NomSite NomSiteReplique Condition NomFicErr"
+	echo "        NomBase : CFG HIS EXP"
+	echo "        NomSite, NomSiteReplique : CI DN DM"
+	exit 0
+fi
+
+# nom de la base
+NomBase=$1
+
+# nom de la table 
+NomTable=$2
+
+# nom du site primaire
+NomSite=$3
+
+# nom du site replique
+NomSiteReplique=$4
+
+# nom du fichier d'erreur
+NomFicErr=$6
+
+#valeur du site primaire
+case $NomSite in
+	"CI") ValeurSite=43;;
+	"DN") ValeurSite=14;;
+	"DM") ValeurSite=11;;
+	"DC") ValeurSite=13;;
+	"DS") ValeurSite=21;;
+	"DA") ValeurSite=22;;
+	"DP") ValeurSite=18;;
+	"DY") ValeurSite=23;;
+	*) echo "erreur site";exit 0;;
+esac
+
+
+# arret de la replication a ne pas faire si la table du site replique est vide
+#echo "use CFG \n\
+#go\n\
+#exec sp_setreplicate ${NomTable}, false \n\
+#go\n" \
+#| isql -S SQL_${NomSite} -UMIGRAZUR -PMIGRAZUR >> $NomFicErr
+
+if [[ ${NomTable} = "ALT_EXP" && $NomBase = "HIS" ]]
+then
+Condition="where sit = ${ValeurSite} and qualification=10 "
+elif [[ ${NomTable} = "ALT_EXP" && $NomBase = "EXP" && $NomSiteReplique != "CI" ]]
+then
+Condition="where sit = ${ValeurSite} and qualification=10 "
+elif [[ ${NomTable} = "ALT_EXP" && $NomBase = "EXP" && $NomSiteReplique = "CI" ]] || [[ $5 = "Condition" ]]
+then
+Condition="where sit = ${ValeurSite} "
+fi
+
+# definition d'un abonnement pour une table 
+###########################################################################
+# POUR ACT_DEP AJOUTER AVANT LE go LA LIGNE : where sit = $ValeurSite \n\ #
+###########################################################################
+if [[ $5 = "Condition" ]]
+then
+suffixe="_c"
+echo "define subscription ${NomSiteReplique}_${NomSite}_${NomTable}${suffixe} \n\
+for ${NomSite}_${NomTable} \n\
+with replicate at SQL_${NomSiteReplique}.${NomBase} \n\
+${Condition} \n\
+go\n" \
+| isql -S REP_${NomSiteReplique} -Usa -Pzigramur >> $NomFicErr
+else
+suffixe=""
+echo "define subscription ${NomSiteReplique}_${NomSite}_${NomTable} \n\
+for ${NomSite}_${NomTable} \n\
+with replicate at SQL_${NomSiteReplique}.${NomBase} \n\
+go\n" \
+| isql -S REP_${NomSiteReplique} -Usa -Pzigramur >> $NomFicErr
+fi
+
+# activation d'un abonnement pour une table 
+echo "activate subscription ${NomSiteReplique}_${NomSite}_${NomTable}${suffixe} \n\
+for ${NomSite}_${NomTable} \n\
+with replicate at SQL_${NomSiteReplique}.${NomBase} \n\
+go\n" \
+| isql -S REP_${NomSiteReplique} -Usa -Pzigramur >> $NomFicErr
+
+# attente que l'activation soit terminee
+echo "Debut attente activation" >> $NomFicErr
+sleep 10
+echo "Fin attente activation" >> $NomFicErr
+
+#  validation d'un abonnement pour une table 
+echo "validate subscription ${NomSiteReplique}_${NomSite}_${NomTable}${suffixe} \n\
+for ${NomSite}_${NomTable} \n\
+with replicate at SQL_${NomSiteReplique}.${NomBase} \n\
+go\n" \
+| isql -S REP_${NomSiteReplique} -Usa -Pzigramur >> $NomFicErr
+
+# lancement de la replication 
+echo "use ${NomBase} \n\
+go\n\
+exec sp_setreplicate ${NomTable}, true \n\
+go\n" \
+| isql -S SQL_${NomSite} -UMIGRAZUR -PMIGRAZUR >> $NomFicErr

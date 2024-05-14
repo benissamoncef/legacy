@@ -1,0 +1,79 @@
+#!/bin/ksh
+# Fichier : @(#)alt_exp.rab	1.4        Release : 1.4        Date : 01/12/98
+##################################################################################
+# STERIA # PROJET MIGRAZUR
+##################################################################################
+# SOUS-SYSTEME BASEDD
+##################################################################################
+# SCRIPT alt_exp.rab
+##################################################################################
+# DESCRIPTION DU SCRIPT : creation d'un abonnement declenchement une replication
+#                         suivant la valeur du site
+#
+##################################################################################
+# HISTORIQUE DES MODIFICATIONS :
+# B.G.	05/10/94	: Creation
+# B.G.	20/03/95	: Modif nom replication serveur
+# C.T.	07/01/98	: Modif de condition de replication vers EXP et ajout des nouveaux sites (1532)
+# CHI	13/11/03	: Replication de toutes les alertes vers HIS (quelle que soit leur qualification)
+##################################################################################
+
+if (($# < 5))
+then
+	echo "Syntaxe de la souscription : "
+	echo "        alt_exp.rab NomBase NomTable NomSite NomSiteReplique NomFicErr"
+	echo "        NomBase : CFG HIS EXP"
+	echo "        NomSite, NomSiteReplique : CI DN DM DC DS DY DP"
+	exit 0
+fi
+
+# nom de la base
+NomBase=$1
+
+# nom de la table 
+NomTable=$2
+
+# nom du site primaire
+NomSite=$3
+
+# nom du site replique
+NomSiteReplique=$4
+
+# valeur du site primaire
+case $NomSite in
+	"CI") ValeurSite=43;;
+	"DN") ValeurSite=14;;
+	"DM") ValeurSite=15;;
+	"DA") ValeurSite=22;;
+	"DC") ValeurSite=16;;
+	"DS") ValeurSite=17;;
+	"DP") ValeurSite=18;;
+	"DY") ValeurSite=23;;
+	*) exit 0;;
+esac
+
+# nom du fichier d'erreur
+NomFicErr=$5
+
+# creation d'un abonnement pour une table
+# Attention : condition de replication differente vers EXP et vers HIS 
+# ancienne condition: where sit = $ValeurSite and qualification=10 \n\ 
+
+if [[ $NomBase = "HIS" ]]
+then
+echo "create subscription ${NomSiteReplique}_${NomSite}_${NomTable} \n\
+for ${NomSite}_${NomTable} \n\
+with replicate at SQL_${NomSiteReplique}.${NomBase} \n\
+where sit = $ValeurSite \n\
+go\n" \
+| isql -S REP_${NomSiteReplique} -Usa -Pzigramur >> $NomFicErr
+fi
+if [[ $NomBase = "EXP" && $NomSiteReplique = "CI" ]]
+then
+echo "create subscription ${NomSiteReplique}_${NomSite}_${NomTable} \n\
+for ${NomSite}_${NomTable} \n\
+with replicate at SQL_${NomSiteReplique}.${NomBase} \n\
+where sit = $ValeurSite \n\
+go\n" \
+| isql -S REP_${NomSiteReplique} -Usa -Pzigramur >> $NomFicErr
+fi

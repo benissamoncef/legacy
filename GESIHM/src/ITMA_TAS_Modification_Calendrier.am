@@ -1,0 +1,1116 @@
+/*E*/
+/* Fichier : $Id: ITMA_TAS_Modification_Calendrier.am,v 1.13 2017/04/25 11:08:18 devgfi Exp $     Release : $Revision: 1.13 $        Date : $Date: 2017/04/25 11:08:18 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TAS * FICHIER ITMA_TAS_Modification_Calendrier.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* gestion du calendrier
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou    15 nov 1996 : Creation	(DEM/1306)			V1.1
+* Guilhou	12 dec 1996 : horodate fin > horodate debut (DEM/1331) 1.3
+* Guilhou	16 dec 1996 : correction test precedent (DEM/1331) 1.4
+* Niepceron	15 jun 1998 : ajout site DC DA DS (DEM/1690) 1.6
+* Hilmarcher    14/06/2005  : Evolution de la fonction d'astreinte par le SAE DEM475 v1.7
+* Niepcron	07/04/2008  : Ajout de Peyruis dans vm_l_sites v1.8 DEM769
+* JMG           29/09/2009  : SECTO DEM 887  1.8, 1.9
+* JPL		20/12/2012 : Apres choix d'interlocuteur(s), utilisation du premier (pour DEM 1028)  1.11
+* JMG   09/03/17        : REGIONALISATION - DEM1220 1.12
+* JPL	27/03/17	: Liste des sites lue en variable publique (regionalisation DEM 1173)  1.13
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzanc.h"
+
+INCLUDE	"ITMA_COM.h"
+INCLUDE	"ITMA_TDO.h"
+INCLUDE	"ITMA_TFC.h"
+INCLUDE	"ITMA_TFA.h"
+
+INCLUDE	"xzan31sp.h"
+INCLUDE	"xzan32sp.h"
+INCLUDE	"xzan39sp.h"
+INCLUDE	"xzan40sp.h"
+INCLUDE	"xzan41sp.h"
+INCLUDE	"xzan43sp.h"
+INCLUDE	"xzan45sp.h"
+
+
+DEFINE C_MODULE	"MTAS"			' Nom du module
+
+FORMAT TAS_Calendrier
+	horodebut,
+	horofin,
+	nom,
+	jour_debut,
+	date_debut,
+	heure_debut,
+	jour_fin,
+	date_fin,
+	heure_fin,
+	numero
+
+FORMAT	TLS_Astreintes
+	type_astreinte,
+	sous_type_astreinte,
+	district,
+	zone_geo,
+	interlocuteur
+
+
+VAR FORMAT TDO_Type_Astreinte vm_l_types_astreintes	 ' Liste types astr.
+VAR FORMAT TDO_District vm_l_districts 			' Liste districts
+VAR FORMAT TAS_Calendrier vm_calendrier
+VAR FORMAT TFA_Interlocuteur vm_l_interlocuteurs         ' Liste interlocuteurs
+
+VAR FORMAT TDO_District         vm_l_sites
+
+
+VAR FORMAT TAS_Calendrier vm_periode
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gestion du calendrier
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TAS_Modification_Calendrier (va_appelant,va_num_comp,
+				    	FORMAT TDO_Type_Astreinte va_type_astreinte,
+				    	va_sous_type_astreinte,
+				   	FORMAT TDO_District va_district,
+					FORMAT TLS_Astreintes va_competence,
+					va_site_responsable)
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR vl_selection,vl_index,vl_indice
+	VAR vl_retour
+	VAR vl_tptext
+	VAR FORMAT TFA_Interlocuteur vl_interlocuteur
+	VAR vl_choix
+	VAR FORMAT TAS_Calendrier vl_calendrier
+	VAR    FORMAT  SQL_Procedure_Params@ vl_parametres
+	VAR    FORMAT  SQL_Procedure_Result@ vl_resultats
+	VAR vl_debut,vl_fin
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre 
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TAS_Modification_Calendrier")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+/*COM02_Attacher_Aide (vl_fenetre, "ITMA_TAS_Modification_Calendrier")*/
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+MACRO_WINS_BUSY@()
+
+vm_l_sites=SYSTEM_VAR@(vg_les_districts)
+vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_sites, 1), va_site_responsable)
+if (vl_index=-1)
+  vl_index=0
+
+/*vl_tptext = "site resp:"++va_site_responsable++"; vl_index:"++vl_index
+COM01_Trace(0,vl_tptext)*/
+
+/*si le site responsable du calendrier n'est pas le mien*/
+if (vm_l_sites[vl_index][0]<>SYSTEM_VAR@(vg_site)) {
+  INFO_MESSAGE@("Vous n'etes pas sur le site responsable du calendrier "++
+				vm_l_sites[vl_index][1])
+  RETURN (COM_NOK)
+}
+
+if (TAS_Init_Calendrier(vl_fenetre,va_num_comp,va_type_astreinte,
+			va_sous_type_astreinte,va_district,0)=COM_NOK)
+  return (COM_NOK)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/* suivant l'evenement */
+	CASE OF vl_exit_value
+		/*appui sur le bouton PLUS*/
+		CASE "BP_plus"
+			vl_debut=COM23_Horodate(vl_fenetre,
+					"BS_jour_debut",
+					"BS_mois_debut",
+					"BS_annee_debut",
+					"BS_heure_debut",
+					"BS_minute_debut")
+			vl_fin=COM23_Horodate(vl_fenetre,
+					"BS_jour_fin",
+					"BS_mois_fin",
+					"BS_annee_fin",
+					"BS_heure_fin",
+					"BS_minute_fin")
+			if (vl_debut<>null) and (vl_fin<>null) {
+				vl_parametres[0].type=SYB#DATETIME_
+				vl_parametres[0].data=vl_debut
+				vl_parametres[0].output=FALSE
+
+				vl_parametres[1].type=SYB#DATETIME_
+				vl_parametres[1].data=vl_fin
+				vl_parametres[0].output=FALSE
+
+				vl_parametres[2].type=SYB#INT1_
+				vl_parametres[2].data=1
+				vl_parametres[2].output=FALSE
+
+				vl_parametres[3].type=SYB#DATETIME_
+				vl_parametres[3].output=TRUE
+
+				vl_parametres[4].type=SYB#DATETIME_
+				vl_parametres[4].output=TRUE
+
+				if COM05_SQL_Procedure(XZAN43_Delta_Horodates,vl_parametres,
+							vl_resultats,C_MODULE) =COM_OK  {
+					COM24_Afficher_Horodate(
+							COM18_Date_SGBD_Formatee(
+							vl_resultats.return_parameters[0]),
+							vl_fenetre,
+							"BS_jour_debut",
+							"BS_mois_debut",
+							"BS_annee_debut",
+							"BS_heure_debut",
+							"BS_minute_debut")
+					COM24_Afficher_Horodate(
+							COM18_Date_SGBD_Formatee(
+							vl_resultats.return_parameters[1]),
+							vl_fenetre,
+							"BS_jour_fin",
+							"BS_mois_fin",
+							"BS_annee_fin",
+							"BS_heure_fin",
+							"BS_minute_fin")
+				}
+			}
+
+		/*appui sur le bouton MOINS*/
+		CASE "BP_moins"
+			vl_debut=COM23_Horodate(vl_fenetre,
+					"BS_jour_debut",
+					"BS_mois_debut",
+					"BS_annee_debut",
+					"BS_heure_debut",
+					"BS_minute_debut")
+			vl_fin=COM23_Horodate(vl_fenetre,
+					"BS_jour_fin",
+					"BS_mois_fin",
+					"BS_annee_fin",
+					"BS_heure_fin",
+					"BS_minute_fin")
+			if (vl_debut<>null) and (vl_fin<>null) {
+				vl_parametres[0].type=SYB#DATETIME_
+				vl_parametres[0].data=vl_debut
+				vl_parametres[0].output=FALSE
+
+				vl_parametres[1].type=SYB#DATETIME_
+				vl_parametres[1].data=vl_fin
+				vl_parametres[0].output=FALSE
+
+				vl_parametres[2].type=SYB#INT1_
+				vl_parametres[2].data=0
+				vl_parametres[2].output=FALSE
+
+				vl_parametres[3].type=SYB#DATETIME_
+				vl_parametres[3].output=TRUE
+
+				vl_parametres[4].type=SYB#DATETIME_
+				vl_parametres[4].output=TRUE
+
+				if COM05_SQL_Procedure(XZAN43_Delta_Horodates,vl_parametres,
+							vl_resultats,C_MODULE) =COM_OK  {
+					COM24_Afficher_Horodate(
+							COM18_Date_SGBD_Formatee(
+							vl_resultats.return_parameters[0]),
+							vl_fenetre,
+							"BS_jour_debut",
+							"BS_mois_debut",
+							"BS_annee_debut",
+							"BS_heure_debut",
+							"BS_minute_debut")
+					COM24_Afficher_Horodate(
+							COM18_Date_SGBD_Formatee(
+							vl_resultats.return_parameters[1]),
+							vl_fenetre,
+							"BS_jour_fin",
+							"BS_mois_fin",
+							"BS_annee_fin",
+							"BS_heure_fin",
+							"BS_minute_fin")
+				}
+			}
+
+		/*demande de visualisation du calendrier*/
+		CASE "BP_calendrier"
+			PEND_FOR_NEW_TASK@("ITMA_TAS_Visualisation_Calendrier",
+							"ITMA_TAS_Modification_Calendrier",
+							va_num_comp,
+							va_competence)
+							
+		/* appui sur le bouton quitter*/
+		CASE "BP_quitter"
+			/*A Bye*/
+			RETURN (COM_QUITTE)
+
+
+		/*remplissage heure de debut*/
+		CASE "BP_horodebut"
+			COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+					"BS_jour_debut",
+					"BS_mois_debut",
+					"BS_annee_debut",
+					"BS_heure_debut",
+					"BS_minute_debut")
+
+		/*remplissage heure de fin*/
+		CASE "BP_horofin"
+			COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+					"BS_jour_fin",
+					"BS_mois_fin",
+					"BS_annee_fin",
+					"BS_heure_fin",
+					"BS_minute_fin")
+
+		/*ajout d'une période*/
+		CASE "BP_periode"
+			MACRO_WINS_BUSY@()
+
+			/*recupere la periode selectionnee*/
+			vl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_calendrier")
+			vl_selection=vl_selection[0]
+
+			/*recupere l'interlocuteur selectionne*/
+			vl_choix=DB_CTRL_GET_VALUE@(vl_fenetre, "BL_interlocuteurs")
+
+			if (vl_choix[0]++""=null) or (vl_choix[0]=-1)
+				INFO_MESSAGE@("Un interlocuteur doit etre obligatoirement choisi")
+			ELSE {
+				vl_calendrier.horodebut=COM23_Horodate(vl_fenetre,
+					"BS_jour_debut",
+					"BS_mois_debut",
+					"BS_annee_debut",
+					"BS_heure_debut",
+					"BS_minute_debut")
+				if vl_calendrier.horodebut=null
+					INFO_MESSAGE@("L'horodate de debut est obligatoire")
+				ELSE {
+					vl_calendrier.horofin=COM23_Horodate(vl_fenetre,
+						"BS_jour_fin",
+						"BS_mois_fin",
+						"BS_annee_fin",
+						"BS_heure_fin",
+						"BS_minute_fin")
+
+					if vl_calendrier.horofin=null
+						INFO_MESSAGE@("L'horodate de fin est obligatoire")					
+					ELSE IF (COM17_Difference_Dates(vl_calendrier.horodebut,vl_calendrier.horofin)>=0)
+						INFO_MESSAGE@("L'horodate de fin doit etre superieure a l'horodate de debut")					
+					ELSE {
+						TAS_ajouter_liste_periodes( vl_fenetre,
+									vl_choix,
+									va_num_comp,
+									vl_calendrier,
+									vl_selection)
+					
+					}
+					if (TAS_Init_Calendrier(vl_fenetre,va_num_comp,va_type_astreinte,
+						va_sous_type_astreinte,va_district,1)=COM_NOK)
+  					return (COM_NOK)
+				}
+			}
+
+		/*suppression d'une periode*/
+		CASE "BP_supprimer"
+			/*recupere la periode selectionnee*/
+			vl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_calendrier")
+			vl_selection=vl_selection[0]
+
+			/*si une periode est bien selectionnee*/
+			if ((vl_selection++"")<>null) {
+				TAS_Supprimer_Periode(vl_fenetre,
+							va_num_comp,
+							vm_calendrier[vl_selection],
+							vl_selection)
+			}
+
+		/*copie la periode selectionnee en memoire*/
+		CASE "BP_copier"
+			/*recupere la periode selectionnee*/
+			vl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_calendrier")
+			vl_selection=vl_selection[0]
+
+			if (vl_selection++""<>null)
+				vm_periode=vm_calendrier[vl_selection]
+
+		/*colle la periode selectionnee en memoire*/
+		CASE "BP_coller"
+			COM24_Afficher_Horodate(vm_periode.horodebut,vl_fenetre,
+					"BS_jour_debut",
+					"BS_mois_debut",
+					"BS_annee_debut",
+					"BS_heure_debut",
+					"BS_minute_debut")
+			COM24_Afficher_Horodate(vm_periode.horofin,vl_fenetre,      
+					"BS_jour_fin",
+					"BS_mois_fin",
+					"BS_annee_fin",
+					"BS_heure_fin",
+					"BS_minute_fin")
+			vl_selection=null
+			DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_calendrier",null)
+			DB_CTRL_GRAYED@(vl_fenetre,"BP_copier",TRUE)
+			DB_CTRL_GRAYED@(vl_fenetre,"BP_supprimer",TRUE)
+
+		/*recherche d'un autre interlocuteur*/
+		CASE "BP_interlocuteur"
+			vl_interlocuteur=PEND_FOR_NEW_TASK@("ITMA_TLA_Liste_Interlocuteurs",
+								"ITMA_TAS_Modification_Calendrier")
+			vl_interlocuteur = vl_interlocuteur[0]
+
+			IF (NOT IS_NULL@(vl_interlocuteur.numero)) {
+				/*ajouter l'interlocuteur a la liste s'il n'y est pas deja*/
+				if (ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_interlocuteurs,0),
+							vl_interlocuteur.numero)=-1) {
+					vl_index=ARRAY_SIZE@(vm_l_interlocuteurs)
+					vm_l_interlocuteurs[vl_index]=vl_interlocuteur
+					DB_CTRL_STRINGS@(vl_fenetre,"BL_interlocuteurs",
+							ARRAY_COLUMN@(vm_l_interlocuteurs,
+											TFA_NOM_INTERLOCUTEUR))
+					vl_indice[0]=vl_index
+					DB_CTRL_VALUE@(vl_fenetre,"BL_interlocuteurs",vl_indice)
+				}
+				else
+					INFO_MESSAGE@("Cet interlocuteur est deja present dans la liste")
+			}
+
+		/*selection d'une periode dans la liste*/
+		CASE "TA_calendrier"
+			/*recupere la periode selectionnee*/
+			vl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,vl_exit_value)
+			vl_selection=vl_selection[0]
+
+			/*si une periode est bien selectionnee*/
+			if ((vl_selection++"")<>null) {
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_copier",FALSE)	
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_supprimer",FALSE)	
+
+				/*affiche les caracteristiques de la periode*/
+				COM24_Afficher_Horodate(vm_calendrier[vl_selection].horodebut,
+							vl_fenetre,
+							"BS_jour_debut",
+							"BS_mois_debut",
+							"BS_annee_debut",
+							"BS_heure_debut",
+							"BS_minute_debut")
+				COM24_Afficher_Horodate(vm_calendrier[vl_selection].horofin,
+							vl_fenetre,
+							"BS_jour_fin",
+							"BS_mois_fin",
+							"BS_annee_fin",
+							"BS_heure_fin",
+							"BS_minute_fin")
+
+				/*recherche l'interlocteur associe dans la liste */
+				if (vm_calendrier[vl_selection].numero<>null) {
+				  	vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_interlocuteurs,0),
+							vm_calendrier[vl_selection].numero)
+
+				 	if (vl_index=-1) {
+						vl_index=ARRAY_SIZE@(vm_l_interlocuteurs)
+						vl_interlocuteur.numero=
+								vm_calendrier[vl_selection].numero
+						vl_interlocuteur.nom=vm_calendrier[vl_selection].nom
+						vm_l_interlocuteurs[vl_index]=vl_interlocuteur
+						vl_indice=ARRAY_COLUMN@(vm_l_interlocuteurs, 
+										TFA_NOM_INTERLOCUTEUR)
+						DB_CTRL_STRINGS@(vl_fenetre, "BL_interlocuteurs", 
+										vl_indice)
+					}
+					vl_indice=null
+					vl_indice[0]=vl_index
+				  	DB_CTRL_VALUE@(vl_fenetre,"BL_interlocuteurs",vl_indice)
+				}
+				else{
+					vl_indice[0]=-1
+					DB_CTRL_VALUE@(vl_fenetre,"BL_interlocuteurs",-1)
+				}
+			}
+
+		/*appui sur le bouton refuser global*/
+		CASE "BP_refuser"
+			RETURN (COM_REFUSE)
+
+		/*poke*/
+		CASE "poke_"
+			CASE OF DB_GET_POKE@(vl_fenetre)
+				CASE COM_CANAL_FIN
+					RETURN (COM_QUITTE)
+			ENDCASE
+	ENDCASE
+WEND
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* init
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_Init_Calendrier(va_fenetre,
+					va_num_comp,
+					FORMAT TDO_Type_Astreinte va_type_astreinte,
+					va_sous_type,
+					FORMAT TDO_District va_district,va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*		va_fenetre		Identifiant de la fenetre d'affichage.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*	Afficher la liste des machines du site.
+*       si  va_appelant=0 alors init
+*       sinon reactualisation du tableau
+*
+---------------------------------------------------------------------------- */
+
+ VAR	FORMAT	SQL_Procedure_Params@ vl_parametres
+ VAR	FORMAT	SQL_Procedure_Result@ vl_resultats
+ VAR	indice
+ VAR 	tl_titres
+ VAR	vl_indice
+ VAR	tl_data
+ VAR 	tl_date,vl_site
+
+DB_CTRL_TITLE@(va_fenetre,"LI_sous_type",va_sous_type)
+
+DB_CTRL_TITLE@(va_fenetre,"LI_type",va_type_astreinte.nom)
+
+DB_CTRL_TITLE@(va_fenetre,"LI_district",va_district.nom)
+
+DB_DISPLAY_ONLY@(va_fenetre,TRUE)
+DB_DISPLAY@(va_fenetre)
+/*
+tl_titres[0]="Jour début",80
+tl_titres[1]="Date début",80
+tl_titres[2]="Heure début",80
+tl_titres[3]="Jour fin",80
+tl_titres[4]="Date fin",80
+tl_titres[5]="Heure fin",80
+tl_titres[6]="Interlocuteur",200*/
+
+tl_titres[0]="Horodate début",150
+tl_titres[1]="Horodate fin",150
+tl_titres[2]="Interlocuteur",300
+
+/*lecture du calendrier*/
+vl_parametres[0].type = TFC_Numero_Competence
+vl_parametres[0].data = va_num_comp
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFC_Numero_Competence
+vl_parametres[1].output = TRUE
+
+IF COM05_SQL_Procedure (XZAN32_Lire_Calendr_Astreinte,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+   RETURN (COM_NOK)
+
+tl_data=vl_resultats.select_results[0]
+
+vl_site=vl_resultats.return_parameters[0]
+
+/*si le site responsable du calendrier n'est pas le mien*/
+if (vl_site<>SYSTEM_VAR@(vg_site)) {
+  INFO_MESSAGE@("Vous n'etes pas sur le site responsable du calendrier")
+  RETURN (COM_NOK)
+}
+
+for vl_indice=0 to (ARRAY_SIZE@(tl_data)-1)
+  vm_calendrier[vl_indice].numero=tl_data[vl_indice][2]
+  vm_calendrier[vl_indice].nom=tl_data[vl_indice][3]
+
+  tl_date=COM19_Date_SGBD_Eclatee(tl_data[vl_indice][0])
+  vm_calendrier[vl_indice].jour_debut=tl_date[1]
+  vm_calendrier[vl_indice].date_debut=tl_date[0]++"/"++tl_date[2]
+  vm_calendrier[vl_indice].heure_debut=tl_date[3]++":"++tl_date[4]
+
+  tl_date=COM19_Date_SGBD_Eclatee(tl_data[vl_indice][1])
+  vm_calendrier[vl_indice].jour_fin=tl_date[1]  
+  vm_calendrier[vl_indice].date_fin=tl_date[0]++"/"++tl_date[2]
+  vm_calendrier[vl_indice].heure_fin=tl_date[3]++":"++tl_date[4]
+
+  vm_calendrier[vl_indice].horodebut=COM18_Date_SGBD_Formatee(tl_data[vl_indice][0])
+  vm_calendrier[vl_indice].horofin=COM18_Date_SGBD_Formatee(tl_data[vl_indice][1])
+next vl_indice
+
+DB_TABLE_SET_MARKER_WIDTH@(va_fenetre,"TA_calendrier",25)
+DB_TABLE_SET_DATA@(va_fenetre,"TA_calendrier",vm_calendrier,tl_titres,null)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"TA_calendrier",TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_copier",TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_supprimer",TRUE)
+
+
+/*recherches des interlocuteurs competents*/
+IF (va_appelant = 0)
+{
+	vl_parametres=null
+	vl_resultats=null
+	vl_parametres[0].type = TFC_Numero_Competence
+	vl_parametres[0].data = va_num_comp
+	vl_parametres[0].output = FALSE
+	IF COM05_SQL_Procedure (XZAN31_Rech_Interlo_Competents,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+   	RETURN (COM_NOK)
+
+	vm_l_interlocuteurs = vl_resultats.select_results[0]
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_interlocuteurs", ARRAY_COLUMN@ (vm_l_interlocuteurs, TFA_NOM_INTERLOCUTEUR))
+vl_parametres[0]=-1
+DB_CTRL_VALUE@ (va_fenetre, "BL_interlocuteurs",vl_parametres)
+}
+ELSE
+{
+DB_CTRL_STRINGS@ (va_fenetre, "BL_interlocuteurs", ARRAY_COLUMN@ (vm_l_interlocuteurs, TFA_NOM_INTERLOCUTEUR))
+}
+
+DB_DISPLAY_ONLY@(va_fenetre,FALSE)
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* init
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_ReInit_Calendrier(va_fenetre,
+					va_num_comp,
+					FORMAT TDO_Type_Astreinte va_type_astreinte,
+					va_sous_type,
+					FORMAT TDO_District va_district)
+
+/*
+* ARGUMENTS EN ENTREE :
+*		va_fenetre		Identifiant de la fenetre d'affichage.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*	Afficher la liste des machines du site.
+*
+---------------------------------------------------------------------------- */
+
+ VAR	FORMAT	SQL_Procedure_Params@ vl_parametres
+ VAR	FORMAT	SQL_Procedure_Result@ vl_resultats
+ VAR	indice
+ VAR 	tl_titres
+ VAR	vl_indice
+ VAR	tl_data
+ VAR 	tl_date,vl_site
+
+DB_CTRL_TITLE@(va_fenetre,"LI_sous_type",va_sous_type)
+
+DB_CTRL_TITLE@(va_fenetre,"LI_type",va_type_astreinte.nom)
+
+DB_CTRL_TITLE@(va_fenetre,"LI_district",va_district.nom)
+
+DB_DISPLAY_ONLY@(va_fenetre,TRUE)
+DB_DISPLAY@(va_fenetre)
+
+tl_titres[0]="Horodate début",150
+tl_titres[1]="Horodate fin",150
+tl_titres[2]="Interlocuteur",300
+
+/*lecture du calendrier*/
+vl_parametres[0].type = TFC_Numero_Competence
+vl_parametres[0].data = va_num_comp
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFC_Numero_Competence
+vl_parametres[1].output = TRUE
+
+IF COM05_SQL_Procedure (XZAN32_Lire_Calendr_Astreinte,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+   RETURN (COM_NOK)
+
+tl_data=vl_resultats.select_results[0]
+
+vl_site=vl_resultats.return_parameters[0]
+
+/*si le site responsable du calendrier n'est pas le mien*/
+if (vl_site<>SYSTEM_VAR@(vg_site)) {
+  INFO_MESSAGE@("Vous n'etes pas sur le site responsable du calendrier")
+  RETURN (COM_NOK)
+}
+
+for vl_indice=0 to (ARRAY_SIZE@(tl_data)-1)
+  vm_calendrier[vl_indice].numero=tl_data[vl_indice][2]
+  vm_calendrier[vl_indice].nom=tl_data[vl_indice][3]
+
+  tl_date=COM19_Date_SGBD_Eclatee(tl_data[vl_indice][0])
+  vm_calendrier[vl_indice].jour_debut=tl_date[1]
+  vm_calendrier[vl_indice].date_debut=tl_date[0]++"/"++tl_date[2]
+  vm_calendrier[vl_indice].heure_debut=tl_date[3]++":"++tl_date[4]
+
+  tl_date=COM19_Date_SGBD_Eclatee(tl_data[vl_indice][1])
+  vm_calendrier[vl_indice].jour_fin=tl_date[1]  
+  vm_calendrier[vl_indice].date_fin=tl_date[0]++"/"++tl_date[2]
+  vm_calendrier[vl_indice].heure_fin=tl_date[3]++":"++tl_date[4]
+
+  vm_calendrier[vl_indice].horodebut=COM18_Date_SGBD_Formatee(tl_data[vl_indice][0])
+  vm_calendrier[vl_indice].horofin=COM18_Date_SGBD_Formatee(tl_data[vl_indice][1])
+next vl_indice
+
+DB_TABLE_SET_MARKER_WIDTH@(va_fenetre,"TA_calendrier",25)
+DB_TABLE_SET_DATA@(va_fenetre,"TA_calendrier",vm_calendrier,tl_titres,null)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"TA_calendrier",TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_copier",TRUE)
+DB_CTRL_GRAYED@(va_fenetre,"BP_supprimer",TRUE)
+
+
+/*recherches des interlocuteurs competents*/
+vl_parametres=null
+vl_resultats=null
+vl_parametres[0].type = TFC_Numero_Competence
+vl_parametres[0].data = va_num_comp
+vl_parametres[0].output = FALSE
+IF COM05_SQL_Procedure (XZAN31_Rech_Interlo_Competents,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+   RETURN (COM_NOK)
+
+vm_l_interlocuteurs = vl_resultats.select_results[0]
+DB_CTRL_STRINGS@ (va_fenetre, "BL_interlocuteurs", ARRAY_COLUMN@ (vm_l_interlocuteurs, TFA_NOM_INTERLOCUTEUR))
+vl_parametres[0]=-1
+DB_CTRL_VALUE@ (va_fenetre, "BL_interlocuteurs",vl_parametres)
+DB_DISPLAY_ONLY@(va_fenetre,FALSE)
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* suppression d'une periode
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_Supprimer_Periode(va_fenetre,va_num_comp,FORMAT TAS_Calendrier va_periode,
+						va_indice)
+
+/*
+* ARGUMENTS EN ENTREE :
+*		va_fenetre		Identifiant de la fenetre d'affichage.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*	Afficher la liste des machines du site.
+*
+---------------------------------------------------------------------------- */
+ VAR	FORMAT	SQL_Procedure_Params@ vl_parametres
+ VAR	FORMAT	SQL_Procedure_Result@ vl_resultats
+
+vl_parametres[0].type = TFC_Numero_Competence
+vl_parametres[0].data = va_periode.numero
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFC_Numero_Competence
+vl_parametres[1].data = va_num_comp
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#DATETIME_
+vl_parametres[2].data = va_periode.horodebut
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#DATETIME_
+vl_parametres[3].data = va_periode.horofin
+vl_parametres[3].output = FALSE
+
+/*si je ne suis pas au CI*/
+if (SYSTEM_VAR@(vg_site)<>XDC_CI) {
+	/*je vais au CI*/
+	IF COM41_SQL_Procedure_Distante (XDC_CI,XZAN39_Supprimer_Periode,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+   		RETURN (COM_NOK)
+}
+else {
+	IF COM05_SQL_Procedure (XZAN39_Supprimer_Periode,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		RETURN (COM_NOK)
+}
+
+/*mise a jour de la liste des periodes en memoire*/
+vm_calendrier=ARRAY_DELETE@(vm_calendrier,va_indice)
+
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_calendrier", 0,-1)
+DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_calendrier", vm_calendrier, 0)
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* ajout d'une pêriode
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_Ajouter_Periode(va_fenetre,va_num_comp,FORMAT TAS_Calendrier va_periode,
+						va_indice,va_interlocuteur,va_indice_boucle)
+
+/*
+* ARGUMENTS EN ENTREE :
+*		va_fenetre		Identifiant de la fenetre d'affichage.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*	Afficher la liste des machines du site.
+*
+---------------------------------------------------------------------------- */
+ VAR	FORMAT	SQL_Procedure_Params@ vl_parametres
+ VAR	FORMAT	SQL_Procedure_Result@ vl_resultats
+
+MACRO_WINS_BUSY@()
+
+/*verifie que l'interlocuteur n'est pas d'astreinte pour deux periodes*/
+/* qui se chevauchent*/
+vl_parametres[0].type = TFC_Numero_Competence
+vl_parametres[0].data = va_num_comp
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFC_Numero_Competence
+vl_parametres[1].data = va_interlocuteur
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#DATETIME_
+vl_parametres[2].data = va_periode.horodebut
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#DATETIME_
+vl_parametres[3].data = va_periode.horofin
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#INT1_
+vl_parametres[4].output = FALSE
+if (va_indice++""=null)
+  vl_parametres[4].data = XDC_FAUX
+else {
+  vl_parametres[4].data = XDC_VRAI
+
+  vl_parametres[5].type = SYB#DATETIME_
+  vl_parametres[5].data = vm_calendrier[va_indice].horodebut
+  vl_parametres[5].output = FALSE
+
+  vl_parametres[6].type = SYB#DATETIME_
+  vl_parametres[6].data = vm_calendrier[va_indice].horofin
+  vl_parametres[6].output = FALSE
+}
+
+IF COM05_SQL_Procedure (XZAN41_Verifier_Chevauchement,
+			       vl_parametres, vl_resultats, C_MODULE) = COM_NOK
+   RETURN (COM_NOK)
+
+/*si chevauchement*/
+if (vl_resultats.status=XZANC_CHEVAUCHEMENT) {
+	INFO_MESSAGE@("L'interlocuteur "++va_periode.nom++" "++
+		"est deja d'astreinte pour cette competence "++
+		"du "++COM18_Date_SGBD_Formatee(vl_resultats.select_results[0][0][0])++
+		" au "++COM18_Date_SGBD_Formatee(vl_resultats.select_results[0][0][1]))
+	return (COM_OK)
+}
+
+/*si une periode est selectionnee*/
+/*je l'efface et j'en cree une nouvelle*/
+if (va_indice_boucle=0) and (va_indice++""<>null) {
+	vl_parametres=null
+	vl_parametres[0].type = TFC_Numero_Competence
+	vl_parametres[0].data = vm_calendrier[va_indice].numero
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = TFC_Numero_Competence
+	vl_parametres[1].data = va_num_comp
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type = SYB#DATETIME_
+	vl_parametres[2].data = vm_calendrier[va_indice].horodebut
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type = SYB#DATETIME_
+	vl_parametres[3].data = vm_calendrier[va_indice].horofin
+	vl_parametres[3].output = FALSE
+
+	/*si je ne suis pas au CI*/
+	IF (SYSTEM_VAR@(vg_site)<>XDC_CI) {
+		IF COM41_SQL_Procedure_Distante (XDC_CI,XZAN39_Supprimer_Periode,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+   			RETURN (COM_NOK)
+	}
+	else {
+		IF COM05_SQL_Procedure (XZAN39_Supprimer_Periode,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+			RETURN (COM_NOK)
+	}
+
+	/*mise a jour de la liste des periodes en memoire*/
+	vm_calendrier=ARRAY_DELETE@(vm_calendrier,va_indice)
+}
+
+vl_resultats=null
+vl_parametres=null
+vl_parametres[0].type = TFC_Numero_Competence
+vl_parametres[0].data = va_num_comp
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFC_Numero_Competence
+vl_parametres[1].data = va_interlocuteur
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#DATETIME_
+vl_parametres[2].data = va_periode.horodebut
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#DATETIME_
+vl_parametres[3].data = va_periode.horofin
+vl_parametres[3].output = FALSE
+
+if (SYSTEM_VAR@(vg_site)<>XDC_CI) {
+	IF COM41_SQL_Procedure_Distante (XDC_CI,XZAN40_Ajouter_Periode,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+  		RETURN (COM_NOK)
+}
+else {
+	IF COM05_SQL_Procedure (XZAN40_Ajouter_Periode,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		RETURN (COM_NOK)
+}
+
+/*mise a jour de la liste des periodes en memoire*/
+vm_calendrier[ARRAY_SIZE@(vm_calendrier)]=va_periode
+
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_calendrier", 0,-1)
+DB_TABLE_SET_NEW_DATA@(va_fenetre, "TA_calendrier", vm_calendrier, 0)
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* ajout d'une pêriode
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_ajouter_liste_periodes(va_fenetre,ta_choix,va_num_comp,FORMAT TAS_Calendrier va_calendrier,
+						va_selection/*,
+		FORMAT TFA_Interlocuteur va_interlocuteur*/)
+
+/*
+* ARGUMENTS EN ENTREE :
+*               va_fenetre              Identifiant de la fenetre d'affichage.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*       Afficher la liste des machines du site.
+*
+---------------------------------------------------------------------------- */
+VAR vl_indice,vl_index
+VAR tl_periodes
+VAR	FORMAT	SQL_Procedure_Params@ vl_parametres
+VAR	FORMAT	SQL_Procedure_Result@ vl_resultats
+VAR vl_index2
+VAR vl_hdebut,vl_mindebut,vl_hfin,vl_minfin
+
+/*DEM475*/
+if (DB_CTRL_GET_VALUE@(va_fenetre,"BA_discontinu"))
+{
+  	vl_hdebut = DB_CTRL_GET_VALUE@(va_fenetre,"BS_heure_debut")
+  	vl_mindebut = DB_CTRL_GET_VALUE@(va_fenetre,"BS_minute_debut")
+  	vl_minfin = DB_CTRL_GET_VALUE@(va_fenetre,"BS_minute_fin")
+  	vl_hfin = DB_CTRL_GET_VALUE@(va_fenetre,"BS_heure_fin")
+  
+  	if ((vl_hdebut=vl_hfin) and (vl_mindebut=vl_minfin)) 
+  	{
+    		INFO_MESSAGE@("Saisie discontinue : heure/minute fin et debut doivent etre differentes")
+    		RETURN (COM_NOK)
+  	}
+
+	vl_resultats=null
+	vl_parametres=null
+	vl_parametres[0].type = SYB#DATETIME_
+	vl_parametres[0].data = va_calendrier.horodebut
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#DATETIME_
+	vl_parametres[1].data = va_calendrier.horofin
+	vl_parametres[1].output = FALSE
+
+	if (SYSTEM_VAR@(vg_site)<>XDC_CI) 
+	{
+		IF COM41_SQL_Procedure_Distante (XDC_CI,XZAN45_lister_periodes,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	       	RETURN (COM_NOK)
+	}
+	else 
+	{
+       		IF COM05_SQL_Procedure (XZAN45_lister_periodes,
+			       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+       		RETURN (COM_NOK)
+	}
+	tl_periodes=null
+	tl_periodes = vl_resultats.select_results[0]
+}
+
+else 
+{
+	tl_periodes=null
+	tl_periodes[0][0]=va_calendrier.horodebut
+	tl_periodes[0][1]=va_calendrier.horofin
+}
+
+for vl_index2 = 0 to ARRAY_SIZE@(tl_periodes)-1
+	va_calendrier.horodebut = COM18_Date_SGBD_Formatee(tl_periodes[vl_index2][0])
+	va_calendrier.horofin = COM18_Date_SGBD_Formatee(tl_periodes[vl_index2][1])
+	for vl_indice=0 to (ARRAY_SIZE@(ta_choix)-1)
+		vl_index=ta_choix[vl_indice]
+		va_calendrier.numero=vm_l_interlocuteurs[vl_index].numero
+		va_calendrier.nom= vm_l_interlocuteurs[vl_index].nom
+		if (TAS_ajouter_Periode(va_fenetre,
+				va_num_comp,
+				va_calendrier,
+				va_selection,
+				vm_l_interlocuteurs[vl_index].numero,
+				vl_indice)=COM_NOK)
+			return (COM_NOK)
+	next vl_indice
+next vl_index2
+return (COM_OK)
+ENDMACRO

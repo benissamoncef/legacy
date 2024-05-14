@@ -1,0 +1,1587 @@
+/*E*/
+/* Fichier : $Id: dedi_ec13.am,v 1.5 1999/02/26 11:56:55 gaborit Exp $	      Release : $Revision: 1.5 $        Date : $Date: 1999/02/26 11:56:55 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec13.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* definition des interlocuteurs/cas d'appel
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	29 nov 1994	: Creation						V1.1
+* Thomas	06 sep 1995	: ajout sens 1 et sens 2
+* Thomas	30 jan 1996	: Modif 769, 
+					Modif 767 : suppression avertissement	V1.3
+* Guilhou 23 mai 1996 : astreintes gérées par numero DEM/1125	V1.4
+* Niepceron 19 Jan 1999	: Modif intergestionnaires dem/1625 v1.5	
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+include "../../XDMICG/inc/xdc_ax.h"
+
+DEFINE	CAR_SEPAR_DEF			" "
+
+FORMAT dedi_cas
+	libelle,
+	definition
+
+FORMAT dedi_appele
+	numero,
+	motif
+
+FORMAT dedi_valeurControle
+	idControle,
+	idComparateur,
+	valeur
+
+FORMAT dedi_appeleNom
+	nom,
+	motif
+
+VAR FORMAT dedi_cas				tm_cas
+VAR FORMAT dedi_appele			tm_appeles
+VAR FORMAT dedi_appeleNom		tm_appeles_noms
+VAR 							tm_evts
+VAR							tm_controles,tm_controlesCommuns
+VAR							tm_listeControlesCommuns
+VAR							vm_type
+VAR							tm_comparateurs	
+VAR						 	vm_selectionInterl
+VAR 							vm_selectionEvt
+VAR FORMAT dedi_valeurControle	tm_definition
+VAR							tm_valeursAppel
+VAR							vm_fichier
+VAR							vm_fichier_datex
+VAR	FORMAT dedi_astreinte		tm_astreintes
+VAR							tm_niveau_trafic
+VAR							tm_autoroute
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer les interlocuteurs et les evenements d'appel
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec13 (va_appelant,va_mode,va_differe)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice,vl_index
+var tl_pokes
+var tl_dataInterl,tl_dataEvt
+var vl_appel
+var vl_chaine
+var vl_oldType
+var vl_taille
+var vl_nomEvt
+var vl_titreComp,vl_posComp
+var tl_data
+var tl_appele
+var vl_nomInterl,vl_numInterl
+var tl_inter
+var vl_autoroute,vl_pr_debut,vl_pr_fin
+
+/*A je suis presente*/
+SET_SYSTEM_VAR@(vg_presence_ec13,TRUE)
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec13")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+tl_pokes[1]=dedi_canal_ec13_ajinterl
+tl_pokes[2]=dedi_canal_ec13_supinterl
+tl_pokes[3]=dedi_canal_ec13_valide
+tl_pokes[4]=dedi_canal_ec13_annule
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A si on ne traite pas les cas d'appels differes*/
+
+IF (va_differe<>TRUE)
+{
+	IF (va_mode="PC")
+	{
+		vm_fichier=AX_PATH++IE_FILE_APPELS_PC
+		vm_fichier_datex=AX_PATH++IE_FILE_APPELS_PC_DATEX
+		DB_TITLE@(vl_fenetre,"Cas d'appels des interlocuteurs PC")
+	}
+	ELSE
+	{
+		vm_fichier=AX_PATH++IE_FILE_APPELS_CI
+		vm_fichier_datex=AX_PATH++IE_FILE_APPELS_CI_DATEX
+		DB_TITLE@(vl_fenetre,"Cas d'appels des interlocuteurs CI")
+	}
+}
+ELSE
+{
+	IF (va_mode="PC")
+	{
+		vm_fichier=AX_PATH++IE_FILE_APPELS_DIFFERES_PC
+		vm_fichier_datex=AX_PATH++IE_FILE_APPELS_DIFFERES_PC_DATEX
+		DB_TITLE@(vl_fenetre,"Cas d'appels différés des interlocuteurs PC")
+	}
+	ELSE
+	{
+		vm_fichier=AX_PATH++IE_FILE_APPELS_DIFFERES_CI
+		vm_fichier_datex=AX_PATH++IE_FILE_APPELS_DIFFERES_CI_DATEX
+		DB_TITLE@(vl_fenetre,"Cas d'appels différés des interlocuteurs CI")
+	}
+}
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,340)
+DB_YPOS@(vl_fenetre,74)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec13_init(vl_fenetre,va_differe,va_appelant)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt		
+		/*A appui sur le bouton ajouter*/
+		CASE "BP_ajouter"
+			/*A recupere le nom et le type de l'evenement*/
+			vl_nomEvt=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_evt")
+			vm_type=DB_CTRL_GET_VALUE@(vl_fenetre,"type")
+			
+			/*A si le nom est nul*/
+			IF ((vl_nomEvt=null) OR (vm_type=-1))
+
+				INFO_MESSAGE@("Le nom et le type sont obligatoires")
+			ELSE
+			{
+				/*A si le nom existe deja*/
+				vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_cas,0),vl_nomEvt)
+				IF (vl_indice<>-1)
+					INFO_MESSAGE@("Nom déjà utilisé")
+				ELSE
+				{
+					/*A libelle du type*/
+					vm_type=tm_evts[vm_type]
+
+					vl_taille=ARRAY_SIZE@(tm_cas)
+
+					/*A nom du nouvel evenement*/
+					tm_cas[vl_taille].libelle=vl_nomEvt			
+
+					/*A je lis les valeurs des controles communs*/
+					tm_definition[vl_taille][0]=ec13_lire_controles(null,
+												     vl_fenetre)
+
+					/*A je lis les valeurs des controles du type*/
+					IF (vm_type<>null)
+						tl_data=ec13_lire_controles(vm_type,vl_fenetre)
+					ELSE
+						tl_data=null
+					tm_definition[vl_taille][1]=tl_data
+
+					/*A interlocuteurs*/
+					tm_appeles[vl_taille]=tm_appeles[vl_taille-1]
+					tm_appeles_noms[vl_taille]=tm_appeles_noms[vl_taille-1]
+
+					tm_valeursAppel[vl_taille]=tm_valeursAppel[vl_taille-1]
+
+					tm_valeursAppel[vl_taille][0]=tm_cas[vl_taille].libelle
+			
+					/*A initialise les appels pour le nouvel evenement*/
+					FOR vl_indice=1 TO (ARRAY_SIZE@(
+									tm_valeursAppel[vl_taille])-1)
+						tm_valeursAppel[vl_taille][vl_indice]=null
+					NEXT vl_indice
+					
+					FOR vl_indice=1 TO ARRAY_SIZE@(tm_appeles[vl_taille]) 
+															STEP 2
+						tm_appeles[vl_taille][vl_indice]=null
+						tm_appeles_noms[vl_taille][vl_indice]=null
+					NEXT vl_indice
+					
+					/*A definition de l'evenement*/
+					tm_cas[vl_taille].definition=ec13_genere_definition(
+										tm_definition[vl_taille])
+
+					/*A met a jour la table des evts*/
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_evts",
+											tm_valeursAppel,0)
+
+					/*A selectionne cet element*/
+					vl_indice[0]=vl_taille
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_evts",vl_indice)
+					vm_selectionEvt=vl_taille
+
+					IF (vl_taille>9)
+						DB_TABLE_SET_NEW_TOP_ROW@(vl_fenetre,"TA_evts",
+											vl_taille-9)
+
+					/*A j'affiche les interlocuteurs*/
+					tl_appele=tm_appeles_noms[vm_selectionEvt]
+					FOR vl_indice=0 TO ((ARRAY_SIZE@(tl_appele)-1)/2)
+						tl_data[vl_indice][0]=tl_appele[2*vl_indice]
+						tl_data[vl_indice][1]=tl_appele[2*vl_indice+1]
+					NEXT vl_indice
+
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_interl",0,-1)
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_interl",tl_data,0)
+
+					vm_selectionInterl=null
+				}
+			}
+
+		/*A appui sur le bouton supprimer un evenement*/
+		CASE "BP_supprimer"
+			IF ((vm_selectionEvt++"")<>null)
+			{
+				IF (ARRAY_SIZE@(tm_valeursAppel)=1)
+					INFO_MESSAGE@("Le dernier élément ne peut pas être supprimé")
+				ELSE
+				{
+					tm_cas=ARRAY_DELETE@(tm_cas,vm_selectionEvt)
+					tm_valeursAppel=ARRAY_DELETE@(tm_valeursAppel,
+												vm_selectionEvt)
+					tm_appeles=ARRAY_DELETE@(tm_appeles,vm_selectionEvt)
+					tm_appeles_noms=ARRAY_DELETE@(tm_appeles_noms,
+										vm_selectionEvt)
+
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_evts",0,-1)
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_evts",
+											tm_valeursAppel,0)
+
+					vm_selectionEvt[0]=0
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_evts",
+											vm_selectionEvt)
+
+					DB_TABLE_SET_NEW_TOP_ROW@(vl_fenetre,"TA_evts",0)
+
+					vm_selectionEvt=0
+					ec13_affiche_controles(vl_fenetre,vm_selectionEvt)
+				}
+			}
+
+		/*A appui sur le bouton modifier un evenement*/
+		CASE "BP_modifier_evt"
+			IF ((vm_selectionEvt++"")<>null)
+			{
+				/*A nouveau  nom de l'evenement*/
+				tm_cas[vm_selectionEvt].libelle=DB_CTRL_GET_VALUE@(
+													vl_fenetre,			
+													"BS_evt")
+
+				/*A met a jour la table des evts*/
+				tm_valeursAppel[vm_selectionEvt][0]=
+									tm_cas[vm_selectionEvt].libelle
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_evts",
+											tm_valeursAppel,0)
+
+				/*A reselectionne cet element*/
+				vl_indice[0]=vm_selectionEvt
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_evts",vl_indice)
+
+				/*A je lis les valeurs des controles communs*/
+				tm_definition[vm_selectionEvt][0]=ec13_lire_controles(null,
+												     vl_fenetre)
+
+				/*A je lis les valeurs des controles du type*/	
+				IF (vm_type<>null)
+					tm_definition[vm_selectionEvt][1]=ec13_lire_controles(
+													vm_type,
+												   vl_fenetre)
+				ELSE
+					tm_definition[vm_selectionEvt][1]=null
+
+				/*A definition de l'evenement*/
+				tm_cas[vm_selectionEvt].definition=ec13_genere_definition(
+										tm_definition[vm_selectionEvt])
+			}
+
+		/*A appui sur le bouton rafraichir*/
+		CASE "BP_rafraichir"
+			/*A lance la macro de lecture des valeurs des controles communs*/
+			tm_definition[vm_selectionEvt][0]=ec13_lire_controles(null,
+												     vl_fenetre)
+
+			/*A lance la macro de lecture des valeurs des controles du type*/
+			IF (vm_type<>null)
+				tm_definition[vm_selectionEvt][1]=ec13_lire_controles(vm_type,
+												     vl_fenetre)
+			ELSE
+				tm_definition[vm_selectionEvt][1]=null
+
+			/*! si le type choisi est null*/
+			tl_data=null
+			IF (tm_definition[vm_selectionEvt][0][0][2]=null)
+				tl_data[vm_selectionEvt][0]=ARRAY_DELETE@(
+							tm_definition[vm_selectionEvt][0],0)
+			ELSE
+			{
+				/*A j'insere ce libelle dans la definition a afficher*/
+				tl_data[vm_selectionEvt][0]=ARRAY_DELETE@(
+							tm_definition[vm_selectionEvt][0],0)
+				tl_inter[0]=tm_definition[vm_selectionEvt][0][0][2]
+				tl_data[vm_selectionEvt][0]=ARRAY_INSERT@(
+							tl_data[vm_selectionEvt][0],tl_inter)
+			}
+			tl_data[vm_selectionEvt][1]=tm_definition[vm_selectionEvt][1]
+
+			/*A je genere la definition et je l'affiche*/
+			vl_chaine[0]=ec13_genere_definition(tl_data[vm_selectionEvt])
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BL_def",vl_chaine)
+
+		/*A choix d'un type d'evenement*/
+		CASE "type"
+			/*A memorise l'ancien type*/
+			vl_oldType=vm_type
+			
+			/*A recupere le nouveau type*/
+			vm_type=tm_evts[DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)]
+
+			/*A efface le nom de l'evenement*/
+			'DB_CTRL_VALUE@(vl_fenetre,"BS_evt",null)
+
+			/*A affiche les controles associes a ce type*/
+			ec13_affiche_type(vm_type,vl_fenetre,vl_oldType)
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			IF (ec13_valide(va_differe)=TRUE)
+				RETURN
+
+		/*A selection d'un element dans la liste des evenements*/
+		CASE "TA_evts"
+			/*A on affiche les caracteristiques de l'objectif selectionnee */
+			vl_indice = DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_evts")
+			vm_selectionEvt=vl_indice[0]
+
+			ec13_affiche_controles(vl_fenetre,vm_selectionEvt)
+		
+		/*A selection d'un element dans la liste des interlocuteurs*/
+		CASE "TA_interl"
+			/*A on affiche les caracteristiques de l'objectif selectionnee */
+			vl_indice = DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_interl")
+			vm_selectionInterl=vl_indice[0]
+			tl_dataInterl=DB_TABLE_GET_DATA@(vl_fenetre, "TA_interl")
+
+			/*A si la valeur d'appel est x*/
+			vl_appel=tl_dataInterl[vm_selectionInterl][1]
+			IF (vl_appel<>null)
+			{
+				DB_CTRL_VALUE@(vl_fenetre,"BA_appel",TRUE)
+
+				IF (vl_appel<>"x")
+					DB_CTRL_VALUE@(vl_fenetre,"BS_appel",vl_appel)
+				ELSE
+					DB_CTRL_VALUE@(vl_fenetre,"BS_appel",null)
+			}
+			ELSE
+			{
+				DB_CTRL_VALUE@(vl_fenetre,"BA_appel",FALSE)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_appel",null)
+			}
+		
+		/*A appui sur le bouton modifier un interlocuteur*/
+		CASE "BP_modifier_interl"
+			IF ((vm_selectionInterl++"")<>null)
+			{
+				vl_appel=DB_CTRL_GET_VALUE@(vl_fenetre,"BA_appel")
+
+				/*A si pas d'appel*/
+				IF (vl_appel=FALSE)
+					vl_appel=null
+				/*A sinon si on est en mode differe*/
+				ELSE IF (va_differe=TRUE)
+					vl_appel="x"
+				/*A sinon on appelle pour cet interlocuteur*/
+				ELSE
+				{
+					/*A lit le motif d'appel*/
+					vl_chaine=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_appel")
+					IF (vl_chaine=null)
+						vl_appel="x"
+					ELSE
+						vl_appel=vl_chaine
+				}
+
+				/*A met a jour la table des interlocuteurs*/
+				tl_dataInterl[vm_selectionInterl][1]=vl_appel
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_interl",tl_dataInterl,0)
+				vl_indice[0]=vm_selectionInterl
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_interl",vl_indice)
+
+				/*A sauvegarde cette nouvelle valeur*/
+				tm_appeles[vm_selectionEvt][2*vm_selectionInterl+1]=vl_appel
+				tm_appeles_noms[vm_selectionEvt][2*vm_selectionInterl+1]=
+														vl_appel
+
+				tm_valeursAppel[vm_selectionEvt][vm_selectionInterl+1]=vl_appel
+
+				/*A met a jour la liste des evenements*/
+				tl_dataEvt=DB_TABLE_GET_DATA@(vl_fenetre,"TA_evts")
+				tl_dataEvt[vm_selectionEvt][vm_selectionInterl+1]=vl_appel
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_evts",tl_dataEvt,0)
+				vl_indice[0]=vm_selectionEvt
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_evts",vl_indice)
+			}
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			/*A je ne suis plus presente*/
+			SET_SYSTEM_VAR@(vg_presence_ec13,FALSE)
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					/*A bye*/
+					SET_SYSTEM_VAR@(vg_presence_ec13,FALSE)
+					RETURN
+
+				/*A la tache de gestion des interlocuteurs a ete validee*/
+				CASE dedi_canal_ec13_valide
+					/*A je dois valider ma boite*/
+					DB_CTRL_GRAYED@(vl_fenetre,"BP_annuler",TRUE)
+					DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",FALSE)
+
+				/*A la tache de gestion des interlocuteurs a ete annulee*/
+				CASE dedi_canal_ec13_annule
+					/*A bye*/
+					SET_SYSTEM_VAR@(vg_presence_ec13,FALSE)
+					RETURN
+
+				/*A suppression d'un interlocuteur*/
+				CASE dedi_canal_ec13_supinterl
+					/*A je recupere le nom de l'interlocuteur*/
+					vl_nomInterl=DB_GET_POKE_DATA@(vl_fenetre)
+
+					/*A et sa position dans la liste*/
+					vl_index=ARRAY_INDEX@(tm_appeles_noms[0],vl_nomInterl)
+
+					/*A pour tous les evenements*/	
+					FOR vl_indice=0 TO (ARRAY_SIZE@(tm_appeles)-1)
+						/*A j'efface cet interlocuteur 
+						* (nom et valeur d'appel) */
+						tm_appeles[vl_indice]=ARRAY_DELETE@(
+												tm_appeles[vl_indice],
+												vl_index)	
+						tm_appeles[vl_indice]=ARRAY_DELETE@(
+												tm_appeles[vl_indice],
+												vl_index)	
+						tm_appeles_noms[vl_indice]=ARRAY_DELETE@(
+											tm_appeles_noms[vl_indice],
+												vl_index)	
+						tm_appeles_noms[vl_indice]=ARRAY_DELETE@(
+											tm_appeles_noms[vl_indice],
+												vl_index)	
+					NEXT vl_indice
+
+					/*A met a jour les titres de colonnes */
+					ec13_affiche_titres(vl_fenetre)
+
+					/*A reselectionne l'evt qui etait selectionne*/
+					IF ((vm_selectionEvt++"")<>null)
+					{
+						vl_indice[0]=vm_selectionEvt
+						DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_evts",
+													vl_indice)
+	
+						/*A j'affiche les interlocuteurs*/
+						tl_appele=tm_appeles_noms[vm_selectionEvt]
+						tl_data=null
+						FOR vl_indice=0 TO ((ARRAY_SIZE@(tl_appele)-1)/2)
+							tl_data[vl_indice][0]=tl_appele[2*vl_indice]
+							tl_data[vl_indice][1]=tl_appele[2*vl_indice+1]
+						NEXT vl_indice
+						DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_interl",0,-1)
+						DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_interl",
+													tl_data,0)
+
+						/*A j'initialise les controles interlocuteurs*/
+						DB_CTRL_VALUE@(vl_fenetre,"BS_appel",null)
+						DB_CTRL_VALUE@(vl_fenetre,"BA_appel",null)
+					}			
+
+				/*A ajout d'un interlocuteur*/
+				CASE dedi_canal_ec13_ajinterl
+					/*A je recupere le nom et le numero de l'interlocuteur*/
+					vl_nomInterl=DB_GET_POKE_DATA@(vl_fenetre)
+					vl_numInterl=vl_nomInterl[0]
+					vl_nomInterl=vl_nomInterl[1]
+
+					/*A pour tous les evenements*/	
+					FOR vl_indice=0 TO (ARRAY_SIZE@(tm_appeles)-1)
+						vl_taille=ARRAY_SIZE@(tm_appeles[vl_indice])
+						/*A j'ajoute cet interlocuteur 
+						* (nom et valeur d'appel) */
+						tm_appeles_noms[vl_indice][vl_taille]=vl_nomInterl
+						tm_appeles[vl_indice][vl_taille]=vl_numInterl
+						tm_appeles[vl_indice][vl_taille+1]=null
+						tm_appeles_noms[vl_indice][vl_taille+1]=null
+					NEXT vl_indice
+
+					/*A met a jour les titres de colonnes */
+					ec13_affiche_titres(vl_fenetre)
+
+					/*A reselectionne l'evt qui etait selectionne*/
+					IF ((vm_selectionEvt++"")<>null)
+					{
+						vl_indice[0]=vm_selectionEvt
+						DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_evts",
+													vl_indice)
+	
+						/*A j'affiche les interlocuteurs*/
+						tl_appele=tm_appeles_noms[vm_selectionEvt]
+						FOR vl_indice=0 TO ((ARRAY_SIZE@(tl_appele)-1)/2)
+							tl_data[vl_indice][0]=tl_appele[2*vl_indice]
+							tl_data[vl_indice][1]=tl_appele[2*vl_indice+1]
+						NEXT vl_indice
+						DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_interl",0,-1)
+						DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_interl",
+													tl_data,0)
+
+						/*A j'initialise les controles interlocuteurs*/
+						DB_CTRL_VALUE@(vl_fenetre,"BS_appel",null)
+						DB_CTRL_VALUE@(vl_fenetre,"BA_appel",null)
+					}			
+			ENDCASE
+
+		DEFAULT
+			vl_posComp=-1
+			/*A comparateur commun?*/
+			IF ((vl_evt="cp_longueur") OR (vl_evt="cp_duree"))
+				vl_posComp=0
+			ELSE
+			{
+				tl_data=ARRAY_COLUMN@(tm_controles,3)
+				FOR vl_indice=0 TO (ARRAY_SIZE(tl_data)-1)
+					/*A je regarde si c'est un comparateur*/
+					vl_index=ARRAY_INDEX@(tl_data[vl_indice],vl_evt)
+					IF (vl_index<>-1)
+						vl_posComp=0
+				NEXT vl_indice
+			}
+
+			IF (vl_posComp<>-1)
+			{
+				/*A recupere le titre*/
+				vl_titreComp=DB_CTRL_GET_TITLE@(vl_fenetre,vl_evt)
+
+				/*A position dans la table des titres de comparateurs*/
+				vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_comparateurs,1),
+										vl_titreComp)
+
+				/*A j'affiche l'icone suivante*/
+				vl_indice=(vl_indice+1) MOD 3
+				DB_CTRL_TITLE@(vl_fenetre,vl_evt,tm_comparateurs[vl_indice][1])
+			}
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec13_init (va_fenetre,va_differe,va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_titre_evts
+VAR tl_data,tl_data_datex,tl_autoroute
+VAR vl_indice,vl_indice_datex
+VAR vl_indexEvts,vl_index
+VAR tl_titre_appele
+
+	/*A si l'appelant est la liste des interlocuteurs*/
+	IF (va_appelant="dedi_ec7")
+	{
+		/*A je ne peux plus annuler ni valider*/
+		DB_CTRL_GRAYED@(va_fenetre,"BP_annuler",TRUE)
+		DB_CTRL_GRAYED@(va_fenetre,"BP_valider",TRUE)
+	}
+
+	/*A initialise le tableau des comparateurs*/
+	tm_comparateurs[0]="=","logo_egal"
+	tm_comparateurs[1]="<","logo_inf"
+	tm_comparateurs[2]=">","logo_sup"
+
+	tm_niveau_trafic[0]=""
+	tm_niveau_trafic[XDC_RADT_FLUIDE]="fluide"
+	tm_niveau_trafic[XDC_RADT_PRESAT]="pré-saturé"
+	tm_niveau_trafic[XDC_RADT_SATURE]="saturé"
+	DB_CTRL_STRINGS@ (va_fenetre, "niveau_trafic" ,tm_niveau_trafic )
+
+	tl_autoroute=ARRAY_COLUMN@(SYSTEM_VAR@(vg_autoroutes),1)
+	tm_autoroute[0]=""
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_autoroute)-1)
+		tm_autoroute[vl_indice+1]=tl_autoroute[vl_indice]
+	NEXT vl_indice
+	DB_CTRL_STRINGS@ (va_fenetre, "autoroute" ,tm_autoroute )
+
+	/*A charge les types d'evenements*/
+	tm_evts=SYSTEM_VAR@(vg_types_evts)
+	tm_evts=ARRAY_INSERT@(tm_evts,"",0)
+
+	/*A affiche cette liste*/
+	DB_CTRL_STRINGS@(va_fenetre,"type",tm_evts)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"type",TRUE)
+	DB_CTRL_VALUE@(va_fenetre,"type",-1)
+
+	/*A charge la liste des evenements*/
+	tl_data=READ_ASCII_FILE@(vm_fichier)
+
+	/*A parcourt le tableau lu et extrait les champs*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tl_data[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+											DEDI_CAR_SEPAR)
+		/*A recupere libelle et definition*/
+		tm_cas[vl_indice].libelle=tl_data[vl_indice][0]
+		tm_cas[vl_indice].definition=tl_data[vl_indice][1]
+		tm_valeursAppel[vl_indice][0]=tm_cas[vl_indice].libelle
+
+		/*A recupere les interlocuteurs*/
+		tl_data[vl_indice]=SUBARRAY_REMOVE@(tl_data[vl_indice],0,1)
+		tl_data[vl_indice]=SUBARRAY_REMOVE@(tl_data[vl_indice],0,1)
+
+	NEXT vl_indice
+	/*A charge la liste des evenements*/
+	tl_data_datex=READ_ASCII_FILE@(vm_fichier_datex)
+	vl_indice=ARRAY_SIZE@(tl_data)
+	/*A parcourt le tableau lu et extrait les champs*/
+	FOR vl_indice_datex=0 TO (ARRAY_SIZE@(tl_data_datex)-1)
+		tl_data_datex[vl_indice_datex]=ARRAY_FROM_STRING@(tl_data_datex[vl_indice_datex],DEDI_CAR_SEPAR)
+		/*A recupere libelle et definition*/
+		tm_cas[vl_indice+vl_indice_datex].libelle= tl_data_datex[vl_indice_datex][0]
+		tm_cas[vl_indice+vl_indice_datex].definition= tl_data_datex[vl_indice_datex][1]
+		tm_valeursAppel[vl_indice+vl_indice_datex][0]= tm_cas[vl_indice+vl_indice_datex].libelle
+
+		/*A recupere les interlocuteurs*/
+		tl_data[vl_indice+vl_indice_datex]= SUBARRAY_REMOVE@(tl_data_datex[vl_indice_datex],0,1)
+		tl_data[vl_indice+vl_indice_datex]= SUBARRAY_REMOVE@(tl_data[vl_indice+vl_indice_datex],0,1)
+
+	NEXT vl_indice_datex
+
+	/*A memorise les interlocuteurs*/
+	tm_appeles=tl_data
+	tm_appeles_noms=tl_data
+
+	/*A affiche les titres des colonnes des evts*/
+	ec13_affiche_titres(va_fenetre)
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_appeles_noms)-2)
+		FOR vl_index=0 TO (ARRAY_SIZE@(tm_appeles_noms[0])-1) STEP 2
+			tm_appeles_noms[vl_indice+1][vl_index]=tm_appeles_noms[0][vl_index]
+		NEXT vl_index
+	NEXT vl_indice
+
+	/*A affiche les titres des colonnes des interlocuteurs*/
+	tl_titre_appele[0][0] = "Interlocuteurs"
+	tl_titre_appele[0][1] = 150
+
+	tl_titre_appele[1][0] = "Appel"
+	tl_titre_appele[1][1] = 150
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_interl", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_interl",TRUE)
+	DB_TABLE_SET_DATA@(va_fenetre,"TA_interl",null,tl_titre_appele)
+
+	/*A si mode differe*/
+	IF (va_differe=TRUE)
+	{
+		/*A ne pas afficher le libelle de l'appel*/
+		DB_CTRL_DISPLAY@(va_fenetre,"BS_appel",FALSE)
+
+		/*A donner un titre au bouton Appel*/
+		DB_CTRL_TITLE@(va_fenetre,"BA_appel","Appel différé")
+	}
+
+	/*A initialise les controles*/
+	ec13_init_controles(va_fenetre)
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* affiche les controles correspondant au type de l'evenement
+* les met a jour
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec13_affiche_controles (va_fenetre,va_selection)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR tl_evt
+VAR tl_appele
+VAR vl_indice
+VAR tl_definition
+VAR tl_data
+VAR vl_oldType
+VAR tl_libelleType
+VAR tl_libelleDef
+VAR tl_def_formatee
+
+	/*A recupere les donnees sur l'evenement*/
+	tl_evt=tm_cas[va_selection]
+	tl_appele=tm_appeles_noms[va_selection]
+
+	/*A je recupere la chaine de la definition*/
+	tl_definition[0]=tl_evt[1]
+	tl_libelleDef=tl_definition
+
+	/*A je recupere la definition sous forme d'un tableau*/
+	tl_definition=ARRAY_FROM_STRING@(tl_evt[1],"&")
+	tl_def_formatee=tl_definition
+
+	/*A j'enleve les espaces*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_definition)-1)
+		tl_definition[vl_indice]=TRIM@(tl_definition[vl_indice])
+	NEXT vl_indice
+	
+	/*A je memorise l'ancienne valeur du type*/
+	vl_oldType=DB_CTRL_GET_VALUE@(va_fenetre,"type")
+
+	/*A si un type existait*/
+	IF (vl_oldType<>-1)
+		vl_oldType=tm_evts[vl_oldType]
+	ELSE
+		vl_oldType=null
+
+	/*A j'affiche le bon type et le libelle*/
+	tl_libelleType=ARRAY_FROM_STRING@(tl_definition[0],"=")
+	vl_indice=ARRAY_INDEX@(tm_evts,tl_libelleType[1])
+	DB_CTRL_VALUE@(va_fenetre,"type",vl_indice)
+	DB_CTRL_VALUE@(va_fenetre,"BS_evt",tl_evt[0])
+
+	/*A si un type existe dans cette definition*/
+	IF (vl_indice>0)
+		/*A je recupere son libelle*/
+		tl_data=	tl_libelleType[1]++" & "
+	ELSE
+		tl_data=null
+
+	/*A formatte la definition a afficher*/
+	tl_data=tl_data++tl_def_formatee[1]
+	FOR vl_indice=2 TO (ARRAY_SIZE@(tl_def_formatee)-1)
+		tl_data=tl_data++" & "++tl_def_formatee[vl_indice]
+	NEXT vl_indice
+	tl_def_formatee=null
+	tl_def_formatee[0]=tl_data
+	tl_data=null
+	
+	/*A j'affiche les interlocuteurs*/
+	FOR vl_indice=0 TO ((ARRAY_SIZE@(tl_appele)-1)/2)
+		tl_data[vl_indice][0]=tl_appele[2*vl_indice]
+		tl_data[vl_indice][1]=tl_appele[2*vl_indice+1]
+	NEXT vl_indice
+
+	DB_TABLE_CLEAR_DATA@(va_fenetre,"TA_interl",0,-1)
+	DB_TABLE_SET_NEW_DATA@(va_fenetre,"TA_interl",tl_data,0)
+
+	/*A je recupere le type de l'evenement*/
+	vm_type=tl_libelleType[1]
+
+	/*A j'affiche les controles correspondants au type*/
+	tl_definition=ARRAY_DELETE@(tl_definition,0)
+	ec13_affiche_type(vm_type,va_fenetre,vl_oldType,tl_definition)
+
+	/*A j'affiche la definition */
+'	DB_EDITBOX_SET_DATA@(va_fenetre,"BL_def",tl_libelleDef)
+	DB_EDITBOX_SET_DATA@(va_fenetre,"BL_def",tl_def_formatee)
+
+	
+ENDFUNCTION
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* declare les tableaux de controles associes a chaque type
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec13_init_controles (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+
+	tm_controles[0][0]="ACCIDENT"
+	tm_controles[0][1]="nb_vehicules","nb_vl","nb_pl",
+					"nb_cars","nb_motos","nb_victimes",
+					"nb_blesses_legers","nb_blesses_graves",
+					"nb_morts","passagers_bus","bebes",
+					"personnes_agees","personnalites",
+					"agent_escota","vehicule_escota",
+					"degats_domaine","animaux","matieres_dangereuses",
+					"nb_passagers"
+	tm_controles[0][2]=TRUE
+	tm_controles[0][3]="cp_nb_vehicules","cp_nb_vl","cp_nb_pl",
+					"cp_nb_cars","cp_nb_motos","cp_nb_victimes",
+					"cp_nb_blesses_legers","cp_nb_blesses_graves",
+					"cp_nb_morts","cp_nb_passagers"
+
+	tm_controles[1][0]="Basculement"
+'	tm_controles[1][1]="type_basculement","balisage_pose"
+	tm_controles[1][1][0]="balisage_pose"
+	tm_controles[1][2]=FALSE
+
+	tm_controles[2][0]="BOUCHON"
+	tm_controles[2][1][0]="trafic"
+	tm_controles[2][2]=FALSE
+
+	tm_controles[3][0]="MANIFESTATION"
+	tm_controles[3][1]="nombre","violence","peage"
+	tm_controles[3][2]=TRUE
+	tm_controles[3][3][0]="cp_nombre"
+
+	tm_controles[4][0]="BROUILLARD"
+	tm_controles[4][1][0]="visibilite"
+	tm_controles[4][2]=TRUE
+	tm_controles[4][3][0]="cp_visibilite"
+
+	tm_controles[5][0]="Travaux"
+	tm_controles[5][1]="sur_rau","voies_retrecies","continu","mobile"
+	tm_controles[5][2]=FALSE
+
+	tm_controles[6][0]="VEHICULE LENT"
+	tm_controles[6][1][0]="type_vehicule"
+	tm_controles[6][2]=FALSE
+
+	tm_controles[7][0]="VEHICULE A CONTRESENS"
+'	tm_controles[7][1]="type_vehicule","nb_passagers",
+'					"bebes","personnes_agees","animaux",
+'					"matieres_dangereuses","immobilisation"
+'	tm_controles[7][2]=TRUE
+'	tm_controles[7][3][0]="cp_nb_passagers"
+
+	tm_controles[8][0]="VERGLAS"
+	tm_controles[8][1][0]="visibilite"
+	tm_controles[8][2]=TRUE
+	tm_controles[8][3][0]="cp_visibilite"
+
+	tm_controles[9][0]="VENT"
+	tm_controles[9][1][0]="visibilite"
+	tm_controles[9][2]=TRUE
+	tm_controles[9][3][0]="cp_visibilite"
+
+	tm_controles[10][0]="CHUTE NEIGE"
+	tm_controles[10][1][0]="visibilite"
+	tm_controles[10][2]=TRUE
+	tm_controles[10][3][0]="cp_visibilite"
+
+	tm_controles[11][0]="PLUIE"
+	tm_controles[11][1][0]="visibilite"
+	tm_controles[11][2]=TRUE
+	tm_controles[11][3][0]="cp_visibilite"
+
+	tm_controles[12][0]="BROUILLARD GIVRANT"
+	tm_controles[12][1][0]="visibilite"
+	tm_controles[12][2]=TRUE
+	tm_controles[12][3][0]="cp_visibilite"
+
+	tm_controles[13][0]="NEIGE SUR CHAUSSEE"
+	tm_controles[13][1][0]="visibilite"
+	tm_controles[13][2]=TRUE
+	tm_controles[13][3][0]="cp_visibilite"
+
+	tm_controles[14][0]="GRELE"
+	tm_controles[14][1][0]="visibilite"
+	tm_controles[14][2]=TRUE
+	tm_controles[14][3][0]="cp_visibilite"
+
+	tm_controles[15][0]="VEHICULE ARRETE"
+	tm_controles[15][1]="type_vehicule","nb_passagers",
+					"bebes","personnes_agees","animaux",
+					"matieres_dangereuses"
+'					,"immobilisation"
+	tm_controles[15][2]=TRUE
+	tm_controles[15][3][0]="cp_nb_passagers"
+
+	tm_controles[16][0]="VEHICULE EN PANNE"
+	tm_controles[16][1]="type_vehicule","nb_passagers",
+					"bebes","personnes_agees","animaux",
+					"matieres_dangereuses"
+'					,"immobilisation"
+	tm_controles[16][2]=TRUE
+	tm_controles[16][3][0]="cp_nb_passagers"
+
+	tm_controles[17][0]="VEHICULE EN FEU"
+	tm_controles[17][1]="type_vehicule","nb_passagers",
+					"bebes","personnes_agees","animaux",
+					"matieres_dangereuses"
+'					,"immobilisation"
+	tm_controles[17][2]=TRUE
+	tm_controles[17][3][0]="cp_nb_passagers"
+
+	/*A controles communs a tous les types*/
+	tm_controlesCommuns[0]="type"
+	tm_controlesCommuns[1]="longueur","duree"
+	tm_controlesCommuns[2]="cp_longueur","cp_duree","cp_pr_min","cp_pr_max"
+	tm_controlesCommuns[3]="sens_1", "sens_2", "non_prevu","coupure_chaussee",
+						"au_moins_1_voie_bloquee",
+						"sans_voie_bloquee","sur_lit_arret","sur_echangeur",
+						"sur_echangeur_de_sortie",
+						"au_peage","sur_aire","confirme","signale","termine","niveau_trafic","autoroute","pr_min","pr_max","datex"
+					
+	tm_listeControlesCommuns[0]="type",
+						"longueur","duree",
+						"sens_1", "sens_2",
+						"non_prevu","coupure_chaussee",
+						"au_moins_1_voie_bloquee",
+						"sans_voie_bloquee","sur_lit_arret","sur_echangeur",
+						"sur_echangeur_de_sortie",
+						"au_peage","sur_aire","confirme","signale","termine","niveau_trafic","autoroute","pr_min","pr_max","datex"
+	tm_listeControlesCommuns[1]=TRUE
+	tm_listeControlesCommuns[2]="cp_longueur","cp_duree","cp_pr_min","cp_pr_max"
+
+
+ENDFUNCTION
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* affiche les controles associes a un type
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec13_affiche_type (va_type,va_fenetre,va_oldType,ta_valeursControles)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_type: nouveau type
+* va_oldType: ancien type dont les controles sont a effacer
+* ta_valeursControles: valeurs a afficher dans ces controles
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR vl_indiceType
+VAR vl_index
+VAR tl_controles
+VAR FORMAT dedi_valeurControle tl_valeurs
+VAR tl_data
+VAR vl_idControle
+VAR vl_idComparateur
+VAR vl_valeur
+VAR vl_posComparateur
+VAR vl_typeControle
+VAR vl_posChaine
+
+	/*A initialise les controles communs*/
+	DB_CTRL_VALUE@(va_fenetre,"pr_min","")
+	DB_CTRL_VALUE@(va_fenetre,"pr_max","")
+	DB_CTRL_VALUE@(va_fenetre,"longueur",null)
+	DB_CTRL_VALUE@(va_fenetre,"duree",null)
+	DB_CTRL_TITLE@(va_fenetre,"cp_pr_min","logo_inf")
+	DB_CTRL_TITLE@(va_fenetre,"cp_pr_max","logo_inf")
+	DB_CTRL_TITLE@(va_fenetre,"cp_longueur","logo_egal")
+	DB_CTRL_TITLE@(va_fenetre,"cp_duree","logo_egal")
+	DB_CTRL_VALUE@(va_fenetre,"niveau_trafic",0)
+	DB_CTRL_VALUE@(va_fenetre,"autoroute",0)
+	DB_CTRL_VALUE@(va_fenetre,"datex",0)
+	
+	DB_EDITBOX_SET_DATA@(va_fenetre,"BL_def",null)
+
+	FOR vl_index=0 TO (ARRAY_SIZE@(tm_controlesCommuns[3])-1)
+		DB_CTRL_VALUE@(va_fenetre,tm_controlesCommuns[3][vl_index],FALSE)
+	NEXT vl_index
+
+	/*A si l'ancien type est non nul*/
+	IF (va_oldType<>null)
+	{
+		/*A position du type dans les tableaux de controles*/
+		vl_indiceType=ARRAY_INDEX@(ARRAY_COLUMN@(tm_controles,0),
+							va_oldType)
+
+		/*A si le type a des controles associes*/
+		IF (vl_indiceType<>-1)
+		{
+			/*A controles associes au type*/	
+			tl_controles=tm_controles[vl_indiceType]
+
+			/*A efface le 1° element qui est le libelle du type*/
+			tl_controles=ARRAY_DELETE@(tl_controles,0)
+
+			/*A efface les controles*/
+			FOR vl_index=0 TO (ARRAY_SIZE@(tl_controles[0])-1)
+				DB_CTRL_DISPLAY@(va_fenetre,tl_controles[0][vl_index],FALSE)
+			NEXT vl_index
+
+			/*A si des comparateurs etaient affiches*/
+			IF (tl_controles[1]=TRUE)
+			{
+				/*je les efface*/
+				FOR vl_index=0 TO (ARRAY_SIZE@(tl_controles[2])-1)
+					DB_CTRL_DISPLAY@(va_fenetre,tl_controles[2][vl_index],
+														FALSE)
+				NEXT vl_index
+			}
+		}
+	}
+
+	/*A position du nouveau type dans les tableaux de controles*/
+	vl_indiceType=ARRAY_INDEX@(ARRAY_COLUMN@(tm_controles,0),
+							TRIM@(va_type))
+		
+	/*A si le type a des controles associes*/
+	IF (vl_indiceType<>-1)
+	{
+		/*A controles associes au type*/	
+		tl_controles=tm_controles[vl_indiceType]
+
+		/*A efface le 1° element qui est le libelle du type*/
+		tl_controles=ARRAY_DELETE@(tl_controles,0)
+
+		/*A affiche les controles*/
+		FOR vl_index=0 TO (ARRAY_SIZE@(tl_controles[0])-1)
+			DB_CTRL_DISPLAY@(va_fenetre,tl_controles[0][vl_index],TRUE)
+			DB_CTRL_VALUE@(va_fenetre,tl_controles[0][vl_index],null)
+		NEXT vl_index
+
+		/*A si des comparateurs etaient affiches*/
+		IF (tl_controles[1]=TRUE)
+		{		
+			/*je les efface*/
+			FOR vl_index=0 TO (ARRAY_SIZE@(tl_controles[2])-1)
+				DB_CTRL_DISPLAY@(va_fenetre,tl_controles[2][vl_index],
+														TRUE)
+				DB_CTRL_VALUE@(va_fenetre,tl_controles[2][vl_index],0)
+			NEXT vl_index
+		}
+	}
+
+	/*A parcourt la definition*/
+	FOR vl_index=0 TO (ARRAY_SIZE@(ta_valeursControles)-1)
+		/*A extrait les champs separes par des espaces*/
+		tl_data=ARRAY_FROM_STRING@(ta_valeursControles[vl_index]," ")
+
+		/*A si on recupere 3 valeurs*/
+		IF (ARRAY_SIZE@(tl_data)=3)
+			tl_valeurs[vl_index]=tl_data
+		/*A sinon on n'a recupere qu'un sel champ*/
+		ELSE
+		{
+			tl_valeurs[vl_index].idControle=tl_data[0]
+			tl_valeurs[vl_index].idComparateur=null
+			tl_valeurs[vl_index].valeur=null
+		}
+	NEXT vl_index
+
+	/*A je mets a jour les controles*/
+	FOR vl_index=0 TO (ARRAY_SIZE@(tl_valeurs)-1)
+		/*A recupere les valeurs a afficher*/
+		vl_idControle=tl_valeurs[vl_index].idControle
+		vl_idComparateur=tl_valeurs[vl_index].idComparateur
+		vl_valeur=tl_valeurs[vl_index].valeur
+
+		/*A recupere le type du controle a mettre a jour*/
+		vl_typeControle=DB_CTRL_GET_TYPE@(va_fenetre,vl_idControle)
+
+		/*A suivant le type du controle*/
+		CASE OF vl_typeControle
+			/*A boite de saisie*/
+			CASE 4
+				/*A met a jour le controle*/
+				DB_CTRL_VALUE@(va_fenetre,vl_idControle,vl_valeur)
+
+				/*A met a jour le comparateur*/
+				IF (vl_idComparateur<>null)
+				{
+			
+					vl_posComparateur=ARRAY_INDEX@(
+									ARRAY_COLUMN@(tm_comparateurs,0),
+									vl_idComparateur)
+					if ( vl_idControle<> "pr_min")
+						DB_CTRL_TITLE@(va_fenetre,"cp_"++vl_idControle,
+							tm_comparateurs[vl_posComparateur][1])
+				}
+
+			/*A bouton toggle*/
+			CASE 1
+				DB_CTRL_VALUE@(va_fenetre,vl_idControle,TRUE)
+
+			/*A bouton option*/
+			CASE 2
+				/*A recupere les chaines du bouton option*/
+				tl_data=DB_CTRL_GET_STRINGS@(va_fenetre,vl_idControle)
+			
+				/*A valeur a afficher*/
+				if vl_idControle="autoroute"
+					DB_CTRL_VALUE@(va_fenetre,vl_idControle,vl_valeur)
+				else
+				{
+				vl_posChaine=ARRAY_INDEX@(tl_data,vl_valeur)
+				DB_CTRL_VALUE@(va_fenetre,vl_idControle,vl_posChaine)
+				}
+		ENDCASE
+	NEXT vl_index
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* lit les valeurs des controles associes a un type
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec13_lire_controles (va_type,va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : tableau contenant la definition
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR vl_indiceType
+VAR vl_index
+VAR tl_controles
+VAR FORMAT dedi_valeurControle tl_valeurs
+VAR tl_data
+VAR vl_idControle
+VAR vl_idComparateur
+VAR vl_valeur
+VAR vl_posComparateur
+VAR vl_typeControle
+VAR vl_posChaine
+VAR vl_indiceControle
+VAR vl_chaines
+
+	/*A si un type est fourni en entree*/
+	IF (va_type<>null)
+	{
+		/*A position du type dans les tableaux de controles*/
+		vl_indiceType=ARRAY_INDEX@(ARRAY_COLUMN@(tm_controles,0),
+							va_type)
+
+		
+		/*A si le type n'a des controles associes*/
+		IF (vl_indiceType=-1)
+			/*A retour*/
+			RETURN
+
+		/*A controles associes au type*/	
+		tl_controles=tm_controles[vl_indiceType]
+
+		/*A efface le 1° element qui est le libelle du type*/
+		tl_controles=ARRAY_DELETE@(tl_controles,0)
+	}
+	/*A sinon on lit les controles communs a tous les types*/
+	ELSE
+	{
+		tl_controles=tm_listeControlesCommuns
+	}
+
+
+	vl_indiceControle=0
+
+	FOR vl_index=0 TO (ARRAY_SIZE@(tl_controles[0])-1)
+		/*A recupere id des controles et valeurs*/
+		vl_idControle=tl_controles[0][vl_index]
+		vl_valeur=DB_CTRL_GET_VALUE@(va_fenetre,tl_controles[0][vl_index])
+
+		/*A suivant le type de controles*/
+		CASE OF (DB_CTRL_GET_TYPE@(va_fenetre,vl_idControle))
+			/*A boite de liste*/
+			CASE 7
+				/*A si un element est selectionne*/
+				IF (vl_valeur<>-1)
+				{
+					vl_chaines=DB_CTRL_GET_STRINGS@(va_fenetre,vl_idControle)
+						tl_valeurs[vl_indiceControle].idControle=vl_idControle
+						tl_valeurs[vl_indiceControle].valeur=
+												vl_chaines[vl_valeur]
+						tl_valeurs[vl_indiceControle].idComparateur="="
+						vl_indiceControle=vl_indiceControle+1
+				}
+				
+			/*A boite de saisie*/
+			CASE 4
+				/*A si la valeur saisie est non nulle*/
+				IF (vl_valeur<>null)
+				{
+					/*A j'ajoute l'element a mon tableau de valeurs*/
+					if ( vl_idControle <> "pr_min" or vl_valeur<>0) and (vl_idControle <> "pr_max" or vl_valeur<>0)
+					{
+						tl_valeurs[vl_indiceControle].idControle=vl_idControle
+						tl_valeurs[vl_indiceControle].valeur=vl_valeur
+						vl_indiceControle=vl_indiceControle+1
+					}
+				}
+
+			/*A bouton toggle*/
+			CASE 1
+				/*A s'il est enfonce*/
+				IF (vl_valeur=-1)
+				{
+					/*A j'ajoute l'element a mon tableau de valeurs*/
+					tl_valeurs[vl_indiceControle].idControle=vl_idControle
+					vl_indiceControle=vl_indiceControle+1
+				}
+
+			/*A bouton option*/
+			CASE 2
+				/*A je recupere les chaines du bouton option*/	
+				vl_chaines=DB_CTRL_GET_STRINGS@(va_fenetre,vl_idControle)
+
+				/*A si le choix n'est pas nul*/
+				IF (vl_chaines[vl_valeur]<>null)
+				{
+					tl_valeurs[vl_indiceControle].idControle=vl_idControle
+					if ( vl_idControle = "autoroute" )
+						tl_valeurs[vl_indiceControle].valeur=vl_valeur
+					else
+					   	tl_valeurs[vl_indiceControle].valeur= vl_chaines[vl_valeur]
+					tl_valeurs[vl_indiceControle].idComparateur="="
+					vl_indiceControle=vl_indiceControle+1
+				}
+		ENDCASE				
+	NEXT vl_index
+
+	/*A s'il y a des comparateurs associes au type*/
+	IF (tl_controles[1]=TRUE)
+	{
+		FOR vl_index=0 TO (ARRAY_SIZE@(tl_controles[2])-1)
+			/*A je recupere leurs valeurs*/
+			vl_posComparateur=DB_CTRL_GET_TITLE@(va_fenetre,
+									tl_controles[2][vl_index])
+			vl_posComparateur=ARRAY_INDEX@(
+							ARRAY_COLUMN@(tm_comparateurs,1),
+							vl_posComparateur)
+
+			/*A position du controle associe au comparateur*/
+			vl_indiceControle=ARRAY_INDEX@(ARRAY_COLUMN@(tl_valeurs,0),
+							SUBSTRING@(tl_controles[2][vl_index],4))
+
+			/*A libelle du comparateur*/
+			IF (vl_indiceControle<>-1) 
+			{
+				if tl_controles[2][vl_index]="cp_pr_min"
+					tl_valeurs[vl_indiceControle].idComparateur=">"
+				else
+					tl_valeurs[vl_indiceControle].idComparateur=
+						tm_comparateurs[vl_posComparateur][0]
+			}
+
+		NEXT vl_index
+	}
+
+	RETURN (tl_valeurs)
+ENDFUNCTION
+	
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* genere la definition a partir du tableau
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec13_genere_definition (ta_definition)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : tableau contenant la definition
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR vl_definition
+VAR vl_indice
+VAR tl_expression
+VAR tl_definition
+
+	tl_definition=ta_definition
+
+	/*A je genere la definition pour les controles communs*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(ta_definition[0])-1)
+		tl_expression[vl_indice]=ARRAY_TO_STRING@(ta_definition[0][vl_indice]," ")
+	NEXT vl_indice
+	vl_definition=ARRAY_TO_STRING@(tl_expression," & ")
+
+	/*A je genere la definition pour les controles specifiques*/
+	tl_expression=null
+	FOR vl_indice=0 TO (ARRAY_SIZE@(ta_definition[1])-1)
+		tl_expression[vl_indice]=ARRAY_TO_STRING@(ta_definition[1][vl_indice]," ")
+	NEXT vl_indice
+
+	IF (tl_expression<>null)
+		vl_definition=vl_definition++" & "++ARRAY_TO_STRING@(tl_expression," & ")
+
+	RETURN (vl_definition)
+
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation des objectifs
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec13_valide (va_differe)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+VAR tl_data_gen,tl_data_datex,tl_data
+VAR vl_indice,vl_indice_gen,vl_indice_datex,vl_ligne
+VAR vl_index
+VAr vl_compteurNull
+VAR vl_interl
+
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	/* je regarde si chaque interlocuteur est au moins appele une fois*/
+	/* sauf si on est dans le cas des appels differes (modif 767) */
+	IF va_differe <> TRUE
+	{
+		FOR vl_indice=1 TO (ARRAY_SIZE@(tm_appeles[0])-1) STEP 2
+			vl_compteurNull=0
+			tl_data=ARRAY_COLUMN@(tm_appeles,vl_indice)
+			FOR vl_index=0 TO (ARRAY_SIZE@(tl_data)-1)
+				IF (tl_data[vl_index]=null)
+					vl_compteurNull=vl_compteurNull+1
+			NEXT vl_index
+
+			IF (vl_compteurNull=ARRAY_SIZE@(tl_data))
+			{
+				vl_interl=ARRAY_COLUMN@(tm_appeles,vl_indice-1)
+
+				/* IT:les astreintes associees peuvent n'etre associees a aucun cas.
+				on se contente d'une mise en garde */
+				IF YES_NO_PROMPT@("Voulez-vous modifier le tableau avant de sauvegarder?",
+					vl_interl[0]++" n'est associe a aucun cas.") = TRUE
+					RETURN (FALSE)
+			}
+		NEXT vl_indice
+	}
+
+	/*pour tous les evenements*/
+	vl_indice_gen=0
+	vl_indice_datex=0
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_cas)-1)
+	vl_compteurNull=0
+		/*je regarde si chaque evt a au moins un interlocuteur associe*/
+		FOR vl_index=1 TO (ARRAY_SIZE@(tm_appeles[vl_indice])-1) STEP 2
+			IF (tm_appeles[vl_indice][vl_index]=null)
+				vl_compteurNull=vl_compteurNull+1
+		NEXT vl_index
+		IF (vl_compteurNull=(ARRAY_SIZE@(tm_appeles[vl_indice])/2))
+		{
+			INFO_MESSAGE@("Aucun interlocuteur n'est associe a l'evenement "++tm_cas[vl_indice][0])
+			RETURN (FALSE)
+		}
+		vl_ligne=ARRAY_TO_STRING@(tm_cas[vl_indice],DEDI_CAR_SEPAR)++
+						DEDI_CAR_SEPAR++
+					   ARRAY_TO_STRING@(tm_appeles[vl_indice],DEDI_CAR_SEPAR)++
+						DEDI_CAR_SEPAR
+		/* Si c'est un cas datex alors on memorise dans le tableau datex sinon le tableau general */
+		if ( STRING_INDEX@(vl_ligne,"datex") <> 0 )
+		{
+			tl_data_datex[vl_indice_datex]=vl_ligne
+			vl_indice_datex=vl_indice_datex+1
+		}
+		else
+		{
+			tl_data_gen[vl_indice_gen]=vl_ligne
+			vl_indice_gen=vl_indice_gen+1
+		}
+	NEXT vl_indice
+
+	/* ecriture des tableaux dans chacun des fichiers */
+	WRITE_ASCII_FILE@(vm_fichier,tl_data_gen)
+	WRITE_ASCII_FILE@(vm_fichier_datex,tl_data_datex)
+	RETURN (TRUE)
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'affichage des titres des colonnes de la table des evts
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec13_affiche_titres (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR tl_titre_evts
+var vl_indice
+var vl_indexEvts
+var vl_index
+
+	/*A affiche la liste des objectifs*/
+	tl_titre_evts[0][0] = "Cas"
+	tl_titre_evts[0][1] = 200
+
+	/*A chargement des astreintes de la base*/
+	tm_astreintes=SYSTEM_VAR@(vg_astreintes)
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_appeles[0])-1) STEP 2
+		/*A transforme numero interlocuteur en nom interlocuteur*/
+		vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_astreintes,1), 					
+							tm_appeles[0][vl_indice])
+
+		/*A titres des colonnes = noms des interlocuteurs*/
+		tl_titre_evts[vl_indice/2+1][0] = tm_astreintes[vl_index][0]
+		tl_titre_evts[vl_indice/2+1][1] = 120
+		tm_appeles_noms[0][vl_indice]=tm_astreintes[vl_index][0]
+	NEXT vl_indice
+
+	/*A extrait les valeurs des appels*/
+	FOR vl_indexEvts=0 TO (ARRAY_SIZE@(tm_cas)-1)
+		FOR vl_indice=1 TO (ARRAY_SIZE@(tm_appeles[vl_indexEvts])) STEP 2
+			tm_valeursAppel[vl_indexEvts][INT@(vl_indice/2)+1]=
+								tm_appeles[vl_indexEvts][vl_indice]	
+		NEXT vl_indice
+	NEXT vl_indexEvts
+
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_evts", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_evts",TRUE)
+	DB_TABLE_SET_DATA@(va_fenetre,"TA_evts",tm_valeursAppel,tl_titre_evts)
+	
+ENDFUNCTION
+
+

@@ -1,0 +1,373 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPM_PMV_DATEX.am,v 1.1 1999/02/26 14:05:47 gaborit Exp $      Release : $Revision: 1.1 $        Date : $Date: 1999/02/26 14:05:47 $
+---------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TFE * FICHIER ITMA_TPM_PMV_DATEX.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Demander d'export intergestionnaire
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Niepceron   25 Nov 1998 : Creation                                        V1.1
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TMC.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TFA.h"
+INCLUDE	"../inc/ITMA_TAN_Escota.h"
+INCLUDE	"../../XDMICG/inc/xzaec_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzac76sp.h"
+
+
+
+DEFINE	C_MODULE			"MTPM"						' Nom du module
+
+
+
+
+
+/*A
+ * Definition des codes et libelles
+ * des erreurs specifiques au module
+ * ---------------------------------
+ */
+
+DEFINE	C_ERR_IHM			1
+
+
+
+
+
+
+
+
+VAR FORMAT COM_Identifiant_FMC vm_id_FMC			' FMC liee a l'appel
+
+
+VAR vm_num_action
+VAR tm_num_actions
+VAR tm_liste_causes
+
+VAR vm_mode_formation
+VAR FORMAT TDO_NIV_LIB vm_liste_niveaux
+VAR tm_Niveau_Trafic
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Afficher le texte et demander une confirmation de celui-ci
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPM_PMV_DATEX (va_appelant, ta_args)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  ta_args : table des arguments
+*	si MTPA	num plan actions,num ordre proposition,num fiche fmc, libelle
+*	si MTMC	num evt, cle evt, num action, sit action, libelle fmc
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_VALIDE si l'appel a ete effectue ;
+*						COM_QUITTE si la fenetre est quittee ;
+*						COM_REFUSE si l'appel a ete refuse ;
+*						COM_NOK en cas d'erreur.
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*
+*   Gere le dialogue de commande d'un appel par fax.
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_fenetre_active
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+
+	VAR vl_appelant
+	VAR vl_num_plan, vl_num_ordre, vl_libelle_FMC
+	VAR vl_texte									' Texte d'explication global
+
+	VAR FORMAT TFA_Contact_Interlocuteur vl_interlo	' Interlocuteur choisi
+	VAR vl_fax_envoye								' Indicateur d'envoi
+
+	VAR tl_data									' Arguments de message
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_indice,tl_retour
+	VAR vl_status
+	VAR vl_niveau,vl_gravite
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (COM_NOK)
+}
+
+IF (SYSTEM_VAR@(vg_formation)<>null)
+	vm_mode_formation=TRUE
+
+/*A
+ * Charger la fenetre "Envoi de fax"
+ * ---------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TPM_PMV_DATEX")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TPM_PMV_DATEX")
+
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+DB_DISPLAY_ONLY@ (vl_fenetre, TRUE)
+DB_DISPLAY@ (vl_fenetre)
+
+MACRO_WINS_BUSY@()
+
+
+
+/*A
+ * Recuperer les arguments et les afficher
+ * ---------------------------------------
+ */
+
+
+	IF TPM_Consulter_PMV (vl_fenetre, ta_args) <> COM_OK
+	{
+		INFO_MESSAGE@("Erreur dans la lecture de l'action export")
+		RETURN
+	}
+
+
+
+
+
+
+DB_DISPLAY_ONLY@ (vl_fenetre, FALSE)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		IF ERROR_NUMBER@() <> C_ERR_IHM
+			COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A
+* boucle infinie de traitement des evenements*/
+vl_fenetre_active = TRUE
+WHILE vl_fenetre_active
+
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+
+		/*A
+		 * Sur choix "Quitter"  retourner COM_VALIDE
+		 * ---------------------------------------------------------------*/
+		
+
+		CASE "BP_Quitter"
+			vl_status = COM_QUITTE
+			vl_fenetre_active = FALSE
+
+
+
+
+		/*A
+		* reception d'un poke*/
+		CASE "poke_"
+			CASE OF DB_GET_POKE@(vl_fenetre)
+				/*A
+				* poke de fin*/
+				CASE COM_CANAL_FIN
+					vl_status = COM_QUITTE
+					vl_fenetre_active = FALSE
+
+			ENDCASE
+
+		ENDCASE
+WEND
+
+
+RETURN (vl_status)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Afficher les caracteristiques de l'action pmv datex en consultation
+*  et initialise la fenetre
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TPM_Consulter_PMV (va_fenetre, ta_args)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets ;
+*  ta_args            : tableau contenant info action
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_PMV_DATEX
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+VAR i
+VAR vl_action
+VAR vl_site
+VAR vl_libelle_FMC
+VAR vl_index
+VAR vl_interlocuteur
+VAR vl_operateur
+VAR vl_lancement
+VAR vl_succes
+VAR vl_echec
+VAr vl_nom
+VAr vl_texte,vl_ligne1,vl_ligne2,vl_ligne3,vl_ligne4
+VAr vl_data
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+	vl_action = ta_args[2]
+	vl_site = ta_args[3]
+	vl_libelle_FMC = ta_args[4]
+
+
+	/*A preparation des parametres de la requete */
+	i=0
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].data = vl_action
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT1_
+	vl_parametres[i].data = vl_site
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	/*A execution de la requete de lecture de fax */
+	IF COM05_SQL_PROCEDURE(XZAC76_Lire_PMV_DATEX,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@("Erreur dans la lecture de l'action fax")
+		RETURN (COM_NOK)
+	}
+
+
+	
+	DB_CTRL_TITLE@ (va_fenetre, "LI_pmv", vl_resultats.return_parameters[0])
+
+	vl_texte=vl_resultats.return_parameters[1] ++ vl_resultats.return_parameters[2]
+
+	vl_data=ARRAY_FROM_STRING@ (vl_texte,"/")
+
+	DB_CTRL_TITLE@ (va_fenetre, "LI_ligne1",vl_data[2])
+	DB_CTRL_TITLE@ (va_fenetre, "LI_ligne2",vl_data[3])
+	DB_CTRL_TITLE@ (va_fenetre, "LI_ligne3",vl_data[4])
+	DB_CTRL_TITLE@ (va_fenetre, "LI_ligne4",vl_data[5])
+
+
+
+	DB_DISPLAY_ONLY@ (va_fenetre, TRUE)
+	DB_DISPLAY@ (va_fenetre)
+	DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+
+
+	RETURN (COM_OK)
+
+ENDMACRO
+
+

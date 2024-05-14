@@ -1,0 +1,289 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_liste_synthese.am,v 1.3 2014/10/01 09:45:39 gesconf Exp $        Release : $Revision: 1.3 $        Date : $Date: 2014/10/01 09:45:39 $
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR PASTRE
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Liste des FMC causes / consequences pour la synthese des syntheses
+* 
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Hilmarcher	03/03/05 : Creation v1.1
+* JPL		27/05/09 : Controles; plus de multi-selection; messages d'erreur 1.2
+*		            Macro appelante; enchainements ...
+* PNI	01/08/2014	: Limiter la profondeur de recherche d'évènements DEM1093 v1.3
+*
+----------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzaec_ax.h"
+
+INCLUDE "../inc/xzae203sp.h"
+
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TDO.h"
+
+
+DEFINE C_MODULE "MTMC"
+
+
+/*A
+ * Nom des images digitalisees particularisant les elements
+ * --------------------------------------------------------
+ */
+
+DEFINE  C_PICTO_SELECTE         "pix_designer"
+DEFINE  C_PICTO_NON_SELECTE     NULL
+DEFINE  C_PICTO_COMMENTAIRE     "pix_separation"
+
+
+/*A
+ * Format des donnees d'evenements lues en base
+ * --------------------------------------------
+ */
+
+FORMAT TMC_SYN_SYN_FMC
+		numero,
+		cle,
+		type,
+		autoroute,
+		pr,
+		sens,
+		debut,
+		fin
+
+
+VAR	FORMAT TMC_SYN_SYN_FMC	tm_donnees_FMC
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Affichage des FMC de l'arbre de causes / consequences d'une FMC.
+* Selection de FMC et appel de la synthese des syntheses.
+*
+*------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_liste_synthese(va_appelant, va_num_fmc, va_cle)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_appelant       : Le nom du module appelant ;
+*   va_num_fmc        : Le numero de FMC dont la synthese est demandee ;
+*   va_cle            : La cle de la FMC.
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* FONCTION:
+*
+----------------------------------------------------------------------------- */
+
+    VAR     vl_fenetreSaisie
+    VAR     vl_objet_selecte                    ' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes            ' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     tl_titres
+    VAR     tl_donnees_visu
+    VAR     tl_FMC_synthese
+    VAR	    tl_picto
+
+    VAR	    vl_ligne_selectee
+
+    VAR 	FORMAT SQL_Procedure_Params@    vl_parametres
+    VAR 	FORMAT SQL_Procedure_Result@    vl_resultats
+    VAR	    vl_select, i, j
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN
+}
+
+
+/*A
+ * Charger la fenetre d'affichage de la liste des FMC
+ * --------------------------------------------------
+ */
+
+vl_fenetreSaisie = DB_LOAD@ ("ITMA_TMC_liste_synthese")
+DB_WINDOW_REMAIN@ (vl_fenetreSaisie, TRUE)
+
+DB_XPOS@ (vl_fenetreSaisie, 0)
+DB_YPOS@ (vl_fenetreSaisie, 93)
+
+/* activation de la liste des FMC */
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetreSaisie, "TA_listeFMC", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetreSaisie, "TA_listeFMC", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetreSaisie, "TA_listeFMC", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetreSaisie, "TA_listeFMC", TRUE)
+
+DB_CTRL_GRAYED@ (vl_fenetreSaisie, "BP_synthese", TRUE)
+
+
+/* Definition des colonnes de la table */
+tl_titres = {
+	{ "Numero",	100 },
+	{ "Cle",	50 },
+	{ "Type",	280 },
+	{ "Autoroute",	80 },
+	{ "PR",		80 },
+	{ "Sens",	180 }
+}
+
+/* Affichage a l'ecran de la boite de dialogue et de la table */
+DB_DISPLAY_ONLY@(vl_fenetreSaisie,TRUE)
+DB_DISPLAY@(vl_fenetreSaisie)
+
+DB_TABLE_SET_DATA@ (vl_fenetreSaisie, "TA_listeFMC", NULL, tl_titres, NULL)
+DB_TABLE_SET_SELECTIONS@ (vl_fenetreSaisie ,"TA_listeFMC" , NULL)
+
+
+IF (IS_NULL@ (va_num_fmc) OR IS_NULL@ (va_cle))
+{
+	INFO_MESSAGE@("Le numéro ou la clé de la FMC est incorrect")
+	RETURN
+}
+ELSE
+{
+	MACRO_WINS_BUSY@()
+
+	/* Appel de la requete qui fournit la liste des FMC correspondant aux criteres */
+	vl_parametres[0].type=SYB#INT4_
+	vl_parametres[0].data=va_num_fmc
+	vl_parametres[0].output=FALSE
+
+	vl_parametres[1].type=SYB#INT4_
+	vl_parametres[1].data=va_cle
+	vl_parametres[1].output=FALSE
+	
+	/*IF VUESCOM05_SQL_Procedure("XZAE203_liste_synthese,
+					vl_parametres, vl_resultats, C_MODULE) <> COM_OK*/
+	IF COM05_SQL_Procedure (XZAE203_liste_synthese,
+					vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@ ("Erreur lors de la recherche des FMC causes et conséquences")
+		RETURN
+	}
+	ELSE IF (ARRAY_SIZE@ (vl_resultats.select_results[0]) = 0)
+	{
+		INFO_MESSAGE@ ("Aucune FMC n'est trouvée sur le site")
+		RETURN
+	}
+	ELSE
+	{
+		/* Mettre en forme les donnees des FMC retournees et les afficher */
+		tm_donnees_FMC = vl_resultats.select_results[0]
+
+		FOR i = 0 TO (ARRAY_SIZE@(tm_donnees_FMC) -1)
+		
+      		/* controle de date pour recul dans le passe selon le poste */
+      		IF (VUESCOM50_Verifie_Recul_Dates(tm_donnees_FMC[i].Debut,tm_donnees_FMC[i].Fin)) = XDC_NOK
+                
+	         	ERROR@ (COM_ERR_DATE_INVAL, "LES REQUETES LANCEES A PARTIR DE CE POSTE NE PERMETTENT PAS D'ACCEDER A DES DONNEES ANTERIEURES A 1 AN (cnil)")
+      		
+		
+
+			tl_donnees_visu[i] = {
+				tm_donnees_FMC[i].numero,
+				tm_donnees_FMC[i].cle,
+				tm_donnees_FMC[i].type,
+				tm_donnees_FMC[i].autoroute,
+				COM31_Libelle_PR (tm_donnees_FMC[i].pr),
+				tm_donnees_FMC[i].sens
+			}
+
+		 	vl_ligne_selectee[i] = XDC_FAUX
+
+		NEXT i
+
+		DB_TABLE_SET_DATA@ (vl_fenetreSaisie, "TA_listeFMC", tl_donnees_visu, tl_titres, NULL)
+	}
+}
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+
+WHILE vl_la_fenetre_est_active
+	DB_DISPLAY_ONLY@ (vl_fenetreSaisie, FALSE)
+	DB_DISPLAY@ (vl_fenetreSaisie)
+	DB_DISPLAY_ONLY@ (vl_fenetreSaisie, TRUE)
+
+	vl_objet_selecte = DB_EXIT_CTRL@(vl_fenetreSaisie)
+
+	CASE OF vl_objet_selecte
+
+	CASE "TA_listeFMC"
+		j=0
+		/* degrise le bouton synthèse */
+		DB_CTRL_GRAYED@(vl_fenetreSaisie,"BP_synthese",FALSE)
+        
+		vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetreSaisie, "TA_listeFMC")
+		FOR i = 0  TO ARRAY_SIZE@ (vl_select) - 1
+			j = vl_select[i]
+			IF (vl_ligne_selectee[j] = XDC_VRAI)
+			{
+				tl_picto[j] = { C_PICTO_NON_SELECTE }
+				vl_ligne_selectee[j] = XDC_FAUX
+			}
+			ELSE
+			{
+				tl_picto[j] = { C_PICTO_SELECTE }
+				vl_ligne_selectee[j] = XDC_VRAI
+			}
+		NEXT i
+
+		DB_TABLE_MARKER_PIXMAPS@ (vl_fenetreSaisie, "TA_listeFMC", 0, tl_picto)
+		DB_TABLE_SET_SELECTIONS@ (vl_fenetreSaisie ,"TA_listeFMC" , NULL)
+
+
+	CASE "BP_synthese"
+		j=0
+		tl_FMC_synthese=null
+		FOR i = 0  TO ARRAY_SIZE@ (vl_ligne_selectee) - 1
+			IF (vl_ligne_selectee[i] = XDC_VRAI)
+			{	
+				tl_FMC_synthese[j] = { tm_donnees_FMC[i].numero, tm_donnees_FMC[i].cle }
+				j=j+1
+			}
+		NEXT i
+
+		IF j=0 {
+			INFO_MESSAGE@("Au moins une FMC doit être selectionnée")	
+		} ELSE {
+			PEND_FOR_NEW_TASK@("ITMA_TMC_synthese_synthese",tl_FMC_synthese,"ITMA_TMC_liste_synthese")	
+		}
+
+
+	CASE "BP_annuler"
+		vl_la_fenetre_est_active = FALSE
+
+	ENDCASE
+WEND
+
+ENDMACRO

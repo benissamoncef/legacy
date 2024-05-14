@@ -1,0 +1,330 @@
+/*E*/
+/* Fichier : $Id: dedi_ec25.am,v 1.2 1995/09/07 11:25:22 thomas Exp $	      Release : $Revision: 1.2 $        Date : $Date: 1995/09/07 11:25:22 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec25.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* definition de la structure d'un fax
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	19 jan 1994	: Creation						V1.1
+* Thomas	06 sep 1995	: ajout de l'elt ef-heure-fin (1.2)
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+DEFINE	CAR_SEPAR_DEF			"$"
+
+VAR tm_structure
+VAR tm_champs
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition de la structure d'un fax
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec25 ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice,vl_index
+var vl_selection
+var tl_data
+var tl_pokes
+var tl_ligneDef
+var vl_champs
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec25")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,5)
+DB_YPOS@(vl_fenetre,72)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec25_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A ajout d'un element dans la structure du fax*/
+		CASE "BL_champs"
+			/*A recupere l'element a inserer dans la structure du fax*/
+			vl_indice=DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)
+			vl_champs=tm_champs[vl_indice]
+			vl_champs=vl_champs[0]
+
+			/*A verifie que cet element n'existe pas deja*/
+			IF (ARRAY_INDEX@(ARRAY_COLUMN@(tm_structure,0),vl_champs)<>-1)
+				INFO_MESSAGE@("Cet élément se trouve déjà dans la structure du fax")
+			ELSE
+			{
+				IF (tm_structure<>null)
+					tm_structure=ARRAY_INSERT@(tm_structure,
+											tm_champs[vl_indice],
+											vl_selection+0)
+				ELSE
+					tm_structure[0]=tm_champs[vl_indice]
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_structure",
+													tm_structure,0)			
+			}
+
+		/*A suppression d'un element dans la structure du fax*/
+		CASE "BP_supprimer"
+			/*A si une ligne de la structure est selectionnee*/
+			IF ((vl_selection++"")<>null)
+			{
+				tm_structure=ARRAY_DELETE@(tm_structure,vl_selection)
+				DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_structure",0,-1)
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_structure",
+													tm_structure,0)
+				vl_selection=null			
+			}
+				
+		/*A appui sur la fleche vers le bas*/
+		CASE "BP_bas"
+			/*A si une ligne de la structure est selectionnee*/
+			IF ((vl_selection++"")<>null)
+			{
+				/*A recupere la ligne courante*/
+				tl_ligneDef=tm_structure[vl_selection]
+
+				/*A si ce n'est pas la derniere*/
+				IF (vl_selection<(ARRAY_SIZE@(tm_structure)-1))
+				{
+					/*A je la decale vers le bas*/
+					tm_structure[vl_selection]=tm_structure[vl_selection+1]
+					tm_structure[vl_selection+1]=tl_ligneDef
+
+					/*A je mets a jour l'affichage*/
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_structure",
+													tm_structure)
+
+					/*A je reselectionne la ligne deplacee*/
+					vl_selection=vl_selection+1
+					vl_indice[0]=vl_selection
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_structure",
+													vl_indice)
+				}
+			}
+
+		/*A appui sur la fleche vers le haut*/
+		CASE "BP_haut"
+			/*A si une ligne de definition est selectionnee*/
+			IF ((vl_selection++"")<>null)
+			{
+				/*A recupere la ligne courante*/
+				tl_ligneDef=tm_structure[vl_selection]
+
+				/*A si ce n'est pas la premiere*/
+				IF (vl_selection>0)
+				{
+					/*A je la decale vers le haut*/
+					tm_structure[vl_selection]=tm_structure[vl_selection-1]
+					tm_structure[vl_selection-1]=tl_ligneDef
+
+					/*A je mets a jour l'affichage*/
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_structure",
+										tm_structure)
+
+					/*A je reselectionne la ligne deplacee*/
+					vl_selection=vl_selection-1
+					vl_indice[0]=vl_selection
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_structure",
+													vl_indice)
+				}
+			}
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			IF (ec25_valide()=TRUE)
+				RETURN
+
+		/*A selection d'un element dans la structure du fax*/
+		CASE "TA_structure"
+			/*A on recupere la position de l'element selectionnee */
+			vl_indice = DB_TABLE_GET_SELECTIONS@(vl_fenetre, vl_evt)
+			vl_selection=vl_indice[0]
+				
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec25_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR tl_elements
+VAR vl_index
+VAR tl_titres
+
+	/*A chargement des perturbations depuis le fichier de config*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_STRUCT_FAX)
+	
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tm_structure[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+												DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+	/*A affiche la structure*/
+	tl_titres[0][0] = null
+	tl_titres[0][1] = 600
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_structure", TRUE)
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_structure", tm_structure, tl_titres)
+
+	/*A affiche la liste des champs possibles*/
+	tl_data=null
+	tl_data[0]="Affichage en gare","ef_affichage"
+	tl_data[1]="Autoroute","ef_autoroute"
+	tl_data[2]="Consequences","ef_consequences"
+	tl_data[3]="Difficultes de circulation","ef_circulation"
+	tl_data[4]="Gravite","ef_gravite"
+	tl_data[5]="Heure de debut","ef_heure_debut"
+	tl_data[6]="Heure de fin","ef_heure_fin"
+	tl_data[7]="Information sur PMV","ef_pmv"
+	tl_data[8]="Matieres dangereuses","ef_mat_dangereuses"
+	tl_data[9]="Nombre de vehicules","ef_nb_veh"
+	tl_data[10]="Objet","ef_objet"
+	tl_data[11]="PR","ef_pr"
+	tl_data[12]="Remarques","ef_rq"
+	tl_data[13]="Restrictions de circulation","ef_voies_neutralisees"
+	tl_data[14]="Section","ef_section"
+	tl_data[15]="Sens","ef_sens"
+	tl_data[16]="Voies bloquees","ef_voies_bloquees"
+	tm_champs=tl_data
+
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "BL_champs", TRUE)
+	DB_CTRL_STRINGS@(va_fenetre, "BL_champs", ARRAY_COLUMN@(tl_data,0))
+	DB_CTRL_VALUE@(va_fenetre,"BL_champs",-1)
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation de la structure du fax
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec25_valide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_structure)-1)
+		tl_data[vl_indice]=ARRAY_TO_STRING@(tm_structure[vl_indice],
+												DEDI_CAR_SEPAR)
+	NEXT vl_indice
+	
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_STRUCT_FAX,tl_data)
+
+	RETURN (TRUE)
+ENDMACRO
+
+
+

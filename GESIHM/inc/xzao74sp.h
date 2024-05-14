@@ -1,0 +1,1 @@
+DEFINE	XZAO74_Lire_Types_PMV		"XZAO74"

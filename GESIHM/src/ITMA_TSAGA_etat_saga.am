@@ -1,0 +1,495 @@
+/*E*/
+/* Fichier : $Id: ITMA_TSAGA_etat_saga.am,v 1.1 2017/03/31 18:02:52 pc2dpdy Exp $      Release : $Revision: 1.1 $       Date : $Date: 2017/03/31 18:02:52 $
+*-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER ITMA_TSAGA_etat_SAGA.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Le module permet de commander l'affichage sur 1 PMV 3 ou 4 lignes
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG 	07/6/16 : Creation								1.1
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes générales
+ * ------------------------------------*/
+DEFINE	C_MODULE			"MSAG"	' Nom du module
+
+DEFINE	REP_CONFIG		"/produits/migrazur/appliSD/fichiers/"
+
+/*A Description des modules à inclures
+ * ----------------------------------
+ */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+INCLUDE	"GESIHM/inc/ITMA_TPRV.h"
+INCLUDE	"GESIHM/inc/ITMA_PMV_format.h"
+INCLUDE	"GESIHM/inc/ITMA_TSAGA_pilotage_PMV.h"
+
+
+/*A Description des procedures sotckées à appeler
+ * ---------------------------------------------*/
+INCLUDE	"GESIHM/inc/xzac182sp.h"
+INCLUDE	"GESIHM/inc/xzac185sp.h"
+INCLUDE	"GESIHM/inc/xzac683sp.h"
+INCLUDE "GESIHM/inc/xzac611sp.h"
+INCLUDE	"GESIHM/inc/xzat01sp.h"
+INCLUDE	"GESIHM/inc/xzat150sp.h"
+INCLUDE "GESIHM/inc/xzao427sp.h"
+
+
+/*A Description des variables globales
+ * ----------------------------------*/
+var     	vm_fenetre			' item de la fenetre du module
+var     	vm_objet_selecte		' L'objet courant de la fenetre
+var     	vm_la_fenetre_est_active	' flag d'activation de la fenetre
+
+var		vm_titre_table_scenario	' titre du tableau des picto.
+var		vm_District			' le code du district
+var		vm_NomSite			' le nom du district
+var		vm_les_districts		' Liste des district
+var		vm_NomOperateur
+var		vm_mode_formation		' Mode Formation
+var		vm_Appel
+var		vm_scenario_fin
+
+var format Config_SAGA		vm_eqt_SAGA	' config des PMV SAGA
+
+/*A Description des tableaux
+ * ------------------------*/
+
+FORMAT T_scenario
+	numero,
+	nom,
+	libelle_groupe,
+	numero_groupe,
+	numero_fin
+
+FORMAT T_groupe
+	numero_groupe,
+	libelle_groupe
+
+var format T_scenario tm_scenarios
+var format T_scenario	tm_scenarios_affiches
+var format T_groupe tm_groupes
+var vm_table_picto
+
+var format T_commande vm_commande
+var vm_type
+var vm_libelle
+var format Config_SAGA	vm_saga
+var vm_picto
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commande l'affichage sur PMV 
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TSAGA_etat_SAGA (va_appelant, FORMAT TMC_actionFiche va_fiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 à va_6		: N° d'ordre + N° PA  ou  N° Equipement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> PMV dans MTPA : Plan d'action
+*   Selection de Piloter -> PMV dans MTMT : menu textuel
+*  Selection d'un PMV sur synotique ( clic droit) -> ISYN_SOP
+*   Selection d'un PMV sur synotique ( clic gauche ) -> ITMA_TUE
+*
+* FONCTION
+*   Lit en base de donnees puis affiche la liste des alarmes en cours en
+*   mettant en evidence les changements par rapport a la derniere consultation.
+*   Permet a l'operateur de choisir des alarmes dans la liste affichee puis
+*   d'en effectuer l'acquittement, avec mise a jour de la base de donnees.
+*
+---------------------------------------------------------------------------- */
+
+
+var		i,j,k				' index de loop
+var		vl_mess
+var		vl_liste_font			' liste des fonts disponibles sous Applix
+var		vl_objet				' objet en cours de modification
+var		vl_taille				' taille d'une chaine de caractères
+var		vl_tampon				' table temporaire
+var		vl_retour		 		' code retourne à l'appelant
+var		vl_lib_fmc			' tableau du libellé fmc
+var		vl_fmc				' libellé fmc à construire
+var		vl_fmc1				' 1ere partie du libellé fmc
+var		vl_fmc2				' 2eme partie du libellé fmc
+var		vl_erreur				' flag d'erreur
+var		vl_numero
+var		tl_titres,tl_data,tl_retour
+var		vl_ligne
+var		vl_rang
+var		vl_lecture
+var		vl_message
+var		vl_trouve
+var		vl_tplecture			' text tampon de lecture d'une liste
+var		vl_tptext				' zone de text tampon
+var		vl_messages_acceptes	' les messages acceptés en "_poke"
+var		vl_coderet
+var		tl_liste_causes
+var		vl_Destination
+var		vl_NumDest
+var             vl_NumDesttdp
+var		vl_num_eqt
+var		vl_liste_district
+var		tl_sel_pmv
+VAR FORMAT 	TMC_actionFiche	vl_FicheAction
+
+var vl_index, vl_index2,vl_i
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+var format T_groupe tl_groupe
+
+vl_retour 	= { COM_QUITTE }
+vl_liste_font 	= LIST_FONT_FAMILIES@()
+
+/*vm_NomSite 	= SYSTEM_VAR@("vg_nom_site")*/
+vm_District 	= SYSTEM_VAR@("vg_site")
+
+vm_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vm_NomOperateur = SUBSTRING@(vm_NomOperateur, 1, 25)
+
+vm_mode_formation = (SYSTEM_VAR@(vg_formation) <> NULL)
+
+
+/*A Definition du traitement a realiser en cas d'erreur
+* -----------------------------------------------------*/
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+INSTALL_FILE@("ITMA_TSAGA_Lecture_Etat_SAGA.elo")
+
+vl_tptext = "------------------------------------------------------------"
+COM01_Trace(COM_INFO,vl_tptext)
+vl_tptext = "Start ITMA_TSAGA_etat_SAGA " ++ "   User : " ++ vm_NomOperateur
+COM01_Trace(COM_INFO,vl_tptext)
+
+vl_tptext = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_tptext)
+vm_scenario_fin = -1
+
+vm_saga= SYSTEM_VAR@(vg_type_SAGA)
+
+
+/*A Définition de la bibliothèque des pictogrammes
+* à l'aide du fichier 'deq/Config_Scenarios_SAGA.cfg' 
+* ----------------------------------------------------*/
+
+if FILE_EXISTS@(REP_CONFIG ++ "deq/Config_Scenarios_SAGA.cfg")
+{	vm_table_picto = READ_ASCII_FILE@(REP_CONFIG ++ "deq/Config_Scenarios_SAGA.cfg") 
+	vl_taille = ARRAY_SIZE@(vm_table_picto) -1
+	vl_index = 0
+	vl_index2=0
+tm_groupes[0].numero_groupe = 0
+tm_groupes[0].libelle_groupe ="Tous"
+	FOR i = 0 TO vl_taille
+		tl_data = ARRAY_FROM_STRING@(vm_table_picto[i],"	")
+		tm_scenarios[i].numero = tl_data[0]
+		tm_scenarios[i].nom = tl_data[1]
+		tm_scenarios[i].numero_groupe = tl_data[2]
+		tm_scenarios[i].libelle_groupe = tl_data[3]
+		tm_scenarios[i].numero_fin = tl_data[4]
+
+		/*groupe*/
+		vl_trouve=0
+		for vl_index2= 0 to (ARRAY_SIZE@(tm_groupes)-1)
+			if (tm_groupes[vl_index2].numero_groupe = tm_scenarios[i].numero_groupe)
+				vl_trouve = 1
+		next vl_index2
+
+		if (vl_trouve=0) {
+		tl_groupe[0].numero_groupe = tm_scenarios[i].numero_groupe
+		tl_groupe[0].libelle_groupe = tm_scenarios[i].libelle_groupe			
+			tm_groupes = ARRAY_APPEND@(tm_groupes, tl_groupe)
+		}
+	NEXT i
+}
+else
+{
+	info_message@("Le fichier '"++ 
+			REP_CONFIG ++
+			"deq/Config_Scenarios_SAGA.cfg' est manquant!")
+	EXIT@()
+}
+
+
+if FILE_EXISTS@(REP_CONFIG ++ "pmv/Config_Pictogrammes_SAGA.cfg")
+{	vm_table_picto = READ_ASCII_FILE@(REP_CONFIG ++ "pmv/Config_Pictogrammes_SAGA.cfg") 
+	vl_taille = ARRAY_SIZE@(vm_table_picto) - 1
+	FOR i = 1 TO vl_taille
+		vl_tampon 	= COMMA_SPLIT@(vm_table_picto[i])
+		vm_picto[vl_tampon[0],0]	= 
+				REP_CONFIG ++ 
+				"pic/" ++ TRIM@(TABS_TO_SPACES@(vl_tampon[1]))  ' fichiers 20*20
+		vm_picto[vl_tampon[0],1]	= 
+				REP_CONFIG ++ "pic/" ++ 
+				TRIM@(TABS_TO_SPACES@(vl_tampon[2]))  ' fichiers 40*40
+		vm_picto[vl_tampon[0],2]	= 
+				TRIM@(TABS_TO_SPACES@(vl_tampon[3]))  ' trigram
+		vm_picto[vl_tampon[0],3]	= 
+				TRIM@(TABS_TO_SPACES@(vl_tampon[4]))  ' libellé
+		vm_picto[vl_tampon[0],4]	= 
+				TRIM@(TABS_TO_SPACES@(vl_tampon[5]))  ' code saga
+	NEXT i
+}
+else
+{
+	info_message@("Le fichier '"++ 
+			REP_CONFIG ++
+			"pmv/Config_Pictogrammes_SAGA.cfg' est manquant, les pictogrammes ne seront pas visibles !")
+	for i = 1 to 21
+		vm_picto[i,0]	= REP_CONFIG ++ "pic/pix_panneau_eteint"
+		vm_picto[i,1]	= REP_CONFIG ++ "pic/pix_panneau_eteint_40_40"
+		vm_picto[i,3]	= "XXXX"
+		vm_picto[i,4]	= "Panneau eteint"
+	next i
+}
+
+
+
+/*recherche du meta eqt pour scenario SAGA*/
+vm_eqt_saga = SYSTEM_VAR@(vg_eqt_SAGA)
+
+/*A Charger la fenetre de pilotage 
+ * ----------------------*/
+vm_fenetre = DB_LOAD@("ITMA_TSAGA_etat_saga")
+vl_messages_acceptes[0] = COM_CANAL_FIN
+vl_messages_acceptes[1] = COM_CANAL_MTSAGA_ETAT
+DB_ACCEPT_POKES@ (vm_fenetre, vl_messages_acceptes)
+DB_DISPLAY_ONLY@(vm_fenetre,TRUE)
+DB_WINDOW_REMAIN@ (vm_fenetre, TRUE)
+DB_XPOS@ (vm_fenetre,0)
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+DB_YPOS@ (vm_fenetre,300)
+else
+DB_YPOS@ (vm_fenetre,104)
+
+
+
+/*A Definir les caracteristiques (initiales) des objets graphiques
+* --------------------------------------------------------------*/
+
+/* effacer certains éléments de la boite de dialogue */
+
+/* afficher sur fond blanc les zones de listes et de tableaux */
+
+/*A Affichage de la fenetre
+* -------------------------*/
+DB_DISPLAY@(vm_fenetre)
+
+
+/*lecture de la commande en cours*/
+ITMA_TSAGA_Lecture_Commande(va_fiche.numero_action, va_fiche.cle_action, vm_commande,"ITMA_TSAGA_etat_SAGA")
+vm_commande.numero_evt = va_fiche.numero_action
+vm_commande.cle_evt = va_fiche.cle_action
+vm_commande.horodate = COM09_Date_Courante(TRUE)
+vm_commande.operateur = SYSTEM_VAR@("vg_numero_poste")
+/*sous type eqt SAGA*/
+FOR i = 0 TO (ARRAY_SIZE@(vm_eqt_saga)-1)
+	if (vm_eqt_saga[i].numeqt = vm_commande.numero_eqt) {
+		vm_type = vm_eqt_saga[i].typesaga
+		goto pos_i
+	}
+NEXT i
+
+
+pos_i: 
+
+vl_trouve = ARRAY_INDEX@(ARRAY_COLUMN@(vm_saga, 0), vm_commande.numero_eqt)
+vm_libelle = vm_saga[vl_trouve].identifiant
+
+DB_CTRL_TITLE@(vm_fenetre,"LI_lancement",vm_commande.lancement)
+DB_CTRL_TITLE@(vm_fenetre,"LI_succes",vm_commande.succes)
+DB_CTRL_TITLE@(vm_fenetre,"LI_echec",vm_commande.echec)
+DB_CTRL_TITLE@(vm_fenetre,"LI_fin",vm_commande.fin)
+DB_CTRL_DISPLAY@(vm_fenetre, "LI_scenario", FALSE)
+DB_CTRL_DISPLAY@(vm_fenetre, "LI_scenario_en_cours", FALSE)
+DB_CTRL_DISPLAY@(vm_fenetre, "BL_message", FALSE)
+DB_CTRL_DISPLAY@(vm_fenetre, "LI_bandeau", FALSE)
+DB_CTRL_DISPLAY@(vm_fenetre, "TA_nota", FALSE)
+DB_CTRL_DISPLAY@(vm_fenetre, "TA_picto", FALSE)
+DB_CTRL_DISPLAY@(vm_fenetre, "LI_scenario", FALSE)
+DB_CTRL_WORK_COLORS@(vm_fenetre, "BL_message", true)
+
+DB_CTRL_TITLE@(vm_fenetre, "LI_equipement", vm_libelle)
+DB_CTRL_DISPLAY@(vm_fenetre, "BP_terminer", false)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre, "BP_terminer", true)
+
+
+CASE OF vm_type
+	CASE XDC_SAGA_META_EQT
+		/*recherche scenario*/
+		vl_index= array_index@(ARRAY_COLUMN@(tm_scenarios, 0),vm_commande.scenario)
+		DB_CTRL_TITLE@(vm_fenetre,"LI_scenario", tm_scenarios[vl_index].nom)
+		DB_CTRL_DISPLAY@(vm_fenetre, "LI_scenario", true)
+		DB_CTRL_DISPLAY@(vm_fenetre, "LI_scenario_en_cours", true)
+		if (vm_commande.fin="")
+		DB_CTRL_DISPLAY@(vm_fenetre, "BP_terminer", true)
+
+	CASE  XDC_SAGA_PMV_1_18
+	vl_tplecture[0]=vm_commande.ligne1
+DB_CTRL_DISPLAY@(vm_fenetre, "BL_message", true)
+		DB_CTRL_STRINGS@(vm_fenetre, "BL_message", vl_tplecture)
+		DB_CTRL_HEIGHT@(vm_fenetre, "BL_message", 1)
+		
+	CASE XDC_SAGA_PMV_2_18
+	CASE XDC_SAGA_PMV_2_15
+	vl_tplecture[0]=vm_commande.ligne1
+	vl_tplecture[1]=vm_commande.ligne2
+DB_CTRL_DISPLAY@(vm_fenetre, "BL_message", true)
+		DB_CTRL_HEIGHT@(vm_fenetre, "BL_message", 2)
+		DB_CTRL_STRINGS@(vm_fenetre, "BL_message", vl_tplecture)
+
+	CASE XDC_SAGA_PMV_3_15
+	vl_tplecture[0]=vm_commande.ligne1
+	vl_tplecture[1]=vm_commande.ligne2
+	vl_tplecture[2]=vm_commande.ligne3
+DB_CTRL_DISPLAY@(vm_fenetre, "BL_message", true)
+DB_CTRL_DISPLAY@(vm_fenetre, "LI_bandeau", true)
+		DB_CTRL_HEIGHT@(vm_fenetre, "BL_message", 3)
+		DB_CTRL_STRINGS@(vm_fenetre, "BL_message", vl_tplecture)
+
+	CASE XDC_SAGA_PMV_2_18_P
+	vl_tplecture[0]=vm_commande.ligne1
+	vl_tplecture[1]=vm_commande.ligne2
+DB_CTRL_DISPLAY@(vm_fenetre, "BL_message", true)
+DB_CTRL_DISPLAY@(vm_fenetre, "LI_bandeau", true)
+DB_CTRL_DISPLAY@(vm_fenetre, "TA_nota", true)
+DB_CTRL_DISPLAY@(vm_fenetre, "TA_picto", true)
+		DB_CTRL_HEIGHT@(vm_fenetre, "BL_message", 2)
+		DB_CTRL_STRINGS@(vm_fenetre, "BL_message", vl_tplecture)
+		DB_CTRL_TITLE@(vm_fenetre, "LI_bandeau", vm_commande.bandeau)
+	i = ARRAY_index@(array_column@(vm_picto,4),vm_commande.picto)
+	if (i > -1) {
+		DB_CTRL_TITLE@(vm_fenetre, "TA_picto", vm_picto[i,1]++".im")
+	}
+
+	CASE XDC_SAGA_PMV_3_15_P
+	vl_tplecture[0]=vm_commande.ligne1
+	vl_tplecture[1]=vm_commande.ligne2
+	vl_tplecture[2]=vm_commande.ligne3
+DB_CTRL_DISPLAY@(vm_fenetre, "BL_message", true)
+DB_CTRL_DISPLAY@(vm_fenetre, "LI_bandeau", true)
+	DB_CTRL_DISPLAY@(vm_fenetre, "TA_nota", true)
+DB_CTRL_DISPLAY@(vm_fenetre, "TA_picto", true)
+	DB_CTRL_HEIGHT@(vm_fenetre, "BL_message", 3)
+		DB_CTRL_STRINGS@(vm_fenetre, "BL_message", vl_tplecture)
+		DB_CTRL_TITLE@(vm_fenetre, "LI_bandeau", vm_commande.bandeau)
+	i = ARRAY_index@(array_column@(vm_picto,4),vm_commande.picto)
+	if (i > -1) {
+		DB_CTRL_TITLE@(vm_fenetre, "TA_picto", vm_picto[i,1]++".im")
+	}
+
+	CASE XDC_SAGA_PMVA
+	vl_tplecture[0]=vm_commande.ligne1
+	vl_tplecture[1]=vm_commande.ligne2
+	vl_tplecture[2]=vm_commande.ligne3
+	vl_tplecture[3]=vm_commande.ligne4
+	vl_tplecture[4]=vm_commande.ligne5
+DB_CTRL_DISPLAY@(vm_fenetre, "BL_message", true)
+	DB_CTRL_HEIGHT@(vm_fenetre, "BL_message", 5)
+		DB_CTRL_STRINGS@(vm_fenetre, "BL_message", vl_tplecture)
+
+	CASE XDC_SAGA_BRA
+
+	CASE XDC_SAGA_BAF
+
+ENDCASE
+
+DB_CTRL_VALUE@(vm_fenetre, "BL_message", -1)
+
+
+
+/*A flag de capture des évenements dans la fenetre
+* ------------------------------------------------*/
+DB_DISPLAY_ONLY@(vm_fenetre,FALSE)
+
+/*A Gestion des événements liés à la fiche 'Pilotage des PMV'
+* --------------------------------------------------------*/
+vm_la_fenetre_est_active = TRUE
+WHILE (vm_la_fenetre_est_active)
+
+	/*A
+	 * Lecture de la date system et MAJ du libellé
+	 * -------------------------------------------
+	 */
+	DB_DISPLAY@ (vm_fenetre)
+
+    	vm_objet_selecte = DB_EXIT_CTRL@ (vm_fenetre)
+    	IF SYSTEM_VAR@ (vg_verrou) vm_objet_selecte = NULL
+
+	CASE OF vm_objet_selecte
+
+	/*A SI action sur bouton QUITTER */
+	CASE "BP_terminer"
+		vm_commande.scenario = 0
+		ITMA_TSAGA_commander_fin(vm_commande)
+		vm_la_fenetre_est_active = FALSE
+
+	CASE "BP_quitter"
+
+		vm_la_fenetre_est_active = FALSE 
+
+
+    	CASE "poke_"
+
+     	CASE OF  DB_GET_POKE@ (vm_fenetre)
+
+  		/*A SI reception message de FIN */
+    		CASE COM_CANAL_FIN
+    			vm_la_fenetre_est_active = FALSE
+
+   		/*A SI reception etat PMV */
+      	CASE COM_CANAL_MTSAGA_ETAT
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre)
+			/*A décomposition du message reçu en tableau */
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+			vl_num_eqt = vl_mess[0]+0
+				
+	
+   		ENDCASE
+
+	ENDCASE
+	
+	
+WEND
+
+vl_tptext = "Stop ITMA_TSAGA_etat_SAGA " ++ "   User : " ++ vm_NomOperateur
+COM01_Trace(COM_INFO,vl_tptext)
+
+RETURN(COM_QUITTE)
+
+ENDMACRO
+

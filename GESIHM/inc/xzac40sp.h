@@ -1,0 +1,1 @@
+DEFINE	XZAC40_Lire_Commande_PMV		"XZAC;40"

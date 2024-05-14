@@ -1,0 +1,1 @@
+DEFINE XZAE44_Lire_Fiche_Meteo	"XZAE;44"

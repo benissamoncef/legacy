@@ -1,0 +1,3305 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCA_pilotage_camera_CI.am,v 1.35 2017/04/02 16:12:09 pc2dpdy Exp $      Release : $Revision: 1.35 $        Date : $Date: 2017/04/02 16:12:09 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTCA * FICHIER ITMA_TCA_pilotage_camera_CI.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Commande les canaux depuis le CI
+*
+*   Cf. DCG 2.4.14
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Cornu 		14 Oct 1994	: Creation						1.1
+* Cornu 		11 Avr 1995	: Nomage des équipements & Gestion des listes
+						  								1.10
+* Cornu 		13 Avr 1995	: Modif. n° moniteur 1 & 2 -> Nice		1.11
+* Charles		30 Mai 1995	: Gestion appel depuis synoptique		1.14
+* Charles		04 Jul 1995	:	Utilisation des XDC des sites		1.15
+* F.Volcic	07 Jui 1995	:  Modif pour l'ouverture plus rapide 
+*						   Mise en memoire des listes cameras et
+*						   magnetoscopes					1.16	
+* D.Mismer	29 Sep 1995	:  Modif pour pilotage des 2 postes du CI  1.17
+* D.Mismer	03 Oct 1995	:  Modif pour pilotage depuis synoptyque   1.18
+* F.Volcic	11 Oct 1995	: Modif retour XZAO;309				1.19 
+* D.Mismer	27 Fev 1996	: Correction pb choix 1er canal(DEM/1025)  1.20
+* ?.??????	??????  1996	: ??????????????????????????????????  1.21
+* A.Orengo	11 Sep  1996	: ClearUp et Ajout des districts de Saint-Maximin et
+							 du Cannet des maures			1.22
+
+* D.Mismer	27 Fev 1986	: Modif pour PC2 et PC3 (DEM/1603)  1.25
+* Hilmarcher    02/02/2004      : Modif pour initialisation correcte des camÅras pc niv 2 (DEM 270) 1.27
+* Hilmarcher    26/11/2004      : joystick=0 pour affect image/camera depuis CI vers pc2  v1.28
+* PFE		29/08/05	: 1.29
+* P.Niepceron	28/02/2008	: Ajout de 2 moniteur pour sectorisation DEM743  1.30
+* JMG           29/09/09        : SECTO DEM 887  1.31
+* JPL		05/11/10-18/01/11 : Format de donnees publiques equipements minimisant la memoire  1.32
+* JPL		31/01/11	: Support appel par MTCAR (pilotage rapide cameras) au lieu d'autres modules  (DEM 949) 1.33
+* JMG	31/01/12 : linux 1.34
+*  JMG           03/03/17 : regio DEM1220
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes générales
+ * ------------------------------------*/
+DEFINE	C_MODULE			"MTCA"	' Nom du module
+DEFINE	REP_CONFIG		"../fichiers/"
+
+DEFINE	CM_PREMIER_MONITEUR	XDC_MONITEUR1
+DEFINE	CM_DERNIER_MONITEUR	XDC_MONITEUR4
+
+
+/*A Création des formats pour les districts */
+FORMAT	TCA_T_district
+		nom_site,
+		district,
+		moniteur_district,
+		xdc_moniteur,
+
+/*A Description des modules à inclures
+ * --------------------------------- */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/xzao13sp.h"
+INCLUDE	"GESIHM/inc/xzat01sp.h"
+INCLUDE "GESIHM/inc/xzat010sp.h"
+
+ /*A Description des procedures sotckées à appeler
+* ---------------------------------------------*/
+INCLUDE	"GESIHM/inc/xzao309sp.h"
+
+
+
+/* Declaration des structures 
+* ----------------------------*/
+format st_config_district
+					nom,
+					code,
+					nom_code
+
+FORMAT  TCA_Donnees_Equipements
+	type,                                   ' Type de l'equipement (entier)
+	numero,                                 ' Numero de l'equipement
+	nom,                                    ' Nom de l'equipement
+	autoroute,
+	PR,
+	sens,
+	dispo,
+	date,
+	sitegestion
+
+
+/*A Description des variables globales
+ * ----------------------------------*/
+var     	vm_fenetre_TCA_CI		' item de la fenetre du module
+var		vm_text				' zone de text tampon
+var		vm_fenetre_TCA_CI_active	' flag de la fenetre
+var		vm_simulation			' flag de simulation de SYBASE
+var		vm_District			' le symbole du district en cours
+var		vm_erreur				' flag d'erreur de retour procedure
+var		vm_NomSite			' le nom du site
+var		vm_liste_evt			' liste des evenement associés aux canaux
+var		vm_liste_canaux		' liste des canaux en cours sur les 4 ecrans
+var		vm_liste_ecran			' liste des etat d'ecrans
+var		vm_ecran_selectionne	' n° de l'ecran selectionne
+var		vm_ecran_selectionne_pc2	' n° de l'ecran selectionne
+var		vm_NumEvt				' N° de l'evenement
+var		vm_CleEvt				' clé de l'evenement
+var		vm_LT_select			' numero du LT selectionné
+var		vm_Canal				' numero & Type du canal selectionné
+var		vm_NomOperateur		' nom de l'operateur
+var		vm_liste_LT			' liste des LTV du district
+var		vm_liste_canaux_2D		' Liste 2D des canaux (code+nom) pour Mandelieu
+var		vm_liste_canaux_T		' Liste de tous les canaux (code+nom)
+var		vm_nouveau_canal		' flag nouveau canal
+var		vm_num_canal			' numero du canal
+var		vm_nom_LT_select		' Nom du LT selectionné
+var		tm_liste_causes		' contient la FMC liee
+var		format st_config_district	vm_config_district		' Liste des               			
+													'		district
+var		vm_liste_Eqt			' liste des libellés caméras
+var	FORMAT TDO_Equipement	tm_cameras	' liste des caméras avec sens,PR & autoroute
+var		vm_liste_proposees		' liste des caméras proposees
+var		vm_liste_magneto		' liste des libellés magnetos
+var	FORMAT TDO_Equipement	tm_magnetos	' liste des magnetos avec n° eqt et nom
+var		vm_poste_oper			' numero du poste operateur en cours
+var		format st_config_district	vm_config_district_pc2	' Liste des               			
+													'		district
+var		vm_message			' le message retourné sur socket
+var		vm_liste_evt_pc2		' liste des evenement associés aux canaux
+var		vm_liste_camera_pc2		' liste des canaux en cours sur les 4 ecrans
+var		vm_liste_ecran_pc2		' liste des etat d'ecrans
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commande le pilotage des cameras
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+macro ITMA_TCA_pilotage_camera_CI(va_appelant,va_1,va_2,va_3,va_4,va_5,va_6,va_7)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> Camera dans MTMT
+*    Clic sur le bouton "Suivant..." dans la fenetre de pilotage rapide cameras au CI
+*
+* FONCTION
+*    Pilote les canaux vidéos depuis le CI
+*
+---------------------------------------------------------------------------- */
+
+var 	vl_controle_sortie		' nom de l'objet activé sur la fenetre
+var	vl_messages_acceptes	' les messages acceptés en poke
+var	vl_moniteur			' le moniteur
+var	vl_objet				' objet en cours de traitement
+var	vl_LTV				' liste des LTVideo du district
+var	vl_canaux				' liste des canaux pour LTV
+var	vl_text,vl_fmc			' text & info fmc
+var	vl_tpm				' tableau tampon
+var	vl_appel				' type d'appelant de la fenetre
+var	vl_district			' numero de district 
+var	vl_numLTV				' numero du LTV
+var	vl_abonnement			' flag d'abonnement
+var	vl_erreur				' flag d'erreur
+var	vl_magneto			' N° du magnetoscope selectionné
+var	vl_camera				' N° de la caméra selectionné
+var	vl_etat_camera			' tableau de l'etat de la camera reçu
+var	vl_index				' N° de canal
+var	vl_objet_camera		' affichage derniere camera
+var	vl_rang_pc_district		' index liste des district Niv1 et Niv3
+var	vl_rang_pc_district2	' index liste des district Niv2
+var	vl_liste_district		' liste des districts dans la base
+var	vl_autoroute			' code autoroute pour appel depuis 
+var	vl_pr1				' reference du PR debut
+var	vl_pr2				' reference du PR fin
+var	vl_lecture			' liste des cameras compris entre deux PR
+var	tl_titres				' liste des evenements
+var	tl_data
+var	tl_retour				' evenement a traiter
+var 	i,j					' index de loop
+var	K					' index de loop
+var	vl_rang				' index liste des district 
+var	vl_rang_pc1			' index liste des district Niv1 et Niv3
+var	vl_rang_pc2			' index liste des district Niv2
+
+
+/*A Trace de début de la procedure */
+vm_text = "------------------------------------------------------------"
+COM01_Trace(0,vm_text)
+vm_text =  " Start ITMA_PTCA_pilotage_camera_CI "
+vm_text =  vm_text ++ " User : " ++ USER_NAME@()
+COM01_Trace(0,vm_text)
+
+vm_text = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vm_text)
+
+if NOT(IS_ARRAY@(va_1))
+{
+	vm_text = "va_1 : " ++ va_1
+	COM01_Trace(0,vm_text)
+}
+
+if NOT(IS_ARRAY@(va_2))
+{
+	vm_text = "va_2 : " ++ va_2
+	COM01_Trace(0,vm_text)
+}
+
+if NOT(IS_ARRAY@(va_3))
+{
+	vm_text = "va_3 : " ++ va_3
+	COM01_Trace(0,vm_text)
+}
+
+if NOT(IS_ARRAY@(va_4))
+{
+	vm_text = "va_4 : " ++ va_4
+	COM01_Trace(0,vm_text)
+}
+
+if NOT(IS_ARRAY@(va_5))
+{
+	vm_text = "va_5 : " ++ va_5
+	COM01_Trace(0,vm_text)
+}
+
+if NOT(IS_ARRAY@(va_6))
+{
+	vm_text = "va_6 : " ++ va_6
+	COM01_Trace(0,vm_text)
+}
+
+if NOT(IS_ARRAY@(va_7))
+{
+	vm_text = "va_7 : " ++ va_7
+	COM01_Trace(0,vm_text)
+}
+vl_appel = SUBSTRING@(va_appelant,1,8)
+
+/*A Definition du traitement a realiser en cas d'erreur
+* -----------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (COM_NOK)
+}
+
+/*Initalisation des rangs de district */
+vl_rang_pc1 = 0
+vl_rang_pc2 = 0
+
+/*Intialisation des selctions moniteur */
+vm_ecran_selectionne = 1
+vm_ecran_selectionne_pc2 = 1
+
+/* Initilisation de la config distric */
+vl_liste_district = SYSTEM_VAR@ ( vg_les_districts )
+j = 0
+k = 0
+for i = 0 to ARRAY_SIZE@(vl_liste_district) - 1
+	if ( vl_liste_district[i][3] = XDC_TYPEM_PC2 ) or 
+	   ( vl_liste_district[i][3] = XDC_TYPEM_PC2LT )/*or 
+	    ( vl_liste_district[i][3] = XDC_TYPEM_PCS )*/
+	{
+		/* Initilisation de la config distric Niv2 ou 3*/
+		vm_config_district_pc2[j].nom = vl_liste_district[i][1]
+		vm_config_district_pc2[j].code = vl_liste_district[i][0]
+		vm_config_district_pc2[j].nom_code = vl_liste_district[i][2]
+		j = j + 1
+	}
+	else
+	{
+		/* Initilisation de la config distric Niv1 */
+		if ( vl_liste_district[i][3] <> XDC_TYPEM_SD )
+		{
+			vm_config_district[k].nom = vl_liste_district[i][1]
+			vm_config_district[k].code = vl_liste_district[i][0]
+			vm_config_district[k].nom_code = vl_liste_district[i][2]
+			k = k + 1
+		}
+	}
+next i
+
+/*A lecture des la listes de caméra */
+ITMA_TCA_init_Liste_Eqt_Dispo_TCA
+
+/*A Téléchargement du district en cours & de la liste des districts */
+vm_District = SYSTEM_VAR@("vg_site")
+/*vm_District = 22*/ 
+
+vm_poste_oper = SYSTEM_VAR@ (vg_poste)
+vm_poste_oper = SUBSTRING@ (vm_poste_oper, LEN@ (vm_poste_oper), 1) 
+vm_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vm_NomOperateur = SUBSTRING@(vm_NomOperateur, 1, 25)
+
+/*A MAJ du nomde site */
+vm_NomSite = "CI"
+/*vm_NomSite = "DA"*/
+
+/*A Téléchargement de la liste des evenements */
+vm_liste_evt = SYSTEM_VAR@("vg_TCA_CI_evenements")
+vm_liste_canaux = SYSTEM_VAR@("vg_TCA_CI_canaux")
+vm_liste_ecran = SYSTEM_VAR@("vg_TCA_CI_ecran")
+vm_liste_evt_pc2 = SYSTEM_VAR@("vg_TCA_evenements")
+vm_liste_camera_pc2 = SYSTEM_VAR@("vg_TCA_camera")
+vm_liste_ecran_pc2 = SYSTEM_VAR@("vg_TCA_ecran")
+
+/* Parametrage des numeros de moniteur */
+vl_moniteur[1] = XDC_MONITEUR1
+vl_moniteur[2] = XDC_MONITEUR2
+
+/*A chargement de la fenetre */
+vm_fenetre_TCA_CI = DB_LOAD@("ITMA_TCA_pilotage_camera_CI")
+vl_messages_acceptes[0] = COM_CANAL_FIN
+vl_messages_acceptes[1] = COM_CANAL_MTCA
+vl_messages_acceptes[2] = COM_CANAL_MTCM
+DB_ACCEPT_POKES@ (vm_fenetre_TCA_CI, vl_messages_acceptes)
+
+/*A Positionnement de la fenetre  */
+DB_XPOS@(vm_fenetre_TCA_CI,0)
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+	DB_YPOS@(vm_fenetre_TCA_CI, 700)
+else
+	DB_YPOS@(vm_fenetre_TCA_CI, 109)
+DB_DISPLAY_ONLY@(vm_fenetre_TCA_CI,  TRUE)
+DB_DISPLAY@(vm_fenetre_TCA_CI)
+/*A appel de la liste des locaux video de Mandelieu */
+vl_LTV = ITMA_TCA_CI_Liste_Eqt_Dispo(0)
+/*A MAJ des listes LT pour Mandelieu */
+DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,"BL_LTVideo",vl_LTV)
+DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_LTVideo",-1)
+
+/*A Création de la liste des caméras disponibles */
+vm_Liste_Eqt = ITMA_TCA_Liste_Eqt_Dispo_TCA(vm_config_district_pc2[0].code,
+						XDC_EQT_CAM,vm_config_district_pc2[0].nom_code)
+/*A MAJ du tableau camera */
+DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,"BL_cameras_disponibles",vm_Liste_Eqt)
+
+/*A Creation de la liste des magnétos disponibles */
+vm_Liste_magneto = ITMA_TCA_Liste_Eqt_Dispo_TCA(vm_District,XDC_EQT_MAG,NULL)
+
+/*A MAJ du tableau magnetoscope */
+DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,"BL_magnetoscope",vm_Liste_magneto)
+
+
+/*A Permet la selection dans les differentes listes */  
+DB_CTRL_PICKABLE@(vm_fenetre_TCA_CI, "BL_cameras_disponibles", TRUE)
+DB_CTRL_PICKABLE@(vm_fenetre_TCA_CI, "BL_cameras_proposees", TRUE)
+DB_CTRL_PICKABLE@(vm_fenetre_TCA_CI, "BL_magnetoscope", TRUE)
+DB_CTRL_PICKABLE@(vm_fenetre_TCA_CI,"BL_LTVideo", TRUE)
+DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,"BO_district",
+					ARRAY_COLUMN@(vm_config_district,0))
+ITMA_TCA_affiche_district_pc1(0)
+DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,"BO_district_pc2",
+					ARRAY_COLUMN@(vm_config_district_pc2,0))
+DB_CTRL_TITLE@(vm_fenetre_TCA_CI, "LI_moniteur_pc2", "Moniteurs de "
+								++vm_config_district_pc2[0].nom)
+
+/*A Active les selections dans les listes */
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TCA_CI,"BL_LTVideo", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TCA_CI,"BL_canaux", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TCA_CI,"BO_district", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TCA_CI,"BO_district_pc2", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TCA_CI, "BL_cameras_disponibles", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TCA_CI, "BL_cameras_proposees", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TCA_CI, "BL_magnetoscope", TRUE)
+DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_cameras_disponibles",-1)
+DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_magnetoscope",-1)
+DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_cameras_proposees",-1)
+
+
+/* Abonnement à l'etat des magnetoscopes 
+*   ------------------------------------ */
+vl_abonnement = FALSE
+vl_erreur = ITMA_TCA_Abonnement_Magneto(XDC_DEBUT_ABONNEMENT_EQUEXT,vm_NomSite)
+vl_erreur = ITMA_TCA_Abonnement_Camera(XDC_DEBUT_ABONNEMENT_EQUEXT,vm_NomSite)
+
+
+/*A init. suivant la condition d'activation 
+*   ------------------------------------- */
+
+/*A si origine : MTMT */
+if vl_appel="ITMA_TMT"
+{
+	/*A MAJ du message status */
+	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status","Activation depuis le menu")
+}
+
+
+if vl_appel = "ITMA_TCA"
+{
+	/*A si origine = MTCAR (pilotage rapide cameras), camera et moniteur sont fournis */
+	vl_camera = va_1
+	vm_ecran_selectionne = va_2
+
+	/*B verifier la validite des parametres */
+	IF (vm_ecran_selectionne < CM_PREMIER_MONITEUR)  OR  (vm_ecran_selectionne > CM_DERNIER_MONITEUR)
+	{
+		'INFO_MESSAGE@ ("Moniteur inconnu !")
+		vm_ecran_selectionne = CM_PREMIER_MONITEUR
+	}
+
+
+	for i = ARRAY_SIZE@(vm_config_district_pc2)-1 to 0  STEP (-1)
+		vm_Liste_Eqt = ITMA_TCA_Liste_Eqt_Dispo_TCA
+					(vm_config_district_pc2[i].code,
+					XDC_EQT_CAM,
+					vm_config_district_pc2[i].nom_code)
+		k = COM45_IndexEnColonne (tm_cameras, TDO_NUMERO_EQUIP, vl_camera)
+		if (k >= 0)
+		{
+			vl_rang_pc_district2 = i
+			DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BO_district_pc2",
+						vl_rang_pc_district2)
+			DB_CTRL_TITLE@(vm_fenetre_TCA_CI, "LI_moniteur_pc2", "Moniteurs de "
+								++vm_config_district_pc2[i].nom)
+			DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,
+							"BL_cameras_disponibles",vm_Liste_Eqt)
+			for j = 1 to 4
+
+				vl_objet = vm_liste_camera_pc2[vl_rang_pc_district2][j-1] 
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,
+								"BS_ecran"++j++"_camera_pc2",vl_objet)		
+				vl_objet = vm_liste_evt_pc2[vl_rang_pc_district2][j-1] 
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,
+									"BS_ecran"++j++"_evt_pc2",vl_objet)		
+				vl_objet = vm_liste_ecran_pc2[vl_rang_pc_district2][j-1] 
+				DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,
+									"BP_ecran"++j++"_allume_pc2",vl_objet)		
+				DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,
+								"BP_ecran"++j++"_eteint_pc2",not vl_objet)		
+			next j
+			i = (-1)
+			vl_rang_pc2 = vl_rang_pc_district2
+		}
+	next i
+
+	IF (k < 0)
+	{
+		'INFO_MESSAGE@ ("Camera inconnue !")
+		vl_camera = NULL
+	}
+	ELSE
+	{
+		/*A Selectionner la camera */
+		vm_liste_proposees = ""
+		vm_liste_proposees[0] = vm_liste_Eqt[k]
+		DB_CTRL_STRINGS@ (vm_fenetre_TCA_CI, "BL_cameras_proposees", vm_Liste_proposees)
+	}
+
+	/*A Selectionner le moniteur indique */
+	ITMA_TCA_pave (vm_ecran_selectionne)
+}
+
+
+/*A si origine : ISYN_SOP */
+/*! ---   OBSOLETE ---   */
+if vl_appel="ISYN_SOP"
+{
+	/*A MAJ du message status */
+	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+								"Activation depuis le LTV du synoptique")
+
+	/*A Traitement des paramètres d'appel : Numero LTV et Numero de district */
+	vl_numLTV = va_1[0] + 0
+	vl_district = va_1[1]
+	for i = 0 to ARRAY_SIZE@(vm_config_district)-1
+		if vl_district = vm_config_district[i].code
+		{
+			vl_rang_pc_district = i
+			Vl_LTV = ITMA_TCA_CI_Liste_Eqt_Dispo (vl_rang_pc_district)
+			ITMA_TCA_affiche_district_pc1(vl_rang_pc_district)
+			DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,"BL_LTVideo",vl_LTV)
+			ITMA_TCA_CI_trt_LTV_depuis_synop(vl_district,XDC_VC,vl_LTV,
+								vm_liste_LT,vl_numLTV,vm_liste_canaux_2D)
+			i = ARRAY_SIZE@(vm_config_district)+1
+			vl_rang_pc1 = vl_rang_pc_district
+		}
+	next i
+
+	for i = 0 to ARRAY_SIZE@(vm_config_district_pc2)-1
+		if vl_district = vm_config_district_pc2[i].code
+		{
+			vl_rang_pc_district2 = i
+			vm_Liste_Eqt = ITMA_TCA_Liste_Eqt_Dispo_TCA
+						(vm_config_district_pc2[vl_rang_pc_district2].code,
+						XDC_EQT_CAM,
+						vm_config_district_pc2[vl_rang_pc_district2].nom_code)
+			DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BO_district_pc2",
+						vl_rang_pc_district2)
+			DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,
+							"BL_cameras_disponibles",vm_Liste_Eqt)
+			for j = 1 to 4
+
+				vl_objet = vm_liste_camera_pc2[vl_rang_pc_district2][j-1] 
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,
+								"BS_ecran"++j++"_camera_pc2",vl_objet)		
+				vl_objet = vm_liste_evt_pc2[vl_rang_pc_district2][j-1] 
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,
+									"BS_ecran"++j++"_evt_pc2",vl_objet)		
+				vl_objet = vm_liste_ecran_pc2[vl_rang_pc_district2][j-1] 
+				DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,
+									"BP_ecran"++j++"_allume_pc2",vl_objet)		
+				DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,
+								"BP_ecran"++j++"_eteint_pc2",not vl_objet)		
+			next j
+			i = ARRAY_SIZE@(vm_config_district_pc2)
+			vl_rang_pc2 = vl_rang_pc_district2
+		}
+	next i
+}
+
+
+/*A MAJ des cellules d'evenements & canaux avec les variables systemes */
+for i = CM_PREMIER_MONITEUR to CM_DERNIER_MONITEUR
+	vl_objet="BS_ecran"++i++"_evt"
+	DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,vm_liste_evt[vl_rang_pc1][i-1])
+	vl_objet="BS_ecran"++i++"_canal"
+	DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,vm_liste_canaux[vl_rang_pc1][i-1])
+	vl_objet = "BP_ecran"++(i)++"_allume"
+	if vm_liste_ecran[vl_rang_pc1][i-1]=True
+	{
+	DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet,vm_liste_ecran[vl_rang_pc1][i-1])
+		ITMA_TCA_modifier_CI(i,FALSE)
+	}
+	vl_objet = "BP_ecran"++i++"_select"
+	DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet,FALSE)
+next i
+
+/*A MAJ des cellules d'evenements avec les variables systemes & des ecrans*/
+for i = 1 to 4
+	vl_objet = "BP_ecran"++(i)++"_allume_pc2"
+	if vm_liste_ecran_pc2[vl_rang_pc2][i-1]=True
+		{DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet,TRUE)}	 
+	vl_objet="BS_ecran"++i++"_evt_pc2"
+	if TRIM@(vm_liste_evt_pc2[vl_rang_pc2][i-1])=""
+ 		{DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet,FALSE)}
+	else
+	{DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,vm_liste_evt_pc2[vl_rang_pc2][i-1])}
+	vl_objet="BS_ecran"++i++"_camera_pc2"		
+	if TRIM@(vm_liste_camera_pc2[vl_rang_pc2][i-1])=""
+ 		{DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet,FALSE)}
+	else
+		{DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,
+					vm_liste_camera_pc2[vl_rang_pc2][i-1])}
+	
+	vl_objet = "BP_ecran"++i++"_select_pc2"
+	DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet,FALSE)
+next i
+
+/*A MAJ de la liste de tous les canaux */
+vm_liste_canaux_T = ITMA_TCA_CI_Liste_canaux_LTV(0)
+DB_DISPLAY_ONLY@(vm_fenetre_TCA_CI, FALSE)
+
+/* la fenetre est active */ 
+vm_fenetre_TCA_CI_active = TRUE
+DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,"BP_ecran1_select",TRUE)
+WHILE (vm_fenetre_TCA_CI_active = TRUE )
+
+	/*A affichage de la boite de dialogue et attente d'evenement */
+	DB_DISPLAY@(vm_fenetre_TCA_CI)
+
+	/*A capture de l'evenement */
+	vl_controle_sortie = DB_EXIT_CTRL@(vm_fenetre_TCA_CI)
+
+	/*A si l'evenement n'est pas un poke & verrou=vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		{ vl_controle_sortie = NULL }
+
+	/*A selon l'evenement */
+	case of   vl_controle_sortie
+
+	/*A sur action "lier F.M.C" */
+	CASE "BP_fmc"
+
+		DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status","Status : Appel lien FMC")
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+							"ITMA_TNA_pilotage_NAV")
+
+		tm_liste_causes=tl_data[0]
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,"TA_Evenements",TRUE)
+		DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,"LI_Evenements",TRUE)
+
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TCA_CI,"TA_Evenements",TRUE)
+		DB_TABLE_ALLOW_COLUMN_RESIZING@(vm_fenetre_TCA_CI,"TA_Evenements",True)
+		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+		DB_TABLE_SET_DATA@(vm_fenetre_TCA_CI,"TA_Evenements",tl_data[1],tl_titres)
+		
+
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+
+ 		DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+									"Status : Selection evenement")
+
+		tl_retour=ITMA_COM_Validite_Cause("ITMA_TNA_pilotage_NAV",vm_fenetre_TCA_CI,
+								tm_liste_causes)
+
+		vm_NumEvt = tl_retour[0][0] 
+		vm_CleEvt = tl_retour[0][1]
+		vl_fmc = tl_retour[1]
+		vl_text = vm_NumEvt ++ " " ++ vm_CleEvt
+
+		DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,"TA_Evenements",FALSE)
+		DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,"LI_Evenements",FALSE)
+
+		if vm_ecran_selectionne>0
+		{
+			/*A MAJ de la cellule selectionnée */
+			vl_objet = "BS_ecran"++vm_ecran_selectionne++"_evt"
+			DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,vl_text)
+		}
+
+
+	/*A sur action : 'BO_district' */
+	CASE  "BO_district"
+		/*A sauvegarde de la liste des evenements district Niv1*/
+		for i = 1 to 4
+			vl_objet = "BS_ecran"++i++"_evt"
+			vm_liste_evt[vl_rang_pc1][i-1]=DB_Ctrl_Get_Value@
+										(vm_fenetre_TCA_CI,vl_objet)
+			vl_objet = "BS_ecran"++i++"_canal"
+			vm_liste_canaux[vl_rang_pc1][i-1]=DB_Ctrl_Get_Value@
+										(vm_fenetre_TCA_CI,vl_objet)
+			vl_objet = "BP_ecran"++i++"_allume"
+			vm_liste_ecran[vl_rang_pc1][i-1] = DB_CTRL_GET_DISPLAY@
+										(vm_fenetre_TCA_CI,vl_objet)
+		next i
+
+		vl_rang_pc1 = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,"BO_district")
+
+		/*A appel de la liste des locaux video du district selectioné  */
+		vl_LTV = ITMA_TCA_CI_Liste_Eqt_Dispo(vl_rang_pc1)
+
+		/*A MAJ des listes LT du district selectioné */
+		DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,"BL_LTVideo",vl_LTV)
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_LTVideo",-1)
+		DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,"BL_canaux",NULL)
+		DB_CTRL_TITLE@(vm_fenetre_TCA_CI, "LI_liste_LTV", "Liste des LTV de "
+								++vm_config_district[vl_rang_pc1].nom)
+		DB_CTRL_TITLE@(vm_fenetre_TCA_CI, "LI_canaux", "Liste des canaux de "
+								++vm_config_district[vl_rang_pc1].nom)
+		DB_CTRL_TITLE@(vm_fenetre_TCA_CI, "LI_moniteur", "Moniteurs de "
+								++vm_config_district[vl_rang_pc1].nom)
+
+		/*A recuperation des dernier evenements du district*/
+		for i = 1 to 4
+			vl_objet = vm_liste_canaux[vl_rang_pc1][i-1] 
+			DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_ecran"++i++"_canal",vl_objet)		
+			vl_objet = vm_liste_evt[vl_rang_pc1][i-1] 
+			DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_ecran"++i++"_evt",vl_objet)		
+			vl_objet = vm_liste_ecran[vl_rang_pc1][i-1] 
+			DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,"BP_ecran"++i++"_allume",vl_objet)		
+			DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,"BP_ecran"++i++"_eteint",
+													not vl_objet)		
+		next i 
+	/*A sur action : 'BP_quitter' */
+	CASE  "BP_quitter"
+		/*A fermer la fenetre */
+		vm_fenetre_TCA_CI_active = FALSE
+
+	/*A sur action "BP_ecran1" */
+	CASE "BP_ecran1"
+		ITMA_TCA_CI_bp_ecranX("DM",1,vm_liste_canaux_2D,XDC_MONITEUR1)
+
+	/*A sur action "BP_ecran2" */
+	CASE "BP_ecran2"
+		ITMA_TCA_CI_bp_ecranX("DM",2,vm_liste_canaux_2D,XDC_MONITEUR2)
+
+	/*A sur action "BP_ecran3" */
+	CASE "BP_ecran3"
+		ITMA_TCA_CI_bp_ecranX("DM",3,vm_liste_canaux_2D,3)
+
+	/*A sur action "BP_ecran4" */
+	CASE "BP_ecran4"
+		ITMA_TCA_CI_bp_ecranX("DM",4,vm_liste_canaux_2D,4)
+
+	/*A Sur action "BP_ecran1_allume" */
+	CASE "BP_ecran1_allume"
+		ITMA_TCA_CI_bp_ecranX_allume("DM",XDC_MONITEUR1,1)
+
+	/*A Sur action "BP_ecran2_allume" */
+	CASE "BP_ecran2_allume"
+		ITMA_TCA_CI_bp_ecranX_allume("DM",XDC_MONITEUR2,2)
+
+	/*A Sur action "BP_ecran3_allume" */
+	CASE "BP_ecran3_allume"
+		ITMA_TCA_CI_bp_ecranX_allume("DM",3,3)
+
+	/*A Sur action "BP_ecran4_allume" */
+	CASE "BP_ecran4_allume"
+		ITMA_TCA_CI_bp_ecranX_allume("DM",4,4)
+
+
+	/*A Sur action "BP_ecran1_eteint" */
+	CASE "BP_ecran1_eteint"
+		ITMA_TCA_CI_bp_ecranX_eteint(1)
+
+	/*A Sur action "BP_ecran2_eteint" */
+	CASE "BP_ecran2_eteint"
+		ITMA_TCA_CI_bp_ecranX_eteint(2)
+
+	/*A Sur action "BP_ecran3_eteint" */
+	CASE "BP_ecran3_eteint"
+		ITMA_TCA_CI_bp_ecranX_eteint(3)
+
+	/*A Sur action "BP_ecran4_eteint" */
+	CASE "BP_ecran4_eteint"
+		ITMA_TCA_CI_bp_ecranX_eteint(4)
+
+	/*A sur selection dans 'BL_LTVideo_Mandelieu' */
+	CASE "BL_LTVideo"
+		vm_canal=0
+		vm_LT_select=0
+		ITMA_TCA_CI_bl_LTVideo_district(vl_canaux,
+							vm_liste_canaux_2D,vm_liste_LT)
+
+	/*A sur selection dans 'BL_canaux' */
+	CASE "BL_canaux"
+		ITMA_TCA_CI_bl_Canaux_Video_district(vm_config_district[vl_rang_pc1].nom_code,
+												1,2,3,4,vm_liste_canaux_2D)
+
+	/*A sur action : 'BO_district_pc2' */
+	CASE  "BO_district_pc2"
+		/*A sauvegarde de la liste des evenements district Niv2*/
+		for i = 1 to 4
+			vl_objet = "BS_ecran"++i++"_evt_pc2"
+			vm_liste_evt_pc2[vl_rang_pc2][i-1]=DB_Ctrl_Get_Value@
+										(vm_fenetre_TCA_CI,vl_objet)
+			vl_objet = "BS_ecran"++i++"_camera_pc2"
+			vm_liste_camera_pc2[vl_rang_pc2][i-1]=DB_Ctrl_Get_Value@
+										(vm_fenetre_TCA_CI,vl_objet)
+			vl_objet = "BP_ecran"++i++"_allume_pc2"
+			vm_liste_ecran_pc2[vl_rang_pc2][i-1] = DB_CTRL_GET_DISPLAY@
+										(vm_fenetre_TCA_CI,vl_objet)
+		next i
+		vl_rang_pc2 = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,"BO_district_pc2")
+
+		/*A appel de la liste des locaux video du district selectioné  */
+		vm_Liste_Eqt = ITMA_TCA_Liste_Eqt_Dispo_TCA
+					(vm_config_district_pc2[vl_rang_pc2].code,XDC_EQT_CAM,
+						vm_config_district_pc2[vl_rang_pc2].nom_code)
+
+		/*A MAJ des listes LT du district selectioné */
+		DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,"BL_cameras_disponibles",vm_Liste_Eqt)
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_cameras_disponibles",-1)
+		DB_CTRL_TITLE@(vm_fenetre_TCA_CI, "LI_moniteur_pc2", "Moniteurs de "
+								++vm_config_district_pc2[vl_rang_pc2].nom)
+
+		/*A recuperation des dernier evenements du district*/
+		for i = 1 to 4
+			vl_objet = vm_liste_camera_pc2[vl_rang_pc2][i-1] 
+			DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_ecran"++i++"_camera_pc2",
+														vl_objet)		
+			vl_objet = vm_liste_evt_pc2[vl_rang_pc2][i-1] 
+			DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_ecran"++i++"_evt_pc2",vl_objet)		
+			vl_objet = vm_liste_ecran_pc2[vl_rang_pc2][i-1] 
+			DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,"BP_ecran"++i++"_allume_pc2",
+														vl_objet)		
+			DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,"BP_ecran"++i++"_eteint_pc2",
+														not vl_objet)		
+		next i
+		if vm_ecran_selectionne_pc2 > 0 and vm_ecran_selectionne_pc2 < 4
+		{
+			vl_objet_camera = ITMA_TCA_recherche_param_camera
+				(vm_liste_camera_pc2[vl_rang_pc2][vm_ecran_selectionne_pc2-1]) 
+			DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_camera",vl_objet_camera)
+		}		
+	/*A sur action "BP_ecran_pc2" de 1 à 3 ou "BP_ecran_eteint_pc2" de 1 à 3 */
+	CASE "BP_ecran1_pc2"
+	CASE "BP_ecran2_pc2"
+	CASE "BP_ecran3_pc2"
+	CASE "BP_ecran4_pc2"
+	CASE "BP_ecran1_eteint_pc2"
+	CASE "BP_ecran2_eteint_pc2"
+	CASE "BP_ecran3_eteint_pc2"
+	CASE "BP_ecran4_eteint_pc2"
+		vl_index = SUBSTRING@(vl_controle_sortie, 9,1)+0
+		ITMA_TCA_modifier(vl_index,true)
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_cameras_disponibles",-1)
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_cameras_proposees",-1)
+
+	/*A Sur action "BP_ecran_allume_pc2" de 1 à 3 */
+	CASE "BP_ecran1_allume_pc2"
+	CASE "BP_ecran2_allume_pc2"
+	CASE "BP_ecran3_allume_pc2"
+	CASE "BP_ecran4_allume_pc2"
+		/*A Appel de la procedure 'ITMA_TCA_Eteint_Moniteur' */
+		vl_index = SUBSTRING@(vl_controle_sortie, 9,1)+0
+		vl_erreur = ITMA_TCA_Eteint_Moniteur(vm_NomSite,vl_moniteur[vl_index])
+		if (vl_erreur=COM_OK) ITMA_TCA_modifier(vl_index,FALSE)
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_cameras_disponibles",-1)
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_cameras_proposees",-1)
+
+	/*A Sur action "BP_lecture" */
+	CASE "BP_lecture"
+		ITMA_TCA_Click_Commande_Magneto ( XDC_LECTURE_MAGNETO )
+
+	/*A Sur action "BP_avance" */
+	CASE "BP_avance"
+		ITMA_TCA_Click_Commande_Magneto ( XDC_AVANCE_MAGNETO )
+
+	/*A Sur action "BP_retour" */
+	CASE "BP_retour"
+		ITMA_TCA_Click_Commande_Magneto ( XDC_RETOUR_MAGNETO )
+
+	/*A Sur action "BP_eject" */
+	CASE "BP_eject"
+		ITMA_TCA_Click_Commande_Magneto ( XDC_EJECT_MAGNETO )
+
+	/*A Sur action "BP_record" */
+	CASE "BP_record"
+		ITMA_TCA_Click_Commande_Magneto ( XDC_ENREG_MAGNETO )
+
+	/*A Sur action "BP_stop" */
+	CASE "BP_stop"
+		ITMA_TCA_Click_Commande_Magneto ( XDC_ARRET_MAGNETO )
+
+	/*A Sur action "BP_pause" */
+	CASE "BP_pause"
+		ITMA_TCA_Click_Commande_Magneto ( XDC_PAUSE_MAGNETO )
+
+	/*A sur selection dans la liste des magnétoscopes proposées */
+	CASE "BL_magnetoscope"
+		/*A capture de la selection dans la liste des magneto.  */
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,"BL_magnetoscope")
+		vl_magneto = vm_Liste_magneto[vl_rang]
+
+		/*A si la selection n'est pas vide */
+		if vl_magneto <> ""
+		{
+			/*A MAJ de la cellule 'BS_magnetoscope' */
+			DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_magnetoscope", vl_magneto)
+			vm_text = SUBSTRING@(COM09_Date_Courante(),1,16) 
+			DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",vm_text)
+		}
+
+		/*A sinon message d'annulation */
+		else
+		{
+			DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+									"Reset selection magneto")
+			DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_magnetoscope","") 
+			DB_CTRL_GRAYED@(vm_fenetre_TCA_CI,"BP_stop",FALSE)	
+			DB_CTRL_GRAYED@(vm_fenetre_TCA_CI,"BP_record",False)
+		}
+
+	/*A sur selection dans la liste des cameras proposées */
+	CASE "BL_cameras_proposees"
+
+		/*A déselection dans la liste des cam. dispo. */
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_cameras_disponibles", -1)
+
+		/*A capture de la selection dans la liste proposée */
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,"BL_cameras_proposees")
+		vl_camera = vm_liste_proposees[vl_rang]
+		
+		/*A recherche du n° eqt de la camera selectionné */
+		vl_index = ARRAY_INDEX@(vm_liste_Eqt,vl_camera)
+
+		/*A si la selection n'est pas vide */
+		if vl_index > -1
+		{
+				vl_objet = "BS_ecran"++vm_ecran_selectionne_pc2++"_camera_pc2"
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,
+											tm_cameras[vl_index].nom)
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_camera",vl_camera)
+				ITMA_TCA_modifier(vm_ecran_selectionne_pc2,True)
+		}
+	/*A sur selection dans la liste des cameras disponibles */
+	CASE "BL_cameras_disponibles"
+		
+		/*caro*/
+		/*A déselection dans la liste des cam. proposées */
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_cameras_proposees", -1)
+
+		/*A capture de la selection dans la liste */
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,"BL_cameras_disponibles")
+		vl_camera = vm_liste_Eqt[vl_rang]
+		
+		/*A si la selection n'est pas vide */
+		if (vl_camera <>"" and vl_camera <>NULL)
+		{	
+			/*A si un ecran est selectionné */
+			if vm_ecran_selectionne_pc2>0
+			{
+				vl_objet = "BS_ecran"++vm_ecran_selectionne_pc2++"_camera_pc2"
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,tm_cameras[vl_rang].nom)
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_camera",vl_camera)
+				ITMA_TCA_modifier(vm_ecran_selectionne_pc2,True)
+			}
+			else
+			{
+				/*A MAJ de 'BS_camera' */
+				/*vl_objet = "BS_ecran"++vm_ecran_selectionne_pc2++"_camera_pc2"
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,tm_cameras[vl_rang].nom)*/
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_camera",vl_camera)
+				DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+											"Choisissez un moniteur")
+			}
+		}
+		
+		/*A sinon message status d'annulation */		
+		else
+		{	
+			DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+											"Reset selection camera")
+			DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_camera","")
+		}	
+
+	/*A sur reception de poke */
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vm_fenetre_TCA_CI)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vm_fenetre_TCA_CI_active = FALSE
+
+
+		/*B si reception sur canal_XZEC d'un message */
+		CASE COM_CANAL_MTCA
+			
+			/*B tracer la réception */
+			vm_text = "   MsgPoke MTCA : "
+			vm_message = DB_GET_POKE_DATA@(vm_fenetre_TCA_CI)
+			vm_text =  vm_text ++ vm_message[0]
+			COM01_Trace(0,vm_text)
+
+
+		/*B si reception sur canal_XZEC d'un message */
+		CASE COM_CANAL_MTCM
+			
+			/*B tracer la réception */
+			vm_text = "   MsgPoke MTCM : "
+			vm_message = DB_GET_POKE_DATA@(vm_fenetre_TCA_CI)
+			vm_text =  vm_text ++ vm_message[0]
+			COM01_Trace(0,vm_text)
+
+			/*B traitement du message reçu et MAJ de la liste en cours */
+			vl_etat_camera = ARRAY_FROM_STRING@(vm_message[0],",")			
+			vl_rang = ARRAY_INDEX@(ARRAY_COLUMN@(tm_cameras, TDO_NUMERO_EQUIP),
+											vl_etat_camera[0])
+   			/*A Si pas moniteur Barco */
+			if  	vl_etat_camera[3] <> 0 and
+				vl_etat_camera[0] <> 0 and
+				vl_rang <> -1
+			{
+				vl_objet = "BS_ecran"++vl_etat_camera[3]++"_camera_pc2"													
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,
+											tm_cameras[vl_rang].nom)
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_camera",
+											vm_liste_Eqt[vl_rang])
+				vl_objet = "BP_ecran"++vl_etat_camera[3] ++"_eteint_pc2"
+				DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet, FALSE)
+				vl_objet = "BP_ecran"++vl_etat_camera[3]++"_allume_pc2"
+				vm_liste_ecran_pc2[vl_rang_pc2][vl_etat_camera[3]-1]=True
+				DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet,
+				vm_liste_ecran_pc2[vl_rang_pc2][vl_etat_camera[3]-1] )
+				ITMA_TCA_pave(vl_etat_camera[3]) 
+			}
+			if  	vl_etat_camera[3] = 0 and 
+				vl_etat_camera[0] = 0
+			{
+				/*A Selection du moniteur 1 */
+				vl_camera = TRIM@(DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,
+											"BS_ecran1_camera_pc2"))
+				vl_rang = ARRAY_INDEX@(ARRAY_COLUMN@(tm_cameras, TDO_NOM_EQUIP),
+											vl_camera)
+				if ( vl_rang <> -1 )
+				{
+					DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_camera",
+											vm_liste_Eqt[vl_rang])
+
+				}
+				vm_ecran_selectionne_pc2 = 1
+				ITMA_TCA_pave(vm_ecran_selectionne_pc2)
+			}
+			else
+			{
+				vl_rang = ITMA_TCA_recherche_site_camera(vl_etat_camera[0])
+				vm_liste_camera_pc2[vl_rang[0]][vl_etat_camera[3]-1] = vl_rang[1]
+			}
+		ENDCASE
+	ENDCASE
+WEND
+
+/*A sauvegarde de la liste des evenements et des canaux */
+for i = CM_PREMIER_MONITEUR to CM_DERNIER_MONITEUR
+	vl_objet = "BS_ecran"++i++"_evt"
+	vm_liste_evt[vl_rang_pc1][i-1]=DB_Ctrl_Get_Value@(vm_fenetre_TCA_CI,vl_objet)
+	vl_objet = "BS_ecran"++i++"_canal"	
+	vm_liste_canaux[vl_rang_pc1][i-1]=
+							DB_Ctrl_Get_Value@(vm_fenetre_TCA_CI,vl_objet)
+	vl_objet = "BP_ecran"++i++"_allume"
+	vm_liste_ecran[vl_rang_pc1][i-1] =
+							 DB_CTRL_GET_DISPLAY@(vm_fenetre_TCA_CI,vl_objet)
+next i
+SET_SYSTEM_VAR@("vg_TCA_CI_evenements",vm_liste_evt)
+SET_SYSTEM_VAR@("vg_TCA_CI_canaux",vm_liste_canaux)
+SET_SYSTEM_VAR@("vg_TCA_CI_ecran",vm_liste_ecran)
+
+/*A sauvegarde de la liste des evenements district Niv2*/
+for i = 1 to 4
+	vl_objet = "BS_ecran"++i++"_evt_pc2"
+	vm_liste_evt_pc2[vl_rang_pc2][i-1]=DB_Ctrl_Get_Value@
+								(vm_fenetre_TCA_CI,vl_objet)
+
+	vl_objet = "BS_ecran"++i++"_camera_pc2"
+	vm_liste_camera_pc2[vl_rang_pc2][i-1]=DB_Ctrl_Get_Value@
+								(vm_fenetre_TCA_CI,vl_objet)
+
+	vl_objet = "BP_ecran"++i++"_allume_pc2"
+	vm_liste_ecran_pc2[vl_rang_pc2][i-1] = DB_CTRL_GET_DISPLAY@
+								(vm_fenetre_TCA_CI,vl_objet)
+next i
+SET_SYSTEM_VAR@("vg_TCA_evenements",vm_liste_evt_pc2)
+SET_SYSTEM_VAR@("vg_TCA_camera",vm_liste_camera_pc2)
+SET_SYSTEM_VAR@("vg_TCA_ecran",vm_liste_ecran_pc2)
+
+/*A trace de fin de la procedure ( date + user ) */
+vm_text =  " Stop ITMA_PTCA_pilotage_camera_CI "
+vm_text =  vm_text ++ " User : " ++ USER_NAME@()
+COM01_Trace(0,vm_text)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Fait ressortir le pavé du canal selectionné
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCA_pave_CI(va_numero)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*  va_numero	: le numero du canal traité.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK si ok, sinon COM_NOK
+*
+* CONDITION D'UTILISATION
+*   selection d'une caméra
+*
+* FONCTION
+*    Fait ressortir le pavé du canal  selectionné
+*
+---------------------------------------------------------------------------- */
+
+	var i			' index de loop
+	var vl_objet		' nom d'un objet
+
+	/*A Si va_numero invalide: return NOK */
+	if va_numero<CM_PREMIER_MONITEUR or va_numero>CM_DERNIER_MONITEUR
+	{
+		RETURN(COM_NOK)
+	}
+
+	/*A Reset de la selection de toutes les caméras */
+	FOR i = CM_PREMIER_MONITEUR to CM_DERNIER_MONITEUR
+		vl_objet = "BP_ecran"++i++"_select"
+		DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI, vl_objet, FALSE)
+	NEXT i
+
+	/*A Affichage de la selection de la caméra selectionnée */
+	vl_objet = "BP_ecran"++va_numero++"_select"
+	Db_Ctrl_Display@(vm_fenetre_TCA_CI, vl_objet, TRUE)
+	vl_objet = "BS_ecran"++va_numero++"_canal"
+	Db_Ctrl_Display@(vm_fenetre_TCA_CI, vl_objet, TRUE)
+	vl_objet = "BS_ecran"++va_numero++"_evt"
+	Db_Ctrl_Display@(vm_fenetre_TCA_CI, vl_objet, TRUE)
+
+	/*A appel de la procedure 'modifier' */
+	ITMA_TCA_modifier_CI(va_numero,FALSE)
+
+	/*A MAJ du message de status */
+	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+						"Status : Selection canal n°"++va_numero++" : OK")
+
+	/*A retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Fait apparaitre le pavé du canal selectionné
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_modifier_CI(va_numero,va_condition)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*  va_numero		: le numero du canal traité.
+*  va_condition	: pour allumer ou eteindre un ecran
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK si ok, sinon COM_NOK
+*
+* CONDITION D'UTILISATION
+*   selection d'une caméra
+*
+* FONCTION
+*    Fait apparaitre le pavé du canal selectionné
+*
+---------------------------------------------------------------------------- */
+
+	var vl_objet		' nom d'un vl_objet
+	var vl_cd1		' condition 1
+	var vl_cd2		' condition 2
+
+	/*A si va_numero est invalide : return NOK */
+	if va_numero<CM_PREMIER_MONITEUR or va_numero>CM_DERNIER_MONITEUR
+	{
+		RETURN(COM_NOK)
+	}
+	
+	/*A si va_condition est vrai */
+	if NOT(va_condition) 
+	{
+		/*A allumer l'ecran va_numero */
+		vl_cd1 = True
+		vl_cd2 = False
+		vl_objet = "BP_ecran"++va_numero++"_select"
+		DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet, vl_cd1)
+	}
+	/*A sinon */
+	else
+	{
+		/* éteindre l'ecran va_numero */
+		vl_cd1 = FALSE
+		vl_cd2 = TRUE
+	}
+
+	/*A traiter le reste des objets */
+	if NOT(va_condition)
+	{
+		DB_CTRL_Title@(vm_fenetre_TCA_CI,"LI_status",
+						"Status : Ecran n°"++va_numero++" allumé...")
+	}
+	else
+	{
+		DB_CTRL_Title@(vm_fenetre_TCA_CI,"LI_status",
+					"Status : Ecran n°"++va_numero++" éteint...")
+		vl_objet = "BS_ecran"++va_numero++"_canal"
+					DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,"")
+		vl_objet = "BS_ecran"++va_numero++"_evt"
+					DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,"")
+	}
+	vl_objet = "BP_ecran"++va_numero++"_allume"
+	DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet, vl_cd1)
+	vl_objet = "BP_ecran"++va_numero++"_eteint"
+	DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet, vl_cd2)
+	vl_objet = "BS_ecran"++va_numero++"_canal"
+	DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet, vl_cd1)
+	vl_objet = "BS_ecran"++va_numero++"_evt"
+	DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet, vl_cd1)
+	if vl_cd1 = False
+	{
+		vl_objet = "BP_ecran"++va_numero++"_select"
+		DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet, vl_cd1)
+	}
+
+	/*A status retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	MAJ des cellules du canal selectionné
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_MAJ_cellule_canal(va_numero)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_numero	:	le numero de l'ecran selectionné
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION
+*   	MAJ des cellules du canal selectionné.
+*
+---------------------------------------------------------------------------- */
+
+	var	vl_num_canal
+	var	vl_objet
+
+	/*A si le N° de canal est incorrect : retour NOK */
+	if va_numero<CM_PREMIER_MONITEUR or va_numero>CM_DERNIER_MONITEUR
+	{
+		RETURN(COM_NOK)
+	}
+
+	/*A Capture de la selection dans la liste des canaux */
+	if va_numero=1 or va_numero=2	
+	{
+		vl_num_canal = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,"BL_canaux")
+		vl_num_canal = vm_liste_canaux_2D[vl_num_canal,1]
+	}
+	vl_objet = "BS_ecran"++va_numero++"_canal"
+	DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,vl_num_canal)
+
+	/*A retour OK */
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet l'affectation d'un canal vodéo fixe ou cyclé 
+*				d'un LT à un moniteur au CI.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_Affect_Canal_Monit(va_NomSite,va_NumCanal,va_NumMoniteur,va_NumLT)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomSite	:	Nom du site (PC district)
+*		va_NumCanal	:	Le numéro du canal à affecter
+*		va_NumMoniteur	:	Le numéro du moniteur
+*		va_NumLT		:	Le numéro du local technique
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet l'affectation d'un canal vodéo fixe ou cyclé d'un LT
+*	à un moniteur au CI.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd		' selectoin du canal
+	VAR vl_text		' Affichage dans trace
+
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+	{
+		ITMA_TCA_CI_Acces_interdit("ITMA_TCA_Affect_Canal_Moniteur")
+		RETURN(COM_NOK)
+	}
+
+	/*A trace de l'appel de procedure */
+	vm_text =   " --> Appel Affect_Canal_Moniteur"
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEV01  
+
+	/*B arguments */
+	vl_cmd[3]=va_NomSite ++ MTAR_CAR_SEPAR ++ va_NumCanal ++ MTAR_CAR_SEPAR ++ va_NumMoniteur ++ MTAR_CAR_SEPAR ++ va_NumLT
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = " -affect canal monit DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* -------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet l'extinction d'un moniteur au PC d'un site et au CI.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_Eteint_Moniteur(va_NomSite,va_NumMoniteur)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomSite	:	Nom du site (PC district et CI)
+*		va_NumMoniteur	:	le numero du moniteur à éteindre
+*
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+*
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+*
+* FONCTION :
+*   	Permet l'extinction d'un moniteur au PC d'un site et au CI.
+*
+--------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+	{
+		ITMA_TCA_CI_Acces_interdit("ITMA_TCA_Eteint_Moniteur")
+		RETURN(COM_NOK)
+	}
+
+	/*A trace de l'appel de procedure */
+	vm_text =  " --> Appel ITMA_TCA_Eteint_Moniteur "
+	COM01_Trace(0,vm_text)
+
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEV05  
+
+	/*B arguments */
+	vl_cmd[3]=va_NomSite ++ MTAR_CAR_SEPAR ++ va_NumMoniteur 
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = " -eteint monit DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourne les caméras disponibles qui couvrent la zone comprise
+*				entre PR1 et PR2 et les numéros de 
+*				prépositionnement correspondants.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_CI_Liste_canaux_LTV(va_Num_LTV)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_Num_LTV :	le n° du LTV
+*
+* ARGUMENTS EN SORTIE : 
+*		ListeCanaux :	la liste des canaux trouvés
+*
+* CODE RETOUR		: 	COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_CI_pilotage_camera
+*
+* FONCTION
+*   	recherche des canaux en disponibilités sur un LTV.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_Liste_select	' liste resultat du select SQL
+	var	vl_Liste_LTV		' liste retournée
+	var	vl_taille			' taille de la table de resultat
+	var	i				' index de loop
+
+
+	/*A trace de l'appel de la procedure */
+	vm_text = " ---> Appel de la procedure 'ITMA_TCA_CI_Liste_canaux_LTV("++va_Num_LTV++")'"
+	COM01_Trace(0,vm_text)
+
+	/*A parametrage de vl_parametres */
+	vl_parametres[0].type	= SYB#INT2_
+	vl_parametres[0].data	= va_Num_LTV+0
+	vl_parametres[0].output	= FALSE
+	IF COM05_SQL_Procedure(XZAO309_Liste_canaux_LTV,vl_parametres,
+									vl_resultats,C_MODULE) <> COM_OK
+	{
+  		RETURN (COM_NOK)
+	}
+
+	/*A récuperation du select dans la liste 'liste_select' */
+	vl_Liste_select = vl_resultats.select_results[0]
+
+	/*A ajout de 'aucune' en debut de liste */
+	vl_taille = ARRAY_SIZE@(vl_liste_select)-1
+	vl_liste_LTV = ""
+	vl_Liste_LTV[0,0]="aucun"
+	vl_Liste_LTV[0,1]="aucun"
+
+	/*A si la liste retourné est nulle : retour de la liste vide */
+	if vl_taille<0
+	{
+		RETURN(vl_Liste_LTV)
+	}
+
+	/*A recopie de vl_liste_select dans vl_liste */
+	For i = 0 to vl_taille
+		vl_Liste_LTV[i,0]=vl_liste_select[i,0] /* code du canal */
+		vl_Liste_LTV[i,1]=vl_liste_select[i,1] /* nom du canal */
+	Next i
+
+	/*A retour de vl_liste */
+	RETURN (vl_liste_LTV)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourne un message à l'operateur et trace l'accès interdit
+*				à une macro.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_CI_Acces_interdit(va_NomMacro)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomMacro :		le nom de la macro interdite
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: 	COM_OK en cas d'execution correcte, COM_NOK sinon.
+
+* CONDITION D'UTILISATION :
+*   appel d'une macro avec les droits d'accès insuffisant.
+*
+* FONCTION :
+*	Retourne un message à l'operateur et trace l'accès interdit à une macro
+*---------------------------------------------------------------------------- */
+
+	/*A message d'info à l'opérateur */
+	var		vl_tptext			' zone de text tampon
+	
+	vl_tptext = "L'utilisateur " ++vm_NomOperateur ++ " n'a pas les droits suffisants" ++ NUM_TO_STRING@(10) ++ "pour la fonction : " ++ va_NomMacro
+	info_message@(vl_tptext)
+
+	/*A trace de l'appel de procedure */
+	vl_tptext = " Accès Macro "
+				 ++ va_NomMacro ++ " refusé pour " ++ vm_NomOperateur
+	COM01_Trace(0,vl_tptext)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des équipements disponibles
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCA_CI_Liste_Eqt_Dispo(va_indice_District)
+
+/*
+* ARGUMENTS EN ENTREE :
+* 
+*		va_indice_District	:	indice sur le tableau liste des districts 1 et 3
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR			:		La liste des équipements 
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   	Lecture des équipements en disponibilités.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR FORMAT COM_Localisation vl_localisation
+	var	vl_Liste_select	' liste resultat du select SQL
+	var	vl_taille			' taille de la table de resultat
+	var	vl_Liste			' liste formattée
+	var	i				' index de loop
+
+	/*A récuperation du select dans la liste 'vl_Liste_select' 	*/
+
+
+/*A
+* Listes des LTV des PC Niv 1 et Niv3
+* ------------------------------------*/
+vl_Liste_select = SYSTEM_VAR@ (vg_les_LTV ++ 
+						vm_config_district[va_indice_District].nom_code) 
+if ( vl_Liste_select = NULL )
+{
+	vl_parametres = NULL
+	vl_parametres[0].type	= SYB#INT1_
+	vl_parametres[0].data	= XDC_EQT_LTV	
+	vl_parametres[0].output	= FALSE
+	
+	vl_parametres[1].type	= SYB#INT1_	
+	vl_parametres[1].data	= vm_config_district[va_indice_District].code
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT4_			' Conditions
+	vl_parametres[2].data	= XDC_EQT_HS
+	vl_parametres[2].output	= FALSE
+
+	vl_parametres[3].type	= SYB#INT4_			' Conditions niees
+	vl_parametres[3].data	= XDC_EQT_NON_HS
+	vl_parametres[3].output	= FALSE
+	
+	vl_parametres[4].type	= SYB#INT4_			' Exclusions
+	vl_parametres[4].data	= 0
+	vl_parametres[4].output	= FALSE
+
+	vl_parametres[5].type	= SYB#INT4_			' Exclusions niees
+	vl_parametres[5].data	= 0	
+	vl_parametres[5].output	= FALSE
+
+	IF COM05_SQL_Procedure (XZAT01_Liste_Eqt_Dispo,
+						vl_parametres,vl_resultats,C_MODULE) <> COM_OK				
+		RETURN (COM_NOK)
+
+	/*A recuperation du select dans la liste 'vg_les_LTV_<code district>' */
+	vl_Liste_select = vl_resultats.select_results[0]
+	SET_SYSTEM_VAR@ (vg_les_LTV ++ vm_config_district[va_indice_District].nom_code, 
+						vl_Liste_select	)
+}
+	vm_liste_LT = vl_Liste_select
+	vl_taille = ARRAY_SIZE@(vl_Liste_select) - 1	
+
+	/*A Construction de la liste des équipements				 */
+	if vl_taille>0 
+	{
+		/* A Vide la liste 								*/
+
+		vl_Liste		= 	""
+		for i = 0 to vl_taille	
+			vl_localisation.NumAuto = vl_Liste_select[i,3]
+			vl_localisation.PR = vl_Liste_select[i,4]
+			vl_localisation.sens_circulation = vl_Liste_select[i,5]
+			vl_Liste[i] = "LTV " ++ COM10_Localisation(vl_localisation)
+		next i
+	}
+	else
+	{
+		/* A Vide la liste et met "aucun" dans l'élément 0	 */
+		vl_Liste		= 	""
+		vl_Liste[0]	= 	"aucun"
+	}
+	RETURN (vl_Liste)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Traitement de l'appel depuis le synoptique
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCA_CI_trt_LTV_depuis_synop(va_district,va_XDC,
+							va_LTV,va_liste_LT,va_num_LTV,va_liste_canaux)
+
+/*-----------------------------------------------------------------------------
+	vl_district,"XDC_DN","Nice",vl_LTVN,vl_liste_LTN,vl_numLTV,vm_liste_canaux_N
+*/
+/* ARGUMENTS EN ENTREE :
+* 
+*		va_district		:	Le district passe par appel
+*		va_XDC			:	le district
+*		va_nom_district	:	le nom du district
+*		va_LTV			:	La liste des LTVideo
+*		va_liste_LT		:	La liste des LT
+*		va_num_LTV		:	Numreo du LTV passe par appel
+*		va_liste_canaux	:	La liste des canaux du district
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR			:	La liste des équipements 
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	var va_canaux		' liste des canaux 
+	var va_rang		' index de liste des districts
+	var i			' index de loop
+
+	if IS_ARRAY@(va_LTV)
+	{
+		for i = 0 to ARRAY_SIZE@(va_LTV)-1
+			if va_liste_LT[i,1] = va_num_LTV
+			{
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_LTVideo",i)
+				i = ARRAY_SIZE@(va_LTV)+1
+			}
+		next i
+	}
+	/*A capture de la selection */
+	va_rang = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,"BL_LTVideo")
+
+	/*A si aucune selection : reset de la table des canaux */
+	if va_liste_LT[va_rang,1] <= 0
+	{	
+		vm_nom_LT_select = "aucun"
+		vm_nouveau_canal = False 
+		va_canaux = ""
+		va_canaux[0] = ""
+		DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,"BL_canaux",va_canaux)
+		DB_CTRL_Value@(vm_fenetre_TCA_CI,"BL_canaux",-1)
+	}
+	/*A sinon MAJ de la table des canaux */
+	else
+	{	
+		va_canaux = ""
+		vm_nom_LT_select = va_liste_LT[va_rang,1]
+		DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status","Status : LT Vidéo  ...")
+		va_liste_canaux = ITMA_TCA_CI_Liste_canaux_LTV(vm_nom_LT_select)
+		if IS_ARRAY@(va_liste_canaux)
+		{
+			for i = 0 to ARRAY_SIZE@(va_liste_canaux)-1
+				va_canaux[i] = va_liste_canaux[i,0]
+			next i
+		}
+		else
+		{
+			va_canaux[0]="aucun"
+		}
+		DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,"BL_canaux",va_canaux)
+		DB_CTRL_Value@(vm_fenetre_TCA_CI,"BL_canaux",-1)
+	}
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Traitement de l'action sur le BP écranX allumé
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCA_CI_bp_ecranX_allume(va_nom_site,va_xdc_moniteur,va_district_moniteur)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+* 
+*		va_nom_site			:	le nom site
+*		va_xdc_moniteur		:	le numero du moniteur pour le district
+*		va_district_moniteur	:	le numero du moniteur pour le CI
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR			:	La liste des équipements 
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	/*A Appel de la procedure 'ITMA_TCA_Eteint_Moniteur' */
+	vm_erreur = ITMA_TCA_Eteint_Moniteur(va_nom_site,va_xdc_moniteur)
+	if (vm_erreur=COM_OK) 
+	{
+		ITMA_TCA_modifier_CI(va_district_moniteur,TRUE)
+		DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+					"Status : Ecran "++va_district_moniteur++" éteint ...")
+ 		if vm_ecran_selectionne =va_district_moniteur 
+		{
+		 	vm_ecran_selectionne = 0 
+		}
+	}
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Traitement de l'action sur le BP écranX eteint
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCA_CI_bp_ecranX_eteint(va_district_moniteur)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+* 
+*		va_district_moniteur	:	le numero du moniteur pour le CI
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR			:	La liste des équipements 
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	/*A Appel de la procedure 'modifier' */
+	vm_ecran_selectionne = va_district_moniteur
+	ITMA_TCA_pave_CI(vm_ecran_selectionne)
+	ITMA_TCA_modifier_CI(va_district_moniteur,FALSE)
+	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+				"Status : Ecran "++va_district_moniteur++" allumé ...")
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Traitement de l'action sur le bp ecran X
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCA_CI_bp_ecranX(va_nom_site,va_district_moniteur,
+					va_liste_canaux,va_XDC_Moniteur)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+* 
+*		va_nom_site			:	le nom site
+*		va_district_moniteur	:	le numero du moniteur pour le CI
+*		va_nom_district		:	le nom du district
+*		va_liste_canaux		:	La liste des canaux du LTVideo
+*		va_XDC_Moniteur		:	Numero du moniteur dans le district
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR			:	La liste des équipements 
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	var vl_evenement
+	var vl_index
+	var vl_rang
+	var i
+
+	/*A Appel de la procedure 'ITMA_TCA_pave_CI' */
+	vm_ecran_selectionne = va_district_moniteur	ITMA_TCA_pave_CI(vm_ecran_selectionne)
+
+	/*A Si nouveau canal */
+	if (vm_nouveau_canal= TRUE)
+	{
+		/*A capture de la selection dans la liste */
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,
+										"BL_canaux")
+		if vl_rang >=0
+		{
+			/*A MAJ des cellules correspondantes */
+			ITMA_TCA_MAJ_cellule_canal(va_district_moniteur)
+			vm_num_canal = va_liste_canaux[vl_rang,1]+0
+			vm_NomSite = va_nom_site
+
+			/*A appel de la procedure 'ITMA_TCA_Affect_Canal_Monit' */
+
+			vm_erreur = ITMA_TCA_Affect_Canal_Monit(vm_NomSite,
+							vm_num_canal,va_XDC_Moniteur,vm_nom_LT_select)
+		}
+		else
+		{
+			vm_erreur = COM_NOK
+		}
+
+		/*A Message d'execution */
+
+		if vm_erreur = COM_NOK
+		{
+			DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+							"Status : Impossible d'affecter le canal...") 
+		}
+		else
+		{
+			/*A MAJ du N° de canal par le nom du canal */
+
+			vm_num_canal 	= va_liste_canaux[vl_rang,1]
+			DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+		"Status : Canal "++vm_num_canal++" sur moniteur "++va_district_moniteur)
+		}
+
+		/*A Reset du flag de selection de canal */
+
+		vm_nouveau_canal = FALSE 
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_canaux",-1)
+	}
+	/*A Sinon */
+	else
+	{
+		/*A recherche du nom de canal en fonction du N° contenu dans la BS */
+
+		vm_num_canal = 
+				DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,
+							"BS_ecran"++va_district_moniteur++"_canal")
+		vl_index = -1
+		for i = 0 to ARRAY_SIZE@(vm_liste_canaux_T)-1
+			if vm_num_canal = vm_liste_canaux_T[i,1]
+			{
+				 vl_index = i
+			}
+		next i
+		if vl_index<>-1
+		{
+			vm_num_canal = vm_liste_canaux_T[vl_index,0]
+		}
+		else
+		{
+			vm_num_canal = "canal inconnu..."
+		}
+			
+		/*A Copie des parametres camera dans les boites de saisies */
+
+		vl_evenement = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,
+								"BS_ecran"++va_district_moniteur++"_evt")
+
+		DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+				"Status : Selection du moniteur "++va_district_moniteur++"...") 
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BL_canaux",-1)
+	}
+
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Traitement de l'action sur la liste des LTVideo d'un district
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCA_CI_bl_LTVideo_district(va_canaux,
+							va_liste_canaux,va_liste_LT)
+
+/*-----------------------------------------------------------------------------
+*
+*
+* ARGUMENTS EN ENTREE :
+* 
+*		va_nom_district		:	le nom du district
+*		va_canaux				:	La liste des canaux du LTVideo
+*		va_liste_canaux		:	La liste des canaux du LTVideo 2D
+*		va_liste_LT			:	La liste des LT
+*		va_nom_district_aff		:	le nom du district pour l'affichage
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR			:	La liste des équipements 
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   	Lecture des équipements en disponibilités.
+*
+---------------------------------------------------------------------------- */
+
+
+	var i
+	var vl_rang
+
+	/*A capture de la selection */
+	vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,"BL_LTVideo")
+
+	/*A si aucune selection : reset de la table des canaux */
+	if va_liste_LT[vl_rang,1] <= 0
+	{
+		DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+									"Status : Choix LT Vidéo annulé ...")
+		vm_nom_LT_select = "aucun"
+		vm_nouveau_canal = False 
+		va_canaux = ""
+		va_canaux[0] = ""
+		DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,
+							"BL_canaux",va_canaux)
+		DB_CTRL_Value@(vm_fenetre_TCA_CI,"BL_canaux",-1)
+	}
+	/*A sinon MAJ de la table des canaux */
+	else
+	{
+		va_canaux = ""
+		vm_nom_LT_select = va_liste_LT[vl_rang,1]
+		DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+					"Status : Choix LT Vidéo  ...")
+
+		va_liste_canaux = ITMA_TCA_CI_Liste_canaux_LTV(vm_nom_LT_select)
+		if IS_ARRAY@(va_liste_canaux)
+		{
+			for i = 0 to ARRAY_SIZE@(va_liste_canaux)-1
+					va_canaux[i] = va_liste_canaux[i,0]
+			next i
+		}
+		else
+		{
+			va_canaux[0]="aucun"
+		}
+
+		DB_CTRL_STRINGS@(vm_fenetre_TCA_CI,
+							"BL_canaux",va_canaux)
+		DB_CTRL_Value@(vm_fenetre_TCA_CI,"BL_canaux",-1)
+	}
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Traitement de l'action sur la liste des canaux d'un district
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCA_CI_bl_Canaux_Video_district(va_nom_site,va_district_moniteur1,
+		va_district_moniteur2,va_district_moniteur3,va_district_moniteur4,va_liste_canaux)
+
+/* ARGUMENTS EN ENTREE :
+* 
+*		va_nom_site			:	le nom site
+*		va_district_moniteur1	:	le numero du moniteur1 pour le CI
+*		va_district_moniteur2	:	le numero du moniteur2 pour le CI
+*		va_nom_district		:	le nom du district
+*		va_liste_canaux		:	La liste des canaux du LTVideo
+*		va_nom_district_aff		:	le nom du district pour l'affichage
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR			:	La liste des équipements 
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   	Lecture des équipements en disponibilités.
+*
+---------------------------------------------------------------------------- */
+
+	var vl_rang
+
+	/*A capture de la selection */
+
+	vl_rang=DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,"BL_canaux")
+	vm_nouveau_canal	= True
+
+	if vl_rang < 0
+	{
+		DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+				"Status : Choix canal  annulé ...")
+		vm_nouveau_canal = False 
+	}
+	else
+	{ 	
+		if vm_ecran_selectionne = va_district_moniteur1
+		{
+		 	vm_nouveau_canal = False
+
+			if (ARRAY_SIZE@(va_liste_canaux)>=vl_rang)
+			{
+				vm_num_canal 	= va_liste_canaux[vl_rang,1]
+				vm_NomSite = va_nom_site
+
+				vm_erreur = ITMA_TCA_Affect_Canal_Monit(vm_NomSite,
+							vm_num_canal,XDC_MONITEUR1,vm_nom_LT_select)
+			}
+			else
+			{
+				vm_erreur = COM_NOK
+			}
+
+			/*A Message d'execution */
+
+			if vm_erreur = COM_NOK
+			{
+			 	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+							"Status : Impossible d'affecter le canal...") 
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,
+							"BS_ecran"++va_district_moniteur1++"_canal","") 
+			}
+			else
+			{
+			 	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+		"Status : Canal "++vm_num_canal++" sur moniteur "++va_district_moniteur1)
+				DB_CTRL_VALUE@(vm_fenetre_TCA_CI,
+						"BS_ecran"++va_district_moniteur1++"_canal",
+											va_liste_canaux[vl_rang,1]) 
+			}
+		}
+		else
+		{
+			if vm_ecran_selectionne = va_district_moniteur2
+			{
+			 	vm_nouveau_canal = False
+
+				if (ARRAY_SIZE@(va_liste_canaux)>=vl_rang)
+				{
+					vm_num_canal 	= va_liste_canaux[vl_rang,1]
+					vm_NomSite = va_nom_site
+
+					vm_erreur = ITMA_TCA_Affect_Canal_Monit( vm_NomSite,
+								vm_num_canal,XDC_MONITEUR2,vm_nom_LT_select)
+				}
+				else
+				{
+					vm_erreur = COM_NOK
+				}
+
+				/*A Message d'execution */
+				if vm_erreur = COM_NOK
+				{ 	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+							"Status : Impossible d'affecter le canal...") 
+					DB_CTRL_VALUE@(vm_fenetre_TCA_CI,
+							"BS_ecran"++va_district_moniteur2++"_canal","") 
+				}
+				else
+				{ 	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+		"Status : Canal "++vm_num_canal++" sur moniteur "++va_district_moniteur2)
+					DB_CTRL_VALUE@(vm_fenetre_TCA_CI,
+						"BS_ecran"++va_district_moniteur2++"_canal",
+											va_liste_canaux[vl_rang,1]) 
+				}
+
+			}
+			else
+			if vm_ecran_selectionne = va_district_moniteur3
+			{
+			 	vm_nouveau_canal = False
+
+				if (ARRAY_SIZE@(va_liste_canaux)>=vl_rang)
+				{
+					vm_num_canal 	= va_liste_canaux[vl_rang,1]
+					vm_NomSite = va_nom_site
+
+					vm_erreur = ITMA_TCA_Affect_Canal_Monit( vm_NomSite,
+								vm_num_canal,3,vm_nom_LT_select)
+				}
+				else
+				{
+					vm_erreur = COM_NOK
+				}
+
+				/*A Message d'execution */
+				if vm_erreur = COM_NOK
+				{ 	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+							"Status : Impossible d'affecter le canal...") 
+					DB_CTRL_VALUE@(vm_fenetre_TCA_CI,
+							"BS_ecran"++va_district_moniteur2++"_canal","") 
+				}
+				else
+				{ 	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+		"Status : Canal "++vm_num_canal++" sur moniteur "++va_district_moniteur2)
+					DB_CTRL_VALUE@(vm_fenetre_TCA_CI,
+						"BS_ecran"++va_district_moniteur2++"_canal",
+											va_liste_canaux[vl_rang,1]) 
+				}
+
+			}
+			else
+			if vm_ecran_selectionne = va_district_moniteur4
+			{
+			 	vm_nouveau_canal = False
+
+				if (ARRAY_SIZE@(va_liste_canaux)>=vl_rang)
+				{
+					vm_num_canal 	= va_liste_canaux[vl_rang,1]
+					vm_NomSite = va_nom_site
+
+					vm_erreur = ITMA_TCA_Affect_Canal_Monit( vm_NomSite,
+								vm_num_canal,4,vm_nom_LT_select)
+				}
+				else
+				{
+					vm_erreur = COM_NOK
+				}
+
+				/*A Message d'execution */
+				if vm_erreur = COM_NOK
+				{ 	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+							"Status : Impossible d'affecter le canal...") 
+					DB_CTRL_VALUE@(vm_fenetre_TCA_CI,
+							"BS_ecran"++va_district_moniteur2++"_canal","") 
+				}
+				else
+				{ 	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+		"Status : Canal "++vm_num_canal++" sur moniteur "++va_district_moniteur2)
+					DB_CTRL_VALUE@(vm_fenetre_TCA_CI,
+						"BS_ecran"++va_district_moniteur2++"_canal",
+											va_liste_canaux[vl_rang,1]) 
+				}
+
+			}
+			else
+			{
+		 		vm_nouveau_canal = True
+				DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+								"Status : Choisissez un moniteur...")
+			}
+		}
+
+	}
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourne un message à l'operateur et trace l'accès interdit
+*				à une macro.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_enleve_curseur(va_NomBoite)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*	va_NomBoite		:	le nom de la boite de dialogue
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: aucun.
+
+* CONDITION D'UTILISATION :
+*   curseur dans une boite de saisie sans modif autorise.
+*
+* FONCTION :
+*	Place le curseur dans une boite de saisie non visible
+*---------------------------------------------------------------------------- */
+
+	DB_CURSOR_IN_ENTRY@(va_NomBoite,"BS_cache",1,0)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Fait ressortir le pavé de la caméra selectionné
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_pave(va_numero)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*  va_numero	: le numero de la vl_camera traité.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK si ok, sinon COM_NOK
+*
+* CONDITION D'UTILISATION
+*   selection d'une caméra
+*
+* FONCTION
+*    Fait ressortir le pavé de la caméra selectionné
+*
+---------------------------------------------------------------------------- */
+
+var i		' index de loop
+var vl_objet		' nom d'un objet
+
+
+/*A Si va_numero invalide: return NOK */
+if va_numero>3 or va_numero<1 RETURN(COM_NOK)
+
+/*A Reset de la selection de toutes les caméras */
+FOR i = 1 to 3
+	vl_objet = "BP_ecran"++i++"_select_pc2"
+	Db_Ctrl_Display@(vm_fenetre_TCA_CI, vl_objet, FALSE)
+NEXT i
+
+
+/*A Affichage de la selection de la caméra selectionné */
+vl_objet = "BP_ecran"++va_numero++"_select_pc2"
+Db_Ctrl_Display@(vm_fenetre_TCA_CI, vl_objet, TRUE)
+vl_objet = "BS_ecran"++va_numero++"_camera_pc2"
+Db_Ctrl_Display@(vm_fenetre_TCA_CI, vl_objet, TRUE)
+vl_objet = "BS_ecran"++va_numero++"_evt_pc2"
+Db_Ctrl_Display@(vm_fenetre_TCA_CI, vl_objet, TRUE)
+
+/*A Dégriser le bouton 'Lier F.M.C' */
+DB_CTRL_GRAYED@(vm_fenetre_TCA_CI,"BP_fmc",FALSE)
+
+if va_numero=3
+	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status","Selection Gendarmerie : OK")
+
+/*A retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Fait apparaitre le pavé de la caméra selectionné
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_modifier(va_numero,va_condition)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*  va_numero		: le numero de l'ecran traité.
+*  va_condition	: pour allumer ou eteindre un ecran
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK si ok, sinon COM_NOK
+*
+* CONDITION D'UTILISATION
+*   selection d'une caméra
+*
+* FONCTION
+*    Fait apparaitre le pavé de la caméra selectionné
+*
+---------------------------------------------------------------------------- */
+
+
+var i		' index de loop
+var vl_objet	' nom d'un objet
+var vl_cd1		' condition 1
+var vl_cd2		' condition 2
+var	vl_camera
+var	vl_erreur
+var	vl_rang
+var	vl_trouve
+var	vl_index , vl_text
+var	vl_tpm
+var  vl_rang_pc2
+/*A si va_numero est invalide : return NOK //
+if va_numero>4 or va_numero<1  RETURN(COM_NOK)
+
+/*A si va_condition est vrai */
+if va_condition=TRUE
+{
+	/*A allumer l'ecran va_numero */
+	vl_cd1 = TRUE
+	vl_cd2 = FALSE
+	
+	/*A mémo du n° d'ecran selectionné */
+	vm_ecran_selectionne_pc2 = va_numero
+
+	/*A Appel de la procedure 'ITMA_TCA_pave' */
+	ITMA_TCA_pave(vm_ecran_selectionne_pc2)
+
+	/*A capture du n° de camera sur l'ecran selectionné */
+	vl_objet = "BS_ecran"++va_numero++"_camera_pc2"
+	vl_camera = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,vl_objet)
+
+	/*A si n° camera non NULL */
+	if vl_camera<>"" and vl_camera <>NULL
+	{
+
+		/*A recup du n° eqt de la camera */	
+		vl_index  = -1
+		for i = 0 to ARRAY_SIZE@(tm_cameras)-1
+
+			if vl_camera = tm_cameras[i].nom
+			{ 	vl_camera = tm_cameras[i].numero
+				vl_index = i 
+			}
+		next i
+
+		/*A si pas trouvé sortie */	
+		if vl_index=-1 
+		{ 
+			DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+						"impossible de trouver le n° d'eqt de cette camera")
+			Return(COM_NOK)
+		}
+
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BS_camera",vm_liste_eqt[vl_index])
+
+		/*A Appel la procedure 'ITMA_TCA_Affect_Imag_Joy' */
+			/*vl_erreur = ITMA_TCA_Affect_Imag_Joy(	vm_NomSite,
+										vl_camera,
+										va_numero,
+										vm_poste_oper)*/	
+		
+			vl_rang_pc2 = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,"BO_district_pc2")
+			vl_erreur = ITMA_TCA_Affect_Imag_Joy(vm_config_district_pc2[vl_rang_pc2].nom_code,
+										vl_camera,
+										va_numero,
+										vm_poste_oper)
+		
+		if vl_erreur=COM_OK { DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+							"Joystick sur Moniteur" ++ va_numero ++ " : OK")}
+
+	}
+
+}
+
+/*A si la condition est fausse */
+else
+{
+	/* éteindre l'ecran va_numero */
+	vl_cd1 = FALSE
+	vl_cd2 = TRUE
+	
+	if va_numero<7
+	{
+		DB_CTRL_Title@(vm_fenetre_TCA_CI,"LI_status","Ecran n°"++va_numero++" éteint...")
+	}
+	else
+	{
+		if va_numero=3 
+		DB_CTRL_Title@(vm_fenetre_TCA_CI,"LI_status","Ecran gendarmerie éteint...")
+	}
+
+	if va_numero>0
+	{	vl_objet = "BS_ecran"++va_numero++"_camera_pc2"
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,"")
+		vl_objet = "BS_ecran"++va_numero++"_evt_pc2"
+		DB_CTRL_VALUE@(vm_fenetre_TCA_CI,vl_objet,"")
+	}
+
+	if va_numero = vm_ecran_selectionne_pc2
+	{	vm_ecran_selectionne_pc2 = 0
+		DB_CTRL_GRAYED@(vm_fenetre_TCA_CI,"BP_fmc",TRUE)
+	}
+}
+
+/*A traiter le reste des objets */
+vl_objet = "BP_ecran"++va_numero++"_allume_pc2"
+DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet, vl_cd1)
+vl_objet = "BP_ecran"++va_numero++"_eteint_pc2"
+DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet, vl_cd2)
+vl_objet = "BS_ecran"++va_numero++"_camera_pc2"
+DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet, vl_cd1)
+vl_objet = "BS_ecran"++va_numero++"_evt_pc2"
+DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet, vl_cd1)
+vl_objet = "BP_ecran"++va_numero++"_select_pc2"
+DB_CTRL_DISPLAY@(vm_fenetre_TCA_CI,vl_objet, vl_cd1)
+
+/*A status retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des caméras en disponibilités
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_Liste_Eqt_Dispo_TCA(va_District,va_Equipement,va_nom_code_district)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_District		:	le numero du district
+*		va_Equipement	:	le type d'equipement
+*
+* ARGUMENTS EN SORTIE : 
+*		Liste_Eqt		: la liste des équipements correspondants
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION
+*   	Lecture des caméras en disponibilités.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT TDO_Equipement	tl_Eqts
+	VAR FORMAT COM_Localisation	vl_localisation
+
+	var	vl_Liste			' liste retournée
+	var	i				' index de loop
+	var	vl_taille			' taille de la table de resultat
+
+	/*A recuperation de la liste d'equipements dans les donnees publiques */
+ 
+	if va_Equipement=XDC_EQT_CAM 
+	{
+		tl_Eqts = SYSTEM_VAR@
+							(vg_les_cameras++"_"++va_nom_code_district)
+		tm_cameras = tl_Eqts
+	}
+	if va_Equipement=XDC_EQT_MAG 
+	{
+		tl_Eqts = SYSTEM_VAR@(vg_les_magnetoscopes)
+		tm_magnetos = tl_Eqts
+	}
+
+
+	/*A si la liste retourne est nulle : retour de la liste vide */
+	if  NOT IS_ARRAY@(tl_Eqts)
+	{
+		RETURN(NULL)
+	}
+
+	/*A Construction de la liste disponible */
+	vl_liste = ""	
+	vl_liste[0] = ""	
+	vl_taille = ARRAY_SIZE@(tl_Eqts) - 1
+ 	for i = 0 to vl_taille
+
+		vl_localisation.NumAuto = tl_Eqts[i].autoroute
+		vl_localisation.PR = tl_Eqts[i].PR
+		vl_localisation.sens_circulation = tl_Eqts[i].sens
+			
+		if va_Equipement=XDC_EQT_CAM 
+		{	vl_liste[i] = "CAM " ++ COM10_Localisation(vl_localisation) ++ " " 
+												++ tl_Eqts[i].nom
+		}
+		else
+		{	vl_liste[i] = "MAG " ++ tl_Eqts[i].nom
+		}
+ 	 next i
+
+	/*A retour de vl_liste */
+	RETURN (vl_liste)
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourne les caméras disponibles qui couvrent la zone comprise
+*				entre PR1 et PR2 et les numéros de 
+*				prépositionnement correspondants.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_chercher_camera(va_Autoroute,va_PR1,va_PR2,va_Sens)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_Autoroute	:	le numero de l'autoroute
+*		va_PR1		:	le PR 1
+*		va_PR2		:	le PR 2
+*		va_Sens		:	le sens de l'autoroute
+*
+* ARGUMENTS EN SORTIE : 
+*		ListeCamera		: la liste des cameras trouvés
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION
+*   	recherche des caméras en disponibilités entre le PR1 et le PR2.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_TypeEqt		' type d'équipement
+	var	vl_Liste_select	' liste resultat du select SQL
+	var	vl_Liste			' liste retournée
+	var	vl_Liste2			' liste tampon
+	var	i				' index de loop
+	var	vl_taille			' taille de la table de resultat
+	var 	vl_indice
+
+	/*A trace de l'appel de la procedure */
+	vm_text = " ---> Appel de la procedure 'Chercher Camera("++va_Autoroute++","++va_PR1++","++va_PR2++","++va_Sens++")'"
+	COM01_Trace(0,vm_text)
+
+	/*A parametrage de vl_parametres */
+	vl_indice=0
+	vl_parametres[vl_indice].type = SYB#INT2_
+	vl_parametres[vl_indice].data = va_Autoroute
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_PR1
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_			
+	vl_parametres[vl_indice].data = va_PR2
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT1_			
+	vl_parametres[vl_indice].data = va_Sens
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	IF COM05_SQL_Procedure (XZAO13_Chercher_Camera,
+			vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+		RETURN (COM_NOK)
+
+	/*A récuperation du select dans la liste 'liste_select' */
+	vl_Liste_select = vl_resultats.select_results[0]
+
+	/*A retour de vl_liste */
+	RETURN (vl_Liste_select)
+
+ENDMACRO
+
+ 
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet l'affectation d'un cycle ou de l'image d'une caméra
+*				fixe ou mobile, à un moniteur & à un joystick d'un opérateur
+*				au PC d'un site.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_Affect_Imag_Joy(va_NomSite,va_NumImage,va_NumMoniteur,va_PosteOperateur)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomSite		:	Nom du site (PC district)
+*		va_NumImage		:	Le numéro d'image à affecter
+*		va_NumMoniteur	:	Le numéro du moniteur à éteindre
+*		va_PosteOperateur	:	Le numéro de poste opérateur appelant
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet l'affectation d'un cycle ou de l'image d'une caméra fixe ou mobile
+*	à un moniteur & à un joystick d'un opérateur au PC d'un site.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+	{
+		ITMA_TCA_Acces_Interdit("ITMA_TCA_Affect_Imag_Joy")
+		RETURN(COM_NOK)
+	}
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEV02  
+
+	/*Hilmarcher*/
+	/*B Si operateur conecté sur PC2 alors num joystick = 0 */
+  	if (SYSTEM_VAR@(vg_operateur_++va_NomSite)=XDC_VRAI)  
+  	{   
+		vl_cmd[3]=va_NomSite ++ MTAR_CAR_SEPAR ++ va_NumImage ++ MTAR_CAR_SEPAR ++ 	
+
+/* PFE : SI on envoie 1 cela fonctionne enfin je crois */
+		/*	va_NumMoniteur ++ MTAR_CAR_SEPAR ++ "0" */
+		 	va_NumMoniteur ++ MTAR_CAR_SEPAR ++ "1"	
+	}
+	else
+  	{   
+		vl_cmd[3]=va_NomSite ++ MTAR_CAR_SEPAR ++ va_NumImage ++ MTAR_CAR_SEPAR ++ 	
+			va_NumMoniteur ++ MTAR_CAR_SEPAR ++ va_PosteOperateur
+
+		/*vl_cmd[3]=va_NomSite ++ MTAR_CAR_SEPAR ++ va_NumImage ++ MTAR_CAR_SEPAR ++
+			va_NumMoniteur ++ MTAR_CAR_SEPAR ++ 1*/
+	}
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+
+	/*B trace de l'émmission */
+	vl_text = " -pilotag camera DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[0] ++ MTAR_CAR_SEPAR 
+						++ vl_cmd[1] ++ MTAR_CAR_SEPAR
+						++ vl_cmd[2] ++ MTAR_CAR_SEPAR
+						++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de commander un magnetoscope d'un PC.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_Click_Commande_Magneto(va_TypeCmd)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_Type_Cmd	:	Le type de commande (Enregistre,arret,retour,etc..)
+*
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+*
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+*
+* FONCTION :
+*	Permet de commander un magnetoscope d'un PC.
+*---------------------------------------------------------------------------- */
+var	vl_camera				' N° de la caméra selectionné
+var	vl_magneto			' N° du magnetoscope selectionné
+var	vl_etatCamera, vl_etatMagneto
+var	vl_index, vl_erreur
+var	vl_texte
+
+		vl_camera = 0
+		vl_magneto = 0
+		vl_etatCamera = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,"BS_camera")
+		vl_etatMagneto = DB_CTRL_GET_VALUE@(vm_fenetre_TCA_CI,"BS_magnetoscope")	
+
+		/*A capture du N° d'Eqt camera */
+		if IS_ARRAY@(vm_liste_Eqt) 
+ 		{
+			vl_index = ARRAY_INDEX@(vm_liste_Eqt, vl_etatCamera)
+			if vl_index <> -1
+ 			{	vl_camera = tm_cameras[vl_index].numero }
+		}
+		/*A lecture dans la liste des magnetos le n° d'equipement */
+		if IS_ARRAY@(vm_liste_magneto) 
+ 		{
+			vl_index = ARRAY_INDEX@(vm_liste_magneto, vl_etatMagneto)
+			if vl_index <> -1
+			{ 	vl_magneto = tm_magnetos[vl_index].numero }
+		}
+		
+		/*a si camera ou magneto non renseigné */
+		if vl_magneto = 0
+		{
+			/*A message status à l'operateur */
+			DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+									"Choisissez un magnetoscope  !" )
+		}
+		/*A sinon */
+		else
+		{
+			/* Appel de la procedure 'XZEV06_Commande_Magneto' */
+			vl_erreur = ITMA_TCA_Commande_Magneto (	vm_NomSite, 
+											va_TypeCmd,
+											vl_camera,
+											vl_magneto )
+
+			/* selon le bouton magneto */
+			CASE OF va_TypeCmd
+
+			/*A bouton enregistrement */
+			CASE XDC_ENREG_MAGNETO
+				vl_texte = "Camera " ++ vl_etatCamera ++ " sur magneto " ++
+						 vl_etatMagneto
+			/*A bouton arret */
+			CASE XDC_ARRET_MAGNETO
+				vl_texte = "Arrêt magneto " ++ vl_etatMagneto
+
+			/*A bouton avance */
+			CASE XDC_AVANCE_MAGNETO
+				vl_texte = "Avance rapide magneto " ++ vl_etatMagneto
+	
+			/*A bouton retour */
+			CASE XDC_RETOUR_MAGNETO
+				vl_texte = "Retour rapide magneto " ++ vl_etatMagneto
+
+			/*A bouton pause */
+			CASE XDC_PAUSE_MAGNETO
+				vl_texte = "Pause magneto " ++ vl_etatMagneto
+
+			/*A bouton ejct */
+			CASE XDC_EJECT_MAGNETO
+				vl_texte = "Ejection cassette magneto " ++ vl_etatMagneto
+
+			/*A bouton lecture */
+			CASE XDC_LECTURE_MAGNETO
+				vl_texte = "Lecture magneto " ++ vl_etatMagneto
+
+			ENDCASE
+
+			if vl_erreur<>COM_NOK
+			{ 	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",vl_texte)
+			}
+			else
+			{ 	DB_CTRL_TITLE@(vm_fenetre_TCA_CI,"LI_status",
+				"Commande impossible ..." )				
+    	  		}
+		}
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de commander un magnetoscope d'un PC.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_Commande_Magneto(va_NomSite,va_Type_Cmd,va_NumImage,va_NumMagneto)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomSite	:	Nom du site (PC district)
+*		va_Type_Cmd	:	Le type de commande (Enregistre,arret,retour,etc..)
+*		va_NumImage	:	le numero d'image à enregistrer eventuellement
+*		va_NumMagneto	:	le numero du magneto 
+*
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+*
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+*
+* FONCTION :
+*	Permet de commander un magnetoscope d'un PC.
+*---------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_indice
+	VAR vl_result
+	VAR vl_text
+
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+	{
+		ITMA_TCA_Acces_Interdit("ITMA_TCA_Commande_Magneto")
+		RETURN(COM_NOK)
+	}
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEV06  
+
+	/*B arguments */
+	vl_cmd[3]=va_NomSite ++ MTAR_CAR_SEPAR ++ va_Type_Cmd ++ MTAR_CAR_SEPAR ++ va_NumImage ++ MTAR_CAR_SEPAR ++ va_NumMagneto ++ MTAR_CAR_SEPAR ++ vm_ecran_selectionne_pc2 
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = " -magneto DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourne un message à l'operateur et trace l'accès interdit
+*				à une macro.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_Acces_Interdit(va_NomMacro)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		macro	:	le nom de la macro interdite
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+
+* CONDITION D'UTILISATION :
+*   appel d'une macro avec les droits d'accès insuffisant.
+*
+* FONCTION :
+*	Retourne un message à l'operateur et trace l'accès interdit à une macro
+*---------------------------------------------------------------------------- */
+
+	/*A message d'info à l'opérateur */
+	vm_text = "L'utilisateur " ++vm_NomOperateur++ " n'a pas les droits suffisants" ++ NUM_TO_STRING@(10) ++ "pour la fonction : " ++ va_NomMacro
+	info_message@(vm_text)
+
+	/*A trace de l'appel de procedure */
+	vm_text = " Accès Macro " ++ va_NomMacro ++ " refusé pour " ++ vm_NomOperateur
+	COM01_Trace(0,vm_text)
+
+ENDMACRO
+
+
+
+/*X*/
+/*----------------------------------------------------------------------------
+* SERVICE RENDU :	Abonnement à la procedure XZEA13_Abt_Etat_Magnetos
+*
+* -------------------------------------------------------------------------*/
+ 
+MACRO ITMA_TCA_Abonnement_Magneto(va_1,va_2)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*			va_1 : Abonnement (debut ou fin)
+*			va_2 : Nom du site demandé
+*
+* ARGUMENTS EN SORTIE : 
+*		
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION :
+*   	
+*
+----------------------------------------------------------------------------*/
+
+	VAR vl_time,vl_cmd
+	VAR vl_liste_codes
+	VAR vl_exit_value
+	VAR vl_num_cmd
+	VAR vl_message
+	VAR vl_text
+	VAR i 
+
+
+	/*B capture du Current_Time */
+	vl_time = CURRENT_TIME@()
+
+	/*A trace de l'appel de procedure */
+	vm_text = " --> Appel ITMA_TCA_Abonnement_Magneto "
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+	vl_cmd[1]=1
+	vl_cmd[2]=MTAR_FCT_XZEA13
+	vl_cmd[3]=va_1++ MTAR_CAR_SEPAR ++ va_2
+
+	/*B envoi de la commande a la tache TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	vl_text = " -abonnt magneto DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/*----------------------------------------------------------------------------
+* SERVICE RENDU :	Abonnement à la procedure XZEA15_Abt_Etat_Camera
+*
+* -------------------------------------------------------------------------*/
+ 
+MACRO ITMA_TCA_Abonnement_Camera(va_1,va_2)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*			va_1 : Abonnement (debut ou fin)
+*			va_2 : Nom du site demandé
+*
+* ARGUMENTS EN SORTIE : 
+*		
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION :
+*   	
+*
+----------------------------------------------------------------------------*/
+
+	VAR vl_time,vl_cmd
+	VAR vl_liste_codes
+	VAR vl_exit_value
+	VAR vl_num_cmd
+	VAR vl_message
+	VAR vl_text
+	VAR i 
+
+
+	/*B capture du Current_Time */
+	vl_time = CURRENT_TIME@()
+
+	/*A trace de l'appel de procedure */
+	vm_text = " --> Appel ITMA_TCA_Abonnement_Camera "
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+	vl_cmd[1]=1
+	vl_cmd[2]=MTAR_FCT_XZEA15
+	vl_cmd[3]=va_1++ MTAR_CAR_SEPAR ++ va_2
+
+	/*B envoi de la commande a la tache TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	vl_text = " -abonnt camera DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Ceation des liste de cameras des districts Niv2
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_init_Liste_Eqt_Dispo_TCA()
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*
+* ARGUMENTS EN SORTIE : 
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*   
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR	FORMAT 	TCA_Donnees_Equipements 	vl_info_equip
+	VAR	FORMAT 	TDO_Equipement			vl_equipement
+	VAR 	FORMAT 	TDO_District			vl_les_districts
+
+	var	i, j	, k			' index de loop
+	var 	tl_eqts
+	VAR	vl_Index_Site
+	VAR	vl_en_double
+
+vl_les_districts = SYSTEM_VAR@ (vg_les_districts)
+vl_info_equip = NULL
+
+/*A
+ * Listes des cameras des PC niv 2
+ * -------------------------------
+ */
+
+vl_parametres = NULL
+vl_parametres[0].type	= SYB#INT1_
+vl_parametres[0].data	= XDC_EQT_CAM	
+vl_parametres[0].output	= FALSE
+	
+vl_parametres[1].type	= SYB#INT1_	
+vl_parametres[1].data	= NULL
+vl_parametres[1].output	= FALSE
+
+vl_parametres[2].type	= SYB#INT4_			' Conditions
+vl_parametres[2].data	= XDC_EQT_HS
+vl_parametres[2].output	= FALSE
+
+vl_parametres[3].type	= SYB#INT4_			' Conditions niees
+vl_parametres[3].data	= XDC_EQT_NON_HS
+vl_parametres[3].output	= FALSE
+	
+vl_parametres[4].type	= SYB#INT4_			' Exclusions
+vl_parametres[4].data	= 0 
+vl_parametres[4].output	= FALSE
+
+vl_parametres[5].type	= SYB#INT4_			' Exclusions niees
+vl_parametres[5].data	= 0	
+vl_parametres[5].output	= FALSE
+IF COM05_SQL_Procedure (XZAT010_Liste_Eqt_Dispo,
+						vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+
+vl_info_equip = vl_resultats.select_results[0]
+
+/*A si le resultat du select n'est pas nul */
+if ARRAY_SIZE@(vl_info_equip)>0 
+{
+   for i = 0 to ARRAY_SIZE@(vm_config_district_pc2) - 1
+   if (SYSTEM_VAR@(vg_les_cameras++"_"++vm_config_district_pc2[i].nom_code) = NULL)
+   {
+	/*A pour chaque enregistrement*/ 
+	k = 0
+	tl_eqts = NULL
+	for  j=0 to ARRAY_SIZE@(vl_info_equip)-1
+
+		vl_Index_Site = COM45_IndexEnColonne (vl_les_districts, TDO_NUMERO_DISTRICT,
+		                                         vl_info_equip[j].sitegestion)
+		if vl_Index_Site >= 0
+		{
+			if ( vl_les_districts[vl_Index_Site].numero =  
+							vm_config_district_pc2[i].code )
+			{	
+				/*filtrage des eqts en double dans EQT_DSP*/
+				vl_en_double = FALSE
+				if (j > 0)
+				{
+					if (vl_info_equip[j-1].numero = vl_info_equip[j].numero)
+						vl_en_double = TRUE
+				}
+				if (vl_en_double = FALSE)
+				{
+					vl_equipement.numero = vl_info_equip[j].numero
+					vl_equipement.nom = vl_info_equip[j].nom
+					vl_equipement.autoroute = vl_info_equip[j].autoroute
+					vl_equipement.PR = vl_info_equip[j].PR
+					vl_equipement.sens = vl_info_equip[j].sens
+					vl_equipement.site_gestion = vl_info_equip[j].sitegestion
+					vl_equipement.dispo = vl_info_equip[j].dispo
+
+					tl_eqts[k] = vl_equipement
+					k = k + 1
+				}
+			}
+		}
+	next j
+
+	/*A recuperation du select dans la liste 'vg_les_cameras'*/ 
+	SET_SYSTEM_VAR@(vg_les_cameras++"_"++vm_config_district_pc2[i].nom_code, 
+				tl_eqts)		
+   }
+   next i
+}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Recherche du district et de mon de la caméra modifiee
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_recherche_site_camera(va_numero_camera)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*				va_numero_camera:	Numero de la camera 
+*
+* ARGUMENTS EN SORTIE : 
+*				vl_index_district:	rang du district et nom de la camera
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION
+*   .
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT TDO_Equipement	tl_liste_eqts
+
+	var	i,j				' index de loop
+	var  vl_index_district
+
+
+for i = 0 to ARRAY_SIZE@(vm_config_district_pc2) - 1
+
+	tl_liste_eqts = SYSTEM_VAR@(vg_les_cameras++"_"++
+					vm_config_district_pc2[i].nom_code )
+	for j = 0 to ARRAY_SIZE@(tl_liste_eqts) - 1
+		if tl_liste_eqts[j].numero = va_numero_camera +0
+		{
+			vl_index_district[0] = i
+			vl_index_district[1] = tl_liste_eqts[j].nom
+			i = ARRAY_SIZE@(vm_config_district_pc2)
+			j = ARRAY_SIZE@(tl_liste_eqts)
+		}
+	next j
+next i
+
+return ( vl_index_district )
+
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Recherche de la  caméra par son nom
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_recherche_param_camera(va_nom_camera)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*				va_nom_camera:	numero de la camera
+*
+* ARGUMENTS EN SORTIE : 
+*				vl_param_camera:	affichage pour derniere camera utilisee
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*   	
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT TDO_Equipement	tl_liste_eqts 
+
+	var	i,j				' index de loop
+	var  vl_param_camera
+	VAR FORMAT COM_Localisation vl_localisation
+
+for i = 0 to ARRAY_SIZE@(vm_config_district_pc2) - 1
+	tl_liste_eqts = SYSTEM_VAR@(vg_les_cameras++"_"++
+					vm_config_district_pc2[i].nom_code )
+	for j = 0 to ARRAY_SIZE@(tl_liste_eqts) - 1
+		if tl_liste_eqts[j].nom = va_nom_camera
+		{
+			vl_localisation.NumAuto = tl_liste_eqts[j].autoroute
+			vl_localisation.PR = tl_liste_eqts[j].PR
+			vl_localisation.sens_circulation = tl_liste_eqts[j].sens
+			vl_param_camera = "CAM " ++ COM10_Localisation(vl_localisation) 
+							++ "   "++ tl_liste_eqts[j].nom
+			
+			i = ARRAY_SIZE@(vm_config_district_pc2)
+			j = ARRAY_SIZE@(tl_liste_eqts)
+		}
+	next j
+next i
+
+return ( vl_param_camera )
+
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU : Affiche les titres du district pour Niv1 & 3	
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TCA_affiche_district_pc1(vl_pc1_rang)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*				vl_pc1_rang:	rang du district 
+*
+* ARGUMENTS EN SORTIE : 
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+* 
+*
+* FONCTION
+*   .
+*
+---------------------------------------------------------------------------- */
+
+	DB_CTRL_VALUE@(vm_fenetre_TCA_CI,"BO_district",vl_pc1_rang)
+
+	DB_CTRL_TITLE@(vm_fenetre_TCA_CI, "LI_liste_LTV", "Liste des LTV de "
+							++vm_config_district[vl_pc1_rang].nom)
+	DB_CTRL_TITLE@(vm_fenetre_TCA_CI, "LI_canaux", "Liste des canaux de "
+							++vm_config_district[vl_pc1_rang].nom)
+	DB_CTRL_TITLE@(vm_fenetre_TCA_CI, "LI_moniteur", "Moniteurs de "
+							++vm_config_district[vl_pc1_rang].nom)
+
+ENDMACRO
+
+

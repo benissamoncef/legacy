@@ -1,0 +1,470 @@
+/*E*/
+/* Fichier : $Id: dedi_ec5_nature.am,v 1.3 1995/11/27 15:28:40 thomas Exp $	      Release : $Revision: 1.3 $        Date : $Date: 1995/11/27 15:28:40 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec5_nature.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* element nature pour le message tfm
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	22 jan 1995	: Creation						V1.1
+* Thomas	24 nov 1995	: Suppression du cas bouchon sur echangeur	V1.3
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+DEFINE	CAR_SEPAR_DEF			"$"
+
+FORMAT ec22_expression
+	type,
+	nom,
+	veh_chaussee,
+	veh_lit,
+	bou_echangeur, 
+	bou_difficile,
+	bou_ralenti,
+	bou_bouchon,
+	bou_bloque,
+	ech_entree,
+	ech_sortie,
+	ech_ferme
+
+
+FORMAT ec22_affichage
+	type,
+	nom
+
+
+VAR FORMAT ec22_expression tm_expr
+
+
+VAR FORMAT ec22_affichage tm_affichage
+
+
+VAR vm_fichierShort
+VAR vm_fichier
+VAR vm_titre
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* element nature pour le message tfm
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec5_nature (va_mode)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_selection
+var tl_pokes
+var vl_indice
+var tl_data
+var vl_titre
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec5_nature")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,0)
+DB_YPOS@(vl_fenetre,72)
+DB_WIDTH@(vl_fenetre,1264)
+DB_WINDOW_REMAIN@(vl_fenetre,TRUE)
+
+
+/*A si groupe nominal*/
+IF (va_mode=0)
+{
+	DB_TITLE@(vl_fenetre,"Formulation de l'élément nature - Groupe nominal")
+	vm_fichier=AX_PATH++IE_FILE_NATUREGN_TFM
+	vm_fichierShort=IE_FILE_NATUREGN_TFM
+	vl_titre="Groupe nominal: "
+	DB_CTRL_TITLE@(vl_fenetre,"BS_nom","Groupe nominal")
+	vm_titre="Groupe nominal"
+}
+/*A sinon groupe verbal*/
+ELSE
+{
+	DB_TITLE@(vl_fenetre,"Formulation de l'élément nature - Groupe verbal")
+	vm_fichier=AX_PATH++IE_FILE_NATUREGV_TFM
+	vm_fichierShort=IE_FILE_NATUREGV_TFM
+	vl_titre="Groupe verbal: "
+	DB_CTRL_TITLE@(vl_fenetre,"BS_nom","Groupe verbal")
+	vm_titre="Groupe verbal"
+}
+
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec5_nature_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton modifier*/
+		CASE "BP_modifier"
+			/*A si un element est bien selectionne*/
+			IF (vl_selection++"")<>null
+			{
+				/*A si le type est vehicule arrete*/
+				IF (tm_expr[vl_selection].type="VEHICULE ARRETE")
+				{
+					tm_expr[vl_selection].veh_chaussee=DB_CTRL_GET_VALUE@(
+													vl_fenetre,
+													"BS_chaussee")
+					tm_expr[vl_selection].veh_lit=DB_CTRL_GET_VALUE@(
+													vl_fenetre,
+													"BS_lit")
+					tm_affichage[vl_selection].nom=
+								tm_expr[vl_selection].veh_chaussee++"/"++
+								tm_expr[vl_selection].veh_lit
+					DB_CTRL_TITLE@(vl_fenetre,"LI_nom",vl_titre++
+									tm_affichage[vl_selection].nom)
+				}
+				/*A sinon si le type est bouchon*/
+				ELSE IF (tm_expr[vl_selection].type="BOUCHON")
+				{
+				'	tm_expr[vl_selection].bou_echangeur=DB_CTRL_GET_VALUE@(
+				'								vl_fenetre,
+				'								"BS_echangeur") 
+					tm_expr[vl_selection].bou_difficile=DB_CTRL_GET_VALUE@(
+												vl_fenetre,
+												"BS_dense")
+					tm_expr[vl_selection].bou_ralenti=DB_CTRL_GET_VALUE@(
+												vl_fenetre,
+												"BS_ralenti")
+					tm_expr[vl_selection].bou_bouchon=DB_CTRL_GET_VALUE@(
+												vl_fenetre,
+												"BS_bouchon")
+					tm_expr[vl_selection].bou_bloque=DB_CTRL_GET_VALUE@(
+												vl_fenetre,
+												"BS_bloquee")
+
+					tm_affichage[vl_selection].nom=
+							'	tm_expr[vl_selection].bou_echangeur++"/"++
+								tm_expr[vl_selection].bou_difficile++"/"++
+								tm_expr[vl_selection].bou_ralenti++"/"++
+								tm_expr[vl_selection].bou_bouchon++"/"++
+								tm_expr[vl_selection].bou_bloque
+
+					DB_CTRL_TITLE@(vl_fenetre,"LI_nom",vl_titre++
+									tm_affichage[vl_selection].nom)
+				}
+				/*A sinon si le type est fermeture echangeur*/
+				ELSE IF (tm_expr[vl_selection].type="Fermeture echangeur")
+				{
+					tm_expr[vl_selection].ech_entree=DB_CTRL_GET_VALUE@(
+													vl_fenetre,
+													"BS_entree")
+					tm_expr[vl_selection].ech_sortie=DB_CTRL_GET_VALUE@(
+													vl_fenetre,
+													"BS_sortie")
+					tm_expr[vl_selection].ech_ferme=DB_CTRL_GET_VALUE@(
+												vl_fenetre,
+												"BS_entree_sortie")
+
+					tm_affichage[vl_selection].nom=
+								tm_expr[vl_selection].ech_entree++"/"++
+								tm_expr[vl_selection].ech_sortie++"/"++
+								tm_expr[vl_selection].ech_ferme
+
+					DB_CTRL_TITLE@(vl_fenetre,"LI_nom",vl_titre++
+									tm_affichage[vl_selection].nom)
+				}
+				ELSE
+				{
+					tm_expr[vl_selection].nom=DB_CTRL_GET_VALUE@(vl_fenetre,
+														"BS_nom")
+					tm_affichage[vl_selection].nom=tm_expr[vl_selection].nom
+				}
+
+				/*A met a jour la table*/
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_types",tm_affichage,0)
+
+				/*A reselectionne l'element dans la table*/
+				vl_indice[0]=vl_selection
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_types",vl_indice)
+			}
+
+		/*A choix d'un type dans la table*/
+		CASE "TA_types"
+			/*A indice du type choisi*/
+			vl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,vl_evt)
+			vl_selection=vl_selection[0]
+
+			/*A affiche les valeurs de ce type pour modif*/
+			DB_CTRL_TITLE@(vl_fenetre,"LI_type",
+								tm_affichage[vl_selection].type)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_nom",tm_affichage[vl_selection].nom)
+
+			/*A j'efface tous les controles complementaires*/
+			DB_CTRL_DISPLAY@(vl_fenetre,"BS_nom",TRUE)
+			DB_CTRL_DISPLAY@(vl_fenetre,"LI_nom",FALSE)
+			DB_CTRL_DISPLAY@(vl_fenetre,"BS_chaussee",FALSE)
+			DB_CTRL_DISPLAY@(vl_fenetre,"BS_lit",FALSE)
+
+			DB_CTRL_DISPLAY@(vl_fenetre,"BS_entree",FALSE)
+			DB_CTRL_DISPLAY@(vl_fenetre,"BS_sortie",FALSE)
+			DB_CTRL_DISPLAY@(vl_fenetre,"BS_entree_sortie",FALSE)
+
+			DB_CTRL_DISPLAY@(vl_fenetre,"BS_bloquee",FALSE)
+			DB_CTRL_DISPLAY@(vl_fenetre,"BS_ralenti",FALSE)
+			DB_CTRL_DISPLAY@(vl_fenetre,"BS_dense",FALSE)
+			DB_CTRL_DISPLAY@(vl_fenetre,"BS_bouchon",FALSE)
+		'	DB_CTRL_DISPLAY@(vl_fenetre,"BS_echangeur",FALSE)
+
+			/*A si le type est vehicule arrete*/
+			IF (tm_expr[vl_selection].type="VEHICULE ARRETE")
+			{
+				/*A j'affiche les champs complement associes*/
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_nom",FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"LI_nom",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_chaussee",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_lit",TRUE)
+
+				/*A je valorise ces champs*/
+				DB_CTRL_TITLE@(vl_fenetre,"LI_nom",vl_titre++
+									tm_affichage[vl_selection].nom)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_chaussee",
+									tm_expr[vl_selection].veh_chaussee)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_lit",
+								tm_expr[vl_selection].veh_lit)
+			}
+			/*A sinon si le type est bouchon*/
+			ELSE IF (tm_expr[vl_selection].type="BOUCHON")
+			{
+				/*A j'affiche les champs complement associes*/
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_nom",FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"LI_nom",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_bouchon",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_bloquee",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_ralenti",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_dense",TRUE)
+			'	DB_CTRL_DISPLAY@(vl_fenetre,"BS_echangeur",TRUE) 
+
+				/*A je valorise ces champs*/
+				DB_CTRL_TITLE@(vl_fenetre,"LI_nom",vl_titre++
+									tm_affichage[vl_selection].nom)
+			'	DB_CTRL_VALUE@(vl_fenetre,"BS_echangeur",
+			'						tm_expr[vl_selection].bou_echangeur)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_dense",
+									tm_expr[vl_selection].bou_difficile)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_ralenti",
+										tm_expr[vl_selection].bou_ralenti)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bouchon",
+										tm_expr[vl_selection].bou_bouchon)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bloquee",
+										tm_expr[vl_selection].bou_bloque)
+			}
+			/*A sinon si le type est fermeture echangeur*/
+			ELSE IF (tm_expr[vl_selection].type="Fermeture echangeur")
+			{
+				/*A j'affiche les champs complement associes*/
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_nom",FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"LI_nom",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_entree",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_sortie",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_entree_sortie",TRUE)
+
+				/*A je valorise ces champs*/
+				DB_CTRL_TITLE@(vl_fenetre,"LI_nom",vl_titre++
+									tm_affichage[vl_selection].nom)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_entree",
+										tm_expr[vl_selection].ech_entree)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_sortie",
+										tm_expr[vl_selection].ech_sortie)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_entree_sortie",
+										tm_expr[vl_selection].ech_ferme)
+			}
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			IF (ec5_nature_valide(vl_fenetre)=TRUE)
+				RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec5_nature_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_titres
+VAR tl_data
+VAR vl_indice
+VAR tl_affichage
+VAR vl_index
+
+	/*A affiche la liste des var autorisees pour la fenetre*/
+	tl_data=dedi_var_fenetre(vm_fichierShort)
+	DB_CTRL_STRINGS@(va_fenetre,"BL_var",tl_data)
+
+	/*A lecture du fichier de config*/
+	tl_data=READ_ASCII_FILE@(vm_fichier)
+
+	/*A formatte les donnees*/	
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tm_expr[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+												DEDI_CAR_SEPAR)
+
+		/*A formatte les donnees a afficher*/
+
+		/*A colonne1: le type*/
+		tm_affichage[vl_indice][0]=tm_expr[vl_indice][0]
+
+		/*A si le libelle est non nul*/
+		IF (tm_expr[vl_indice][1]<>null)
+			/*A je le recupere*/
+			tm_affichage[vl_indice][1]=tm_expr[vl_indice][1]
+		ELSE
+		{
+			/*A extrait les differents morceaux de texte*/
+			FOR vl_index=1 TO (ARRAY_SIZE@(tm_expr[vl_indice])-1)
+				IF (tm_expr[vl_indice][vl_index]<>NULL)
+					/*A les concatene*/
+					tm_affichage[vl_indice][1]=tm_affichage[vl_indice][1]++
+								tm_expr[vl_indice][vl_index]++"/"
+			NEXT vl_index
+		}
+	NEXT vl_indice
+
+	/*A affiche la liste des objectifs*/
+	tl_titres[0][0] = "Evénement"
+	tl_titres[0][1] = 200
+	tl_titres[1][0] = vm_titre
+	tl_titres[1][1] = 1000
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_types", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_types",TRUE)
+
+	DB_TABLE_SET_DATA@(va_fenetre,"TA_types",tm_affichage,tl_titres)
+
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation des objectifs
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec5_nature_valide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	/*A formatte les donnees de la table*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_expr)-1)
+		tl_data[vl_indice]=ARRAY_TO_STRING@(tm_expr[vl_indice],
+											DEDI_CAR_SEPAR)
+	NEXT vl_indice
+	
+	/*A sauvegarde dans le fichier*/
+	WRITE_ASCII_FILE@(vm_fichier,tl_data)
+	RETURN (TRUE)
+ENDMACRO
+
+
+

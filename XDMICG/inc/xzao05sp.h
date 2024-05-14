@@ -1,0 +1,1 @@
+DEFINE	XZAO05_Nom_Machine_LT			"XZAO;05"

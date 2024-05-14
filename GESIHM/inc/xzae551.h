@@ -1,0 +1,2 @@
+/*SAGA*/
+DEFINE	XZAE551_Droit_Propriete	"XZAE551"

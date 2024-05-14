@@ -1,0 +1,407 @@
+/*E*/
+/* Fichier : @(#)ITMA_TPI_post_it.am	1.1		Release : 1.1		Date : 01/04/95
+/* Fichier : $Id: ITMA_TPI_post_it.am,v 1.7 1995/04/03 12:47:31 lecrivain Exp $      Release : $Revision: 1.7 $        Date : $Date: 1995/04/03 12:47:31 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TPI * FICHIER ITMA_TPI_post_it
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Affichage et modification d'un post-it sur ecran IGN
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Noel       04 Dec 1994 : Creation                                     V1.1
+* Lecrivain  08 Mar 1995 : Mode affichage et mode modification          V1.3
+* Lecrivain  29 Mar 1995 : Gestion position post-it, ecriture coord. V1.4 ->1.7
+-------------------------------------------------------------------------- */
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTPI"			' Nom du module
+
+
+
+/*A
+ * Localisation et nom des fichiers de textes post-it
+ * --------------------------------------------------
+ */
+
+DEFINE	C_SOUS_REP_POST_IT	COM_SOUS_REP_DYN
+DEFINE	C_FICHIER_POST_IT	"post_it.inf"
+
+DEFINE	C_REPERTOIRE_TMP	"/tmp/"
+
+
+
+/*A
+ * Nom (titre) de la fenetre post-it ;
+ * commande de recuperation de ses coordonnees ;
+ * valeurs des increments pour ajuster sa position
+ * -----------------------------------------------
+ */
+
+DEFINE	C_TITRE_POST_IT	"POST-IT  IGN"
+
+DEFINE	C_CMD_LECT_POS	"xwininfo -stats -name '%s' | sed -n 's/^ *[Cc]orners[^+]*+\([^ ]*\).*/\1/p'"
+
+DEFINE	C_INCREMENT_HORIZONTAL	(-11)
+DEFINE	C_INCREMENT_VERTICAL	(-33)
+
+
+
+VAR	vm_rep_post_it				' Chemin d'acces fichiers
+
+VAR	vm_texte				' Texte du post-it
+
+VAR	vm_taille_normale			' Taille fenetre en edition
+VAR	vm_taille_reduite			' Taille fenetre en visu seule
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation et edition du texte d'un post-it sur synoptique.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPI_post_it (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MSOP sur selection du post_it.
+*
+* FONCTION
+*   lit les informations depuis le fichier et les affiche ;
+*   autorise la saisie de modifications
+*   puis permet de valider ou ignorer les modifications.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_post_it			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_texte				' Le texte saisi par l'operateur
+    VAR     vl_fin_avec_sauvegarde		' Argument du message de fin
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Post-it"
+ * ----------------------------
+ */
+
+vl_fenetre_post_it = DB_LOAD@ ("ITMA_TPI")
+DB_WINDOW_REMAIN@ (vl_fenetre_post_it, TRUE)
+DB_TITLE@ (vl_fenetre_post_it, C_TITRE_POST_IT)
+
+COM02_Attacher_Aide (vl_fenetre_post_it, "ITMA_TPI_post_it")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_MTPI
+vl_les_messages_acceptes[2] = COM_CANAL_MTPI_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_post_it, vl_les_messages_acceptes)
+
+
+/*A
+ * Initialiser la visualisation
+ * ----------------------------
+ */
+
+vm_rep_post_it = SYSTEM_VAR@(vg_repertoire_migrazur) ++ C_SOUS_REP_POST_IT
+
+vm_taille_normale = DB_GET_HEIGHT@ (vl_fenetre_post_it)
+vm_taille_reduite = DB_CTRL_GET_HEIGHT@ (vl_fenetre_post_it, "BE_Texte")
+vm_taille_reduite = vm_taille_reduite[0]
+DB_HEIGHT@ (vl_fenetre_post_it, vm_taille_reduite)
+
+DB_CTRL_VALUE@ (vl_fenetre_post_it, "BL_Texte", -1)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_post_it, "BL_Texte", TRUE)
+
+DB_CTRL_DISPLAY@ (vl_fenetre_post_it, "BE_Texte", FALSE)
+
+TPI_Lire_Post_It (vl_fenetre_post_it, C_FICHIER_POST_IT, vm_texte)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_post_it)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_post_it)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_post_it)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+
+
+	/*A
+	 * Sur reception d'un message de fin, memoriser
+	 * position et texte si c'est demande puis terminer
+	 * ------------------------------------------------
+	 */
+
+        CASE COM_CANAL_MTPI_FIN
+	    vl_fin_avec_sauvegarde = DB_GET_POKE_DATA@ (vl_fenetre_post_it)
+	    IF IS_ARRAY@ (vl_fin_avec_sauvegarde)
+		vl_fin_avec_sauvegarde = vl_fin_avec_sauvegarde[0]
+	    IF vl_fin_avec_sauvegarde = XDC_OUI
+		TPI_Ecrire_Post_It (vl_fenetre_post_it, C_FICHIER_POST_IT, vm_texte)
+            vl_la_fenetre_est_active = FALSE
+
+
+	/*A
+	 * Sur reception d'un message de sauvegarde,
+	 * memoriser la position et le texte courants
+	 * ------------------------------------------
+	 */
+
+        CASE COM_CANAL_MTPI
+	    TPI_Ecrire_Post_It (vl_fenetre_post_it, C_FICHIER_POST_IT, vm_texte)
+        ENDCASE
+
+
+    /*A
+     * Sur choix "Quitter", memoriser position et texte et terminer
+     * ------------------------------------------------------------
+     */
+
+    CASE "BP_Quitter"
+	TPI_Ecrire_Post_It (vl_fenetre_post_it, C_FICHIER_POST_IT, vm_texte)
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur clic sur le texte du post-it, passer en mode edition
+     * --------------------------------------------------------
+     */
+
+    CASE "BL_Texte"
+	DB_CTRL_DISPLAY@ (vl_fenetre_post_it, "BE_Texte", TRUE)
+	DB_CTRL_DISPLAY@ (vl_fenetre_post_it, "BL_Texte", FALSE)
+	DB_HEIGHT@ (vl_fenetre_post_it, vm_taille_normale)
+
+
+    /*A
+     * Sur choix "Valider", ecrire le post-it sur fichier et reduire la fenetre
+     * ------------------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	vm_texte = DB_EDITBOX_GET_DATA@ (vl_fenetre_post_it, "BE_Texte")
+	TPI_Ecrire_Post_It (vl_fenetre_post_it, C_FICHIER_POST_IT, vm_texte)
+
+	/*B Au moins une ligne de texte pour pouvoir selectionner ! */
+	vl_texte = vm_texte
+	vl_texte[10] = vl_texte[10] ++ ""
+	DB_CTRL_STRINGS@ (vl_fenetre_post_it, "BL_Texte", vl_texte)
+
+	DB_CTRL_DISPLAY@ (vl_fenetre_post_it, "BE_Texte", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre_post_it, "BL_Texte", TRUE)
+	DB_CTRL_VALUE@ (vl_fenetre_post_it, "BL_Texte", -1)
+
+	DB_HEIGHT@ (vl_fenetre_post_it, vm_taille_reduite)
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit les informations du post-it et le visualise.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TPI_Lire_Post_It (va_fenetre, va_fichier, va_texte)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_fichier        : Nom du fichier contenant les informations a visualiser.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_texte          : Le texte du post-it charge et affiche.
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPI_post_it
+*
+* FONCTION
+*   Initialise le texte et la position du post-it.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fichier				' Chemin d'acces complet fichier
+    VAR     vl_texte				' Texte des informations (table)
+    VAR     vl_coordonnees			' Coordonnees fenetre
+
+
+vl_fichier = vm_rep_post_it ++ va_fichier
+
+/*A
+ * Si le fichier existe alors lire son contenu et l'afficher
+ * ---------------------------------------------------------
+ */
+
+IF FILE_EXISTS@ (vl_fichier) {
+    vl_texte = READ_ASCII_FILE@ (vl_fichier)
+    vl_coordonnees = ARRAY_FROM_STRING@ (vl_texte[0], "+")
+    vl_texte = ARRAY_DELETE@ (vl_texte, 0)
+
+    DB_XPOS@ (va_fenetre, vl_coordonnees[0] + C_INCREMENT_HORIZONTAL)
+    DB_YPOS@ (va_fenetre, vl_coordonnees[1] + C_INCREMENT_VERTICAL)
+} ELSE vl_texte = NULL
+
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                ' a la boite d'edition
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_EDITBOX_SET_DATA@ (va_fenetre, "BE_Texte", vl_texte)
+va_texte = vl_texte
+
+
+/*B Au moins une ligne de texte pour pouvoir selectionner ! */
+vl_texte[10] = vl_texte[10] ++ ""
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Texte", vl_texte)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Ecrit les informations du post-it sur fichier.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TPI_Ecrire_Post_It (va_fenetre, va_fichier, va_texte)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant le texte du post-it ;
+*   va_fichier        : Nom du fichier dans lequel ecrire les informations ;
+*   va_texte          : Le texte du post-it a ecrire.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPI_post_it
+*
+* FONCTION
+*   Recupere les coordonnees de la fenetre par requete au window manager ;
+*   ecrit ensuite sur le fichier indique la position et le texte visualise.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fichier_tmp			' Fichier temporaire
+    VAR     vl_texte				' Texte du fichier sauvegarde
+    VAR     vl_cmd				' Commande de recuperation coord
+    VAR     vl_coordonnees			' Coordonnees fenetre
+
+
+/*A
+ * Determiner la position de la fenetre post-it
+ * --------------------------------------------
+ */
+
+vl_cmd = FORMAT@ (C_CMD_LECT_POS, C_TITRE_POST_IT)
+vl_coordonnees = SHELL_COMMAND@ (vl_cmd)
+
+
+/*A
+ * Ajouter le texte du post-it et ecrire les informations sur fichier
+ * ------------------------------------------------------------------
+ */
+
+vl_texte = ARRAY_APPEND@ (vl_coordonnees, va_texte)
+
+vl_fichier_tmp = C_REPERTOIRE_TMP ++ va_fichier
+WRITE_ASCII_FILE@ (vl_fichier_tmp, vl_texte)
+MOVE_FILE@ (vl_fichier_tmp, vm_rep_post_it)
+
+ENDMACRO

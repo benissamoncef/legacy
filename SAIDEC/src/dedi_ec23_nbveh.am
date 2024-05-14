@@ -1,0 +1,157 @@
+/*E*/
+/* Fichier : $Id: dedi_ec23_nbveh.am,v 1.1 1995/05/24 10:14:27 gesconf Exp $	      Release : $Revision: 1.1 $        Date : $Date: 1995/05/24 10:14:27 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec23_nbveh.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* formulation element voies nbvehes pour fax
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Thomas	14 mars 1995	: Creation						V1.1
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+VAR 		tm_def,tm_var
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition de la formulation
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec23_nbveh ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var tl_pokes
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec23_nbveh")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,220)
+DB_YPOS@(vl_fenetre,70)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec23_nbveh_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*A recupere les donnees de l'ecran*/
+			tm_def[0]=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_vl")
+			tm_def[1]=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_pl")
+			tm_def[2]=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_rem")
+			tm_def[3]=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_cars")
+			tm_def[4]=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_motos")
+			tm_def[5]=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_arrete")
+	
+			WRITE_ASCII_FILE@(AX_PATH++IE_FILE_NBVEH_FAX,tm_def)
+			RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec23_nbveh_init(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	/*A affichage des variables autorisees*/
+	tm_var=dedi_var_fenetre(IE_FILE_NBVEH_FAX)
+	DB_CTRL_STRINGS@(va_fenetre,"BL_var",tm_var)
+
+	/*A chargement des perturbations depuis le fichier de config*/
+	tm_def=READ_ASCII_FILE@(AX_PATH++IE_FILE_NBVEH_FAX)
+
+	/*A affiche les textes*/
+	DB_CTRL_VALUE@(va_fenetre,"BS_vl",tm_def[0])
+	DB_CTRL_VALUE@(va_fenetre,"BS_pl",tm_def[1])
+	DB_CTRL_VALUE@(va_fenetre,"BS_rem",tm_def[2])
+	DB_CTRL_VALUE@(va_fenetre,"BS_cars",tm_def[3])
+	DB_CTRL_VALUE@(va_fenetre,"BS_motos",tm_def[4])
+	DB_CTRL_VALUE@(va_fenetre,"BS_arrete",tm_def[5])
+
+ENDFUNCTION

@@ -1,0 +1,250 @@
+/*E*/
+/* Fichier : $Id: dedi_ec5_local.am,v 1.3 1995/09/13 16:57:55 gesconf Exp $	      Release : $Revision: 1.3 $        Date : $Date: 1995/09/13 16:57:55 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec5_local.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* formulation element heure de local pour message TFM
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	06 fev 1994	: Creation						V1.1
+* Thomas	06 sep 1995	: ajout cas limites de concession (1.2)
+* Thomas	08 sep 1995	: ajout edition distance (1.3)
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+VAR 		tm_def
+VAR		tm_var
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition de la formulation
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec5_local ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice
+var vl_selection
+var tl_data
+var tl_pokes
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec5_local")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,220)
+DB_YPOS@(vl_fenetre,70)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec5_local_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			IF ec5_local_valide(vl_fenetre) = TRUE
+				RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec5_local_init(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A affichage des variables autorisees*/
+	tl_data=dedi_var_fenetre(IE_FILE_LOCAL_TFM)
+	DB_CTRL_STRINGS@(va_fenetre,"BL_var",tl_data)
+
+	/*A chargement des perturbations depuis le fichier de config*/
+	tm_def=READ_ASCII_FILE@(AX_PATH++IE_FILE_LOCAL_TFM)
+
+	/*A affiche les textes*/
+	DB_CTRL_VALUE@(va_fenetre,"BS_sortie_sortie",tm_def[0])
+	DB_CTRL_VALUE@(va_fenetre,"BS_sortie_bifurc",tm_def[1])
+	DB_CTRL_VALUE@(va_fenetre,"BS_bifurc_sortie",tm_def[2])
+	DB_CTRL_VALUE@(va_fenetre,"BS_bifurc_bifurc",tm_def[3])
+
+	DB_CTRL_VALUE@(va_fenetre,"BS_sortie_amont",tm_def[4])
+	DB_CTRL_VALUE@(va_fenetre,"BS_bifurc_amont",tm_def[5])
+	DB_CTRL_VALUE@(va_fenetre,"BS_sortie_aval",tm_def[6])
+	DB_CTRL_VALUE@(va_fenetre,"BS_bifurc_aval",tm_def[7])
+
+	DB_CTRL_VALUE@(va_fenetre,"BS_descente",tm_def[8])
+	DB_CTRL_VALUE@(va_fenetre,"BS_montee",tm_def[9])
+	DB_CTRL_VALUE@(va_fenetre,"BS_tunnel",tm_def[10])
+
+	DB_CTRL_VALUE@(va_fenetre,"BS_distance_sortie",tm_def[11])
+	DB_CTRL_VALUE@(va_fenetre,"BS_distance_bifurc",tm_def[12])
+
+	DB_CTRL_VALUE@(va_fenetre,"BS_ech_entree",tm_def[13])
+	DB_CTRL_VALUE@(va_fenetre,"BS_ech_sortie",tm_def[14])
+	DB_CTRL_VALUE@(va_fenetre,"BS_barriere",tm_def[15])
+	DB_CTRL_VALUE@(va_fenetre,"BS_aire",tm_def[16])
+
+	DB_CTRL_VALUE@(va_fenetre,"BS_limite_amont",tm_def[17])
+	DB_CTRL_VALUE@(va_fenetre,"BS_limite_aval",tm_def[18])
+
+	DB_CTRL_VALUE@(va_fenetre,"BS_distance",tm_def[19])
+
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec5_local_valide(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : TRUE si ona valide, FALSE sinon
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	tm_def=null
+
+	/*A affiche les textes*/
+	tm_def[0]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_sortie_sortie")
+	tm_def[1]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_sortie_bifurc")
+	tm_def[2]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_bifurc_sortie")
+	tm_def[3]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_bifurc_bifurc")
+
+	tm_def[4]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_sortie_amont")
+	tm_def[5]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_bifurc_amont")
+	tm_def[6]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_sortie_aval")
+	tm_def[7]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_bifurc_aval")
+
+	tm_def[8]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_descente")
+	tm_def[9]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_montee")
+	tm_def[10]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_tunnel")
+
+	tm_def[11]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_distance_sortie")
+	tm_def[12]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_distance_bifurc")
+
+	tm_def[13]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_ech_entree")
+	tm_def[14]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_ech_sortie")
+	tm_def[15]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_barriere")
+	tm_def[16]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_aire")
+
+	tm_def[17]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_limite_amont")
+	tm_def[18]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_limite_aval")
+
+	tm_def[19]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_distance")
+
+	/*A on verifie que la distance a ete renseignee */
+	IF tm_def[19] <> NULL
+	{	
+		WRITE_ASCII_FILE@(AX_PATH++IE_FILE_LOCAL_TFM,tm_def)
+		RETURN(TRUE)
+	}
+	ELSE
+	{	
+		INFO_MESSAGE@("Vous devez préciser une valeur pour la distance. Validation refusée.")
+		RETURN(FALSE)
+	}
+
+ENDFUNCTION
+

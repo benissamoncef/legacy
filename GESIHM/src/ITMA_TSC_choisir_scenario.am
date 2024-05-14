@@ -1,0 +1,245 @@
+/*E*/
+/* Fichier : $Id: ITMA_TSC_choisir_scenario.am,v 1.5 1996/09/24 16:03:34 verdier Exp $      Release : $Revision: 1.5 $        Date : $Date: 1996/09/24 16:03:34 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTSC * FICHIER ITMA_TSC_choisir_scenario.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* choisit un scenario dans une liste
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	15 jan 1994	: Creation						V1.1
+* Torregrossa	29 jan 1995	: modif repertoire de stockage des fichiers V 1.4
+* Guilhou	18 sep 1996	: modif init liste des scenarios (DEM/598) V1.5
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TLV.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+
+
+DEFINE	C_MODULE	"MTSC"			' Nom du module
+
+
+FORMAT TSC_fichier
+		numero_scenario,
+		horodate,
+		type,
+		numero_fiche,
+		cle_fiche
+
+		
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TSC_choisir_scenario (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_appelant	: macro appelante
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MSCO, MTPM, ....
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR tl_retour,tl_poke_data
+	VAR tl_message
+	VAR vl_nom,vl_numero
+	VAR vl_indice
+	VAR FORMAT TSC_fichier tl_fichiers 
+	VAR tl_numScenario
+	VAr vl_pos
+	VAR vl_index
+	VAR tl_etapes
+	VAR tl_nomScenario
+	VAR vl_string
+	VAR tl_data
+	VAR vl_repertoire
+
+	
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre 
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TSC_choix_scenario")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 400)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TSC_choisir_scenario")
+
+
+/*A recupere la liste des fichiers .fmt du repertoire*/
+vl_repertoire=SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_DYN
+tl_retour=FILE_SYSTEM_FILES@(vl_repertoire,"*.fmt",FALSE)
+
+FOR vl_indice=0 TO (ARRAY_SIZE@(tl_retour)-1)
+	/*A extrait les infos des noms des fichiers*/
+	tl_retour[vl_indice]=SUBSTRING@(tl_retour[vl_indice],1,
+							LEN@(tl_retour[vl_indice])-4)
+	tl_fichiers[vl_indice]=ARRAY_FROM_STRING@(tl_retour[vl_indice],"_")
+
+	IF (tl_fichiers[vl_indice].type="G") {
+	/*A met de cote les numeros des scenarios*/
+	vl_pos=ARRAY_INDEX@(tl_numScenario,tl_fichiers[vl_indice][0])
+	IF (vl_pos=-1)
+	{
+		tl_numScenario[ARRAY_SIZE@(tl_numScenario)]=
+								tl_fichiers[vl_indice].numero_scenario
+
+		/*A met de cote les noms des scenarios*/
+			vl_string= READ_ASCII_FILE@(vl_repertoire++tl_retour[vl_indice]++".fmt")
+			vl_string=vl_string[0]
+			tl_nomScenario[ARRAY_SIZE@(tl_nomScenario)]=vl_string
+	}
+	}
+NEXT vl_indice
+
+FOR vl_indice=0 TO (ARRAY_SIZE@(tl_numScenario)-1)
+	tl_data[vl_indice]=tl_numScenario[vl_indice]++"		"++tl_nomScenario[vl_indice]
+NEXT vl_indice
+/*tl_numScenario=SORT@(tl_numScenario)
+tl_nomScenario=SORT@(tl_nomScenario)*/
+DB_CTRL_STRINGS@(vl_fenetre,"BL_scenario",tl_data)
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		/*A
+		* choix du bouton annuler*/
+		CASE "BP_annuler"
+			RETURN 
+
+		/*A
+		* choix du bouton exécuter*/
+		CASE "BP_executer"
+			/*A recupere numero du scenario a derouler*/
+			vl_pos=DB_CTRL_GET_VALUE@(vl_fenetre,"BL_scenario")
+			vl_numero=tl_numScenario[vl_pos]
+			vl_nom=tl_nomScenario[vl_pos]
+
+			vl_index=0
+			/*A parcourt la liste des fichiers de scenario*/
+			FOR vl_indice=0 TO (ARRAY_SIZE@(tl_fichiers)-1)
+				/*A si le fichier correspond a mon scenario */
+				IF (tl_fichiers[vl_indice].numero_scenario=vl_numero) AND
+					(tl_fichiers[vl_indice].type="G")
+				{
+					/*A je l'ajoute a ma liste d'etapes si l'horodate */
+					/* n'y est pas deja*/
+					vl_pos=ARRAY_INDEX@(ARRAY_COLUMN@(tl_etapes,1),
+									tl_fichiers[vl_indice].horodate)
+					IF (vl_pos=-1)
+					{
+						tl_etapes[vl_index]=tl_fichiers[vl_indice]
+						vl_index=vl_index+1
+					}	
+				}	
+			NEXT vl_indice
+
+			SET_SYSTEM_VAR@(vg_numero_scenario,vl_numero)
+			NEW_TASK@("ITMA_TSC_etape_scenario",
+							"ITMA_TSC_choisir_scenario",
+							vl_nom,
+							vl_numero,
+							tl_etapes)
+			RETURN
+
+		/*A
+		on recoit un poke*/
+		CASE "poke_"
+			/*A
+			* suivant le poke*/
+			CASE OF DB_GET_POKE@(vl_fenetre)
+				/*A
+				* poke de fin*/
+				CASE COM_CANAL_FIN
+					/*A
+					* bye*/
+					RETURN (COM_NOK)
+
+			ENDCASE
+		
+	ENDCASE
+WEND
+ENDMACRO
+

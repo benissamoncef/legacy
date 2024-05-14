@@ -1,0 +1,254 @@
+/*E*/
+/* Fichier : $Id: ITMA_TAN_Numero_Associe_Objet.am,v 1.5 2013/02/04 09:42:48 devgfi Exp $      Release : $Revision: 1.5 $        Date : $Date: 2013/02/04 09:42:48 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TAN * FICHIER ITMA_TAN_Numero_Associe_Objet.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Module de donnees globales a la tache IHM textuelle TITMA
+*
+*   Cf. DCG 2.4.22
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	14/11/1994 : Creation
+* Torregrossa	22/01/1996 : Ajout supprimer affectation a objet (V1.4)
+* JPL		20/12/2012 : Apres choix d'interlocuteur, utilisation du premier (pour DEM 1028)  1.5
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"ITMA_COM.h"
+INCLUDE	"ITMA_TFA.h"
+
+INCLUDE "xzao199sp.h"
+INCLUDE "xzao200sp.h"
+INCLUDE "xzao201sp.h"
+
+
+
+DEFINE	C_MODULE	"MTFA"			' Nom du module
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recherche le numero de la fiche annuaire associee a l'objet synoptique
+*  decrit par les arguments.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TAN_Numero_Associe_Objet (va_type, va_numero, va_nom, va_num_fiche, va_existance_interloc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_type           : Type de l'objet synoptique ;
+*   va_numero         : Numero de l'objet ;
+*   va_nom            : Nom de l'objet.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_num_fiche      : Numero de la fiche annuaire associee a l'objet.
+*   va_existance_interloc : VRAI si la fiche annuaire est deja associée a cet objet.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFA_Fiche_Annuaire
+*
+* FONCTION
+*   Lit en base de donnees le numero de la fiche annuaire de l'interlocuteur
+*   associe a l'objet synoptique.
+*   Si aucun interlocuteur n'est attache a l'objet, invoque le module MTLA
+*   pour en choisir un et retourne celui choisi.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TFA_Interlocuteur tl_interloc
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = XDC_BASE_CFG
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT1_
+vl_parametres[1].data = va_type
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = va_numero
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#CHAR_
+vl_parametres[3].data = va_nom
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = TFA_Numero_Fiche_Annuaire
+vl_parametres[4].output = TRUE
+
+IF COM05_SQL_Procedure (XZAO201_Lire_Interloc_Objet,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+va_num_fiche = vl_resultats.return_parameters[0]
+
+IF va_num_fiche = NULL {
+	tl_interloc = PEND_FOR_NEW_TASK@ ("ITMA_TLA_Liste_Interlocuteurs", "ITMA_TFA_Fiche_Annuaire")
+	va_num_fiche = tl_interloc[0].numero
+	va_existance_interloc = XDC_FAUX
+}
+ELSE	va_existance_interloc = XDC_VRAI
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Affecte un interlocuteur a un objet synoptique.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TAN_Affect_Interloc_Objet (va_type, va_numero, va_nom, va_num_fiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_type           : Type de l'objet synoptique ;
+*   va_numero         : Numero de l'objet ;
+*   va_nom            : Nom de l'objet ;
+*   va_num_fiche      : Numero de la fiche annuaire a associer a l'objet.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFA_Fiche_Annuaire
+*
+* FONCTION
+*   Affecte l'interlocuteur de numero de fiche annuaire indique a l'objet
+*   synoptique designe par son type et son numero ou son nom.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = XDC_BASE_CFG
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT1_
+vl_parametres[1].data = va_type
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = va_numero
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#CHAR_
+vl_parametres[3].data = va_nom
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = TFA_Numero_Fiche_Annuaire
+vl_parametres[4].data = va_num_fiche
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = SYB#INT4_
+vl_parametres[5].output = TRUE
+
+IF COM05_SQL_Procedure (XZAO200_Affecter_Interlocuteur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Affecte un interlocuteur a un objet synoptique.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TAN_Supprim_Interloc_Objet (va_type, va_numero, va_nom, va_num_fiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_type           : Type de l'objet synoptique ;
+*   va_numero         : Numero de l'objet ;
+*   va_nom            : Nom de l'objet ;
+*   va_num_fiche      : Numero de la fiche annuaire a associer a l'objet.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFA_Fiche_Annuaire
+*
+* FONCTION
+*   Supprimer le lien entre l'interlocuteur de numero de fiche annuaire et l'objet
+*   synoptique designe par son type et son numero ou son nom.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = XDC_BASE_CFG
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT1_
+vl_parametres[1].data = va_type
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = va_numero
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#CHAR_
+vl_parametres[3].data = va_nom
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = TFA_Numero_Fiche_Annuaire
+vl_parametres[4].data = va_num_fiche
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = SYB#INT4_
+vl_parametres[5].output = TRUE
+
+IF COM05_SQL_Procedure (XZAO199_Supprimer_Interlocuteur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO
+

@@ -1,0 +1,317 @@
+/*E*/
+/* Fichier : $Id: ITMA_TLT_Depanneurs.am,v 1.2 1996/09/30 15:39:07 verdier Exp $     Release : $Revision: 1.2 $        Date : $Date: 1996/09/30 15:39:07 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLT * FICHIER ITMA_TLT_Depanneurs.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Liste des Fiches Depanneurs sur un PC simplifie 
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	09 sep 1996	: Creation
+* Guilhou	30 sep 1996 	: plus de message sur mode degrade (RADT)
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+INCLUDE	"../inc/ITMA_TLV.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/xzae107sp.h"
+INCLUDE	"../inc/itre_son_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+INCLUDE    "../../XDMICG/inc/xzaec_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTLT"			' Nom du module
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM			1
+
+DEFINE	C_LIB_FMC_INCONNUE	"Cet événement ne vous est pas destiné"
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	TLT_Depanneur
+	numero,					' Numero evenement
+	date,				' Date debut (16 car)
+	nom,				' Localisation event. (28 car)
+	site
+
+VAR FORMAT TLT_Depanneur tm_depanneurs		' Table des interventions depanneur
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation de la liste des interventions depanneur pour le poste
+*  operateur PC simplifie.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLT_Depanneurs (va_appelant,va_numero,va_cle,va_libelle)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_events			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_message				' Message recu d'un autre module
+
+    VAR     vl_select				' Selection(s) dans la table
+    VAR     i
+	VAR vl_indice,vl_index
+    VAR FORMAT TLT_Depanneur vl_action
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+    SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+    RETURN
+}
+
+/*A
+ * Charger la fenetre "Liste des interventions depanneur"
+ * -----------------------------------------------
+ */
+
+vl_fenetre_events = DB_LOAD@ ("ITMA_TLT_Depanneurs")
+DB_WINDOW_REMAIN@ (vl_fenetre_events, TRUE)
+
+DB_XPOS@ (vl_fenetre_events, 0)
+DB_YPOS@ (vl_fenetre_events, 93)
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_events, vl_les_messages_acceptes)
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_events, "TA_Evenements", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_events, "TA_Evenements", TRUE)
+DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre_events, "TA_Evenements", 25)
+
+/*A
+ * Initialiser la visualisation (liste des evenements)
+ * ---------------------------------------------------
+ */
+MACRO_WINS_BUSY@()
+IF Init_Depanneurs (vl_fenetre_events,va_numero,va_cle) <> COM_OK
+    RETURN
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_DISPLAY@ (vl_fenetre_events)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_events)
+
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre_events)
+	CASE COM_CANAL_FIN
+	    vl_la_fenetre_est_active = FALSE
+    ENDCASE
+
+     /*appui sur le bouton quitter*/
+     CASE "BP_quitter"
+	SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+	SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+	RETURN
+
+     /* appui sur le bouton consulter */
+     CASE "BP_consulter"
+        MACRO_WINS_BUSY@()
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_events,"TA_Evenements")
+	i = vl_select[0]
+
+	/*si une FMC est bien selectionnee*/
+	IF ( (i++"")<>null) {
+		vl_action=tm_depanneurs[i]
+		vl_message=va_numero,
+				va_cle,
+				vl_action.numero,
+				vl_action.site,
+				va_libelle
+		PEND_FOR_NEW_TASK@("ITMA_TID_Interv_Depanneur",
+					"ITMA_TMC_",
+					vl_message)
+	}
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO Init_Depanneurs (va_fenetre,va_numero,va_cle)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+VAR     vl_t_titres				' Titres colonnes de la table
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+VAR	vl_msg
+VAR	vl_indice
+
+
+/*A
+ * Definir les titres des colonnes de la table
+ * -------------------------------------------
+ */
+
+vl_t_titres[0] = "Numéro",		60	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Date de début",	130
+vl_t_titres[2] = "Nom du dépanneur",	400
+
+/*rechercher en base les fiches depanneur associees a ma fmc*/
+vl_parametres[0].type = SYB#INT4_
+vl_parametres[0].data=va_numero
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT4_
+vl_parametres[1].data = va_cle
+vl_parametres[1].output = FALSE
+
+/*calcul au CI*/
+IF (COM39_SQL_Procedure_PCS (XZAE107_Liste_Depanneurs_FMC, vl_parametres, vl_resultats, C_MODULE) <> COM_OK) {
+	return (COM_NOK)
+}
+if (vl_resultats.status<>COM_OK) {
+	CASE OF (vl_resultats.status)
+		CASE XDC_NOK
+			return (COM_NOK)
+
+		CASE XZAEC_FMC_NON_FIN
+			vl_msg="La FMC est en cours de traitement au CI"
+
+		CASE XZAEC_FMC_A_TRT
+			vl_msg="Evenement a traiter dans un district"
+	ENDCASE
+	INFO_MESSAGE@(vl_msg)
+	return (COM_NOK)
+}
+
+tm_depanneurs=vl_resultats.select_results[0]
+
+FOR vl_indice=0 TO (ARRAY_SIZE@(tm_depanneurs)-1)
+  tm_depanneurs[vl_indice].date=COM18_Date_SGBD_Formatee(tm_depanneurs[vl_indice].date)
+NEXT vl_indice
+
+
+/*A
+ * Valuer la table a afficher
+ * --------------------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@(va_fenetre, "TA_Evenements", tm_depanneurs, vl_t_titres)
+
+RETURN (COM_OK)
+
+ENDMACRO

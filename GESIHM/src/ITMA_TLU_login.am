@@ -1,0 +1,657 @@
+/* Fichier:  $RCSfile: ITMA_TLU_login.am,v $	Release:  $Revision: 1.27 $	Date: $Date: 2016/10/21 14:10:59 $
+********************************************************************************
+* STERIA	* PROJET MIGRAZUR		*
+********************************************************************************
+* MODULE: MTLU			* FICHIER ITMA_TLU_login.am
+********************************************************************************PFE
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 10/10/94
+********************************************************************************
+* DESCRIPTION DU MODULE: effectue l'initialisation de l'IHM :
+*	- gestion de l'identification et de l'authentification,
+*	- obtention des parametres de l'utilisateur,
+*	- gestion de la fenetre de modification du mot de passe,
+*	- lancement du role personnalise en fonction de l'utilisateur
+*
+*
+* REFERENCES AU DCG:
+*
+********************************************************************************
+* HISTORIQUE DES MODIFICATIONS:/
+*
+* Lecrivain  16 Nov 1994  Mise en variables publiques des infos utilisateur V1.2
+* Lecrivain  08 Dec 1994  Correction de la modification du mot de passe     V1.6
+* Lecrivain  08 Dec 1994  Ajout du demarrage du menu cote synoptique        V1.7
+* Guilhou	  19 dec 1994 Profil exploitant requis pour le changt de poste   V1.9
+* Lecrivain  23 Jan 1995  Mode mono-ecran                                  V1.10
+* Noel 	     27 Jan 1995  ajout de l'appel a isyn pour affichage vue 
+*				generale Nice				V1.11
+* Lecrivain  07 Fev 1995  Appel du menu synoptique avec les bons arguments V1.13
+* Lecrivain  06 Jun 1995  Positionnement fenetre en haut de l'ecran       V1.16
+* Torregrossa  04 Mar 1996  Modif nom constante de caracteres min du mot de passe (1010) V1.18
+* Torregrossa  10 Mai 1996  Lancement de la tache des compteurs de marche sur POCMA (643) V1.19
+*                           et de la tache de creation de demande de travaux
+* Guilhou	04 sep 1996 lancement macro gestion fmc locales sur PC simplifie (RADT) v1.20
+* Guilhou	30 sep 1996 amelioration du mode degrade (RADT) v1.21
+* Torregrossa  12 Mar 1998  Correction test de comm avec CI (1.22)
+* Mismer  20 Dec 1999  Suppression connection Informix (1.23)
+* JMG          29/09/09 : SECTO DEM 887
+*******************************************************************************/
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/xzau11sp.h"
+INCLUDE	"../inc/xzau07sp.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+/*nom du module*/
+DEFINE C_MODULE	"MTLU"
+
+
+var dbox_login
+var dbox_mot_de_passe
+
+
+/*******************************************************************************
+* DESCRIPTION DE LA FONCTION: Cette macro constitue le sommet de la pyramide de
+*	l'ihm. Elle declenche les traitements relatifs a l'identification de
+*	l'utilisateur (nom et mot de passe) ainsi qu'au changement
+*	eventuel de mot de passe
+*
+*
+********************************************************************************
+* SEQUENCE D'APPEL: ITMA_TLU_login(va_appelant)
+*
+*
+* PARAMETRES EN ENTREE: neant
+*
+* PARAMETRES EN SORTIE: neant
+*
+* VALEUR RENDUE: neant
+*
+* CONDITION D'ERREUR: neant
+*
+* CONDITION LIMITES: neant
+*
+********************************************************************************
+* ALGORITHME:
+*******************************************************************************/
+MACRO ITMA_TLU_login(va_appelant)
+
+var controle_sortie
+var liste_codes
+var test_login
+var vl_mot_de_passe
+var vl_profilRequis
+var vl_appelant
+var tl_args
+var vl_cmd,vl_arg
+var vl_maintenant, vl_date_form, vl_nom_login
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*! si l'appelant est ITMA_TMC_Fiche_Main_courante*/
+IF (SUBSTRING@(va_appelant,6,3)="TMC")
+{
+	/*! le profil exploitant est requis*/
+	vl_profilRequis=TRUE
+
+	/*! l'appelant du menu est ITMA_TLU_changer_poste"*/
+	vl_appelant="ITMA_TLU_changer_poste"
+}
+/*! si l'appelant est ITMA_TMT_Menu_Ecran_Textuel*/
+ELSE IF (SUBSTRING@(va_appelant,6,3)="TMT")
+{
+	/*! le profil exploitant est requis*/
+	vl_profilRequis=FALSE
+
+	/*! l'appelant du menu est ITMA_TLU_changer_poste"*/
+	vl_appelant="ITMA_TLU_changer_poste"
+}
+ELSE
+{
+	/*A
+	* initialisation generale: chargement des modules communs, ...*/
+	init_ctx_var()
+
+	/*! pas de profil requis*/
+	vl_profilRequis=FALSE
+
+	/*! l'appelant du menu est ITMA_TLU_login"*/
+	vl_appelant="ITMA_TLU_login"
+}
+
+/*B Si on est sur le poste de maintenance  et cote Main Courante
+    alors lancer la tache de scrutation periodique de EASY_CAM et
+    la tache de mise a jour des compteurs de marche */
+/*!!!!!! SUPPRESSION CONNECTION INFORMIX   
+if (UPPERCASE@(SYSTEM_VAR@(vg_poste)) = "POCMA") AND (SYSTEM_VAR@(vg_numero_display)<>1)
+{
+	NEW_TASK@("ITMA_MEC_scrutation_Easy_Cam")
+	NEW_TASK@("MTMA_CPT_Compteurs")
+}
+*/
+
+/*sur PC simplifie*/
+IF (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  NEW_TASK@("ITMA_TLT_Gere_FMC_Locales","ITMA_TLU_login")
+
+/*A Chargement de la fenetre de login utilisateur */
+dbox_login = DB_LOAD@("ITMA_TLU")
+DB_XPOS@(dbox_login, 460)
+DB_YPOS@(dbox_login, 20)
+
+	/*liste des pokes recevables*/
+	liste_codes[0]=COM_CANAL_FIN
+	DB_ACCEPT_POKES@(dbox_login,liste_codes)
+
+/*A Activation de la saisie en aveugle pour le mot de passe */
+DB_CTRL_NO_ECHO@(dbox_login, "BS_mot_de_passe", TRUE)
+
+/*A Debut de la boucle infinie de gestion des dialogues */
+WHILE 1
+
+	/*
+	* A affichage de la fenetre */
+	DB_DISPLAY@(dbox_login)
+
+	/*
+	* A Acquisition d'un evenement de l'operateur */
+	controle_sortie = DB_EXIT_CTRL@(dbox_login)
+
+	/*
+	* A Selon l'action de l'operateur, declenchement des traitements associes*/
+	CASE OF controle_sortie
+		/*A
+		* appui sur le bouton changement de mot de passe*/
+		CASE "BP_mot_de_passe"
+			/* si je suis au PC simplifie et en mode degrade*/
+			if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) AND (SYSTEM_VAR@(vg_comm_CI)<>XDC_OK) {
+				BEEP@()
+				INFO_MESSAGE@(C_LIB_PERTE_CI)
+			}
+			/*A
+			* le mot de passe doit etre obligatoirement renseigne*/
+			ELSE IF (DB_CTRL_GET_VALUE@(dbox_login,"BS_mot_de_passe")=NULL)
+			{
+				BEEP@()
+				INFO_MESSAGE@("Le mot de passe doit être obligatoirement renseigné")
+			}
+			ELSE
+			{
+				/*A
+				* je commence par verifier l'identite de l'utilisateur*/
+				vl_mot_de_passe=LOWERCASE@(DB_CTRL_GET_VALUE@(dbox_login,"BS_mot_de_passe"))
+				test_login=valider_login(dbox_login)
+
+				/*A
+				* si l'identite est OK*/
+				IF (test_login=COM_OK)
+				{
+					/*A
+					* je lance la tache de changement de mot de passe*/
+					PEND_FOR_NEW_TASK@("mot_de_passe", vl_mot_de_passe)
+				}
+				ELSE IF test_login = COM_QUITTE
+				{
+					/*A
+					* sinon l'identification est incorrecte et je le dis*/
+					BEEP@()
+					INFO_MESSAGE@("Identification incorrecte!!")
+				}
+			}
+
+
+		/*A
+		* Cas du bouton valider */
+		CASE "BT_valider"
+			/*A
+			* Donner au curseur la forme d'une montre */
+			MACRO_WINS_BUSY@()
+
+			/*A
+			*Verification de la coherence et de la validite du nom et du mot
+				de passe.*/
+			test_login = valider_login(dbox_login,vl_profilRequis)
+			IF test_login = COM_OK
+			{
+				/*! deverrouille IHM*/
+				/*vl_arg=0
+				vl_cmd=MTAR_MSG_EXEC,1,MTAR_FCT_LOGINDONE,vl_arg
+				DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)*/
+
+				/*A
+				 * lancer l'appli dans le mode adequat :
+				 * en bi-ecran envoyer a l'autre tache relais une
+				 * demande de newtask puis activer le menu principal
+				 * -------------------------------------------------
+				 */
+				
+				/*
+					MODIF PFE
+				*/
+				OPEN_ASCII_FILE@ ( "/tmp/surv_log.log", "a")
+				vl_maintenant = CURRENT_TIME@  ()
+				vl_date_form = DATE_FORMAT@ (vl_maintenant, 613)
+				vl_nom_login = LOWERCASE@ (DB_CTRL_GET_VALUE@(dbox_login, "BS_nom_user"))
+
+
+
+WRITE_FILE@ ( "/tmp/surv_log.log", FORMAT@ ("\n%s - %s - %s ", COM09_Date_Courante (TRUE), vl_nom_login, "====== DEBUT CONNEXION ====="))
+
+/*
+				WRITE_FILE@ ( "/tmp/surv_log.log", vl_date_form)
+			  	WRITE_FILE@ ( "/tmp/surv_log.log", vl_nom_login)
+*/
+				CLOSE_FILE@  ( "/tmp/surv_log.log")
+
+				IF SYSTEM_VAR@ (vg_numero_display) = 1
+				{
+					ITMA_TIR_LANCEMCE(vl_appelant,
+							  SYSTEM_VAR@(vg_numero_poste),
+							  SYSTEM_VAR@(vg_numero_operateur),
+							  SYSTEM_VAR@(vg_operateur),
+							  SYSTEM_VAR@(vg_profil_operateur),
+							  SYSTEM_VAR@(vg_familles))
+				}
+
+				tl_args[0]=SYSTEM_VAR@(vg_numero_poste)
+				tl_args[1]=SYSTEM_VAR@(vg_numero_operateur)
+				tl_args[2]=SYSTEM_VAR@(vg_profil_operateur)
+				tl_args[3]=SYSTEM_VAR@(vg_operateur)
+				tl_args[4]=ARRAY_TO_STRING@(SYSTEM_VAR@(vg_familles),",")
+				NEW_TASK@ ("ITMA_TMT_Menu_Ecran_Textuel",
+							vl_appelant,
+							tl_args)
+				/* afficher la vue synoptique principale */
+				NEW_TASK@("ITMA_TVU_GENERALE")
+				RETURN		
+			}
+
+			DB_CTRL_VALUE@(dbox_login, "BS_nom_user", NULL)
+			DB_CTRL_VALUE@(dbox_login, "BS_mot_de_passe", NULL)
+			DB_CURSOR_IN_ENTRY@(dbox_login, "BS_nom_user", FALSE)
+
+		CASE "poke_"
+			/*bye*/
+			RETURN
+
+	ENDCASE
+	/*A Fin selon */
+WEND
+/*A Fin boucle */
+
+/*A FIN */
+ENDMACRO
+
+
+/*******************************************************************************
+* MODULE: MTLU			* FONCTION: valider_login
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 10/10/94
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: Fonction verifiant la validite du couple nom
+*	utilisateur - mot de passe et declenchant dans l'affirmative l'affichage de
+*	la fenetre de choix du role
+*
+*
+********************************************************************************
+* SEQUENCE D'APPEL: valider_login(dbox_login,va_profilRequis)
+*
+*
+* PARAMETRES EN ENTREE: dbox_login
+* va_profilRequis: profil exploitation requis?
+*
+* PARAMETRES EN SORTIE: CTX_utilisateur
+*
+* VALEUR RENDUE:        COM_OK     : Login correct ;
+*                       COM_QUITTE : Login incorrect ;
+*                       COM_NOK    : Erreur lors de l'execution.
+*
+* CONDITION D'ERREUR: neant
+*
+* CONDITION LIMITES: neant
+*
+********************************************************************************
+* ALGORITHME:
+*******************************************************************************/
+FUNCTION valider_login(dbox_login,va_profilRequis)
+
+var vl_nom_login, vl_mot_de_passe
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+/*valeurs renvoyees par la verification d'identite*/
+VAR vl_familles
+
+VAR vl_indice,vl_position
+
+
+	/*A Recuperation du nom et mot de passe frappes*/
+	vl_nom_login = LOWERCASE@(DB_CTRL_GET_VALUE@(dbox_login,"BS_nom_user"))
+	vl_mot_de_passe = COM16_Chaine_Cryptee (LOWERCASE@(DB_CTRL_GET_VALUE@(dbox_login, "BS_mot_de_passe")))
+
+	/*A
+	* preparation de la requete SYBASE*/
+	vl_parametres[0].type = SYB#CHAR_
+	vl_parametres[0].data = vl_nom_login
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#CHAR_
+	vl_parametres[1].data = vl_mot_de_passe
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type = SYB#CHAR_
+	vl_parametres[2].data = SYSTEM_VAR@(vg_poste)		
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type = SYB#INT2_
+	vl_parametres[3].output = TRUE
+
+	vl_parametres[4].type = SYB#CHAR_
+	vl_parametres[4].output = TRUE
+
+	vl_parametres[5].type = SYB#INT2_
+	vl_parametres[5].output = TRUE
+
+	vl_parametres[6].type = SYB#INT2_
+	vl_parametres[6].output = TRUE
+
+	vl_parametres[7].type = SYB#CHAR_
+	vl_parametres[7].output = TRUE
+
+	/*A
+	* requete SYBASE*/
+	IF (GET_ENV_VAR@("RTARCH")="hp700_hpux") {
+		IF COM05_SQL_Procedure (XZAU11_Verifier_Identite,
+							vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	
+		RETURN (COM_NOK)
+	}
+	else {
+		IF COM05_SQL_Procedure ("XZAU111",
+					vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+
+			RETURN (COM_NOK)
+	}
+	IF vl_resultats.return_parameters[0] = NULL
+	{	
+		BEEP@()
+		INFO_MESSAGE@("Login incorrect")
+		RETURN (COM_QUITTE)
+	}
+
+
+	/*A
+	* initialise la liste des familles */
+	FOR vl_indice = 1  TO XDC_NOMBRE_FAMILLES
+	    vl_familles[vl_indice] = FALSE
+	NEXT vl_indice
+	vl_familles[XDC_FAM_TOUT_LE_MONDE] = TRUE
+
+	FOR vl_indice = 0  TO ARRAY_SIZE@(vl_resultats.select_results[0]) - 1
+		vl_position = vl_resultats.select_results[0][vl_indice][0]
+		vl_familles[vl_position] = TRUE
+	NEXT vl_indice
+
+	/*A si le profil exploitation est requis*/
+	IF (va_profilRequis=TRUE)
+	{	
+		/*A ai-je le droit d'exploitation*/
+		IF (vl_familles[XDC_FAM_EXPLOITATION]=FALSE)
+		{
+			/*A message operateur*/
+			BEEP@()
+			INFO_MESSAGE@("Le profil exploitation est requis pour le changement de poste")
+			RETURN (COM_QUITTE)
+		}
+	}
+
+	/*A
+	* recupere le numero de l'operateur*/
+	SET_SYSTEM_VAR@(vg_numero_operateur, vl_resultats.return_parameters[0])
+
+	/*A
+	* recupere le nom de l'operateur*/
+	SET_SYSTEM_VAR@(vg_operateur, vl_resultats.return_parameters[1])
+
+	/*A
+	* recupere le numero de la machine*/
+	SET_SYSTEM_VAR@(vg_numero_poste, vl_resultats.return_parameters[2])
+
+	/*A
+	* recupere le numero de profil de l'operateur*/
+	SET_SYSTEM_VAR@(vg_profil_operateur, vl_resultats.return_parameters[3])
+
+	/*A
+	* sauvegarde les familles accessibles par l'operateur*/
+	SET_SYSTEM_VAR@(vg_familles, vl_familles)
+	
+	/*A bye*/
+	RETURN(COM_OK)
+
+ENDFUNCTION
+
+
+
+
+
+
+/*******************************************************************************
+* MODULE: MTLU			* MACRO: mot_de_passe
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 10/10/94
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: Macro de gestion du changement de mot de passe.
+*
+*
+********************************************************************************
+* SEQUENCE D'APPEL: mot_de_passe(va_mot_de_passe)
+*
+*
+* PARAMETRES EN ENTREE :
+*				   va_mot_de_passe: mot de passe
+*
+* PARAMETRES EN SORTIE: vg_operateur
+*
+* VALEUR RENDUE: neant
+*
+* CONDITION D'ERREUR: neant
+*
+* CONDITION LIMITES: neant
+*
+********************************************************************************
+* ALGORITHME:
+*******************************************************************************/
+macro mot_de_passe(va_mot_de_passe)
+
+var controle_sortie				/* Reception d'un evenement */
+var vl_mot_passe
+var vl_resultat
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+var vl_retour
+
+/*A Chargement de la fenetre de changement de mot de passe */
+dbox_mot_de_passe = DB_LOAD@("ITMA_TPW")
+DB_XPOS@(dbox_mot_de_passe, 400)
+DB_YPOS@(dbox_mot_de_passe, 400)
+
+
+
+	/*A Activation de la saisie en aveugle pour les mots de passe */
+	DB_CTRL_NO_ECHO@(dbox_mot_de_passe, "BS_ancien_pass", TRUE)
+	DB_CTRL_NO_ECHO@(dbox_mot_de_passe, "BS_nouveau_pass", TRUE)
+	DB_CTRL_NO_ECHO@(dbox_mot_de_passe, "BS_conf_pass", TRUE)
+
+	/*A Afficher le titre de la boite de dialogue */
+	DB_TITLE@(dbox_mot_de_passe, "Modification du mot de passe")
+
+	/*A Afficher le bouton annuler */
+	DB_CTRL_DISPLAY@(dbox_mot_de_passe, "BT_annuler", TRUE)
+
+	/*A Rappel du nom de l'utilisateur */
+	DB_CTRL_TITLE@(dbox_mot_de_passe, "LI_Nom_Utilisateur", SYSTEM_VAR@ (vg_operateur))
+
+/*A Debut de la boucle infinie de gestion des dialogues */
+WHILE 1
+
+	/*A affichage de la fenetre */
+	DB_DISPLAY@(dbox_mot_de_passe)
+
+	/*A Si l'abandon de la saisie est demande, terminer le dialogue */
+	if DB_CANCELLED@(dbox_mot_de_passe)
+		RETURN(NULL)
+
+
+	/*A Acquisition d'un evenement de l'operateur */
+	controle_sortie = DB_EXIT_CTRL@(dbox_mot_de_passe)
+
+	/*A Selon l'action de l'operateur, declenchement des traitements associes*/
+	CASE OF controle_sortie
+		/*A Cas du bouton valider */
+		CASE "BT_valider"
+			MACRO_WINS_BUSY@()
+			/*A
+			* Si l'ancien mot de passe demande n'est pas bon, afficher le
+				message d'erreur correspondant et re-saisir */
+			IF LOWERCASE@(DB_CTRL_GET_VALUE@(dbox_mot_de_passe, "BS_ancien_pass")) <> va_mot_de_passe
+			{
+				DB_CTRL_VALUE@(dbox_mot_de_passe, "BS_nouveau_pass", NULL)
+				DB_CTRL_VALUE@(dbox_mot_de_passe, "BS_conf_pass", NULL)
+				DB_CTRL_VALUE@(dbox_mot_de_passe, "BS_ancien_pass", NULL)
+				DB_CURSOR_IN_ENTRY@(dbox_mot_de_passe, "BS_ancien_pass", FALSE)
+
+				BEEP@()
+				INFO_MESSAGE@("Renseignez correctement l'ancien mot de passe")
+			}
+			/*A
+			*Sinon si le nouveau mot de passe et sa confirmation sont
+				differents, afficher le message d'erreur correspondant et
+				re-saisir */
+			ELSE IF LOWERCASE@(DB_CTRL_GET_VALUE@(dbox_mot_de_passe,"BS_nouveau_pass")) <>
+				LOWERCASE@(DB_CTRL_GET_VALUE@(dbox_mot_de_passe,"BS_conf_pass"))
+			{
+				DB_CTRL_VALUE@(dbox_mot_de_passe, "BS_nouveau_pass", NULL)
+				DB_CTRL_VALUE@(dbox_mot_de_passe, "BS_conf_pass", NULL)
+				DB_CURSOR_IN_ENTRY@(dbox_mot_de_passe, "BS_nouveau_pass", FALSE)
+
+				BEEP@()
+				INFO_MESSAGE@("Le nouveau mot de passe a mal été confirmé")
+			}
+			/*A Sinon si le nouveau mot de passe fait moins de 6 caracteres,
+				afficher le message d'erreur correspondant et re-saisir */
+			ELSE IF LEN@(DB_CTRL_GET_VALUE@(dbox_mot_de_passe,
+				"BS_nouveau_pass")) < COM_NB_MIN_CAR_PWD
+			{
+				DB_CTRL_VALUE@(dbox_mot_de_passe, "BS_nouveau_pass", NULL)
+				DB_CTRL_VALUE@(dbox_mot_de_passe, "BS_conf_pass", NULL)
+				DB_CURSOR_IN_ENTRY@(dbox_mot_de_passe, "BS_nouveau_pass", FALSE)
+
+				BEEP@()
+				INFO_MESSAGE@("Le mot de passe doit comporter au moins " ++
+								COM_NB_MIN_CAR_PWD ++ " caractères")
+			}
+			/*A
+			*  sinon (tout s'est bien passe), mettre a jour la base */
+			ELSE
+			{
+				/*verifier qu'on n'est pas en mode degrade*/
+				if (COM40_Teste_Connexion_Site(XDC_CI)<>COM_OK) AND 
+					(SYSTEM_VAR@ (vg_site) <>XDC_CI){
+				  INFO_MESSAGE@(C_LIB_PERTE_CI)
+				  return (COM_NOK)
+				}
+
+				/*A
+				* preparation de la requete SYBASE*/
+				vl_parametres[0].type = SYB#INT2_
+				vl_parametres[0].data = SYSTEM_VAR@ (vg_numero_operateur)
+				vl_parametres[0].output = FALSE
+
+				vl_parametres[1].type = SYB#INT2_
+				vl_parametres[1].data = SYSTEM_VAR@ (vg_profil_operateur)
+				vl_parametres[1].output = FALSE
+
+				vl_parametres[2].type=SYB#CHAR_
+				vl_parametres[2].data=COM16_Chaine_Cryptee(va_mot_de_passe)
+				vl_parametres[2].output=FALSE
+
+				vl_parametres[3].type=SYB#CHAR_
+				vl_parametres[3].data=COM16_Chaine_Cryptee(LOWERCASE@(DB_CTRL_GET_VALUE@(dbox_mot_de_passe,"BS_nouveau_pass")))
+				vl_parametres[3].output=FALSE
+
+				vl_parametres[4].type=SYB#INT4_
+				vl_parametres[4].data=vl_resultat	
+				vl_parametres[4].output=TRUE
+	
+				/*A
+				* si la modification échoue*/
+				vl_retour=COM_OK
+
+				vl_retour=COM05_SQL_Procedure (XZAU07_Changer_Mot_De_Passe,
+						   vl_parametres, vl_resultats, C_MODULE)
+
+				if (vl_retour<>COM_OK)
+				{
+					/*A
+					* message*/
+					BEEP@()
+					INFO_MESSAGE@("La modification du mot de passe a échoué")
+   					RETURN (COM_NOK)
+				}
+				RETURN (COM_OK)
+			}
+	ENDCASE
+	/*A Fin selon */
+WEND
+/*A Fin de la boucle */
+
+/*A FIN */
+ENDMACRO
+
+
+
+
+
+/*******************************************************************************
+* MODULE: MTLU			* MACRO: init_ctx_var
+********************************************************************************
+* AUTEUR: J.M.  GUILHOU		* DATE DE CREATION 10/10/94
+********************************************************************************
+* DESCRIPTION DE LA FONCTION: Fonction initialisant le contexte
+*
+********************************************************************************
+* SEQUENCE D'APPEL: init_ctx_var()
+*
+*
+* PARAMETRES EN ENTREE: neant
+*
+* PARAMETRES EN SORTIE: tous les CTX_xxx
+*
+* VALEUR RENDUE: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'ERREUR: neant
+*
+* CONDITION LIMITES: neant
+*
+********************************************************************************
+* ALGORITHME:
+*******************************************************************************/
+FUNCTION init_ctx_var()
+
+RETURN (ITMA_TDO())
+
+ENDFUNCTION

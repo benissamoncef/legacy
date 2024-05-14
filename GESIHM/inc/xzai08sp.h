@@ -1,0 +1,1 @@
+DEFINE	XZAI08_Verifier_Bloc_TFM	"XZAI;08"

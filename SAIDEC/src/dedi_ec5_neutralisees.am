@@ -1,0 +1,188 @@
+/*E*/
+/* Fichier : $Id: dedi_ec5_neutralisees.am,v 1.2 1995/10/25 14:14:24 thomas Exp $	      Release : $Revision: 1.2 $       Date : $Date: 1995/10/25 14:14:24 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec5_bloquees.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* formulation element voies neutral pour message TFM
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	06 fev 1994	: Creation						V1.1
+* Thomas	18 oct 1995	: prise en compte modif IHM (1.2)
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+VAR		tm_var
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition de la formulation
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec5_neutralisees ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice
+var vl_selection
+var tl_data
+var tl_pokes
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec5_neutral")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,0)
+DB_YPOS@(vl_fenetre,57)
+DB_WIDTH@(vl_fenetre,1260)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec5_neutral_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*A valide*/
+			ec5_neutral_valide(vl_fenetre)
+			RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec5_neutral_init(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A chargement des donnees depuis le fichier de config*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_NEUTRAL_TFM)
+
+	/*A affiche les textes*/
+	FOR vl_indice=0 TO 33
+		DB_CTRL_VALUE@(va_fenetre,"BS_"++(vl_indice+1),tl_data[vl_indice])
+	NEXT vl_indice
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec5_neutral_valide(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR tl_infos
+
+	/*A recupere les textes*/
+	FOR vl_indice=0 TO 33
+		tl_data[vl_indice]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_"++(vl_indice+1))
+	NEXT vl_indice
+
+	/*A genere le fichier*/
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_NEUTRAL_TFM,tl_data)
+
+ENDFUNCTION

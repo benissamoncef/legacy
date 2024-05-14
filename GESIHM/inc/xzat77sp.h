@@ -1,0 +1,1 @@
+DEFINE	XZAT77_Supprimer_Neutre_PMVA_SAGA	"XZAT77"

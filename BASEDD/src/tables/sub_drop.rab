@@ -1,0 +1,77 @@
+#!/bin/ksh
+# Fichier : $Id: sub_drop.rab,v 1.4 2019/06/04 14:51:40 gesconf Exp $        Release : $Revision: 1.4 $        Date : $Date: 2019/06/04 14:51:40 $
+##################################################################################
+# STERIA # PROJET MIGRAZUR
+##################################################################################
+# SOUS-SYSTEME BASEDD
+##################################################################################
+# SCRIPT sub_create.rab
+##################################################################################
+# DESCRIPTION DU SCRIPT : creation d'un abonnement sans condition
+#
+#
+##################################################################################
+# HISTORIQUE DES MODIFICATIONS :
+# P.V.	09/07/96	: Creation
+# PNI 04/06/2019 : Modification valeurs sites
+##################################################################################
+
+if (($# < 5))
+then
+	echo "Syntaxe de la souscription (avec condition sur le site) : "
+	echo "     sub_drop.rab NomBase NomTable NomSite NomSiteReplique sp_setreplicate NomFicErr"
+	echo "        NomBase : CFG HIS EXP"
+	echo "        NomSite, NomSiteReplique : CI DN DM DC"
+	exit 0
+fi
+
+# nom de la base
+NomBase=$1
+
+# nom de la table 
+NomTable=$2
+
+# nom du site primaire
+NomSite=$3
+
+# nom du site replique
+NomSiteReplique=$4
+
+# nom du fichier d'erreur
+NomFicErr=$6
+
+#valeur du site primaire
+case $NomSite in
+	"CI") ValeurSite=43;;
+	"DN") ValeurSite=25;;
+	"DM") ValeurSite=25;;
+	"DC") ValeurSite=13;;
+	"DS") ValeurSite=26;;
+	"DA") ValeurSite=22;;
+	"DP") ValeurSite=26;;
+	"DY") ValeurSite=26;;
+	*) echo "erreur site";exit 0;;
+esac
+
+
+# arret de la replication a ne pas faire si la table du site replique est vide
+if [[ $5 = "sp_setreplicate" ]]
+then
+echo "use $NomBase \n\
+go\n\
+exec sp_setreplicate ${NomTable}, false \n\
+go\n" \
+| isql -S SQL_${NomSite} -UMIGRAZUR -PMIGRAZUR >> $NomFicErr
+fi
+
+###########################################################################
+# suppression d'un abonnement pour une table 
+###########################################################################
+echo "drop subscription ${NomSiteReplique}_${NomSite}_${NomTable} \n\
+for ${NomSite}_${NomTable} \n\
+with replicate at SQL_${NomSiteReplique}.${NomBase} \n\
+without purge \n\
+go\n" \
+| isql -S REP_${NomSiteReplique} -Usa -Pzigramur 
+
+exit 0

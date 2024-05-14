@@ -1,0 +1,1 @@
+DEFINE	XZAC50_Commande_Fin_PMV		"XZAC;50"

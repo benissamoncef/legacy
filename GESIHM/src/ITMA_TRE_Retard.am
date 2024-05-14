@@ -1,0 +1,779 @@
+/*E*/
+/* Fichier : $Id: ITMA_TRE_Retard.am,v 1.10 2009/07/08 19:49:50 gesconf Exp $      Release : $Revision: 1.10 $        Date : $Date: 2009/07/08 19:49:50 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TRE * FICHIER ITMA_TRE_Retard.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Visualisation des courbes de retard sur itinéraire.
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* ????
+* Gaborit	12 Oct 1995 : reprise pour applix 4.1+matrice croisée	(1.3)
+* Torregrossa	09 Jan 1995 : Correction sur ouverture spreadsheet	(1.4)
+* Guilhou	28 Mar 1996 : lecture du fichier contenant les coeff a0 a a10 (DEM 874) (1.5)
+* Guilhou	06 Sep 1996 : calcul au CI depuis le PC simplifie (RADT) (1.6)
+* C.T.		16 Sep 1998 : calcul au CI depuis tous les PC (1.7) (1632)
+* Niepceron   	03 Jul 1998 : Connexion a SQL_HIS (dem/1699) v1.8
+* cluchague     18 Fev 2000 : Correction de la precedente (oubli dans le deuxieme appel pour le sens inverse
+* JPL		06/07/09 : Gestion des barres de menu personnalisees Applix et leur id. 1.10
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TBR.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xzas20sp.h"
+
+DEFINE	C_MODULE	"MTRE"				' Nom du module
+
+format CHART_AXIS@
+	TYPE,
+	AUTO_MAX,
+	MAX_VALUE,
+	AUTO_MIN,
+	MIN_VALUE,
+	AUTO_BAS,
+	BAS_VALUE,
+	POSITION,
+	FLOATING_VALUE,
+	MINOR_TIK_TYPE,
+	MINOR_TIK_SIZE,
+	AUTO_N_MINOR_TIKS,
+	N_MINOR_TIKS,
+	MAJOR_TIK_TYPE,
+	MAJOR_TIK_SIZE,
+	AUTO_N_MAJOR_TIKS,
+	N_MAJOR_TIKS,
+	BAR_MARGIN,
+	BAR_OVERLAP,
+	USE_TIK_ATTRIBUTES,
+	BEHIND_DATA,
+	HIDDEN
+
+format CHART_TITLES@
+	TITLE,
+	TITLE_ALIGNMENT,
+	EXPAND_MARGIN_FOR_TITLE,
+	TITLE_X_OFFSET,
+	TITLE_Y_OFFSET,
+	SUBTITLE,
+	SUBTITLE_ALIGNMENT,
+	EXPAND_MARGIN_FOR_SUBTITLE,
+	SUBTITLE_X_OFFSET,
+	SUBTITLE_Y_OFFSET,
+	FOOTER,
+	FOOTER_ALIGNMENT,
+	EXPAND_MARGIN_FOR_FOOTER,
+	FOOTER_X_OFFSET,
+	FOOTER_Y_OFFSET
+
+format BORDERS_INFO_
+	format SS_LINE_ATTRS OUTLINE,
+	format SS_LINE_ATTRS TOP,
+	format SS_LINE_ATTRS BOT,
+	format SS_LINE_ATTRS LEFT,
+	format SS_LINE_ATTRS RIGHT,
+	format SS_SHADE_ATTRS SHADING
+
+format SS_LINE_ATTRS
+	STYLE,
+	COLOR
+
+format SS_SHADE_ATTRS
+	STYLE,
+	FGCOLOR,
+	BGCOLOR
+
+VAR vm_simplifie
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  recupere les données en base
+*  formatte la matrice
+*  et trace les courbes
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRE_Retard (va_appelant, va_echangeur1, va_echangeur2, va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*  va_echangeur1	: numero de l'echangeur 1
+*  va_echangeur2	: numero de l'echangeur 2
+*  va_horodate		: horodate de calcul
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : aucun
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option Analyser -> Courbe -> Retard
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR vl_indice		/* indice des donnees passes a la requete BDD */
+VAR	vl_index
+VAR vl_donnees		/* tableau contenant les résultats */
+VAR	vl_i			/* variable de travail */
+VAR	COLONNE
+var CHART_NAME
+var GNAME
+var RNGARR
+var CHTYPE
+var format CHART_AXIS@ CHART_AXIS
+var format CHART_TITLES@ CHART_TITLES
+VAR vl_max1,vl_max2	/* valeurs max pour courbes 1 et 2 (pour echelle) */
+var format BORDERS_INFO_ BINFO
+VAR vl_nombre		/* nombre d'échangeurs */
+VAR vl_menu		/* menu du spreadsheet */
+VAR tl_coeff
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*si calcul au PC simplifie*/
+if (SYSTEM_VAR@(vg_site)<>XDC_CI)
+  vm_simplifie=TRUE
+else
+  vm_simplifie=FALSE
+
+/*B init des coeff*/
+for vl_i=0 TO 10
+  tl_coeff[vl_i]=1
+next vl_i
+
+/*A lecture du fichier contenant les coeff*/
+SS_APPLICATION_DLG@(null,TRUE)
+SS_LOAD_FILE@(SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+		COM_SOUS_REP_IHM ++ "ITMA_TRE_COEFF_SS.as")
+for vl_i = 0 to 10
+  tl_coeff[vl_i]=SS_GET_CELL_VALUE@(1,vl_i+1)
+next vl_i
+SS_EXIT@
+
+/*B Recuperer les donnees des courbes */
+
+/* L'echangeur amont */
+vl_indice = 0
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = va_echangeur1
+vl_parametres[vl_indice].output = FALSE
+
+/* L'echangeur aval */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = va_echangeur2
+vl_parametres[vl_indice].output = FALSE
+
+/* L'horodate */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#DATETIME_
+vl_parametres[vl_indice].data = va_horodate
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 0 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[0]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 1 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data =  tl_coeff[1]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 2 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data =  tl_coeff[2]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 3 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data =  tl_coeff[3]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 4 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[4]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 5 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[5]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 6 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[6]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 7 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[7]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 8 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[8]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 9 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[9]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 10 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[10]
+vl_parametres[vl_indice].output = FALSE
+
+if (vm_simplifie=TRUE) {
+  /* execution requete base*/
+  IF COM41_SQL_Procedure_HIS (XZAS20_Calcul_Retard_Itineraire,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+   			RETURN (COM_NOK)
+}
+else
+{
+  /* execution requete base*/
+    IF COM41_SQL_Procedure_HIS (XZAS20_Calcul_Retard_Itineraire,
+				       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+}
+
+/* on met le resultat dans le tableau vl_donnees */
+
+vl_donnees=vl_resultats[0][0]
+
+/*B Recuperer les donnees des courbes dans l'autre sens */
+
+vl_parametres=null
+vl_resultats=null
+
+/* L'echangeur amont */
+vl_indice = 0
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = va_echangeur2
+vl_parametres[vl_indice].output = FALSE
+
+/* L'echangeur aval */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = va_echangeur1
+vl_parametres[vl_indice].output = FALSE
+
+/* L'horodate */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#DATETIME_
+vl_parametres[vl_indice].data = va_horodate
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 0 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[0]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 1 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[1]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 2 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[2]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 3 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[3]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 4 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[4]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 5 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[5]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 6 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[6]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 7 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[7]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 8 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[8]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 9 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[9]
+vl_parametres[vl_indice].output = FALSE
+
+/* Coef calcul 10 */
+vl_indice = vl_indice + 1
+vl_parametres[vl_indice].type = SYB#INT4_
+vl_parametres[vl_indice].data = tl_coeff[10]
+vl_parametres[vl_indice].output = FALSE
+
+if (vm_simplifie=TRUE) {
+  /* execution requete base*/
+/*  IF COM39_SQL_Procedure_PCS (XZAS20_Calcul_Retard_Itineraire,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK*/
+   IF COM41_SQL_Procedure_HIS (XZAS20_Calcul_Retard_Itineraire,
+				       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+   			RETURN (COM_NOK)
+}
+else
+{
+  /* execution requete base*/
+ /*   IF COM05_SQL_Procedure (XZAS20_Calcul_Retard_Itineraire,
+				       vl_parametres, vl_resultats, C_MODULE) <> COM_OK*/
+   IF COM41_SQL_Procedure_HIS (XZAS20_Calcul_Retard_Itineraire,
+				       vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+}
+
+FOR vl_indice = 0 TO ARRAY_SIZE@(vl_resultats[0][0])-1
+
+	vl_index = ARRAY_INDEX@( ARRAY_COLUMN@(vl_donnees, 0), vl_resultats[0][0][vl_indice][0])
+
+	IF (vl_index <> -1)
+	{
+		vl_donnees[vl_index][8]=vl_resultats[0][0][vl_indice][2] 'retard H
+		vl_donnees[vl_index][9]=vl_resultats[0][0][vl_indice][3] 'retard H-1
+		vl_donnees[vl_index][10]=vl_resultats[0][0][vl_indice][4] 'retard H+1
+		vl_donnees[vl_index][11]=vl_resultats[0][0][vl_indice][5] 'cumul H
+		vl_donnees[vl_index][12]=vl_resultats[0][0][vl_indice][6] 'cumul H-1
+		vl_donnees[vl_index][13]=vl_resultats[0][0][vl_indice][7] 'cumul H+1
+	}
+
+
+NEXT vl_indice
+
+vl_parametres=null
+vl_resultats=null
+
+vl_nombre=ARRAY_SIZE@(vl_donnees)
+
+/* Mise à 0 des valeurs maxi */
+vl_max1=0
+vl_max2=0
+
+/* Formatage des données en hh:mm:ss */
+
+FOR vl_indice = 0 TO vl_nombre-1
+
+	FOR vl_index = 2 TO 7
+
+		vl_i=vl_donnees[vl_indice][vl_index]
+		IF (vl_i=-1)
+			vl_donnees[vl_indice][vl_index]=NULL
+		ELSE IF (vl_i>=86400)
+			vl_donnees[vl_indice][vl_index]="> 24h"
+		ELSE
+			BEGIN
+				vl_donnees[vl_indice][vl_index] =
+				(vl_i \ 3600)++":"++		'heures
+				((vl_i \ 60) MOD 60)++":"++ 	'minutes
+				(vl_i MOD 60)				'secondes
+
+				IF vl_i > vl_max1
+					vl_max1=vl_i 'pour mise à jour de l'échelle
+			END
+	NEXT vl_index
+	FOR vl_index = 8 TO 13
+
+		vl_i=vl_donnees[vl_indice][vl_index]
+		IF (vl_i=-1)
+			vl_donnees[vl_indice][vl_index]=NULL
+		ELSE IF (vl_i>=86400)
+			vl_donnees[vl_indice][vl_index]="> 24h"
+		ELSE
+			BEGIN
+				vl_donnees[vl_indice][vl_index] =
+				(vl_i \ 3600)++":"++		'heures
+				((vl_i \ 60) MOD 60)++":"++ 	'minutes
+				(vl_i MOD 60)				'secondes
+
+				IF vl_i > vl_max2
+					vl_max2=vl_i 'pour mise à jour de l'échelle
+			END
+	NEXT vl_index
+NEXT vl_indice
+
+/* Ouverture du tableur et chargement du fichier modèle */
+vl_menu = ITMA_TBR_Menu_Appli_Applix (TBR_MENU_SS_GEN)
+SS_APPLICATION_DLG@(vl_menu,FALSE)
+SS_LOAD_FILE@("ITMA_TRE_SS.as")
+SS_SAVE_AS@("/tmp/ITMA_TRE_SS.as",1,2,2)
+
+/*A remplissage avec les valeurs */
+
+SS_PUT_RANGE@(SS_RANGE@(1, 0, vl_nombre, 13, 0, 0), ARRAY_TRANSPOSE@(vl_donnees))
+
+/*A Mise à jour du nombre d'échangeurs pour les divers champs */
+
+COLONNE=SS_COL_STRING@(vl_nombre)
+
+SS_CHANGE_NAMED_RANGE@("echangeurs","echangeurs", "$A:$B$1..$A:$"++COLONNE++"$1", null)
+SS_CHANGE_NAMED_RANGE@("cumul_h","cumul_h", "$A:$B$6..$A:$"++COLONNE++"$6", null)
+SS_CHANGE_NAMED_RANGE@("cumul_hm1","cumul_hm1", "$A:$B$7..$A:$"++COLONNE++"$7", null)
+SS_CHANGE_NAMED_RANGE@("cumul_hp1","cumul_hp1", "$A:$B$8..$A:$"++COLONNE++"$8", null)
+SS_CHANGE_NAMED_RANGE@("cumul_h_i","cumul_h_i", "$A:$B$12..$A:$"++COLONNE++"$12", null)
+SS_CHANGE_NAMED_RANGE@("cumul_hm1_i","cumul_hm1_i", "$A:$B$13..$A:$"++COLONNE++"$13", null)
+SS_CHANGE_NAMED_RANGE@("cumul_hp1_i","cumul_hp1_i", "$A:$B$14..$A:$"++COLONNE++"$14", null)
+
+SS_CHANGE_NAMED_RANGE@("retard_h","retard_h", "$A:$B$3..$A:$"++COLONNE++"$3", null)
+SS_CHANGE_NAMED_RANGE@("retard_hm1","retard_hm1", "$A:$B$4..$A:$"++COLONNE++"$4", null)
+SS_CHANGE_NAMED_RANGE@("retard_hp1","retard_hp1", "$A:$B$5..$A:$"++COLONNE++"$5", null)
+SS_CHANGE_NAMED_RANGE@("retard_h_i","retard_h_i", "$A:$B$9..$A:$"++COLONNE++"$9", null)
+SS_CHANGE_NAMED_RANGE@("retard_hm1_i","retard_hm1_i", "$A:$B$10..$A:$"++COLONNE++"$10", null)
+SS_CHANGE_NAMED_RANGE@("retard_hp1_i","retard_hp1_i", "$A:$B$11..$A:$"++COLONNE++"$11", null)
+
+/*A Redéfinition des points de donnée des graphiques */
+
+/*B courbe 1 */
+
+CHART_NAME = "COURBE 1"
+CHTYPE = "Line & Marker"
+
+GNAME = "data 0"
+RNGARR[0] = "cumul_h"
+SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+GNAME = "data 1"
+RNGARR[0] = "cumul_hm1"
+SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+GNAME = "data 2"
+RNGARR[0] = "cumul_hp1"
+SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+CHTYPE = "Bar"
+
+GNAME = "data 3"
+RNGARR[0] = "retard_h"
+SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+GNAME = "data 4"
+RNGARR[0] = "retard_hm1"
+SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+GNAME = "data 5"
+RNGARR[0] = "retard_hp1"
+SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+/*B courbe 2 */
+
+CHART_NAME = "COURBE 2"
+CHTYPE = "Line & Marker"
+
+GNAME = "data 0"
+RNGARR[0] = "cumul_h_i"
+SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+GNAME = "data 1"
+RNGARR[0] = "cumul_hm1_i"
+SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+GNAME = "data 2"
+RNGARR[0] = "cumul_hp1_i"
+SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+CHTYPE = "Bar"
+
+GNAME = "data 3"
+RNGARR[0] = "retard_h_i"
+SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+GNAME = "data 4"
+RNGARR[0] = "retard_hm1_i"
+SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+GNAME = "data 5"
+RNGARR[0] = "retard_hp1_i"
+SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+/*A Met à jour les nom des echangeurs sur l'axe des X */
+
+CHART_NAME = "COURBE 1"
+SS_CHART_DEFINE_AXIS_RANGE@(CHART_NAME, "axis x0", "echangeurs")
+
+CHART_NAME = "COURBE 2"
+SS_CHART_DEFINE_AXIS_RANGE@(CHART_NAME, "axis x0", "echangeurs")
+
+/*A Met à jour l'échelle des axes */
+
+CHART_NAME = "COURBE 1"
+CHART_AXIS.AUTO_MAX = 0
+CHART_AXIS.AUTO_MIN = 0
+CHART_AXIS.MIN_VALUE = 0
+CHART_AXIS.AUTO_BAS = 0
+CHART_AXIS.BAS_VALUE = 0
+CHART_AXIS.AUTO_N_MAJOR_TIKS = 0
+
+IF vl_max1<=60			'echelle 1mn
+BEGIN
+	CHART_AXIS.MAX_VALUE = "0,00069445"
+	CHART_AXIS.N_MAJOR_TIKS = "13"
+END
+
+ELSE IF vl_max1<=300			'echelle 5mn
+BEGIN
+	CHART_AXIS.MAX_VALUE = "0,0034723"
+	CHART_AXIS.N_MAJOR_TIKS = "11"
+END
+
+ELSE IF vl_max1<=900		'echelle 15mn
+BEGIN
+	CHART_AXIS.MAX_VALUE = "0,0104167"
+	CHART_AXIS.N_MAJOR_TIKS = "16"
+END
+
+ELSE IF vl_max1<=1800		'echelle 30mn
+BEGIN
+	CHART_AXIS.MAX_VALUE = "0,0208334"
+	CHART_AXIS.N_MAJOR_TIKS = "13"
+END
+
+ELSE IF vl_max1<=3600		'echelle 1 heure
+BEGIN
+	CHART_AXIS.MAX_VALUE = "0,0416667"
+	CHART_AXIS.N_MAJOR_TIKS = "13"
+END
+
+ELSE						'echelle 3 heures
+BEGIN
+	CHART_AXIS.MAX_VALUE = "0,125"
+	CHART_AXIS.N_MAJOR_TIKS = "19"
+END
+SS_CHART_SET_AXIS_LINE@(CHART_NAME, "axis y0", CHART_AXIS)
+
+
+CHART_NAME = "COURBE 2"
+CHART_AXIS = null
+CHART_AXIS.AUTO_MAX = 0
+CHART_AXIS.AUTO_MIN = 0
+CHART_AXIS.MIN_VALUE = 0
+CHART_AXIS.AUTO_BAS = 0
+CHART_AXIS.BAS_VALUE = 0
+CHART_AXIS.AUTO_N_MAJOR_TIKS = 0
+
+IF vl_max2<=60			'echelle 1mn
+BEGIN
+	CHART_AXIS.MAX_VALUE = "0,00069445"
+	CHART_AXIS.N_MAJOR_TIKS = "13"
+END
+
+ELSE IF vl_max2<=300			'echelle 5mn
+BEGIN
+	CHART_AXIS.MAX_VALUE = "0,0034723"
+	CHART_AXIS.N_MAJOR_TIKS = "11"
+END
+
+ELSE IF vl_max2<=900		'echelle 15mn
+BEGIN
+	CHART_AXIS.MAX_VALUE = "0,0104167"
+	CHART_AXIS.N_MAJOR_TIKS = "16"
+END
+
+ELSE IF vl_max2<=1800		'echelle 30mn
+BEGIN
+	CHART_AXIS.MAX_VALUE = "0,0208334"
+	CHART_AXIS.N_MAJOR_TIKS = "13"
+END
+
+ELSE IF vl_max2<=3600		'echelle 1 heure
+BEGIN
+	CHART_AXIS.MAX_VALUE = "0,0416667"
+	CHART_AXIS.N_MAJOR_TIKS = "13"
+END
+
+ELSE						'echelle 3 heures
+BEGIN
+	CHART_AXIS.MAX_VALUE = "0,125"
+	CHART_AXIS.N_MAJOR_TIKS = "19"
+END
+SS_CHART_SET_AXIS_LINE@(CHART_NAME, "axis y0", CHART_AXIS)
+
+/*A Met à jour les titres */
+
+CHART_NAME = "COURBE 1"
+CHART_TITLES.TITLE[0] = "RETARD SUR ITINERAIRE "++va_horodate
+CHART_TITLES.TITLE[1] = "dans le sens ------>"
+
+GR_CHART_SET_TITLE@(CHART_NAME, CHART_TITLES)
+
+CHART_NAME = "COURBE 2"
+CHART_TITLES.TITLE[1] = "dans le sens <------"
+
+GR_CHART_SET_TITLE@(CHART_NAME, CHART_TITLES)
+
+/*A mise en forme matrice croisee */
+
+/*B titres */
+SS_COPY@("echangeurs")
+SS_PASTE@("D:B1",-1,0)
+vl_i=null
+vl_i[0] = 0
+vl_i[1] = 1
+SS_PASTE_SPECIAL@("D:A2",vl_i)
+
+/*B diagonales supérieure et inférieure */
+
+FOR vl_indice = 1 to vl_nombre-1
+	SS_PUT_CELL@(SS_COORDINATE@(vl_indice+1, vl_indice, 3), vl_donnees[vl_indice][2])
+	SS_PUT_CELL@(SS_COORDINATE@(vl_indice, vl_indice+1, 3), vl_donnees[vl_indice-1][8])
+NEXT vl_indice
+
+/*B demi matrices supérieure puis inférieure */
+
+FOR vl_indice = 1 to vl_nombre-2
+	FOR vl_index = vl_indice + 2 to vl_nombre
+		SS_PUT_CELL@(	SS_COORDINATE@(vl_index, vl_indice, 3),
+					"+" ++ SS_COORDINATE@(vl_index-1, vl_indice, 3) ++
+					"+" ++ SS_COORDINATE@(vl_index, vl_index-1, 3) )
+	NEXT vl_index
+NEXT vl_indice
+
+FOR vl_indice = 3 to vl_nombre
+	FOR vl_index = 1 to vl_indice-2
+		SS_PUT_CELL@(	SS_COORDINATE@(vl_index, vl_indice, 3),
+					"+" ++ SS_COORDINATE@(vl_index+1, vl_indice, 3) ++
+					"+" ++ SS_COORDINATE@(vl_index, vl_index+1, 3) )
+	NEXT vl_index
+NEXT vl_indice
+
+/*B Mise au format hh:mm:ss */
+
+SS_NUMBER_STYLE@(10,2,SS_RANGE@(1, 1, vl_nombre, vl_nombre, 3, 3))
+
+/*B Mise en forme bordures matrice */
+
+BINFO.OUTLINE.STYLE = 3
+BINFO.OUTLINE.COLOR = "WorkArea Foreground"
+BINFO.TOP.STYLE = 1
+BINFO.TOP.COLOR = "WorkArea Foreground"
+BINFO.BOT.STYLE = 1
+BINFO.BOT.COLOR = "WorkArea Foreground"
+BINFO.LEFT.STYLE = 1
+BINFO.LEFT.COLOR = "WorkArea Foreground"
+BINFO.RIGHT.STYLE = 1
+BINFO.RIGHT.COLOR = "WorkArea Foreground"
+BINFO.SHADING.STYLE = -1
+BINFO.SHADING.FGCOLOR = ""
+BINFO.SHADING.BGCOLOR = ""
+SS_SET_BORDERS@(SS_RANGE@(0, 0, vl_nombre, vl_nombre, 3, 3),BINFO)
+
+/*B Mise en forme texte centré vert et hori + césure */
+
+SS_CELL_JUSTIFY@(SS_RANGE@(0, 0, vl_nombre, vl_nombre, 3, 3),3,1,2)
+
+/*B Mise en forme hauteur des lignes */
+
+SS_SET_ROW_HEIGHT@(SS_RANGE@(0, 0, 0, vl_nombre, 3, 3),48,0)
+
+/*B Mise en forme largeur des colonnes */
+
+SS_SET_COL_WIDTH@(SS_RANGE@(1, 0, vl_nombre, 0, 3, 3),12,0)
+
+/*B Masquer reste de la feuille */
+
+SS_VIEW_RANGE@(SS_RANGE@(0, 0, vl_nombre, vl_nombre, 3, 3))
+
+/*B Mise en grisé diagonale matrice */
+
+BINFO = null
+BINFO.OUTLINE.STYLE = -1
+BINFO.OUTLINE.COLOR = ""
+BINFO.TOP.STYLE = 1
+BINFO.TOP.COLOR = "WorkArea Foreground"
+BINFO.BOT.STYLE = -1
+BINFO.BOT.COLOR = ""
+BINFO.LEFT.STYLE = 1
+BINFO.LEFT.COLOR = "WorkArea Foreground"
+BINFO.RIGHT.STYLE = -1
+BINFO.RIGHT.COLOR = ""
+BINFO.SHADING.STYLE = 4
+BINFO.SHADING.FGCOLOR = "WorkArea Foreground"
+BINFO.SHADING.BGCOLOR = "WorkArea Background"
+
+FOR vl_indice = 1 to vl_nombre
+	SS_SET_BORDERS@(SS_COORDINATE@(vl_indice, vl_indice, 3),BINFO)
+NEXT vl_indice
+
+/*B indique la date dans le coin supérieur gauche */
+
+SS_PUT_CELL@("D:A1", va_horodate++"\n DE / A")
+
+/*A vide les variables */
+
+CHART_TITLES=null
+CHART_AXIS=null
+vl_donnees=null
+
+/*A Redessine les courbes */
+
+SS_UPDATE_CHARTS@
+SS_SAVE_AS@("/tmp/ITMA_TRE_SS.as",1,2,2)
+INFO_MESSAGE@("LE CALCUL DES COURBES EST TERMINE")
+
+endmacro

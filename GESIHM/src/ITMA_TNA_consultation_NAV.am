@@ -1,0 +1,549 @@
+/*E*/
+/* Fichier : $Id: ITMA_TNA_consultation_NAV.am,v 1.6 2012/05/29 10:03:14 pc2dpdy Exp $      Release : $Revision: 1.6 $        Date : $Date: 2012/05/29 10:03:14 $
+------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE MTPM * FICHIER  ITMA_TNA_consultation_NAV.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de consultation des NAV.
+*
+*
+------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Orengo	08 Oct 1996	: Creation						1.1
+* Orengo	25 Nov 1996	: Suppression define pour test (DEM/1228)  1.2
+* JMG   13/11/07        : ajout site de gestion DEM715
+* JMG	04/01/12 : position, linux 1.5
+--------------------------------------------------------------------- */
+
+
+
+/*A Description des modules a inclures 
+* ------------------------------------ */
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_TNA.h"
+
+ /*A Description des procedures sotckees a appeler
+* ------------------------------------------------ */
+INCLUDE	"../inc/xzao162sp.h"
+INCLUDE	"../inc/xzao163sp.h"
+INCLUDE	"../inc/xzao164sp.h"
+INCLUDE	"../inc/xzae72sp.h"
+INCLUDE	"../inc/xzac41sp.h"
+INCLUDE	"../inc/xzac62sp.h"
+INCLUDE	"../inc/xzac03sp.h"
+INCLUDE	"../inc/xzac02sp.h"
+INCLUDE	"../inc/xzat06sp.h"
+INCLUDE	"../inc/xzat01sp.h"
+INCLUDE	"../inc/xzat06sp.h"
+INCLUDE	"../inc/xzao05sp.h"
+INCLUDE	"../inc/xzap13sp.h"
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Consultation des NAV
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_consultation_NAV(va_appelant,va_1,va_2,va_3,va_4,
+											va_5,va_6,va_7)
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 a va_6		: Suivant la procedure d'appel
+*
+*	Deux appels possibles:
+*
+*		ITMA_TUE	11	<-- Numero de la NAV sur laquelle on
+*						a clique
+*			^
+*			|
+*		Appel depuis le synoptique Bp de gauche
+*
+*
+*
+*		ITMA_TMC	Structure de la fiche ACTION ( TMC_ActionFiche )
+*
+*			^
+*			|
+*		Appel depuis la FMC Liste des actions
+*
+*
+*
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant resultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> NAV dans MTMT
+*
+* FONCTION
+*    Pilote les NAV
+*
+--------------------------------------------------------------------- */
+
+
+/*A Declaration des variables */
+/*A ------------------------- */
+
+/*A Variables secondaires ou de travail */
+/*A ----------------------------------- */
+
+VAR FORMAT 	TMC_actionFiche	vl_ficheAction
+
+var	vl_appel_connu		' Flag de reconnaisance de l'appel
+var	vl_fenetre_active	' flag de fenetre active
+var	vl_controle_sortie	' flag de sortie
+var	vl_erreur			' flag d'erreur
+var	i,j,vl_mess		' index de loop
+var	vl_message		' message affiche
+var	vl_trouve			' flag pour trouver le bon scenario 		d'après le code
+var	vl_lib_fmc		' tableau du libelle fmc a construire
+var	vl_retour		 	' code retourne a l'appelant
+var	vl_Appel			' appelant
+var	vl_District		' N° du district
+var	vl_messages_acceptes
+var	vl_text			' texte en edition
+var	vl_NomOperateur	' nom de l'operateur
+var	vl_retour_fmc		' code retourne a l'appelant fmc
+var	vl_message_scenario	' message relatif a un eqt pour un scenario
+
+/*A Variables principales */
+/*A --------------------- */
+
+/*A Liste des BRA et leurs infos associees Table sur indice numero NAV
+*/
+
+var	FORMAT Config_BRA vl_info_liste_BRA
+
+/*A Liste des scenarios autorises pour un BRA Table sur indice numero
+													NAV
+ */
+var  FORMAT Config_Scenario vl_liste_scenario_autorises
+
+/*A Liste de nom des NAV disponibles
+*/
+var	vl_liste_nom_NAV_dispo
+
+/*A Structure infos NAV plan d'action
+*/
+var	FORMAT PA_NAV vl_NAV
+
+/*A Liste des scenarios Lecture depuis le fichier
+*/
+var	FORMAT ST_scenario vl_ST_scenario
+
+/*A Tableau contenant la liste des libelles des scenarios presentes dans
+				la "liste des scenarios" dans la boite de dialogue
+*/ 
+var	vl_BL_scenario
+
+/*A Tableau d'infos contenant les infos sur la configuration des
+	messages et des affichages pour les NAVs Indice du tableau le
+							numero de l'equipement dans la NAV */ 
+var	FORMAT ST_affichage_et_message vl_ST_aff_msg
+
+
+
+/*A Item de la fenetre du module
+*/
+var 	vl_fenetre_TNA
+
+/*A Numero de la NAV en cours
+*/
+var	vl_NumNAV
+
+/*A liste des objets pour la boite de dialogue consultation
+*/
+var FORMAT	ST_objet	vl_liste_objet_consultation
+
+/*A liste des objets pour la boite de dialogue pilotage
+*/
+var	FORMAT	ST_objet	vl_liste_objet_pilotage
+
+
+vl_District 	= SYSTEM_VAR@(vg_site)
+
+vl_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vl_NomOperateur = SUBSTRING@(vl_NomOperateur, 1, 25)
+vl_Appel		= SUBSTRING@(va_appelant,1,8)
+
+vl_appel_connu=FALSE
+
+/*B trace du debut du traitement */
+vl_text = "------------------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = " Start ITMA_TNA_pilotage_NAV   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+vl_text = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_text)
+
+if NOT(IS_ARRAY@(va_1))
+{	vl_text = "va_1 : " ++ va_1
+	COM01_Trace(0,vl_text)}
+else 
+{	vl_text = "va_1  est un tableau"
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_2))
+{	vl_text = "va_2 : " ++ va_2
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_3))
+{	vl_text = "va_3 : " ++ va_3
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_4))
+{	vl_text = "va_4 : " ++ va_4
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_5))
+{	vl_text = "va_5 : " ++ va_5
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_6))
+{	vl_text = "va_6 : " ++ va_6
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_7))
+{	vl_text = "va_7 : " ++ va_7
+	COM01_Trace(0,vl_text)
+}
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace(COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN(COM_NOK)
+}
+
+
+/*A Pour initialiser les procedures communes */
+/*  ---------------------------------------- */
+
+ITMA_TNA_commun_NAV()
+
+ITMA_TNA_Init_Config_BRA(vl_info_liste_BRA,vl_liste_scenario_autorises)
+
+vl_liste_nom_NAV_dispo = ITMA_TNA_Liste_Eqt_Disponibles(vl_District,
+										vl_info_liste_BRA)
+
+/*A Si l'appelant est le plan synoptique BP de gauche */
+
+if vl_Appel = "ITMA_TUE"
+{
+	if NOT(IS_ARRAY@(va_1))
+	{
+		vl_NumNAV = va_1+0
+	}
+	else
+	{
+		vl_NumNAV = va_1[0] +0
+	}
+	if vl_NumNAV >= ARRAY_SIZE@(vl_info_liste_BRA)
+	{
+		info_message@("Le BRA demande n'est pas disponible")
+		RETURN(COM_NOK)
+	}
+	if TRIM@(vl_info_liste_BRA[vl_NumNAV].Identifiant)=""
+	{
+		info_message@("Le BRA demande n'est pas disponible")
+		RETURN(COM_NOK)
+	}
+	
+	ITMA_TNA_INIT_NAV(vl_ST_aff_msg,vl_BL_scenario,vl_ST_scenario,
+			vl_liste_objet_consultation,vl_liste_objet_pilotage,
+					vl_info_liste_BRA[vl_NumNAV].NumType,
+								vl_liste_scenario_autorises)
+
+	vl_messages_acceptes[0] = COM_CANAL_FIN
+	vl_messages_acceptes[1] = COM_CANAL_MTNA
+	ITMA_TNA_init_boite_dialogue_consultation(vl_fenetre_TNA,
+				vl_messages_acceptes,vl_liste_objet_consultation)
+
+	/*A lecture de l'etat actuel du BRA */
+
+	vl_NAV.Priorite	= 0
+	vl_NAV.DistanceEvt	= XDC_DISTANCE_INCONNUE
+	vl_NAV.NumEqt		= vl_NumNAV
+
+	ITMA_TNA_Lecture_NAV(vl_NAV.NumEqt,vl_NAV)
+
+	DB_CTRL_TITLE@(vl_fenetre_TNA,"LI_NAV",
+					vl_info_liste_BRA[vl_NumNAV].Identifiant)	
+	
+	DB_CTRL_TITLE@(vl_fenetre_TNA,"LI_fmc_nouveau",vl_NAV.fmc_liee)
+
+	DB_CTRL_DISPLAY@(vl_fenetre_TNA,"LI_fmc_nouveau",TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre_TNA,"Tableau",TRUE)
+		
+	/*A Abonnement a l'etat des panneaux */
+ 
+	vl_erreur = ITMA_TNA_Abt_Etat_Panneaux_NAV(
+					XDC_DEBUT_ABONNEMENT_EQUEXT,
+						COM51_NomSite(vl_info_liste_BRA[vl_NumNAV].sitegestion))
+																		
+	/*A MAJ du libelle status */
+
+	DB_CTRL_TITLE@(vl_fenetre_TNA,"LI_status",
+								"Etat du BRA en temps reel")
+	vl_appel_connu=TRUE
+}
+
+/*A Si l'appelant est la FMC liste des actions */
+
+if vl_Appel = "ITMA_TMC"	
+{
+	vl_FicheAction = va_1
+	ITMA_COM_Lire_Evenement (vl_FicheAction.numero_fiche ,
+							vl_FicheAction.cle_fiche,
+							vl_lib_fmc,C_MODULE)
+
+	vl_retour = ITMA_TNA_Lecture_PA_NAV(
+						vl_FicheAction.numero_action,
+								vl_FicheAction.cle_action)
+	vl_NumNAV = vl_retour[0]+0
+	ITMA_TNA_INIT_NAV(vl_ST_aff_msg,vl_BL_scenario,vl_ST_scenario,
+		vl_liste_objet_consultation,vl_liste_objet_pilotage,
+					vl_info_liste_BRA[vl_NumNAV].NumType,
+								vl_liste_scenario_autorises)
+
+	vl_messages_acceptes[0] = COM_CANAL_FIN
+	ITMA_TNA_init_boite_dialogue_consultation(vl_fenetre_TNA,
+				vl_messages_acceptes,vl_liste_objet_consultation)
+
+	vl_retour_fmc = COM11_Libelle_FMC(vl_lib_fmc)
+	
+	DB_CTRL_TITLE@(vl_fenetre_TNA,"LI_fmc_nouveau",vl_retour_fmc)
+
+	DB_CTRL_DISPLAY@(vl_fenetre_TNA,"LI_fmc_nouveau",TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre_TNA,"Tableau",TRUE)
+
+	
+/* *** */
+/* !!! */
+
+	if vl_info_liste_BRA[vl_NumNAV].Disponible=TRUE
+	{
+		DB_CTRL_TITLE@(vl_fenetre_TNA,"LI_NAV",
+					vl_info_liste_BRA[vl_NumNAV].Identifiant)
+	}
+	else
+	{
+	
+		DB_CTRL_TITLE@(vl_fenetre_TNA,"LI_NAV",".")	
+	}
+
+	vl_retour[2] = SUBSTRING@(vl_retour[2],1,4)
+	vl_retour[2] = UPPERCASE@(vl_retour[2])
+
+	/*A recherche du code de scenario */
+
+	vl_trouve = -1
+	for i = 0 to ARRAY_SIZE@(vl_ST_scenario)-1
+
+		if vl_ST_scenario[i].quadrigramme=vl_retour[2]
+		{
+			vl_trouve = i
+		}
+
+	next i
+
+	/*A Si scenario trouve */
+
+	if vl_trouve <> -1
+	{
+		/*A Alors */
+		/*A MAJ du libelle status */
+
+		DB_CTRL_TITLE@(vl_fenetre_TNA,"LI_status","PA : " 
+						++ vl_retour[2] ++ "   " ++ vl_retour[3])
+
+		/*A MAJ des boutons de commande */
+
+		for i = 0 to ARRAY_SIZE@(vl_ST_aff_msg)-1
+
+			
+			vl_message_scenario=vl_ST_aff_msg[i].message_equipement
+			[vl_ST_aff_msg[i].etat_equipement_scenario[vl_trouve]]
+
+			ITMA_TNA_MAJ_NAV(i,vl_message_scenario,
+							vl_fenetre_TNA,vl_ST_aff_msg)
+
+		next i
+	}
+	else
+	{
+		/*A MAJ du libelle status */
+
+		DB_CTRL_TITLE@(vl_fenetre_TNA,"LI_status",
+							"Scenario du BRA introuvable")
+	}
+	vl_appel_connu=TRUE
+}
+
+/* Si l'appel est inconnu ( pas ITMA_TUE et pas ITMA_TMC ) */
+
+if(vl_appel_connu=FALSE)
+{
+	/* Alors */
+	/* Retourner une erreur */
+
+	info_message@("L'appel '"++vl_Appel++
+			"' n'est pas reconnu pas la boite de dialogue "++ 
+									"Consultation d'un BRA")
+	RETURN(COM_NOK)
+}
+/* Finsi */
+DB_REFRESH@(vl_fenetre_TNA)
+
+/*A flag de fenetre : actif */
+
+vl_fenetre_active = TRUE
+WHILE (vl_fenetre_active)
+
+	DB_DISPLAY@ (vl_fenetre_TNA)
+
+	vl_controle_sortie = DB_EXIT_CTRL@ (vl_fenetre_TNA)
+	
+	if SYSTEM_VAR@(vg_verrou)
+	{
+		vl_controle_sortie = NULL
+	}
+
+	CASE OF vl_controle_sortie
+
+		CASE "BP_quitter"
+			vl_fenetre_active = FALSE
+
+	    	CASE "poke_"
+
+	     	CASE OF  DB_GET_POKE@ (vl_fenetre_TNA)
+
+	     	CASE COM_CANAL_FIN
+	    			vl_fenetre_active = FALSE
+
+			/*A si poke de fin de canal : fermeture de fenetre */
+			CASE COM_CANAL_MTNA
+
+				/*A capture du message */
+				vl_message = DB_GET_POKE_DATA@(vl_fenetre_TNA)
+
+				/*A trace de la reception du message */
+				vl_text =	"   MsgPoke MTNA : " ++ vl_message[0]
+				COM01_Trace(0,vl_text)
+				COM01_Trace(0," ")
+
+				/*A decomposition des messages en tableau */
+				vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+				/*A si numero de NAV en cours d'edition */
+				if vl_mess[0]+0 =  vl_NumNAV+0
+				{				
+					/*A on boucle sur toutes les infos du msg */
+					for i = 1 to ARRAY_SIZE@(vl_mess)-1 step 2
+
+						ITMA_TNA_MAJ_NAV(vl_mess[i],vl_mess[i+1],
+								vl_fenetre_TNA,vl_ST_aff_msg)
+
+					next i
+				}
+
+	   		ENDCASE
+
+	ENDCASE
+	
+WEND
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Initialisation generale de la boite de dialogue
+*												Consultation
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_init_boite_dialogue_consultation(va_fenetre_TNA,
+			va_messages_acceptes,FORMAT	ST_objet	va_liste_objet)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_fenetre_TNA			:	Item de la boite de dialogue
+*												Consultation
+*	va_messages_acceptes	:	Liste des messages acceptes par la
+*											boite de dialogue
+*	va_liste_objet	:	Liste des objets Consultation 
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*  	va_fenetre_TNA			:	Item de la boite de dialogue
+*												Consultation
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*
+*    Initialisation generale de la boite de dialogue Consultation
+*
+--------------------------------------------------------------------- */
+
+va_fenetre_TNA = DB_LOAD@("ITMA_TNA_consultation_NAV")
+
+DB_ACCEPT_POKES@ (va_fenetre_TNA, va_messages_acceptes)
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux") {
+DB_XPOS@ (va_fenetre_TNA, 800)
+DB_YPOS@ (va_fenetre_TNA, 800)
+}
+else {
+DB_XPOS@ (va_fenetre_TNA, 459)
+DB_YPOS@ (va_fenetre_TNA, 679)
+}
+
+ITMA_TNA_creation_dans_boite_objet_NAV(va_fenetre_TNA,va_liste_objet)
+
+DB_DISPLAY_ONLY@(va_fenetre_TNA,TRUE)
+DB_DISPLAY@(va_fenetre_TNA)
+MACRO_WINS_BUSY@()
+DB_DISPLAY_ONLY@(va_fenetre_TNA,FALSE)
+
+ENDMACRO
+

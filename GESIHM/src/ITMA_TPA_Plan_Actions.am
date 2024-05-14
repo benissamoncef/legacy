@@ -1,0 +1,1525 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPA_Plan_Actions.am,v 1.57 2021/07/20 11:23:08 pc2dpdy Exp $      Release : $Revision: 1.57 $       Date : %G
+---------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPA * FICHIER ITMA_TPA_Plan_Actions.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Affiche la liste des actions proposées a l'operateur par le SAD
+*
+*   Cf. DCG 2.4.57
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	11 Oct 1994	: Creation						V1.1
+* Guilhou	20 dec 1994	: chemins d'acces aux .h				V1.6
+* Guilhou	05 jan 1994	: bug 3 actions PMV 				V1.9
+* Guilhou	10 jan 1994	: reprise mise en page 				V1.10
+* Guilhou	26 jan 1994	: ajout id FMC dans appel ITMA_TPM		V1.14
+* Cornu	29 jan 1994	: Modif de l'appel GTC 				V1.15
+* Lecrivain 14 Avr 1995 : Autorisation de calcul d'un nouveau PA          V1.18
+* Lecrivain 24 Avr 1995 : Annulation flag de calcul d'un PA               V1.19
+* Charles  18 Mai 1995 	: Transfert PMC pour pilotage tunnel,echangeur  V1.20
+* Mismer  06 Sep 1996 : Modif appel pilotage PMV (DEM/1162)			V1.21
+* Guilhou 21 nov 1996 : refonte de la gestion des astreintes(DEM/1306) 		1.22
+* Niepceron 25 nov 1998 : ajout action "export intergestionnaire" (DEM/1323) 		1.23
+* JMG	27/04/04	ajout action "pilotage PAL"	1.24
+* JMG	16/02/05	ajout colonne explication 	1.25
+* JMG	16/02/05	avec le bouton droit on court circuite la fenetre de pilotage pal 	1.26
+* JMG	08/03/05	affichage commande puis explication en dessous 1.27
+* PNI	05/10/05	ajout PMV,Fax,Echangeur,Tunnel en pilotage semi-auto DEM413 v1.28
+* JMG	12/12/05	: ajout BAF 1.29
+* PNI   06/01/06	: ajout de la ligne explication uniquement pour les actions ayant la fonctionnalité de pilotage direct DEM548 1.30
+* PNI   24/05/06	: ajout de la ligne explication pour PMVA (fonctionnalité de pilotage direct) DEM548 1.31 1.33 1.34
+* PNI	20/02/07	: Suppression envoi fax direct au CI DEM629 1.35
+* ???   26/03/07        : 1.36
+* LCL   09/07/07        : Suppression DY 1.37
+* PNI	02/10/08        : Filtre des actions avec district 0 DEM816 1.38
+* JPL	19/11/08        : Avant l'affichage, donner le focus a la fiche Trafic FM (DEM 843) 1.39
+* JMG   29/09/09        : SECTO DEM 887 
+* PNI	13/10/09	: Ajout ITMA_TPP_Commande_PAL_Auto DEM554 1.41
+* PNI	13/10/09	: Ajout appel ITMA_TPP_commun_PAL pour charger les macros DEM554 1.42
+* JPL	29/10/10        : Position sous le menu pour laisser voir la fenetre de pilotage cameras (DEM 949)  1.43
+* JPL	10/10/11	: Reception donnees fiche MC de MTMC et transmission a MTFX (DEM 995)  1.44
+* JMG	04/05/12	: regulation dem/1016
+* PNI	20/09/12	: recalage de la position de la fenetre pour ecran 16/9 Linux 1.46
+* JMG	19/01/17	: eqt SAGA 1.47
+* PNI	05/01/18	: degroupage et modif ordre tri 1.48
+* LCL	09/04/18	: ajout controleurs de feux CTRL_FEUX 1.49 DEM1284
+* JMG	12/09/18	: ajout SMS LOT25 DEM1301 1.50
+* JMG	30/10/18	: ajout vm_ficheMC dans appel a ITMA_TAS (RMVI) DEM1315 1.51
+* CGR	01/02/21	: Ajout IMU DEM-SAE155 1.52
+* CGR	02/04/21	: Ajout SONO PAU DEM-SAE244 1.53
+* LCL	10/06/21	: Fix pixmaps pilotage semi-auto 1.54								
+* LCL	10/06/21	: unFix/Fix pixmaps pilotage semi-auto 1.55
+* LCL 	21/06/21	: Fix appel auto pilotage IMU 1.56
+---------------------------------------------------------------------------- */
+
+
+INCLUDE	"dbase_.am"
+INCLUDE	"dialog_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"XDMICG/inc/xzap13sp.h"
+INCLUDE	"XDMICG/inc/xzap14sp.h"
+INCLUDE	"XDMICG/inc/xzap15sp.h"
+INCLUDE	"XDMICG/inc/xzap11sp.h"
+
+INCLUDE "GESIHM/inc/ITMA_TPM_pilotage_PMV.h"
+INCLUDE "GESIHM/inc/ITMA_TSAGA_pilotage_PMV.h"
+INCLUDE "GESIHM/inc/ITMA_PMV_format.h"
+INCLUDE "GESIHM/inc/xzap12sp.h"
+INCLUDE "GESIHM/inc/xzac01sp.h"
+INCLUDE "GESIHM/inc/xzac611sp.h"
+INCLUDE "GESIHM/inc/xzac61sp.h"
+INCLUDE	"GESIHM/inc/xzao427sp.h"
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TMC.h"
+INCLUDE	"GESIHM/inc/ITMA_TPP.h"
+
+DEFINE	C_MODULE	"MTPA"			' Nom du module
+
+/*position des infos dans la structure XZAPT_plan_actions*/
+DEFINE	POS_LIBELLE	0
+DEFINE	POS_ORDRE		2
+DEFINE	POS_TYPE		3
+DEFINE	POS_DISTRICT	4
+DEFINE	POS_REAL		5
+DEFINE	POS_EXPLICATION	1
+
+DEFINE	C_ACTION	0
+DEFINE	C_EXPLICATION	1
+DEFINE	POS_REMARQUE	7
+
+FORMAT TPA_actions
+	libelle,
+	explication,
+	ordre,
+	type,
+	district,
+	real,
+	domaine,
+	remarque
+
+FORMAT TPA_actions_affichees
+	libelle,
+	categorie,
+	indice
+
+/*positions des actions PMV dans le tableau du plan d'actions*/
+VAR tm_posPMV
+VAR tm_posPMVA
+
+VAR vm_mode_formation
+VAR vm_type_formation
+VAR vm_niv
+VAR vm_fenetre
+VAR vm_numero_plan
+
+VAR FORMAT COM_Identifiant_FMC vm_numFiche
+VAR FORMAT TMC_fmc vm_FicheMC
+VAR vm_libellefiche
+VAR tm_heading
+VAR tm_pixmaps
+VAR FORMAT TPA_actions tm_actions
+VAR FORMAT TPA_actions_affichees tm_actions_affichees
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Afficher la liste des actions 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPA_Plan_Actions (va_appelant,va_numPlan,FORMAT TMC_fmc va_FicheMC,va_libelleFiche,va_niv)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_numPlan: numero du plan d'actions
+* va_FicheMC: donnees fiche main courante liee
+* va_libelleFiche: libelle de cette fiche fmc liee
+* va_niv : niveau du msg TFM
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR tl_data,vl_taille
+	VAR tl_table_data,vl_code
+  	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_sel,vl_action2,vl_action3
+	VAR tl_args,vl_indice,vl_index
+	VAR vl_posAction2,vl_posAction3
+	VAR vl_retour						' code retour de fonction
+	VAR vl_retour_pmv					'code retour fonction PMV
+	VAR vl_message						' message receptionne d'un poke
+	VAR vl_pos_district
+	VAR tl_districts
+	VAR tm_actionsEtudiant
+	VAR vl_indexEtudiant
+	VAR vl_indice_affiche
+	VAR FORMAT arrayof rminfo@ info
+	VAR vl_tache
+
+	VAR FORMAT TPA_actions_affichees vl_action
+
+	VAR ta_aa
+	VAR format TPA_actions tl_data2
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+/*
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}*/
+
+
+vm_numero_plan = va_numPlan
+vm_libelleFiche=va_libelleFiche
+vm_niv = va_niv
+
+vm_FicheMC = va_FicheMC
+vm_numFiche.numero = va_FicheMC.numero
+vm_numFiche.cle = va_FicheMC.cle
+
+SET_SYSTEM_VAR@("vl_numero_plan",vm_numero_plan)
+SET_SYSTEM_VAR@("vl_libelleFiche",vm_libelleFiche)
+SET_SYSTEM_VAR@("vl_niv",vm_niv)
+SET_SYSTEM_VAR@("vl_numFiche",vm_numFiche)
+
+INSTALL_FILE@("ITMA_TSAGA_Lecture_Etat_SAGA.elo")
+
+
+/*A
+ * Charger la fenetre du Plan d'action
+ * -----------------------------------
+ */
+
+vm_fenetre = DB_LOAD@ ("ITMA_TPA")
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+{
+DB_XPOS@ (vm_fenetre, 1014)
+DB_YPOS@ (vm_fenetre, 105)
+}
+ELSE
+{
+DB_XPOS@ (vm_fenetre, 1146)
+DB_YPOS@ (vm_fenetre, 105)
+}
+
+
+COM02_Attacher_Aide (vm_fenetre, "ITMA_TPA_Plan_Actions")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+tl_messages_acceptes[1] = COM_CANAL_MTPA
+DB_ACCEPT_POKES@ (vm_fenetre, tl_messages_acceptes)
+
+
+/*A mode d'appel*/
+IF (SUBSTRING@(va_appelant,6,3)="TSC")
+{
+	vm_mode_formation=TRUE
+	vm_type_formation=SYSTEM_VAR@(vg_formation)
+	vl_indexEtudiant=0
+
+	IF (vm_type_formation=COM_FORMATION_ACTIF) OR
+		(vm_type_formation=COM_FORMATION_PASSIF)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_solution",TRUE)
+}
+ELSE
+	vm_mode_formation=FALSE
+
+/*A
+ * recuperer le plan d'actions
+ */
+vl_parametres[0].type = SYB#INT2_
+vl_parametres[0].data = vm_numero_plan
+vl_parametres[0].output = FALSE
+IF COM05_SQL_Procedure ("XZAP11",vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+    INFO_MESSAGE@("Erreur lors du chargement du plan d'actions")
+	RETURN (COM_NOK)		
+}
+
+/*A
+ * afficher les libelles des actions dans la boite avec une icone si realisable
+ */
+tl_data2=vl_resultats.select_results[0]
+
+vl_indice_affiche=0
+for vl_indice = 0 TO (ARRAY_SIZE@(tl_data2)-1)
+	if (STRING_INDEX@(tl_data2[vl_indice].explication,"GN_RGV_FAX") <= 0) {
+		tm_actions[vl_indice_affiche]=tl_data2[vl_indice]
+		vl_indice_affiche=vl_indice_affiche+1
+	}
+next vl_indice
+SET_SYSTEM_VAR@("tl_actions",tm_actions)
+tm_heading[0,0]="Action"
+tm_heading[0,1]=400
+tm_heading[1,0]="Action suite (1)"
+tm_heading[1,1]=400
+tm_heading[2,0]="Action suite (2)"
+tm_heading[2,1]=400
+tm_heading[3,0]="Action suite (3)"
+tm_heading[3,1]=400
+tm_heading[4,0]="Action suite (4)"
+tm_heading[4,1]=400
+DB_DISPLAY_ONLY@(vm_fenetre,TRUE)
+DB_DISPLAY@(vm_fenetre)
+tl_districts=SYSTEM_VAR@(vg_les_districts)				
+
+vl_index=0
+vl_indice_affiche=0
+/*A on parcourt le tableau des actions*/
+FOR vl_indice=0 TO (ARRAY_SIZE@(tm_actions)-1)
+
+	IF (tm_actions[vl_indice][POS_REAL]<>1) {
+		tm_pixmaps[vl_indice_affiche] = "", ""
+	}
+	ELSE {
+		tm_pixmaps[vl_indice_affiche]="pix_vous",""
+	}
+	/*A memoriser la position des actions PMV*/
+	IF (tm_actions[vl_indice][POS_TYPE]=XDC_ACT_PMV)
+	{
+		tm_posPMV[vl_index]=vl_indice
+		vl_index=vl_index+1
+	}
+	ELSE IF (tm_actions[vl_indice][POS_TYPE]=XDC_ACT_PMVA)
+	{
+		tm_posPMVA[vl_index]=vl_indice
+		vl_index=vl_index+1
+	}
+	/*A si je suis au CI*/
+	IF (SYSTEM_VAR@(vg_site)=XDC_CI)
+	{
+		/*A j'affiche le district associe a l'action*/
+		vl_pos_district=ARRAY_INDEX@(
+						ARRAY_COLUMN@(tl_districts,TDO_NUMERO_DISTRICT),
+							tm_actions[vl_indice].district)
+		if ( vl_pos_district>=0 )
+			tm_actions[vl_indice].libelle=tl_districts[vl_pos_district][TDO_CODE_DISTRICT]
+							++": "++tm_actions[vl_indice].libelle
+	}
+
+	/*on cree un deuxieme tableau qui va servir a l affichage*/
+	/*de l action puis de l explication juste en dessous*/
+	tm_actions_affichees[vl_indice_affiche].libelle = tm_actions[vl_indice].libelle
+	tm_actions_affichees[vl_indice_affiche].categorie = C_ACTION
+	tm_actions_affichees[vl_indice_affiche].indice = vl_indice
+	ta_aa[vl_indice_affiche][0]= tm_actions[vl_indice].libelle
+	ta_aa[vl_indice_affiche][1] = tm_actions[vl_indice].libelle
+	ta_aa[vl_indice_affiche][2] = tm_actions[vl_indice].libelle
+	ta_aa[vl_indice_affiche][3] = tm_actions[vl_indice].libelle
+	ta_aa[vl_indice_affiche][4] = tm_actions[vl_indice].libelle
+
+	/* Si action EQT alors on ajoute la ligne pour le pilotage directe*/
+	IF (tm_actions[vl_indice][POS_REAL]=1) AND (
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_PMVA) OR
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_PMV) OR
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_PRV) OR
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_SAGA) OR
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_PAL) OR
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_ECHANGEUR) OR		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_TUNNEL) OR
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_BAF) OR
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_CFE) OR
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_BAD) OR
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_IMU) OR
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_PAU)) 
+	{
+		vl_indice_affiche=vl_indice_affiche+1
+
+		
+		tm_actions_affichees[vl_indice_affiche].libelle = tm_actions[vl_indice].explication
+		tm_actions_affichees[vl_indice_affiche].categorie = C_EXPLICATION
+		tm_actions_affichees[vl_indice_affiche].indice = vl_indice
+
+		ta_aa[vl_indice_affiche][0] = tm_actions[vl_indice].explication
+		ta_aa[vl_indice_affiche][1] = SUBSTRING@ (tm_actions[vl_indice].explication,24)
+		ta_aa[vl_indice_affiche][2] = SUBSTRING@ (tm_actions[vl_indice].explication,48)
+		ta_aa[vl_indice_affiche][3] = SUBSTRING@ (tm_actions[vl_indice].explication,72)
+		ta_aa[vl_indice_affiche][4] = SUBSTRING@ (tm_actions[vl_indice].explication,96)
+	
+	}
+
+	IF (tm_actions[vl_indice][POS_REAL]=1) AND 
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_FAX) AND  (SYSTEM_VAR@(vg_site) <> XDC_CI)
+	{
+		vl_indice_affiche=vl_indice_affiche+1
+
+		
+		tm_actions_affichees[vl_indice_affiche].libelle = tm_actions[vl_indice].explication
+		tm_actions_affichees[vl_indice_affiche].categorie = C_EXPLICATION
+		tm_actions_affichees[vl_indice_affiche].indice = vl_indice
+
+		ta_aa[vl_indice_affiche][0] = tm_actions[vl_indice].explication
+		ta_aa[vl_indice_affiche][1] = SUBSTRING@ (tm_actions[vl_indice].explication,24)
+		ta_aa[vl_indice_affiche][2] = SUBSTRING@ (tm_actions[vl_indice].explication,48)
+		ta_aa[vl_indice_affiche][3] = SUBSTRING@ (tm_actions[vl_indice].explication,72)
+		ta_aa[vl_indice_affiche][4] = SUBSTRING@ (tm_actions[vl_indice].explication,96)
+	
+	}
+
+	IF (tm_actions[vl_indice][POS_REAL]=1) AND 
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_SMS) AND  (SYSTEM_VAR@(vg_site) <> XDC_CI)
+	{
+		vl_indice_affiche=vl_indice_affiche+1
+
+		
+		tm_actions_affichees[vl_indice_affiche].libelle = tm_actions[vl_indice].explication
+		tm_actions_affichees[vl_indice_affiche].categorie = C_EXPLICATION
+		tm_actions_affichees[vl_indice_affiche].indice = vl_indice
+
+		ta_aa[vl_indice_affiche][0] = tm_actions[vl_indice].explication
+		ta_aa[vl_indice_affiche][1] = SUBSTRING@ (tm_actions[vl_indice].explication,24)
+		ta_aa[vl_indice_affiche][2] = SUBSTRING@ (tm_actions[vl_indice].explication,48)
+		ta_aa[vl_indice_affiche][3] = SUBSTRING@ (tm_actions[vl_indice].explication,72)
+		ta_aa[vl_indice_affiche][4] = SUBSTRING@ (tm_actions[vl_indice].explication,96)
+	
+	}
+	IF (tm_actions[vl_indice][POS_REAL]=1) AND
+		(tm_actions[vl_indice][POS_TYPE]=XDC_ACT_APPEL )
+		AND (TRIM@(tm_actions[vl_indice].remarque) <>"") {
+		vl_indice_affiche=vl_indice_affiche+1
+		tm_actions_affichees[vl_indice_affiche].libelle = tm_actions[vl_indice].explication
+		tm_actions_affichees[vl_indice_affiche].categorie = C_EXPLICATION
+		tm_actions_affichees[vl_indice_affiche].indice = vl_indice
+
+		ta_aa[vl_indice_affiche][0] = tm_actions[vl_indice].remarque
+		ta_aa[vl_indice_affiche][1] = SUBSTRING@ (tm_actions[vl_indice].explication,24)
+		ta_aa[vl_indice_affiche][2] = SUBSTRING@ (tm_actions[vl_indice].explication,48)
+		ta_aa[vl_indice_affiche][3] = SUBSTRING@ (tm_actions[vl_indice].explication,72)
+		ta_aa[vl_indice_affiche][4] = SUBSTRING@ (tm_actions[vl_indice].explication,96)
+	}
+
+	IF (vm_mode_formation=TRUE)
+		/*A je fabrique un tableau pour la formation*/
+		tl_data[vl_indice]=tm_actions[vl_indice].libelle,0
+
+	vl_indice_affiche=vl_indice_affiche+1
+
+NEXT vl_indice
+vl_indice_affiche=0
+
+SET_SYSTEM_VAR@("tl_posPMV",tm_posPMV)
+SET_SYSTEM_VAR@("tl_posPMVA",tm_posPMVA)
+
+DB_TABLE_SET_MARKER_WIDTH@(vm_fenetre,"TA_plan",25)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vm_fenetre, "TA_plan", FALSE)
+DB_TABLE_SET_DATA@(vm_fenetre,"TA_plan",ta_aa,tm_heading,tm_pixmaps)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"TA_plan",TRUE)
+DB_CTRL_HORIZ_SCROLL@ (vm_fenetre, "TA_plan", TRUE)
+
+
+DB_DISPLAY_ONLY@(vm_fenetre,FALSE)
+
+/*A si je suis en creation de scenario*/
+IF (vm_type_formation=COM_FORMATION_CREATION)
+	NEW_TASK@("ITMA_TPA_form_creation","ITMA_TPA_Plan_Actions",
+						tl_data,tm_heading,tm_pixmaps,vm_numFiche)
+ELSE IF (vm_type_formation=COM_FORMATION_PASSIF)
+{
+	NEW_TASK@("ITMA_TPA_form_solution","ITMA_TPA_Plan_Actions",
+						tm_actionsEtudiant,vm_numFiche)
+	DB_CTRL_DISPLAY@(vm_fenetre,"BP_solution",FALSE)
+}
+
+
+/*B Avant d'afficher le plan d'actions, */
+/*B donner le focus a la fiche Trafic FM si elle est ouverte */
+vl_tache = COM21_Tache_De_La_Macro ("ITMA_TFM_Fiche_Trafic_FM")
+IF vl_tache <> NULL
+	SELECT_WINDOW@ (COM22_Fenetre_De_La_Tache (vl_tache), TRUE)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+/*
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND*/
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vm_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vm_fenetre)
+
+	/*A on regarde si l'IHM est verrouillee*/
+	IF (SYSTEM_VAR@(vg_verrou)=TRUE) AND (vl_exit_value<>"poke_")
+		vl_exit_value=null
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		/*A demande de la solution en mode formation*/
+		CASE "BP_solution"
+			NEW_TASK@("ITMA_TPA_form_solution","ITMA_TPA_Plan_Actions",
+						tm_actionsEtudiant,vm_numFiche)
+		/*A
+		* selection d'un element dans la liste des actions*/
+		CASE "TA_plan"
+			/*A
+			* je recupere les caracteristiques de l'element selectionne*/
+			vl_sel=DB_TABLE_GET_SELECTIONS@(vm_fenetre,"TA_plan")
+			vl_sel=vl_sel[0]
+			vl_action=tm_actions_affichees[vl_sel]
+			SET_SYSTEM_VAR@("vl_action",tm_actions[tm_actions_affichees[vl_sel].indice])
+
+			/*si action de pilotage*/
+			if (vl_action.categorie <> C_EXPLICATION) {
+				/*ouvrir la fenetre de pilotage associee*/
+				macro_fenetre(vl_sel)
+			}
+			else {
+				/*lancer l'action en automatique*/
+				/*suivant le type*/
+				macro_commande(vl_sel)
+			}
+
+		/*A
+		* reception d'un poke*/
+		CASE "poke_"
+			vl_code= DB_GET_POKE@(vm_fenetre)
+			CASE OF vl_code
+				/*A
+				* poke de fin*/
+				CASE COM_CANAL_FIN
+					RETURN				
+				
+				/*A
+				* poke de fin recu de la main courante TMC */
+				CASE COM_CANAL_MTPA
+					vl_message = DB_GET_POKE_DATA@(vm_fenetre)
+					if vl_message = "FIN"
+						RETURN
+			ENDCASE
+
+	ENDCASE
+			
+WEND
+ENDMACRO
+
+
+FUNCTION macro_commande(va_sel)
+VAR vl_action
+VAR vl_retour
+
+	vl_action=SYSTEM_VAR@("vl_action")
+
+	/*A
+	* si l'action n'est pas realisable*/
+	IF (vl_action[POS_REAL]<>1)
+	{
+		/*je le dis*/
+		BEEP@()
+		INFO_MESSAGE@("Action non réalisable")
+		RETURN
+	}
+	
+	vl_retour=COM_VALIDE
+	CASE OF vl_action[POS_TYPE]
+		CASE XDC_ACT_PAL
+			macro_commande_pal(vl_action)
+			/*vl_retour=macro_fenetre()*/
+
+		/*PMV*/
+		CASE XDC_ACT_PMV
+			macro_commande_pmv(vl_action)
+
+		CASE XDC_ACT_PRV
+			macro_commande_prv(vl_action)
+
+		CASE XDC_ACT_PMVA
+			macro_commande_pmva(vl_action)
+
+		CASE XDC_ACT_APPEL
+			vl_retour=macro_fenetre(vl_action)
+
+		CASE XDC_ACT_CFE
+			vl_retour=macro_fenetre(vl_action)
+
+		CASE XDC_ACT_IMU
+			vl_retour=macro_commande_imu(vl_action)
+
+		CASE XDC_ACT_ECHANGEUR
+			macro_commande_echangeur(vl_action)
+
+		CASE XDC_ACT_TFM
+			vl_retour=macro_fenetre()
+
+		CASE XDC_ACT_FAX
+			macro_commande_fax(vl_action)
+
+		CASE XDC_ACT_SMS
+			macro_commande_fax(vl_action)
+
+		CASE XDC_ACT_NAV
+			/*macro_commande_nav(vl_action)*/
+			vl_retour=macro_fenetre()
+
+		CASE XDC_ACT_TUNNEL
+			macro_commande_tunnel(vl_action)
+
+		CASE XDC_ACT_BAD
+			macro_commande_bad(vl_action)
+
+		CASE XDC_ACT_BAF
+			macro_commande_baf(vl_action)
+
+		CASE XDC_ACT_SAGA
+			macro_commande_saga(vl_action, TRUE)
+
+		CASE XDC_ACT_PAU
+			vl_retour=macro_commande_pau(vl_action)
+
+	ENDCASE
+	CASE OF vl_retour
+		CASE COM_REFUSE
+			tm_pixmaps[va_sel]="pix_vous_refuse",""
+
+		CASE COM_VALIDE
+			tm_pixmaps[va_sel]="pix_vous_fin",""
+	ENDCASE
+	DB_TABLE_SET_DATA@(vm_fenetre,"TA_plan",
+								tm_actions_affichees,tm_heading,tm_pixmaps)
+ENDFUNCTION
+
+
+FUNCTION macro_commande_pal(FORMAT TPA_actions va_action)
+VAR FORMAT PA_PAL vl_PAL
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+VAR 	vl_numero
+VAR 	vl_numero_plan
+VAR	vl_numFiche
+
+	vl_numero_plan=SYSTEM_vAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+
+	ITMA_TPP_commun_PAL()
+	/*on lit les elements dans SAD_PAL*/
+	IF (ITMA_TPP_Lire_Prop_PAL(vl_numero_plan,va_action[POS_ORDRE],vl_PAL) = COM_NOK) {
+		INFO_MESSAGE@("Probleme lecture proposition en base")
+		RETURN
+	}
+
+	/*on commande le PAL*/
+	if (vl_PAL.Scenario<>"M_SC11") {
+	  IF (ITMA_TPP_Commande_PAL_Auto(SYSTEM_VAR@(vg_numero_operateur),
+		FALSE,
+		vl_PAL.Scenario,
+		va_action[POS_EXPLICATION],
+		(SYSTEM_VAR@ (vg_formation) <> NULL),
+		vl_numFiche[0],
+		vl_numFiche[1],
+		vl_PAL.NumEqt,
+		vl_PAL,
+		vl_numero) = COM_NOK)  
+		INFO_MESSAGE@("Probleme pilotage PAL")
+	}
+	else { /*extinction*/
+	  IF (ITMA_TPP_Commande_fin_PAL_Auto(vl_PAL.NumEqt,FALSE,
+						SYSTEM_VAR@(vg_numero_operateur),
+						(SYSTEM_VAR@ (vg_formation) <> NULL),
+						vl_PAL.Scenario,va_action[POS_EXPLICATION],
+						vl_numero) = COM_NOK)
+		INFO_MESSAGE@("Probleme pilotage fin PAL")
+	}
+ENDFUNCTION
+
+FUNCTION macro_fenetre(FORMAT TPA_actions va_action)
+VAR vl_sel
+VAr vl_indice
+VAr vl_retour_pmv
+VAr vl_action2
+Var vl_action3
+VAR vl_retour
+VAR tl_args
+VAR vl_posAction2,vl_posAction3
+
+VAR vl_action
+VAR vl_numero_plan
+VAR vl_numFiche
+VAR vl_libelleFiche
+VAR vl_niv
+VAR tl_actions
+VAR tl_posPMV
+VAR tl_posPMVA
+
+	vl_action=SYSTEM_VAR@("vl_action")
+	vl_numero_plan=SYSTEM_vAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+	vl_libelleFiche = SYSTEM_VAR@("vl_libelleFiche")
+	vl_niv = SYSTEM_VAR@("vl_niv")
+	tl_actions = SYSTEM_VAR@("tl_actions")
+	tl_posPMV = SYSTEM_VAR@("tm_posPMV")
+	tl_posPMVA = SYSTEM_VAR@("tm_posPMVA")
+	/*A
+	* si l'action n'est pas realisable*/
+	IF (vl_action[POS_REAL]<>1)
+	{
+		/*je le dis*/
+		BEEP@()
+		INFO_MESSAGE@("Action non réalisable")
+	}
+	ELSE
+	{
+		CASE OF vl_action[POS_TYPE]
+			/*A
+			* appel telephonique*/
+			CASE XDC_ACT_APPEL
+				/*A
+				* lancer MTAT*/
+				/*vl_retour=PEND_FOR_NEW_TASK@("ITMA_TAT_Appel_Telephonique",	*/
+				vl_retour=PEND_FOR_NEW_TASK@("ITMA_TAS_Interlocuteurs_Astreint",	
+						"ITMA_TPA_Plan_Actions",	' identifiant de l'appelant
+						vl_numero_plan,				'Num plan action
+						vl_action[POS_ORDRE],	'Rang dans la liste actions
+						vl_numFiche,	'Ident. fiche main courante
+						vl_libelleFiche,
+						vm_FicheMC)	'libelle de la fiche MC.
+
+			/*A
+			* pilotage echangeur*/
+			CASE XDC_ACT_ECHANGEUR
+		
+				vl_retour=PEND_FOR_NEW_TASK@("ITMA_TEC_pilotage_echangeur",
+					"ITMA_TPA_Plan_Actions",vl_numero_plan,
+						vl_action[POS_ORDRE],
+						vl_numFiche[0],		' Num FMC
+						vl_numFiche[1])		' Cle FMC
+
+			CASE XDC_ACT_SAGA
+				macro_commande_saga(vl_action, FALSE)
+			/*A
+			* fiche trafic FM*/
+			CASE XDC_ACT_TFM
+				/*A
+				* lancer MTFM*/
+				tl_args[0]=vl_numero_plan
+				tl_args[1]=vl_numFiche
+				tl_args[2]=vl_action[POS_ORDRE]
+				tl_args[3]=vl_action[POS_LIBELLE]
+				vl_retour = PEND_FOR_NEW_TASK@("ITMA_TFM_Fiche_Trafic_FM",
+								"ITMA_TPA_Plan_Actions",
+								vl_numFiche,
+								vl_numero_plan,
+								vl_action[POS_ORDRE],
+								vl_libelleFiche,
+								vl_niv)
+
+			/*A
+			* envoi d'un fax*/
+			CASE XDC_ACT_FAX
+				/*A
+				* lancer MTFX*/
+				tl_args[0]=vl_numero_plan
+				tl_args[1]=vl_action[POS_ORDRE]
+				tl_args[2]=vl_numFiche
+				tl_args[3]=vl_libelleFiche
+				tl_args[4]=0
+				vl_retour = PEND_FOR_NEW_TASK@("ITMA_TFX_Envoi_Fax",
+						"ITMA_TPA_Plan_Actions",
+						tl_args,
+						vm_FicheMC)
+
+			/*A
+			* envoi d'un sms*/
+			CASE XDC_ACT_SMS
+				/*A
+				* lancer MTFX*/
+				tl_args[0]=vl_numero_plan
+				tl_args[1]=vl_action[POS_ORDRE]
+				tl_args[2]=vl_numFiche
+				tl_args[3]=vl_libelleFiche
+				tl_args[4]=0
+				vl_retour = PEND_FOR_NEW_TASK@("ITMA_TFX_Envoi_Fax",
+						"ITMA_TPA_Plan_Actions",
+						tl_args,
+						vm_FicheMC)
+
+			/*A
+			* piloter une NAV*/
+			CASE XDC_ACT_NAV
+
+				/*A
+				* lancer MTNA*/
+       			vl_indice = 0		
+
+				/*B recuperer les parametres de retour */
+	
+				vl_retour = PEND_FOR_NEW_TASK@("ITMA_TNA_pilotage_NAV",
+								"ITMA_TPA_Plan_Actions",
+					vl_numero_plan,			' NumPA
+					vl_action[POS_ORDRE],	' Num Ordre
+					vl_numFiche[0],		' Num FMC
+					vl_numFiche[1],		' Cle FMC
+					0)			' Manuel
+
+			/*A
+			* piloter une BAD*/
+			CASE XDC_ACT_BAD
+
+				/*A
+				* lancer MBAD*/
+       			vl_indice = 0		
+
+				/*B recuperer les parametres de retour */
+	
+				vl_retour = PEND_FOR_NEW_TASK@("ITMA_TBAD_pilotage_BAD",
+								"ITMA_TPA_Plan_Actions",
+					vl_numero_plan,			' NumPA
+					vl_action[POS_ORDRE],	' Num Ordre
+					vl_numFiche[0],		' Num FMC
+					vl_numFiche[1],		' Cle FMC
+					0)			' Manuel
+
+			/*A
+			* piloter une BAF*/
+			CASE XDC_ACT_BAF
+
+				/*A
+				* lancer MBAF*/
+       			vl_indice = 0		
+
+				/*B recuperer les parametres de retour */
+	
+				vl_retour = PEND_FOR_NEW_TASK@("ITMA_TBAF_pilotage_BAF",
+								"ITMA_TPA_Plan_Actions",
+					vl_numero_plan,			' NumPA
+					vl_action[POS_ORDRE],	' Num Ordre
+					vl_numFiche[0],		' Num FMC
+					vl_numFiche[1],		' Cle FMC
+					0)			' Manuel
+
+			/*A
+                         * piloter une PAL*/
+                        CASE XDC_ACT_PAL
+                               vl_indice = 0
+
+                               /*B recuperer les parametres de retour */
+
+                               vl_retour = PEND_FOR_NEW_TASK@("ITMA_TPP_pilotage_PAL",
+                                                                        "ITMA_TPA_Plan_Actions",
+                                                vl_numero_plan,                     ' NumPA
+                                                vl_action[POS_ORDRE],   ' Num Ordre
+                                                vl_numFiche[0],         ' Num FMC
+                                                vl_numFiche[1])         ' Cle FMC
+
+			CASE XDC_ACT_PRV
+				 vl_retour = PEND_FOR_NEW_TASK@("ITMA_TPRV_pilotage_d_un_PRV",
+						"ITMA_TPA_Plan_Actions",
+						vl_numero_plan,
+						vl_action[POS_ORDRE],
+						vl_numFiche[0],
+						vl_numFiche[1],0)
+
+			/*A
+			* piloter PMV*/
+			CASE XDC_ACT_PMV
+
+				vl_posAction2=-1
+				vl_posAction3=-1
+				/*A je regarde s'il y a d'autres commandes de PMV 
+				    apres ma position dans le tableau*/
+				FOR vl_indice=0 TO (ARRAY_SIZE@(tm_posPMV)-1)
+					IF tl_posPMV[vl_indice]>vl_sel
+					{
+						vl_posAction2=tl_posPMV[vl_indice]
+						goto POS_ACTION2
+					}
+				NEXT vl_indice
+				vl_posAction2=-2
+
+
+				POS_ACTION2:
+				/*A si on a trouve une commande de 
+								PMV plus loin dans le tableau*/
+				IF (vl_posAction2<>-2)
+				{
+					/*A je regarde s'il n'y en a pas une apres*/
+					FOR vl_indice=0 TO (ARRAY_SIZE@(tm_posPMV)-1)
+						IF tl_posPMV[vl_indice]>vl_posAction2
+						{
+							vl_posAction3=tl_posPMV[vl_indice]
+							goto POS_ACTION3
+						}
+					NEXT vl_indice
+						vl_posAction3=-2
+				}
+				ELSE
+					vl_posAction3=-2
+
+
+				POS_ACTION3:
+				/*A je recupere les actions...s'il y en a*/
+				IF (vl_posAction2<>-2)
+					vl_action2=tl_actions[vl_posAction2][POS_ORDRE]
+				ELSE
+					vl_action2=0
+
+				IF (vl_posAction3<>-2)
+					vl_action3=tl_actions[vl_posAction3][POS_ORDRE]
+				ELSE
+					vl_action3=0
+	
+				/*A
+				* lancer MTPM*/
+				vl_retour_pmv=PEND_FOR_NEW_TASK@(
+							"ITMA_TPM_pilotage_PMV_PA",
+							"ITMA_TPA_Plan_Actions",
+							vl_action[POS_ORDRE],
+							vl_action2,		
+							vl_action3,
+							vl_numero_plan,vl_libelleFiche,
+							vl_numFiche)
+
+			/*A
+			* piloter PMV*/
+			CASE XDC_ACT_PMVA
+
+				vl_posAction2=-1
+				vl_posAction3=-1
+				/*A je regarde s'il y a d'autres commandes de PMVA
+				    apres ma position dans le tableau*/
+				FOR vl_indice=0 TO (ARRAY_SIZE@(tm_posPMVA)-1)
+					IF tl_posPMVA[vl_indice]>vl_sel
+					{
+						vl_posAction2=tl_posPMVA[vl_indice]
+						goto POS_ACTION2_PMVA
+					}
+				NEXT vl_indice
+				vl_posAction2=-2
+
+
+				POS_ACTION2_PMVA:
+				/*A si on a trouve une commande de 
+								PMVA plus loin dans le tableau*/
+				IF (vl_posAction2<>-2)
+				{
+					/*A je regarde s'il n'y en a pas une apres*/
+					FOR vl_indice=0 TO (ARRAY_SIZE@(tm_posPMVA)-1)
+						IF tl_posPMVA[vl_indice]>vl_posAction2
+						{
+							vl_posAction3=tl_posPMVA[vl_indice]
+							goto POS_ACTION3_PMVA
+						}
+					NEXT vl_indice
+						vl_posAction3=-2
+				}
+				ELSE
+					vl_posAction3=-2
+
+
+				POS_ACTION3_PMVA:
+				/*A je recupere les actions...s'il y en a*/
+				IF (vl_posAction2<>-2)
+					vl_action2=tl_actions[vl_posAction2][POS_ORDRE]
+				ELSE
+					vl_action2=0
+
+				IF (vl_posAction3<>-2)
+					vl_action3=tl_actions[vl_posAction3][POS_ORDRE]
+				ELSE
+					vl_action3=0
+	
+				/*A
+				* lancer MTPM*/
+				vl_retour_pmv=PEND_FOR_NEW_TASK@(
+							"ITMA_TPMVA_pilotage_PMVA_PA",
+							"ITMA_TPA_Plan_Actions",
+							vl_action[POS_ORDRE],
+							vl_action2,		
+							vl_action3,
+							vl_numero_plan,vl_libelleFiche,
+							vl_numFiche)
+
+			/*A
+			/*A
+			* piloter signalisation tunnel*/
+			CASE XDC_ACT_TUNNEL
+
+				vl_retour = PEND_FOR_NEW_TASK@("ITMA_TTU_pilotage_tunnel",
+				"ITMA_TPA_Plan_Actions",vl_numero_plan,
+					vl_action[POS_ORDRE],
+					vl_numFiche[0],		' Num FMC
+					vl_numFiche[1],		' Cle FMC
+					0)			' manuel
+
+
+			/*A
+			* export intergestionnaire*/
+			CASE XDC_ACT_EXP
+
+				/*A
+				* lancer MTFE*/
+				tl_args[0]=vl_numero_plan
+				tl_args[1]=vl_action[POS_ORDRE]
+				tl_args[2]=vl_numFiche
+				tl_args[3]=vl_libelleFiche
+
+				/*B recuperer les parametres de retour */
+	
+				vl_retour = PEND_FOR_NEW_TASK@("ITMA_TFE_Fiche_Export",
+								"ITMA_TPA_Plan_Actions",
+								tl_args)		
+
+			CASE XDC_ACT_CFE
+				vl_retour = PEND_FOR_NEW_TASK@("ITMA_TCFE_pilotage_CFE",
+						"ITMA_TPA_Plan_Actions",
+						vl_numero_plan,
+						vl_action[POS_ORDRE],
+						vl_numFiche[0],
+						vl_numFiche[1],0)
+
+			CASE XDC_ACT_IMU
+				vl_retour = PEND_FOR_NEW_TASK@("ITMA_TIMU_pilotage_IMU",
+						"ITMA_TPA_Plan_Actions",
+						vl_numero_plan,
+						vl_action[POS_ORDRE],
+						vl_numFiche[0],
+						vl_numFiche[1],0)
+
+			CASE XDC_ACT_PAU
+				vl_retour = PEND_FOR_NEW_TASK@("ITMA_TRAU_pilotage_SONO",
+								"ITMA_TPA_Plan_Actions",
+								vl_numero_plan,
+								vl_action[POS_ORDRE],
+								vl_numFiche[0],
+								vl_numFiche[1],0)
+
+
+		ENDCASE
+		}
+
+		/*A Mettre à jour la liste des actions suivant code retour */
+		/* INHIBE !!!!!!!!!!!!!!!*/
+		/*
+		IF (vl_action[POS_TYPE] = XDC_ACT_PMV) OR (vl_action[POS_TYPE] = XDC_ACT_PMVA)
+		{
+			for vl_indice = 0 to 2
+				CASE OF vl_indice
+					CASE 1
+						vl_sel = vl_posAction2 
+					CASE 2
+						vl_sel = vl_posAction3 
+				ENDCASE
+				
+				CASE OF vl_retour_pmv[vl_indice]
+					CASE COM_REFUSE
+						if vl_sel >= 0
+						tm_pixmaps[vl_sel]="pix_vous_refuse",""
+
+					CASE COM_VALIDE
+						if vl_sel >=0
+							tm_pixmaps[vl_sel]="pix_vous_fin",""
+
+					CASE COM_QUITTE
+						IF vl_sel>=0
+							IF (vm_mode_formation=TRUE)
+				ENDCASE
+			NEXT vl_indice
+			DB_TABLE_SET_DATA@(vm_fenetre,"TA_plan",
+								tm_actions,tm_heading,tm_pixmaps)
+		}
+		ELSE
+		{
+			CASE OF vl_retour
+				CASE COM_REFUSE
+					tm_pixmaps[vl_sel]="pix_vous_refuse",""
+
+				CASE COM_VALIDE
+					tm_pixmaps[vl_sel]="pix_vous_fin",""
+			ENDCASE
+			DB_TABLE_SET_DATA@(vm_fenetre,"TA_plan",
+								tm_actions,tm_heading,tm_pixmaps)
+		}
+		FIN INHIBITION
+		*/
+		RETURN (vl_retour)
+ENDFUNCTION
+
+
+
+FUNCTION macro_commande_pmv(FORMAT TPA_actions va_action)
+VAR FORMAT PA_PAL vl_PAL
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+VAR 	vl_numero
+VAR 	vl_numero_plan
+VAR	vl_numFiche
+VAR	vl_indice
+var format type_PMV_GEN vl_Lect_PMV
+var	vl_tptext
+var	vl_select
+var	vl_tpaffichage 
+var	vl_type_extinct
+var	vl_sec, vl_min, vl_heure, vl_annee, vl_mois, vl_jour
+var	flag_affichage_tdp
+var	vl_numdest
+var 	vl_libelleFiche
+
+
+	/* A CREUSER */
+	/* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	if SYSTEM_VAR@(vg_site) = XDC_CI 
+        {
+                if NOT ITMA_COM_District_pilotable(
+                        vm_Config_PMV[vm_Lect_PMV.NumEqt].NomSite,
+                        XDC_LIB_PMV, TRUE,
+                        vm_Config_PMV[vm_Lect_PMV.NumEqt].Identifiant)
+                {
+                        RETURN(COM_NOK)
+                }
+        }
+	*/
+
+/*	NEW_TASK@("macro_message","Pilotage du PMV en cours")*/
+	vl_numero_plan=SYSTEM_vAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+	vl_libelleFiche = SYSTEM_VAR@("vl_libelleFiche")
+	/*A
+	* lancer MTPM*/
+	PEND_FOR_NEW_TASK@(
+							"ITMA_TPM_pilotage_PMV_PA",
+							"ITMA_TPA_Plan_Actions",
+							va_action[POS_ORDRE],
+							0,		
+							0,
+							vl_numero_plan,vl_libelleFiche,
+							vl_numFiche,1)
+	RETURN (COM_OK)
+
+ENDFUNCTION
+
+
+FUNCTION macro_commande_pmva(FORMAT TPA_actions va_action)
+VAR 	vl_numero
+VAR 	vl_numero_plan
+VAR	vl_numFiche
+var 	vl_libelleFiche
+
+	vl_numero_plan=SYSTEM_vAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+	vl_libelleFiche = SYSTEM_VAR@("vl_libelleFiche")
+	/*A
+	* lancer MTPM*/
+	PEND_FOR_NEW_TASK@(
+							"ITMA_TPMVA_pilotage_PMVA_PA",
+							"ITMA_TPA_Plan_Actions",
+							va_action[POS_ORDRE],
+							0,		
+							0,
+							vl_numero_plan,vl_libelleFiche,
+							vl_numFiche,1)
+	RETURN (COM_OK)
+	
+ENDFUNCTION
+
+
+
+FUNCTION macro_commande_prv(FORMAT TPA_actions va_action)
+VAR 	vl_numero
+VAR 	vl_numero_plan
+VAR	vl_numFiche
+var 	vl_libelleFiche
+
+	vl_numero_plan=SYSTEM_vAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+	vl_libelleFiche = SYSTEM_VAR@("vl_libelleFiche")
+	/*A
+	* lancer MTPM*/
+	PEND_FOR_NEW_TASK@("ITMA_TPRV_pilotage_d_un_PRV",
+						"ITMA_TPA_Plan_Actions",
+						vl_numero_plan,
+						va_action[POS_ORDRE],
+						vl_numFiche[0],
+						vl_numFiche[1],1)
+	RETURN (COM_OK)
+	
+ENDFUNCTION
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :       Centre un message sur une zone de 'n' caractère
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPM_Tabuler_ligne_PA(va_old,va_new,va_taille)
+
+/*
+* ARGUMENTS EN ENTREE :
+*       va_old          : Chaine en entrée ;
+*       va_taille               : taille de la chaine de sortie
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_new              : Chaine en sortie.
+*
+*
+* CODE RETOUR         : auncun
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_PMV_PA
+*
+*
+---------------------------------------------------------------------------- */
+        var     vl_long         ' longeur du message
+        var     x                       ' variable static
+        var     i                       ' index de loop
+        var             vl_tptext                                       ' zone de text tampon
+
+	vl_long = (len@(trim@(va_old)))
+        x = int@((va_taille-vl_long)/2)
+        va_new = ""
+        for i = 1 to x
+                va_new = va_new ++ " "
+        next i
+	vl_tptext = va_new ++ trim@(va_old) ++ "               "
+        va_new = SUBSTRING@(vl_tptext,1,va_taille)
+ENDMACRO
+
+
+FUNCTION macro_commande_fax(FORMAT TPA_actions va_action)
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+VAR 	vl_numero_plan
+VAR	vl_numFiche
+var 	vl_libelleFiche
+var	vl_retour
+var tl_args
+
+
+
+
+	NEW_TASK@("macro_message","Fax en cours")
+	vl_numero_plan=SYSTEM_vAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+	vl_libelleFiche = SYSTEM_VAR@("vl_libelleFiche")
+	/*A
+		* lancer MTFX*/
+	tl_args[0]=vl_numero_plan
+	tl_args[1]=va_action[POS_ORDRE]
+	tl_args[2]=vl_numFiche
+	tl_args[3]=vl_libelleFiche
+	tl_args[4]=1	'automatique
+	vl_retour = PEND_FOR_NEW_TASK@("ITMA_TFX_Envoi_Fax",
+						"ITMA_TPA_Plan_Actions",
+						tl_args,
+						vm_FicheMC)
+
+	RETURN (COM_OK)
+
+ENDFUNCTION	
+
+
+FUNCTION macro_commande_tunnel(FORMAT TPA_actions va_action)
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+VAR 	vl_numero_plan
+VAR	vl_numFiche
+var 	vl_libelleFiche
+var	vl_retour
+var tl_args
+
+
+/*	NEW_TASK@("macro_message","Pilotage Tunnel en cours")*/
+	vl_numero_plan=SYSTEM_VAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+	vl_libelleFiche = SYSTEM_VAR@("vl_libelleFiche")
+
+
+	vl_retour = PEND_FOR_NEW_TASK@("ITMA_TTU_pilotage_tunnel",
+				"ITMA_TPA_Plan_Actions",vl_numero_plan,
+					va_action[POS_ORDRE],
+					vl_numFiche[0],		' Num FMC
+					vl_numFiche[1],		' Cle FMC
+					1)			' automatique		
+
+	RETURN (COM_OK)
+
+ENDFUNCTION	
+
+
+FUNCTION macro_commande_echangeur(FORMAT TPA_actions va_action)
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+VAR 	vl_numero_plan
+VAR	vl_numFiche
+var 	vl_libelleFiche
+var	vl_retour
+var tl_args
+
+
+/*	NEW_TASK@("macro_message","Pilotage Echangeur en cours")*/
+	vl_numero_plan=SYSTEM_VAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+	vl_libelleFiche = SYSTEM_VAR@("vl_libelleFiche")
+
+
+	vl_retour = PEND_FOR_NEW_TASK@("ITMA_TEC_pilotage_echangeur",
+				"ITMA_TPA_Plan_Actions",vl_numero_plan,
+					va_action[POS_ORDRE],
+					vl_numFiche[0],		' Num FMC
+					vl_numFiche[1],		' Cle FMC
+					1)			' automatique		
+
+	RETURN (COM_OK)
+
+ENDFUNCTION	
+
+
+FUNCTION macro_commande_baf(FORMAT TPA_actions va_action)
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+VAR 	vl_numero_plan
+VAR	vl_numFiche
+var 	vl_libelleFiche
+var	vl_retour
+var tl_args
+
+
+
+	vl_numero_plan=SYSTEM_vAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+	vl_libelleFiche = SYSTEM_VAR@("vl_libelleFiche")
+
+
+	vl_retour = PEND_FOR_NEW_TASK@("ITMA_TBAF_pilotage_BAF",
+								"ITMA_TPA_Plan_Actions",
+					vl_numero_plan,			' NumPA
+					va_action[POS_ORDRE],	' Num Ordre
+					vl_numFiche[0],		' Num FMC
+					vl_numFiche[1],		' Cle FMC
+					1)			' mode Automatique
+
+	RETURN (COM_OK)
+
+ENDFUNCTION	
+
+FUNCTION macro_commande_nav(FORMAT TPA_actions va_action)
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+VAR 	vl_numero_plan
+VAR	vl_numFiche
+var 	vl_libelleFiche
+var	vl_retour
+var tl_args
+
+
+
+
+	vl_numero_plan=SYSTEM_vAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+	vl_libelleFiche = SYSTEM_VAR@("vl_libelleFiche")
+
+
+	vl_retour = PEND_FOR_NEW_TASK@("ITMA_TNA_pilotage_NAV",
+								"ITMA_TPA_Plan_Actions",
+					vl_numero_plan,			' NumPA
+					va_action[POS_ORDRE],	' Num Ordre
+					vl_numFiche[0],		' Num FMC
+					vl_numFiche[1],		' Cle FMC
+					1)			' mode Automatique
+
+	RETURN (COM_OK)
+
+ENDFUNCTION	
+
+
+FUNCTION macro_commande_saga(FORMAT TPA_actions va_action, va_mode_auto)
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+VAR     vl_numero_plan
+VAR     vl_numFiche
+var     vl_libelleFiche
+var     vl_retour
+var tl_args
+var vl_type
+var FORMAT  T_commande vl_eqt
+
+	vl_numero_plan=SYSTEM_vAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+	vl_libelleFiche = SYSTEM_VAR@("vl_libelleFiche")
+
+	/*on lit les elements dans SAD_PAL*/
+	IF (ITMA_TSAGA_Lire_Prop_PA(vl_numero_plan,va_action[POS_ORDRE],vl_eqt) = COM_NOK) {
+		INFO_MESSAGE@("Probleme lecture proposition en base")
+		RETURN
+	}
+	vl_eqt.numero_evt= vl_numFiche[0]
+	vl_eqt.cle_evt = vl_numFiche[1]       
+					                      
+	CASE OF vl_eqt.type_saga	
+		CASE XDC_SAGA_PMV_1_18
+		CASE XDC_SAGA_PMV_2_18
+		CASE XDC_SAGA_PMV_2_15
+		CASE XDC_SAGA_PMV_3_15
+		CASE XDC_SAGA_PMV_2_18_P
+		CASE XDC_SAGA_PMV_3_15_P
+			vl_retour = PEND_FOR_NEW_TASK@("ITMA_TSAGA_pilotage_d_un_PMV",
+					"ITMA_TPA_Plan_Actions",
+					vl_eqt.numero_eqt,
+					vl_eqt, va_mode_auto)
+
+		CASE XDC_SAGA_PMVA
+			vl_retour = PEND_FOR_NEW_TASK@("ITMA_TSAGA_pilotage_d_un_PMVA",
+					"ITMA_TPA_Plan_Actions",
+					vl_eqt.numero_eqt,
+					vl_eqt, va_mode_auto)
+
+		CASE XDC_SAGA_BAF
+			vl_retour = PEND_FOR_NEW_TASK@("ITMA_TSAGA_pilotage_BAF",
+					"ITMA_TPA_Plan_Actions",
+					vl_eqt.numero_eqt,
+					vl_eqt, va_mode_auto)
+
+		CASE XDC_SAGA_BRA
+			vl_retour = PEND_FOR_NEW_TASK@("ITMA_TSAGA_pilotage_BAF",
+					"ITMA_TPA_Plan_Actions",
+					vl_eqt.numero_eqt,
+					vl_eqt, va_mode_auto)
+
+		CASE XDC_SAGA_META_EQT
+			vl_retour = PEND_FOR_NEW_TASK@("ITMA_TSAGA_scenario",
+					"ITMA_TPA_Plan_Actions",
+					vl_eqt, va_mode_auto)
+	ENDCASE
+
+ENDFUNCTION
+
+FUNCTION macro_commande_pau(FORMAT TPA_actions va_action)
+VAR 	vl_numero_plan
+VAR	vl_numFiche
+var 	vl_libelleFiche
+var	vl_retour
+var tl_args
+
+
+
+	vl_numero_plan=SYSTEM_vAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+	vl_libelleFiche = SYSTEM_VAR@("vl_libelleFiche")
+
+
+	vl_retour = PEND_FOR_NEW_TASK@("ITMA_TRAU_pilotage_SONO",
+								"ITMA_TPA_Plan_Actions",
+					vl_numero_plan,			' NumPA
+					va_action[POS_ORDRE],	' Num Ordre
+					vl_numFiche[0],		' Num FMC
+					vl_numFiche[1],		' Cle FMC
+					1)			' mode Automatique
+
+	RETURN (vl_retour)
+
+ENDFUNCTION	
+
+FUNCTION macro_commande_imu(FORMAT TPA_actions va_action)
+VAR 	vl_numero_plan
+VAR	vl_numFiche
+var 	vl_libelleFiche
+var	vl_retour
+var tl_args
+
+
+
+	vl_numero_plan=SYSTEM_vAR@("vl_numero_plan")
+	vl_numFiche = SYSTEM_VAR@("vl_numFiche")
+	vl_libelleFiche = SYSTEM_VAR@("vl_libelleFiche")
+
+
+	vl_retour = PEND_FOR_NEW_TASK@("ITMA_TIMU_pilotage_IMU",
+					"ITMA_TPA_Plan_Actions",
+					vl_numero_plan,			' NumPA
+					va_action[POS_ORDRE],	' Num Ordre
+					vl_numFiche[0],		' Num FMC
+					vl_numFiche[1],		' Cle FMC
+					1)			' mode Automatique
+
+	RETURN (vl_retour)
+
+ENDFUNCTION	
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Afficher le message 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO	macro_message(va_texte)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_texte: texte du message à afficher
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+
+INFO_MESSAGE@(va_texte)
+
+ENDMACRO

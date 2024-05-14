@@ -1,0 +1,357 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPW_Diff_TDP_WebTrafic.am,v 1.1 2009/11/16 19:17:34 gesconf Exp $        Release : $Revision: 1.1 $        Date : $Date: 2009/11/16 19:17:34 $
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR PASTRE
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE  MTPW
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Web Trafic.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JPL		13/11/09: Creation 1.1
+*
+-------------------------------------------------------------------------------
+*/
+
+INCLUDE "dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+
+
+DEFINE	CM_MODULE	"MTPW"			' Nom du module
+
+
+
+/*A
+ * Definition de la localisation de la configuration
+ * de la diffusion des Temps de Parcours au Web Trafic
+ * ---------------------------------------------------
+ */
+
+DEFINE	CM_POSTE_WT		"SPCI"				' poste WebTrafic
+DEFINE	CM_REP_CFG_WT		(XDC_PATHFIC ++ "/stra")	' repertoire de config. WebTrafic
+DEFINE	CM_FIC_DIF_TDP		"web_tdp_diff.txt"		' fichier de config. diffusion TdP
+
+DEFINE	CM_REP_TMP		(XDC_PATHFIC ++ "/dyn/")	' repertoire de config. WebTrafic
+
+
+
+/*
+ * Definition des fichiers auxiliaires utilises
+ * --------------------------------------------
+ */
+
+DEFINE	CM_FIC_OUT_CMD		"/tmp/commande_migrazur.out"
+DEFINE	CM_FIC_ERR_CMD		"/tmp/commande_migrazur.err"
+
+
+
+/*A
+ * Definition des valeurs de configuration
+ * ---------------------------------------
+ */
+
+DEFINE	TPW_TDP_DIF_OUI		"O"			' Instruction de diffuser les TdP
+DEFINE	TPW_TDP_DIF_NON		"N"			' Instruction de ne pas les diffuser
+
+
+
+VAR	tm_choix_diff_TDP				' Liste des choix proposes
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+* Configuration du mode de transmission au Web Trafic
+* des informations de Temps de Parcours.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPW_Diff_TDP_WebTrafic (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro ayant invoque la presente.
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* FONCTION :
+*
+* Affiche la fenetre de configuration de la diffusion des temps de parcours
+* au Web Trafic; sur action "Valider" ecrit la configuration Web Trafic
+* choisie sur la machine serveur de protocole.
+*
+----------------------------------------------------------------------------- */
+
+	VAR	vl_fenetre
+	VAR	vl_objet_selecte			' L'objet courant de la fenetre
+	VAR	tl_les_messages_acceptes		' Pour reception de signaux
+	VAR	vl_la_fenetre_est_active
+	VAR	vl_installer_traitement_erreur
+
+	VAR	vl_choix_diffusion			' Mode choisi (diffuser ou non)
+	VAR	vl_cr
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN (COM_NOK)
+}
+
+
+/*A
+ * Charger la fenetre de saisie de la configuration
+ * ------------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TPW_Diff_TDP_WebTrafic")
+
+DB_XPOS@ (vl_fenetre, 400)
+DB_YPOS@ (vl_fenetre, 320)
+
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Annuler", TRUE)
+
+DB_CTRL_VALUE@ (vl_fenetre, "BR_Diffusion_TDP", -1)			' etat inconnu
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BR_Diffusion_TDP", TRUE)
+
+
+
+/*A
+ * Initialiser la visualisation (etat de la diffusion)
+ * ---------------------------------------------------
+ */
+
+tm_choix_diff_TDP = {
+	TPW_TDP_DIF_OUI,
+	TPW_TDP_DIF_NON
+}
+
+IF ITMA_TPW_Lire_Config_Diff_TDP (vl_fenetre) <> COM_OK {
+	NOTHING
+	'RETURN (COM_NOK)
+}
+
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_les_messages_acceptes = {
+	COM_CANAL_FIN
+}
+DB_ACCEPT_POKES@ (vl_fenetre, tl_les_messages_acceptes)
+
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY_ONLY@ (vl_fenetre, FALSE)
+	DB_DISPLAY@ (vl_fenetre)
+	DB_DISPLAY_ONLY@ (vl_fenetre, TRUE)
+
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+	CASE OF vl_objet_selecte
+
+		/*A
+		** Sur choix "Valider", configurer le poste Web Trafic
+		** comme defini par la saisie si elle est correcte
+		** ---------------------------------------------------
+		*/
+
+		CASE "BP_Valider"
+			/* Recupere les donnees saisies */
+			vl_choix_diffusion = DB_CTRL_GET_VALUE@ (vl_fenetre, "BR_Diffusion_TDP")
+
+			IF (vl_choix_diffusion < 0) {
+				INFO_MESSAGE@ ("Choisir si les Temps de Parcours doivent être diffusés ou non")
+			} ELSE {
+				vl_cr = ITMA_TPW_Configurer_Diff_TDP (tm_choix_diff_TDP[vl_choix_diffusion])
+				IF (vl_cr = COM_OK) {
+					vl_la_fenetre_est_active = FALSE
+				}
+			}
+
+
+		CASE "BP_Annuler"
+			vl_la_fenetre_est_active = FALSE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Determine l'etat actuel de la diffusion des Temps de Parcours au Web Trafic.
+*  Visualise cet etat dans la fenetre indiquee s'il est connu.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPW_Lire_Config_Diff_TDP (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : nom de la fenetre du module
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPW_Diff_TDP_WebTrafic
+*
+* FONCTION
+*  Recherche sur le poste Web Trafic l'etat actuel
+*  de la configuration de diffusion des Temps de Parcours,
+*  et initialise la fenetre en consequence.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_cmd, vl_cr_cmd
+	VAR	vl_etat_diffusion_TDP, vl_idx_etat
+
+/* Supprimer tout resultat d'une execution precedente */
+RUN_PROGRAM@ (FORMAT@ ("rm -f %s/%s", CM_REP_TMP, CM_FIC_DIF_TDP))
+
+/* Obtenir la configuration de diffusion des Temps de Parcours du poste Web Trafic */
+vl_cmd = FORMAT@ ("rcp %s:%s/%s %s",
+                     CM_POSTE_WT, CM_REP_CFG_WT, CM_FIC_DIF_TDP, CM_REP_TMP)
+vl_cr_cmd = RUN_PROGRAM@ (vl_cmd, CM_FIC_OUT_CMD, CM_FIC_ERR_CMD)
+
+IF (vl_cr_cmd = 0) {
+	vl_etat_diffusion_TDP = READ_ASCII_FILE@ (CM_REP_TMP ++ CM_FIC_DIF_TDP)
+
+	/* Visualiser l'etat de la configuration si elle est connue */
+	vl_idx_etat = ARRAY_INDEX@ (tm_choix_diff_TDP, vl_etat_diffusion_TDP[0])
+	IF (vl_idx_etat >= 0) {
+		DB_CTRL_VALUE@ (va_fenetre, "BR_Diffusion_TDP", vl_idx_etat)
+	} ELSE {
+		vl_cr_cmd = -1
+	}
+}
+
+IF (vl_cr_cmd <> 0) {
+	INFO_MESSAGE@ ("L'état actuel de la configuration de diffusion des Temps de Parcours n'a pu être déterminé")
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Configure la diffusion des Temps de Parcours du Web Trafic.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPW_Configurer_Diff_TDP (va_diffuser_tdp)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_diffuser_tdp   : nouvel etat de configuration a definir
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPW_Diff_TDP_WebTrafic
+*
+* FONCTION
+*  Construit la nouvelle configuration de diffusion des Temps de Parcours,
+*  puis l'installe sur le poste Web Trafic.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_cmd, vl_cr_cmd
+	VAR	vl_etat_diffusion_TDP, vl_idx_etat
+
+/* Construire la nouvelle configuration de diffusion des Temps de Parcours */
+WRITE_ASCII_FILE@ (CM_REP_TMP ++ CM_FIC_DIF_TDP, { va_diffuser_tdp })
+
+/* Installer la configuration de diffusion des Temps de Parcours sur le poste Web Trafic */
+vl_cmd = FORMAT@ ("rcp %s/%s %s:%s",
+                     CM_REP_TMP, CM_FIC_DIF_TDP, CM_POSTE_WT, CM_REP_CFG_WT)
+vl_cr_cmd = RUN_PROGRAM@ (vl_cmd, CM_FIC_OUT_CMD, CM_FIC_ERR_CMD)
+
+IF (vl_cr_cmd <> 0) {
+	INFO_MESSAGE@ ("Impossible de configurer la diffusion des Temps de Parcours sur le Web Trafic")
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO

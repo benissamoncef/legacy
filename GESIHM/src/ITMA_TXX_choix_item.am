@@ -1,0 +1,402 @@
+/*E*/
+/*Fichier :  $Id: ITMA_TXX_choix_item.am,v 1.2 2008/02/13 13:24:17 devgtie Exp $      Release : $Revision: 1.2 $        Date : $Date: 2008/02/13 13:24:17 $
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET PASTRE
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTXX * FICHIER ITMA_TXX_choix_item.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Gere une boite de dialogue permettant de sélectionner une valeur
+* parmi un ensemble de choix présentés dans une liste
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JPL	26/06/2007 : Creation pour choix d'un ITPC, un canton ...  1.1
+* JBL   Nov 2007   : DEM 665
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+
+VAR	lm_valeurs                                          ' Liste des valeurs proposées
+
+VAR	FORMAT TDO_Autoroute	tm_autoroutes
+VAR	vm_i_autoroute                                      ' Index autoroute
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Gère la boîte de dialogue de sélection d'une valeur
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TXX_choix_item (va_quoi, va_lesquels, va_defaut)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*   va_quoi           : Indicateur du type d'objet à choisir ;
+*   va_lesquels       : Critères de sélections des valeurs possibles ;
+*   va_defaut         : Valeur par défaut.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*
+*   La valeur sélectionnée si le choix est validé, NULL sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   Tous modules
+*
+* FONCTION
+*   Construit et affiche la liste des objets du type demandé et
+*   retourne la valeur choisie.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_fenetre
+VAR	vl_la_fenetre_est_active
+VAR	vl_objet_selecte
+
+VAR	vl_titre
+VAR	vl_i_item, vl_valeur
+
+
+/*A
+ * Traitements en cas d'erreur :
+ * informer l'operateur et abandonner
+ * ----------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@ (ERROR_NUMBER@(), ERROR_STRING@())
+	RETURN (NULL)
+}
+
+
+/*A
+ * Charger la fenetre de dialogue et la positionner
+ * ------------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TXX_choix_item")
+
+/*
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 440)
+*/
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_items", TRUE)
+
+
+/*A
+ * Initialiser les valeurs proposées selon le type d'objet
+ * -------------------------------------------------------
+ */
+
+CASE OF va_quoi
+CASE "ITPC"
+	Init_Liste_Pr_ITPC (va_lesquels, vl_titre, lm_valeurs)
+
+CASE "CANTON"
+	Init_Liste_Pr_Cantons (va_lesquels, vl_titre, lm_valeurs)
+
+DEFAULT
+	ERROR@ (COM_ERR_VAL_INVAL, "Type de valeurs inconnu !")
+ENDCASE
+
+
+/*A afficher la liste des valeurs proposées et son titre */
+DB_CTRL_TITLE@ (vl_fenetre, "LI_titre", vl_titre)
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_items", lm_valeurs)
+
+
+/*A
+ * Si une valeur par défaut est fournie alors la sélectionner
+ * ----------------------------------------------------------
+ */
+
+IF NOT IS_NULL@ (va_defaut) {
+	vl_i_item = Plus_Proche_De_La_Valeur (lm_valeurs, va_defaut)
+	DB_CTRL_VALUE@ (vl_fenetre, "BL_items", vl_i_item)
+}
+
+
+/*A
+ * Visualiser la fenêtre de saisie jusque validation ou abandon
+ * ------------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY@ (vl_fenetre)
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+	CASE OF vl_objet_selecte
+
+	CASE "BL_items"
+		/*B Sur action sur la liste de valeurs, noter la sélection */
+		vl_i_item = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_items")
+
+
+	CASE "BP_annuler"
+		/*B Sur abandon, retourner une valeur NULLe */
+		vl_valeur = NULL
+		vl_la_fenetre_est_active = FALSE
+
+
+	CASE "BP_choisir"
+		/*B Sur validation, retourner la valeur actuellement sélectionnée */
+		vl_valeur = lm_valeurs[vl_i_item]
+		vl_la_fenetre_est_active = FALSE
+
+	ENDCASE
+WEND
+
+RETURN (vl_valeur)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Construit la liste des Pr des ITPC de l'autoroute indiquée
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO Init_Liste_Pr_ITPC (va_criteres, va_titre, ta_valeurs)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*   va_criteres[0]    : Numéro de l'autoroute.
+*
+*
+* ARGUMENTS EN SORTIE :
+*
+*   va_titre          : Libelle de titre (légende) pour la liste ;
+*   ta_valeurs        : Liste des valeurs.
+*
+*
+* CODE RETOUR         : Indefini
+*
+*
+* CONDITION D'UTILISATION
+*
+*   Initialisation de la saisie de valeurs.
+*
+* FONCTION
+*   Extrait de la liste des ITPC du district ceux situés sur l'autoroute.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_autoroute
+VAR	FORMAT TDO_ITPC tl_ITPC
+VAR	vl_indice
+
+/*A Obtenir les critères de sélection et vérifier leur validité */
+vl_autoroute = va_criteres[0]
+tm_autoroutes = SYSTEM_VAR@ (vg_autoroutes_district)
+vm_i_autoroute = COM45_IndexEnColonne (tm_autoroutes, TDO_NUMERO_AUTOROUTE,
+                                          vl_autoroute)
+IF (vm_i_autoroute < 0) {
+	ERROR@ (COM_ERR_VAL_INVAL, "Autoroute inconnue !")
+}
+
+
+/*A Définir le titre */
+va_titre = "ITPC de l'autoroute " ++ tm_autoroutes[vm_i_autoroute].nom
+
+
+/*A Lire dans l'environnement la liste des ITPC du district */
+tl_ITPC = SYSTEM_VAR@ (vg_itpc_district)
+
+
+/*B Transformer les valeurs de Pr en km */
+FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_ITPC) - 1
+	tl_ITPC[vl_indice].pr = COM31_Libelle_PR (tl_ITPC[vl_indice].pr)
+NEXT vl_indice
+
+
+/*A Extraire les Pr des ITPC de l'autoroute demandée */
+tl_ITPC = COM44_ValeursEnColonne (tl_ITPC, TDO_ITPC_AUTOROUTE, {vl_autoroute}, TRUE)
+ta_valeurs = ARRAY_COLUMN@ (tl_ITPC, TDO_ITPC_PR)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Construit la liste des Pr des cantons de l'autoroute indiquée
+*   dans le sens indiqué
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO Init_Liste_Pr_Cantons (va_criteres, va_titre, ta_valeurs)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*   va_criteres[0]    : Numéro de l'autoroute ;
+*   va_criteres[1]    : Sens de circulation.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*   va_titre          : Libelle de titre (légende) pour la liste ;
+*   ta_valeurs        : Liste des valeurs.
+*
+*
+* CODE RETOUR : Aucun
+*
+*
+* CONDITION D'UTILISATION
+*
+*   Initialisation de la saisie de valeurs.
+*
+* FONCTION
+*   Extrait de la liste des Cantons du district
+*    ceux situés sur l'autoroute et dans le sens indiqués.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_autoroute, vl_sens
+VAR	FORMAT TDO_Canton tl_cantons
+VAR	vl_indice, vl_idx_pr
+
+/*A Obtenir les critères de sélection et vérifier leur validité */
+vl_autoroute = va_criteres[0]
+tm_autoroutes = SYSTEM_VAR@ (vg_autoroutes_district)
+vm_i_autoroute = COM45_IndexEnColonne (tm_autoroutes, TDO_NUMERO_AUTOROUTE,
+                                          vl_autoroute)
+IF (vm_i_autoroute < 0) {
+	ERROR@ (COM_ERR_VAL_INVAL, "Autoroute inconnue !")
+}
+
+vl_sens = va_criteres[1]
+IF (vl_sens = XDC_SENS_INCONNU) {
+	ERROR@ (COM_ERR_VAL_INVAL, "Le sens de circulation doit être défini")
+}
+IF (vl_sens = XDC_SENS_ENTREE_NORD)  OR  (vl_sens = XDC_SENS_SORTIE_NORD)
+	vl_sens = XDC_SENS_NORD
+IF (vl_sens = XDC_SENS_ENTREE_SUD)  OR  (vl_sens = XDC_SENS_SORTIE_SUD)
+	vl_sens = XDC_SENS_SUD
+
+
+/*A Définir le titre */
+va_titre = "Cantons de l'" ++ tm_autoroutes[vm_i_autoroute].nom
+IF vl_sens = XDC_SENS_NORD {
+	va_titre = va_titre ++ ", sens Nord"
+} ELSE {
+	va_titre = va_titre ++ ", sens Sud"
+}
+
+
+/*A Lire dans l'environnement la liste des cantons du district */
+tl_cantons = SYSTEM_VAR@ (vg_cantons_district)
+
+
+/*B Transformer les valeurs de Pr en km */
+FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_cantons) - 1
+	tl_cantons[vl_indice].pr_debut = COM31_Libelle_PR (tl_cantons[vl_indice].pr_debut)
+NEXT vl_indice
+
+
+/*A Extraire les Pr des Cantons de l'autoroute et du sens demandés */
+ta_valeurs = NULL
+vl_idx_pr = 0
+FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_cantons) - 1
+	IF (tl_cantons[vl_indice].autoroute = vl_autoroute) AND
+	   (tl_cantons[vl_indice].sens = vl_sens)
+	{
+		ta_valeurs[vl_idx_pr] = tl_cantons[vl_indice].PR_debut
+		vl_idx_pr = vl_idx_pr + 1
+	}
+NEXT vl_indice
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Retourne l'indice dans la liste fournie
+*   de la valeur la plus proche de celle indiquée
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION Plus_Proche_De_La_Valeur (va_liste, va_valeur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*   va_liste       : Liste de valeurs ;
+*   va_valeur      : Valeur recherchée.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR : Aucun
+*
+*
+* CONDITION D'UTILISATION
+*
+*   Initialisation de la saisie de valeurs.
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_difference
+VAR	vl_indice, vl_idx_valeur
+
+/*A Parcourir la liste pour trouver la plus petite différence */
+vl_idx_valeur = 0
+vl_difference = ABS@ (va_liste[0] - va_valeur)
+FOR vl_indice = 1 TO ARRAY_SIZE@ (va_liste) - 1
+	IF ABS@ (va_liste[vl_indice] - va_valeur) < vl_difference {
+		vl_idx_valeur = vl_indice
+		vl_difference = ABS@ (va_liste[vl_indice] - va_valeur)
+	}
+NEXT vl_indice
+
+RETURN (vl_idx_valeur)
+
+ENDFUNCTION

@@ -1,0 +1,1232 @@
+/*E*/
+/* Fichier : $Id: dedi_ec33.am,v 1.9 2005/01/11 16:38:36 gesconf Exp $	      Release : $Revision: 1.9 $        Date : $Date: 2005/01/11 16:38:36 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec33.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* messages PMV predefinis
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Thomas	29 nov 1994	: Creation						V1.1
+* Thomas	25 oct 1995	: modif nom variable (1.2)
+* Guilhou	10 dec 1997	: ajout texte avec bifurcation 1.4 dem/1534
+* Guilhou	09 mar 1998	: ajout PMV chaussee opposee (dem/1516) 1.5
+* Niepceron 26 Jan 1999	: modif intergest dem/1725	v1.6
+* Guilhou	15 nov 2000	: inhibition qq fct PMV 1.7
+* ???      ????		: ??? 1.8
+* JMG	30/03/04		: ajout picto et bandeau si bifurcation 1.9
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+DEFINE	CAR_SEPAR_DEF			"$"
+DEFINE	PMV_PR				"le PMV en amont au PR(inhibe)"
+
+VAR FORMAT dedi_predefini	 	tm_perts,tm_perts_indices
+VAR FORMAT dedi_predefini		tm_perts_init,tm_perts_indices_init
+VAR FORMAT dedi_picto			tm_pictos
+VAR							tm_types_evts
+VAR							tm_predicats
+VAR							tm_operateurs
+VAR 							tm_elements,tm_elements_init
+VAR							vm_appel_menu
+VAR							tm_definition
+VAR							tm_parentheses
+VAR							tm_pmv1,tm_pmv2
+VAR	FORMAT dedi_autoroute		tm_autoroutes	
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition des messages PMV predefinis
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec33 ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+var vl_fenetre
+var vl_evt
+var vl_indice,vl_selection
+var vl_nom
+var tl_data,vl_val
+var vl_ok
+var tl_pokes
+var tl_editbox_sel
+var vl_pos
+var vl_priorite,vl_def
+var tl_definition
+var tl_pmv
+var vl_pr
+var vl_l1,vl_l2,vl_l3
+
+/*A chargement de la fenetre*/
+vl_fenetre = DB_LOAD@("dedi_ec33")
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,656)
+DB_YPOS@(vl_fenetre,72)
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/* initialisation des parametres de la fenetre */
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec33_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+/* boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE OF vl_evt
+		/*A choix d'un pmv*/
+		CASE "BO_pmv1"
+			/*A pmv choisi*/
+			vl_val=DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)
+			tl_pmv=DB_CTRL_GET_STRINGS@(vl_fenetre,vl_evt)
+
+			/*A si pmv avec PR*/
+			IF (tl_pmv[vl_val]=PMV_PR)
+			{
+				/*A afficher autoroute, pr et sens*/
+				DB_CTRL_DISPLAY@(vl_fenetre,"BO_autoroute1",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr1",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens1",TRUE)
+			}
+			ELSE
+			{
+				/*A desafficher autoroute, pr et sens*/
+				DB_CTRL_DISPLAY@(vl_fenetre,"BO_autoroute1",FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr1",FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens1",FALSE)
+			}
+
+		/*A choix d'un pmv*/
+		CASE "BO_pmv2"
+			/*A pmv choisi*/
+			vl_val=DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)
+			tl_pmv=DB_CTRL_GET_STRINGS@(vl_fenetre,vl_evt)
+
+			/*A si pmv avec PR*/
+			IF (tl_pmv[vl_val]=PMV_PR)
+			{
+				/*A afficher autoroute, pr et sens*/
+				DB_CTRL_DISPLAY@(vl_fenetre,"BO_autoroute2",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr2",TRUE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens2",TRUE)
+			}
+			ELSE
+			{
+				/*A desafficher autoroute, pr et sens*/
+				DB_CTRL_DISPLAY@(vl_fenetre,"BO_autoroute2",FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr2",FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens2",FALSE)
+			}
+
+		/*A appui sur le bouton supprimer*/
+		CASE "BP_supprimer"
+			/*A si un element est selectionne*/
+			IF (vl_selection++""<>null)
+			{
+				/*A efface l'element des listes des perturbations*/
+				tm_perts=ARRAY_DELETE@(tm_perts,vl_selection)
+				tm_perts_indices=ARRAY_DELETE@(tm_perts_indices,
+												vl_selection)
+				tm_definition=ARRAY_DELETE@(tm_definition,vl_selection)
+
+				/*A met a jour la boite*/
+				DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_perts",0,-1)
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_perts",tm_perts,0)
+
+				/*A effacer les valeurs des controles*/
+				DB_CTRL_VALUE@(vl_fenetre,"BS_nom",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_priorite",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_ligne1",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_ligne2",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_ligne3",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_ligne1_fin",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_ligne2_fin",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_ligne3_fin",null)	
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bifurc1",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bifurc2",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bifurc3",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bifurc1_fin",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bifurc2_fin",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bifurc3_fin",null)
+				DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_picto",0)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_picto_bifurcation",0) /*1.9*/
+				DB_CTRL_VALUE@(vl_fenetre,"BO_pmv1",0)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_pmv2",0)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bandeau",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_bandeau_bifurcation",null) /*1.9*/
+				DB_CTRL_VALUE@(vl_fenetre,"BS_distance1",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_distance2",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_distance_bifurc1",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_distance_bifurc2",null)
+
+				/*A desafficher autoroute, pr et sens*/
+				DB_CTRL_DISPLAY@(vl_fenetre,"BO_autoroute1",FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr1",FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens1",FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BO_autoroute2",FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr2",FALSE)
+				DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens2",FALSE)
+
+				vl_selection=null
+				tl_definition=null
+			}
+			
+		/*A appui sur effacer (pour la definition: predicat ou operateur*/
+		CASE "BP_effacer"
+			tl_editbox_sel=DB_EDITBOX_GET_SELECTION@(vl_fenetre,"BE_def")
+			tl_definition=ec33_calc_def(null,
+											vl_evt,
+											tl_editbox_sel,
+											vl_selection,
+											tl_definition)
+
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",null)
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",tl_definition)
+
+		/*A choix d'un predicat dans la liste*/
+		CASE "BL_predicats"
+			/*A ajout de ce predicat dans la definition*/
+			IF ((vl_selection++"")=null)
+				vl_selection=ARRAY_SIZE@(tm_perts)
+			tl_editbox_sel=DB_EDITBOX_GET_SELECTION@(vl_fenetre,"BE_def")
+			vl_pos=DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)
+			tl_definition=ec33_calc_def(vl_pos,
+											vl_evt,
+											tl_editbox_sel,
+											vl_selection,
+											tl_definition)
+
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",tl_definition)
+			DB_CTRL_DISPLAY@(vl_fenetre, "BL_predicats", FALSE)
+
+		/*A choix d'un operateur dans la liste*/
+		CASE "BL_operateurs"
+			/*A ajout de cet operateur dans la definition*/
+			IF ((vl_selection++"")=null)
+				vl_selection=ARRAY_SIZE@(tm_perts)
+			tl_editbox_sel=DB_EDITBOX_GET_SELECTION@(vl_fenetre,"BE_def")
+			vl_pos=DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)
+			tl_definition=ec33_calc_def(vl_pos,
+											vl_evt,
+											tl_editbox_sel,
+											vl_selection,
+											tl_definition)
+
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",tl_definition)
+			DB_CTRL_DISPLAY@(vl_fenetre, "BL_operateurs", FALSE)
+
+		/*A appui sur le bouton predicats*/
+		CASE "BP_predicats"
+			/*A affiche la liste des predicats*/
+			DB_CTRL_DISPLAY@(vl_fenetre, "BL_predicats",
+					NOT DB_CTRL_GET_DISPLAY@(vl_fenetre,"BL_predicats"))
+
+		/*A appui sur le bouton operateurs*/
+		CASE "BP_operateurs"
+			/*A affiche la liste des operateurs*/
+			DB_CTRL_DISPLAY@(vl_fenetre, "BL_operateurs", 
+					NOT DB_CTRL_GET_DISPLAY@(vl_fenetre,"BL_operateurs"))
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			ec33_valide(vl_fenetre)
+			RETURN	
+			
+		/*A choix d'une perturbation dans la liste*/
+		CASE "TA_perts"
+			/* on recupere l'indice de la perturbation selectionnee */
+			vl_indice = DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_perts")
+			vl_selection = vl_indice[0]
+
+			/*A si un element est selectionne*/
+			IF (vl_selection++""<>null)
+			{
+				/*A afficher ses caracteristiques*/
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_modifier",FALSE)
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_supprimer",FALSE)
+	
+				DB_CTRL_VALUE@(vl_fenetre,"BS_nom",
+								tm_perts_indices[vl_selection].nom)
+
+				DB_CTRL_VALUE@(vl_fenetre,"BS_priorite",
+								tm_perts[vl_selection].priorite)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_picto",
+								tm_perts_indices[vl_selection].picto)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_picto_bifurcation",
+					tm_perts_indices[vl_selection].picto_bifurcation) /*1.9*/
+				DB_CTRL_VALUE@(vl_fenetre, "BS_ligne1", 
+								tm_perts[vl_selection].pmvl1)	
+				DB_CTRL_VALUE@(vl_fenetre, "BS_ligne2", 
+								tm_perts[vl_selection].pmvl2)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_ligne3", 
+								tm_perts[vl_selection].pmvl3)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_ligne1_fin", 
+								tm_perts[vl_selection].pmva1)	
+				DB_CTRL_VALUE@(vl_fenetre, "BS_ligne2_fin", 
+								tm_perts[vl_selection].pmva2)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_ligne3_fin", 
+								tm_perts[vl_selection].pmva3)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_bifurc1",
+								 tm_perts[vl_selection].pmvb1)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_bifurc2",
+								tm_perts[vl_selection].pmvb2)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_bifurc3",
+								tm_perts[vl_selection].pmvb3)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_bifurc1_fin",
+								 tm_perts[vl_selection].pmvc1)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_bifurc2_fin",
+								tm_perts[vl_selection].pmvc2)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_bifurc3_fin",
+								tm_perts[vl_selection].pmvc3)
+
+				DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",
+								tm_definition[vl_selection])
+				DB_CTRL_VALUE@(vl_fenetre, "BS_bandeau",
+								tm_perts[vl_selection].bandeau)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_bandeau_bifurcation",
+						tm_perts[vl_selection].bandeau_bifurcation) /*1.9*/
+				DB_CTRL_VALUE@(vl_fenetre, "BS_distance1",
+								tm_perts[vl_selection].dmax1)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_distance_bifurc1",
+								tm_perts[vl_selection].dmax_bifurc1)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_distance2",
+								tm_perts[vl_selection].dmax2)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_distance_bifurc2",
+								tm_perts[vl_selection].dmax_bifurc2)
+
+				DB_CTRL_VALUE@(vl_fenetre,"BO_pmv1",
+								tm_perts_indices[vl_selection].eqpt1)
+
+				IF (tm_pmv1[tm_perts_indices[vl_selection].eqpt1]=
+						PMV_PR)
+				{		
+					/*A afficher autoroute, pr et sens*/
+					DB_CTRL_DISPLAY@(vl_fenetre,"BO_autoroute1",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr1",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens1",TRUE)
+					DB_CTRL_VALUE@(vl_fenetre,"BO_autoroute1",
+							tm_perts_indices[vl_selection].auto1)
+					DB_CTRL_VALUE@(vl_fenetre,"BS_pr1",
+							tm_perts_indices[vl_selection].pr1)
+					DB_CTRL_VALUE@(vl_fenetre,"BO_sens1",
+							tm_perts_indices[vl_selection].sens1-1)
+					vl_pr=TRUE
+				}
+				ELSE
+				{		
+					/*A desafficher autoroute, pr et sens*/
+					DB_CTRL_DISPLAY@(vl_fenetre,"BO_autoroute1",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr1",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens1",FALSE)
+				}
+				
+				IF (tm_pmv2[tm_perts_indices[vl_selection].eqpt2]=
+						PMV_PR)
+				{		
+					/*A afficher autoroute, pr et sens*/
+					DB_CTRL_DISPLAY@(vl_fenetre,"BO_autoroute2",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr2",TRUE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens2",TRUE)
+					DB_CTRL_VALUE@(vl_fenetre,"BO_autoroute2",
+							tm_perts_indices[vl_selection].auto2)
+					DB_CTRL_VALUE@(vl_fenetre,"BS_pr2",
+							tm_perts_indices[vl_selection].pr2)
+					DB_CTRL_VALUE@(vl_fenetre,"BO_sens2",
+							tm_perts_indices[vl_selection].sens2-1)
+					vl_pr=TRUE				
+				}
+				ELSE
+				{		
+					/*A desafficher autoroute, pr et sens*/
+					DB_CTRL_DISPLAY@(vl_fenetre,"BO_autoroute2",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BS_pr2",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"BO_sens2",FALSE)
+				}
+
+				DB_CTRL_VALUE@(vl_fenetre,"BO_pmv2",
+								tm_perts_indices[vl_selection].eqpt2)
+
+
+				tl_definition=tm_definition[vl_selection]
+			}	
+
+		/*A appui sur le bouton modifier*/
+		CASE "BP_modifier"
+			/*A si un element est selectionne*/
+			IF (vl_selection++""<>null) 
+			{
+				vl_priorite=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_priorite")
+				vl_def=DB_EDITBOX_GET_DATA@(vl_fenetre,"BE_def")
+				vl_l1=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne1")
+				vl_l2=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne2")
+				vl_l3=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne3")
+
+				/*A si la priorite ou le nom sont nuls*/
+				IF ((vl_priorite=null) OR (vl_def=null))
+					INFO_MESSAGE@("La priorite et la definition doivent etre saisies")
+				/*A sinon si les parentheses sont mal associees*/
+				ELSE IF (ec33_verif_def(tm_parentheses[vl_selection])=FALSE)
+					INFO_MESSAGE@("Les parenthèses ne sont pas correctes dans la définition")
+				/*A sinon si le texte est nul*/
+				ELSE IF (vl_l1++vl_l2++vl_l3=NULL)
+					INFO_MESSAGE@("Le texte a afficher est obligatoire")
+				ELSE
+				{
+					/*A on met a jour ses caracteristiques*/
+					tm_perts_indices[vl_selection].nom=
+								DB_CTRL_GET_VALUE@(vl_fenetre, "BS_nom")
+					tm_perts_indices[vl_selection].picto=
+								DB_CTRL_GET_VALUE@(vl_fenetre, "BO_picto")
+					/*1.9*/
+					tm_perts_indices[vl_selection].picto_bifurcation=
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BO_picto_bifurcation")		
+					tm_perts_indices[vl_selection].priorite=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_priorite")
+					tm_perts_indices[vl_selection].pmvl1=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne1")
+					tm_perts_indices[vl_selection].pmvl2=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne2")
+					tm_perts_indices[vl_selection].pmvl3=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne3")
+					tm_perts_indices[vl_selection].pmva1=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne1_fin")
+					tm_perts_indices[vl_selection].pmva2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne2_fin")
+					tm_perts_indices[vl_selection].pmva3=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne3_fin")
+					tm_perts_indices[vl_selection].eqpt1=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BO_pmv1")
+					tm_perts_indices[vl_selection].eqpt2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BO_pmv2")
+					tm_perts_indices[vl_selection].pmvb1=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc1")
+					tm_perts_indices[vl_selection].pmvb2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc2")
+					tm_perts_indices[vl_selection].pmvb3=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc3")
+					tm_perts_indices[vl_selection].pmvc1=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc1_fin")
+					tm_perts_indices[vl_selection].pmvc2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc2_fin")
+					tm_perts_indices[vl_selection].pmvc3=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc3_fin")
+					tm_perts_indices[vl_selection].bandeau=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bandeau")
+					/*1.9*/	
+					tm_perts_indices[vl_selection].bandeau_bifurcation=
+					    DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bandeau_bifurcation")
+					tm_perts_indices[vl_selection].dmax1=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance1")
+					tm_perts_indices[vl_selection].dmax_bifurc1=		
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance_bifurc1")
+					tm_perts_indices[vl_selection].dmax2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance2")
+					tm_perts_indices[vl_selection].dmax_bifurc2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance_bifurc2")
+					tm_perts[vl_selection].nom=
+						tm_perts_indices[vl_selection].nom
+					tm_perts[vl_selection].picto = 		
+						tm_pictos[tm_perts_indices[vl_selection].picto][0]
+
+					/*1.9*/
+					tm_perts[vl_selection].picto_bifurcation = 		
+				tm_pictos[tm_perts_indices[vl_selection].picto_bifurcation][0]
+
+					tm_perts[vl_selection].eqpt1 = 		
+						tm_pmv1[tm_perts_indices[vl_selection].eqpt1]
+					tm_perts[vl_selection].eqpt2 = 		
+						tm_pmv2[tm_perts_indices[vl_selection].eqpt2]
+		
+					IF (tm_perts[vl_selection].eqpt1=PMV_PR)
+					{		
+						tm_perts_indices[vl_selection].auto1=
+									DB_CTRL_GET_VALUE@(vl_fenetre,
+												"BO_autoroute1")
+						tm_perts_indices[vl_selection].pr1=
+									DB_CTRL_GET_VALUE@(vl_fenetre,"BS_pr1")
+						tm_perts_indices[vl_selection].sens1=			
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BO_sens1")+1
+						tm_perts[vl_selection].auto1=
+					tm_autoroutes[tm_perts_indices[vl_selection].auto1][1]
+						tm_perts[vl_selection].pr1=
+								tm_perts_indices[vl_selection].pr1
+						tm_perts[vl_selection].sens1=
+								tm_perts_indices[vl_selection].sens1
+					}
+					ELSE
+					{		
+						tm_perts[vl_selection].auto1=null
+						tm_perts[vl_selection].pr1=null
+						tm_perts[vl_selection].sens1=null
+					}
+
+					IF (tm_perts[vl_selection].eqpt2=PMV_PR)
+					{		
+						tm_perts_indices[vl_selection].auto2=
+									DB_CTRL_GET_VALUE@(vl_fenetre,
+												"BO_autoroute2")
+						tm_perts_indices[vl_selection].pr2=
+									DB_CTRL_GET_VALUE@(vl_fenetre,"BS_pr2")
+						tm_perts_indices[vl_selection].sens2=			
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BO_sens2")+1
+						tm_perts[vl_selection].auto2=
+				tm_autoroutes[tm_perts_indices[vl_selection].auto2][1]
+						tm_perts[vl_selection].pr2=
+								tm_perts_indices[vl_selection].pr2
+						tm_perts[vl_selection].sens2=
+								tm_perts_indices[vl_selection].sens2
+					}
+					ELSE
+					{		
+						tm_perts[vl_selection].auto2=null
+						tm_perts[vl_selection].pr2=null
+						tm_perts[vl_selection].sens2=null
+					}
+
+					tm_perts[vl_selection].priorite=
+						tm_perts_indices[vl_selection].priorite
+					tm_perts[vl_selection].pmvl1=
+						tm_perts_indices[vl_selection].pmvl1
+					tm_perts[vl_selection].pmvl2=
+						tm_perts_indices[vl_selection].pmvl2
+					tm_perts[vl_selection].pmvl3=
+						tm_perts_indices[vl_selection].pmvl3
+					tm_perts[vl_selection].pmva1=
+						tm_perts_indices[vl_selection].pmva1
+					tm_perts[vl_selection].pmva2=
+						tm_perts_indices[vl_selection].pmva2
+					tm_perts[vl_selection].pmva3=
+						tm_perts_indices[vl_selection].pmva3
+					tm_perts[vl_selection].pmvb1=
+						tm_perts_indices[vl_selection].pmvb1
+					tm_perts[vl_selection].pmvb2=
+						tm_perts_indices[vl_selection].pmvb2
+					tm_perts[vl_selection].pmvb3=
+						tm_perts_indices[vl_selection].pmvb3
+					tm_perts[vl_selection].pmvc1=
+						tm_perts_indices[vl_selection].pmvc1
+					tm_perts[vl_selection].pmvc2=
+						tm_perts_indices[vl_selection].pmvc2
+					tm_perts[vl_selection].pmvc3=
+						tm_perts_indices[vl_selection].pmvc3
+					tm_perts[vl_selection].bandeau=
+						tm_perts_indices[vl_selection].bandeau
+					/*1.9*/
+					tm_perts[vl_selection].bandeau_bifurcation=
+						tm_perts_indices[vl_selection].bandeau_bifurcation 
+					tm_perts[vl_selection].dmax1=
+						tm_perts_indices[vl_selection].dmax1		
+					tm_perts[vl_selection].dmax_bifurc1=
+						tm_perts_indices[vl_selection].dmax_bifurc1
+					tm_perts[vl_selection].dmax2=
+						tm_perts_indices[vl_selection].dmax2
+					tm_perts[vl_selection].dmax_bifurc2=
+						tm_perts_indices[vl_selection].dmax_bifurc2						
+					tm_definition[vl_selection]=tl_definition
+
+					/*A on rafraichit l'affichage*/
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_perts",0,-1)
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_perts", tm_perts, 0)
+					vl_indice[0]=vl_selection
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_perts",vl_indice)
+				}
+			}
+	
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A appui sur le bouton ajouter*/
+		CASE "BP_ajouter"
+			/*A on verifie qu'il n'existe pas de perturbation de meme nom */
+			vl_nom =  DB_CTRL_GET_VALUE@(vl_fenetre, "BS_nom")
+			vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_perts,0),vl_nom)
+
+			IF (vl_indice<>-1)
+				INFO_MESSAGE@("Il existe deja un perturbation de meme nom. Creation refusee.")
+			ELSE
+			{					
+				/*A on ajoute la perturbation, dans le tableau*/
+				vl_indice=ARRAY_SIZE@(tm_perts)
+				tm_perts_indices[vl_indice].nom = vl_nom
+
+				/*A si le le nom est null*/
+				IF (tm_perts_indices[vl_indice].nom=null)
+				{
+					INFO_MESSAGE@("Le nom doit être non nul")
+				}
+				/*A sinon si les parentheses sont mal associees*/
+				ELSE IF (ec33_verif_def(tm_parentheses[vl_indice])=FALSE)
+					INFO_MESSAGE@("Les parenthèses ne sont pas correctes dans la définition")
+				ELSE
+				{
+					/*A ajoute cet element dans la liste*/
+					tm_perts_indices[vl_indice].picto=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BO_picto")
+					/*1.9*/
+					tm_perts_indices[vl_indice].picto_bifurcation=
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BO_picto_bifurcation")
+					tm_perts_indices[vl_indice].priorite=					
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_priorite")
+					tm_perts_indices[vl_indice].pmvl1=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne1")
+					tm_perts_indices[vl_indice].pmvl2=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne2")
+					tm_perts_indices[vl_indice].pmvl3=
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne3")
+					tm_perts_indices[vl_indice].pmva1=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne1_fin")
+					tm_perts_indices[vl_indice].pmva2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne2_fin")
+					tm_perts_indices[vl_indice].pmva3=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ligne3_fin")
+					tm_perts_indices[vl_selection].eqpt1=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BO_pmv1")
+					tm_perts_indices[vl_selection].eqpt2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BO_pmv2")
+					tm_perts_indices[vl_indice].pmvb1 =
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc1")
+					tm_perts_indices[vl_indice].pmvb2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc2")
+					tm_perts_indices[vl_indice].pmvb3=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc3")
+					tm_perts_indices[vl_indice].pmvc1 =
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc1_fin")
+					tm_perts_indices[vl_indice].pmvc2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc2_fin")
+					tm_perts_indices[vl_indice].pmvc3=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bifurc3_fin")
+					tm_perts_indices[vl_indice].bandeau=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bandeau")
+					/*1.9*/
+					tm_perts_indices[vl_indice].bandeau_bifurcation=
+					   DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bandeau_bifurcation")
+					tm_perts_indices[vl_indice].dmax1=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance1")
+					tm_perts_indices[vl_indice].dmax_bifurc1=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance_bifurc1")
+					tm_perts_indices[vl_indice].dmax2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance2")
+					tm_perts_indices[vl_indice].dmax_bifurc2=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance_bifurc2")
+					tm_perts[vl_indice].nom=tm_perts_indices[vl_indice].nom
+					tm_perts[vl_indice].priorite=
+									tm_perts_indices[vl_indice].priorite
+					tm_perts[vl_indice].picto= 
+							tm_pictos[tm_perts_indices[vl_indice].picto][0]
+					/*1.9*/
+					tm_perts[vl_indice].picto_bifurcation= 
+					tm_pictos[tm_perts_indices[vl_indice].picto_bifurcation][0]
+					tm_perts[vl_indice].eqpt1 = 		
+						tm_pmv1[tm_perts_indices[vl_indice].eqpt1]
+					tm_perts[vl_indice].eqpt2 = 		
+						tm_pmv2[tm_perts_indices[vl_indice].eqpt2]
+
+					IF (tm_perts[vl_indice].eqpt1=PMV_PR)
+					{		
+						tm_perts_indices[vl_indice].auto1=
+									DB_CTRL_GET_VALUE@(vl_fenetre,
+												"BO_autoroute1")
+						tm_perts_indices[vl_indice].pr1=
+									DB_CTRL_GET_VALUE@(vl_fenetre,"BS_pr1")
+						tm_perts_indices[vl_indice].sens1=			
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BO_sens1")+1
+						tm_perts[vl_indice].auto1=
+					tm_autoroutes[tm_perts_indices[vl_indice].auto1][1]
+						tm_perts[vl_indice].pr1=
+								tm_perts_indices[vl_indice].pr1
+						tm_perts[vl_indice].sens1=
+								tm_perts_indices[vl_indice].sens1
+					}
+					ELSE
+					{		
+						tm_perts[vl_indice].auto1=null
+						tm_perts[vl_indice].pr1=null
+						tm_perts[vl_indice].sens1=null
+					}
+
+					IF (tm_perts[vl_indice].eqpt2=PMV_PR)
+					{		
+						tm_perts_indices[vl_indice].auto2=
+									DB_CTRL_GET_VALUE@(vl_fenetre,
+												"BO_autoroute2")
+						tm_perts_indices[vl_indice].pr2=
+									DB_CTRL_GET_VALUE@(vl_fenetre,"BS_pr2")
+						tm_perts_indices[vl_indice].sens2=			
+								DB_CTRL_GET_VALUE@(vl_fenetre,"BO_sens2")
+						tm_perts[vl_indice].auto2=
+					tm_autoroutes[tm_perts_indices[vl_indice].auto2][1]
+						tm_perts[vl_indice].pr2=
+								tm_perts_indices[vl_indice].pr2
+						tm_perts[vl_indice].sens2=
+								tm_perts_indices[vl_indice].sens2+1
+					}
+					ELSE
+					{		
+						tm_perts[vl_indice].auto2=null
+						tm_perts[vl_indice].pr2=null
+						tm_perts[vl_indice].sens2=null
+					}
+
+
+					tm_perts[vl_indice].pmvl1=tm_perts_indices[vl_indice].pmvl1
+					tm_perts[vl_indice].pmvl2=tm_perts_indices[vl_indice].pmvl2
+					tm_perts[vl_indice].pmvl3=tm_perts_indices[vl_indice].pmvl3
+					tm_perts[vl_indice].pmva1=tm_perts_indices[vl_indice].pmva1
+					tm_perts[vl_indice].pmva2=tm_perts_indices[vl_indice].pmva2
+					tm_perts[vl_indice].pmva3=tm_perts_indices[vl_indice].pmva3
+					tm_perts[vl_indice].pmvb1=tm_perts_indices[vl_indice].pmvb1
+					tm_perts[vl_indice].pmvb2=tm_perts_indices[vl_indice].pmvb2
+					tm_perts[vl_indice].pmvb3=tm_perts_indices[vl_indice].pmvb3
+					tm_perts[vl_indice].pmvc1=tm_perts_indices[vl_indice].pmvc1
+					tm_perts[vl_indice].pmvc2=tm_perts_indices[vl_indice].pmvc2
+					tm_perts[vl_indice].pmvc3=tm_perts_indices[vl_indice].pmvc3
+							
+				tm_perts[vl_indice].bandeau=tm_perts_indices[vl_indice].bandeau
+				/*1.9*/		
+				tm_perts[vl_indice].bandeau_bifurcation=
+						tm_perts_indices[vl_indice].bandeau_bifurcation
+					tm_perts[vl_indice].dmax1=tm_perts_indices[vl_indice].dmax1
+					tm_perts[vl_indice].dmax_bifurc1=tm_perts_indices[vl_indice].dmax_bifurc1
+					tm_perts[vl_indice].dmax2=tm_perts_indices[vl_indice].dmax2
+					tm_perts[vl_indice].dmax_bifurc2=tm_perts_indices[vl_indice].dmax_bifurc2
+					tm_definition[vl_indice]=tl_definition
+
+					/*A met a liste a jour*/
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_perts",0,-1)
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_perts",tm_perts, 0)
+
+					/*A effacer les valeurs des controles*/
+					DB_CTRL_VALUE@(vl_fenetre,"BS_nom",null)
+					DB_CTRL_VALUE@(vl_fenetre,"BO_picto",0)
+					DB_CTRL_VALUE@(vl_fenetre,"BO_picto_bifurcation",0)
+					DB_CTRL_VALUE@(vl_fenetre,"BS_priorite",null)
+					DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_def",null)
+					vl_selection=null
+				}
+			}
+
+		/*A je recois un message*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+endmacro
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec33_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_titre_perts
+VAR tl_data
+VAR vl_indice
+VAR vl_index
+VAR vl_indexParentheses
+VAR tl_var
+
+	/*A affichage des variables autorisees pour le bandeau*/
+	tl_data[0]="DISTANCE BANDEAU"
+	DB_CTRL_STRINGS@(va_fenetre,"BL_var_bandeau",tl_data)
+
+	/*A chargement du texte du bandeau depuis le fichier de config*/
+	/*tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_PRED_BAND_PMV)*/
+
+	/*A affiche les textes*/
+	/*DB_CTRL_VALUE@(va_fenetre,"BS_bandeau",tl_data[0])*/
+
+	/*A variables autorisees pour le texte*/
+	tl_var="DISTANCE","NUM PT CAR","NOM PT CAR","CARBURANT","LOCALISATION"
+	DB_CTRL_STRINGS@(va_fenetre,"BL_var",tl_var)
+
+	/*A liste des autoroutes*/
+	tm_autoroutes=SYSTEM_VAR@(vg_autoroutes)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_autoroute1",
+					ARRAY_COLUMN@(tm_autoroutes,1))
+	DB_CTRL_STRINGS@(va_fenetre,"BO_autoroute2",
+					ARRAY_COLUMN@(tm_autoroutes,1))
+
+	/*A caracteres valides pour la priorite*/
+	DB_CTRL_VALID_CHARS@(va_fenetre,"BS_priorite","0123456789 ")
+
+	/*A initialisation de la variable globale tm_pictos */
+	tm_pictos = SYSTEM_VAR@(vg_pictos)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_picto",ARRAY_COLUMN@(tm_pictos,1))
+	/*1.9*/
+	DB_CTRL_STRINGS@(va_fenetre,"BO_picto_bifurcation",ARRAY_COLUMN@(tm_pictos,1))
+	
+	/*A recupere les types d'evenements*/
+	tm_types_evts=SYSTEM_VAR@(vg_types_evts)
+
+	/*A initialisation de la liste des predicats */
+	tm_predicats = "au moins une voie bloquee", "toutes voies bloquees",
+				"au moins une voie neutralisee", "toutes voies neutralisees",
+				"circulation sur une voie", 
+				"au moins une voie ouverte", "sur bau",
+				"sur section courante", "sur lit d'arret", "sur echangeur",
+				"sur bretelle d'entree", "sur bretelle de sortie",
+				"signale", "confirme",
+				"trafic dense", "trafic ralenti",
+				"trafic bouche", "trafic bloque",
+				"voies retrecies",
+				"entree fermee", "sortie fermee",
+				"datex", "fluide", "pré-saturé", "saturé",
+				"durée < 1h", "1h <= durée < 6h", "durée >= 6h",
+				"A51_chaussée_Ouest","A51_chaussée_Est"
+	tm_predicats=ARRAY_APPEND@(tm_predicats,tm_types_evts)
+
+	/*A affiche et active la liste des predicats*/
+	DB_CTRL_PICKABLE@(va_fenetre, "BL_predicats", TRUE)
+	DB_CTRL_STRINGS@(va_fenetre, "BL_predicats", tm_predicats)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "BL_predicats", TRUE)
+
+	/*A initialisation de la liste des pmv */
+	tm_pmv1 = "le premier PMV en amont", "le deuxieme PMV en amont", "le troisieme PMV en amont(inhibe)", "le PMV en amont de l'aire precedente", "le PMV en amont de la sortie precedente", "les PMV en amont", "les PMV dans la perturbation", "le premier PMV en aval(inhibe)",PMV_PR, "le PMV sur la chaussee opposee(inhibe)"
+
+	tm_pmv2 = tm_pmv1
+	tm_pmv2=ARRAY_INSERT@(tm_pmv2,"",0)
+
+	/*A affiche et active la liste des pmv*/
+	DB_CTRL_STRINGS@(va_fenetre, "BO_pmv1", tm_pmv1)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "BO_pmv1", TRUE)
+	DB_CTRL_STRINGS@(va_fenetre, "BO_pmv2", tm_pmv2)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "BO_pmv2", TRUE)
+
+	/* initialisation de la liste des operateurs */
+	tm_operateurs = "OU", "ET", "NON","(",")"
+	DB_CTRL_PICKABLE@(va_fenetre, "BL_operateurs", TRUE)
+	DB_CTRL_STRINGS@(va_fenetre, "BL_operateurs", tm_operateurs)
+	DB_CTRL_DISPLAY@(va_fenetre, "BL_operateurs", FALSE)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "BL_operateurs", TRUE)
+
+	DB_CTRL_GRAYED@(va_fenetre,"BP_modifier",TRUE)
+	DB_CTRL_GRAYED@(va_fenetre,"BP_supprimer",TRUE)
+
+	/*A initialisation du tableau des perturbations */
+	tl_titre_perts[0][0] = "Perturbations"
+	tl_titre_perts[0][1] = 450
+	tl_titre_perts[1][0] = "Prio."
+	tl_titre_perts[1][1] = 35
+	tl_titre_perts[2][0] = "Ligne 1"
+	tl_titre_perts[2][1] = 140
+	tl_titre_perts[3][0] = "Ligne 2"
+	tl_titre_perts[3][1] = 140
+	tl_titre_perts[4][0] = "Ligne 3"
+	tl_titre_perts[4][1] = 140
+	tl_titre_perts[5][0] = "Fin 1"
+	tl_titre_perts[5][1] = 140
+	tl_titre_perts[6][0] = "Fin 2"
+	tl_titre_perts[6][1] = 140
+	tl_titre_perts[7][0] = "Fin 3"
+	tl_titre_perts[7][1] = 140
+	tl_titre_perts[8][0] = "Bifurcation 1"
+	tl_titre_perts[8][1] = 150
+	tl_titre_perts[9][0] = "Bifurcation 2"
+	tl_titre_perts[9][1] = 150
+	tl_titre_perts[10][0] = "Bifurcation 3"
+	tl_titre_perts[10][1] = 150
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_perts", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_perts",TRUE)
+
+	/*A chargement des perturbations*/
+	tm_perts=READ_ASCII_FILE@(AX_PATH++IE_FILE_PRED_PMV)
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_perts)-1)
+		tm_perts[vl_indice]=ARRAY_FROM_STRING@(tm_perts[vl_indice],
+										DEDI_CAR_SEPAR)
+	NEXT vl_indice
+	vl_index=ARRAY_SIZE@(tm_perts)
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_PRED_PMV_DATEX)
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tm_perts[vl_index-vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+										DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+	/*! je met de cote la liste initiale des perturbations*/
+	tm_perts_init=tm_perts
+
+	/*A parcourt le tableau des perturbations pour remplacer le nom des elements
+	* par leur indice dans le tableau tm_elements
+	* meme chose pour le trigramme picto*/
+	tm_perts_indices=tm_perts
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_perts)-1)
+		tm_perts_indices[vl_indice].picto=ARRAY_INDEX@(
+								ARRAY_COLUMN@(tm_pictos,0),
+								tm_perts[vl_indice].picto)
+		/*1.9*/
+		tm_perts_indices[vl_indice].picto_bifurcation=ARRAY_INDEX@(
+								ARRAY_COLUMN@(tm_pictos,0),
+								tm_perts[vl_indice].picto_bifurcation)
+		tm_perts_indices[vl_indice].eqpt1=ARRAY_INDEX@(tm_pmv1,
+									tm_perts[vl_indice].eqpt1)
+		tm_perts_indices[vl_indice].eqpt2=ARRAY_INDEX@(tm_pmv2,
+									tm_perts[vl_indice].eqpt2)
+
+		tm_perts_indices[vl_indice].auto1=ARRAY_INDEX@(
+								ARRAY_COLUMN@(tm_autoroutes,1),
+								tm_perts[vl_indice].auto1)
+
+		tm_perts_indices[vl_indice].auto2=ARRAY_INDEX@(
+								ARRAY_COLUMN@(tm_autoroutes,1),
+								tm_perts[vl_indice].auto2)
+
+		/*! transforme la definition en un tableau*/
+		tm_definition[vl_indice]=ARRAY_FROM_STRING@(tm_perts[vl_indice].def,
+										CAR_SEPAR_DEF)
+	
+		/*! parcourt la definition et extrait les parentheses*/
+		vl_indexParentheses=0
+		FOR vl_index=0 TO (ARRAY_SIZE@(tm_definition[vl_indice])-1)
+			/*! si je rencontre une parenthese*/
+			IF (tm_definition[vl_indice][vl_index]="(") OR
+				(tm_definition[vl_indice][vl_index]=")")
+			{
+				tm_parentheses[vl_indice][vl_indexParentheses]=
+								tm_definition[vl_indice][vl_index]
+				vl_indexParentheses=vl_indexParentheses+1
+			}
+		NEXT vl_index
+	NEXT vl_indice
+
+	/*! je mets de cote cette liste*/
+	tm_perts_indices_init=tm_perts_indices
+
+	/*A j'affiche la liste des perturbations*/
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_perts", tm_perts, tl_titre_perts,null)
+ENDFUNCTION
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation des perturbations
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec33_valide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+VAR tl_titre_perts
+VAR tl_data
+VAR tl_data_datex
+VAR vl_indice,vl_ok
+VAR vl_index,vl_index_datex
+VAR tl_obj,vl_ligne
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	/*A recupere les donnees du bandeau*/
+/*	tl_data[0]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_bandeau")*/
+
+	/*A on genere le fichier de config pour le bandeau*/
+	/*WRITE_ASCII_FILE@(AX_PATH++IE_FILE_PRED_BAND_PMV,tl_data)*/
+
+	/*A on genere le fichier de config*/
+	vl_index=0
+	vl_index_datex=0
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_perts)-1)	
+		/*A transforme la definition en une chaine et l'affecte a tm_perts*/
+		tm_perts[vl_indice].def=ARRAY_TO_STRING@(tm_definition[vl_indice],
+											CAR_SEPAR_DEF)
+
+		/*A transforme le tableau en une chaine*/
+		vl_ligne=ARRAY_TO_STRING@(tm_perts[vl_indice],
+											DEDI_CAR_SEPAR)
+
+		/*1.9*/
+		vl_ligne = vl_ligne ++ DEDI_CAR_SEPAR
+
+		if ( STRING_INDEX@(vl_ligne,"datex") <> 0 )
+		{
+			tl_data_datex[vl_index_datex]=vl_ligne
+			vl_index_datex=vl_index_datex+1
+		}
+		else
+		{
+			tl_data[vl_index]=vl_ligne
+			vl_index=vl_index+1
+		}
+
+	NEXT vl_indice
+
+	/*A sauve les perturbations dans le fichier rtie*/
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_PRED_PMV,tl_data)
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_PRED_PMV_DATEX,tl_data_datex)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* affiche la nouvelle valeur de la definition apres selection d'un predicat
+* ou d'un operateur
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec33_calc_def (va_pos,va_idliste,ta_selection,va_indice,ta_definition)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_pos: indice de l'element selectionne dans va_idliste
+* va_idliste: BL_predicats ou BL_operateurs
+* ta_selection: ligne depart, colonne depart, ligne arrivee, colonne arrivee
+*			de la selection dans la boite d'edition de la definition
+* va_indice:indice de la perturbation selectionnee
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+VAR vl_sel
+VAR vl_ligneDepart
+VAR vl_nombreLignes
+VAR tl_data
+VAR vl_indice
+VAR tl_liste
+
+	/*A je determine quelle est la liste de termes que j'utilise*/
+	CASE OF va_idliste
+		CASE "BL_predicats"
+			tl_liste=tm_predicats
+
+		CASE "BL_operateurs"
+			tl_liste=tm_operateurs
+
+		CASE "BP_effacer"
+			tl_liste=null
+	ENDCASE
+
+	/*A je lis le texte de la definition*/
+	tl_data=ta_definition
+
+	/*A je regarde d'abord si une ligne est bien selectionnee*/
+	IF ((ta_selection[0]=ta_selection[2]) AND (ta_selection[1]=ta_selection[3]))
+	{
+		IF (va_idliste<>"BP_effacer")
+		{
+			/*A je rajoute l'element a la fin*/
+			tl_data[ARRAY_SIZE@(tl_data)]=tl_liste[va_pos]
+
+			/*A si c'est une parenthese, je l'ajoute aussi a la fin*/
+			IF (tl_liste[va_pos]="(") OR (tl_liste[va_pos]=")")
+				tm_parentheses[va_indice][ARRAY_SIZE@(tm_parentheses[va_indice])]=
+				tl_liste[va_pos]
+		}
+	
+		RETURN (tl_data)
+	}
+
+	/*A determine ligne de depart et nb de lignes selectionnees*/
+	vl_ligneDepart=ta_selection[0]
+'	vl_nombreLignes=(ta_selection[2]-ta_selection[0])+1
+	vl_nombreLignes=1
+
+	/*A remplace ou efface les lignes selectionnees*/
+	FOR vl_indice=vl_ligneDepart TO ((vl_ligneDepart+vl_nombreLignes)-1)
+		/*A si ce n'est pas une demande d'effacement*/
+		IF (va_idliste<>"BP_effacer")
+		{
+			/*A j'insere cet element dans la definition*/
+			tl_data=ARRAY_INSERT@(tl_data,tl_liste[va_pos],vl_indice)
+
+			/*A si c'est une parenthese, je l'insere dans la liste des ()*/
+			IF (tl_liste[va_pos]="(") OR (tl_liste[va_pos]=")")
+				tm_parentheses[va_indice]=ARRAY_INSERT@(
+									tm_parentheses[va_indice],
+									tl_liste[va_pos],
+									vl_indice)
+			goto POS_FIN
+
+			tl_data[vl_indice]=tl_liste[va_pos]
+			IF (tl_liste[va_pos]="(") OR (tl_liste[va_pos]=")")
+				tm_parentheses[vl_indice]=tl_liste[va_pos]
+		}
+		ELSE
+		{
+			/*A j'efface la parenthese de la liste*/
+		/*	IF (tl_data[vl_indice]="(") OR (tl_data[vl_indice]=")")
+				tm_parentheses[va_indice]=ARRAY_DELETE@(
+									tm_parentheses[va_indice],
+									vl_indice)*/
+
+			/*A je mets a null la ligne selectionnee*/
+			tl_data[vl_indice]=null
+			tm_parentheses[va_indice]=null
+		}
+	NEXT vl_indice
+
+POS_FIN:
+	/*A parcourt le tableau pour eliminer les null*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		IF (vl_indice>=ARRAY_SIZE@(tl_data))
+			RETURN (tl_data)
+		IF (tl_data[vl_indice]=null)
+		{
+			tl_data=ARRAY_DELETE@(tl_data,vl_indice)
+			vl_indice=vl_indice-1
+		}
+	NEXT vl_indice
+
+	RETURN (tl_data)
+ENDFUNCTION
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* verifie la syntaxe de la definition pour les parentheses 
+*-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec33_verif_def (ta_def)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_definition : definition a verifier
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : TRUE
+*				   FALSE
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les parentheses sont bien associees entre elles
+* (ouvrante<->fermante)
+---------------------------------------------------------------------------- */
+VAR vl_indice
+VAR vl_compteur
+
+	vl_compteur=0
+
+	/*A parcourt cette chaine*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(ta_def)-1)
+		/*A si je rencontre une ( suivie d'une )*/
+		IF (ta_def[vl_indice]="(") 
+		{
+			vl_compteur=vl_compteur+1
+		}
+		ELSE IF (ta_def[vl_indice]=")")
+		{
+			vl_compteur=vl_compteur-1
+			
+			/*A si j'ai ferme une parenthese de trop*/
+			IF (vl_compteur<0)
+				/*A je m'arrete*/
+				goto POS_FIN
+		}
+	NEXT vl_indice
+
+POS_FIN:
+	IF (vl_compteur<>0)
+		RETURN (FALSE)
+	ELSE
+		RETURN (TRUE)
+ENDFUNCTION
+
+
+
+
+
+
+
+

@@ -1,0 +1,168 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_dates_trv_discont.am,v 1.2 1995/09/12 20:29:27 gesconf Exp $      Release : $Revision: 1.2 $        Date : $Date: 1995/09/12 20:29:27 $
+-------------------------------------------------------------------------------
+*  GTIE  *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-------------------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMC_trv.am
+-------------------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+* afficher fenetre de saisir des dates des prochains travaux discontinus
+*
+-------------------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  Torregrossa  06 Aou 1995 : Creation V 1.1
+-------------------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+/*A Définition des constantes */
+
+DEFINE	C_MODULE		"MTMC"		' Nom du module
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* demander les dates de debut et de fin prevus pour des travaux discontinus
+* a creer pour la prochaine date
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_dates_trv_discont (va_DebutPlanifie, va_FinPlanifiee)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_DebutPlanifie	: date de debut de planification des travaux 
+* va_FinPlanifiee	: date de fin de planification des travaux 
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : tableau contenant date de debut et de fin prevu
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR vl_fenetre_active
+VAR vl_fenetre
+VAR vl_FinPrevu
+VAR vl_DebutPrevu
+VAR vl_evt
+VAR vl_retour
+VAR vl_installer_traitement_erreur
+ 
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@ 
+    IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL 
+    {
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN 
+    }
+}
+
+/*B charger la fenetre et la positionner sur l'écran */
+vl_fenetre = DB_LOAD@("ITMA_TMC_trv_discont")
+COM27_Agrandir_Fenetre(vl_fenetre, COM_LARGEUR_FMC, COM_HAUTEUR_MAX)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+        ERROR_BOX@
+        vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A Boucle principale sur evenements concernant la fenetre */
+vl_fenetre_active = TRUE
+
+WHILE (vl_fenetre_active = TRUE)
+	/*B afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*B attente d'un evenement*/
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	CASE OF vl_evt
+
+	CASE "BP_Horodebut"
+           COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+                                                           "BS_jour_debut",
+                                                           "BS_mois_debut",
+                                                           "BS_annee_debut",
+                                                           "BS_heure_debut",
+                                                           "BS_minute_debut")
+
+	CASE "BP_Horofin"
+           COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+                                                           "BS_jour_fin",
+                                                           "BS_mois_fin",
+                                                           "BS_annee_fin",
+                                                           "BS_heure_fin",
+                                                           "BS_minute_fin")
+
+	CASE "BP_Creer"
+		vl_DebutPrevu = COM23_Horodate(vl_fenetre, 
+					"BS_jour_debut", "BS_mois_debut", "BS_annee_debut", 
+					"BS_heure_debut", "BS_minute_debut")
+		vl_FinPrevu = COM23_Horodate(vl_fenetre, 
+					"BS_jour_fin", "BS_mois_fin", "BS_annee_fin", 
+					"BS_heure_fin", "BS_minute_fin")
+
+		IF IS_NULL@(vl_DebutPrevu) OR IS_NULL@(vl_FinPrevu)
+			info_message@("Vous devez saisir les dates des prochains travaux")
+		ELSE IF (COM17_Difference_Dates(vl_DebutPrevu, COM09_Date_Courante()) < 0) {
+			INFO_MESSAGE@("L'horodate de début prévue doit être supérieure à la date courante")
+		}
+		ELSE IF (COM17_Difference_Dates(vl_FinPrevu,vl_DebutPrevu) < 0) {
+			INFO_MESSAGE@("L'horodate de fin prévue doit être supérieure à l'horodate de début prévu")
+		}
+		ELSE IF (COM17_Difference_Dates(vl_DebutPrevu,COM09_Date_Courante()) < 0) {
+			INFO_MESSAGE@("L'horodate de début prévu doit être supérieure à l'horodate courante")
+		}
+		ELSE IF (COM17_Difference_Dates(va_FinPlanifiee, vl_DebutPrevu) < 0) {
+			INFO_MESSAGE@("L'horodate de début prévu doit être inférieure à l'horodate de fin de planification des travaux")
+		}
+		ELSE {
+			vl_retour[0]=vl_DebutPrevu
+			vl_retour[1]=vl_FinPrevu
+			vl_fenetre_active = FALSE
+		}
+
+	CASE "BP_Quitter"
+		vl_fenetre_active = FALSE
+		RETURN (NULL)
+	ENDCASE
+WEND
+
+RETURN (vl_retour)
+
+ENDMACRO
+
+

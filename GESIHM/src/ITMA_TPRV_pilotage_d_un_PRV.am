@@ -1,0 +1,1755 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPRV_pilotage_d_un_PRV.am,v 1.5 2017/04/25 11:08:30 devgfi Exp $      Release : $Revision: 1.5 $       Date : $Date: 2017/04/25 11:08:30 $
+*-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPRV * FICHIER ITMA_TPRV_pilotage_d_un_PRV.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Le module permet de commander l'affichage sur 1 PRV 
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* LCL	17 Fev 2012 	: Creation	DEM/1016			1.1
+* JMG	26/02/13	: correction pilotage neutre automatique 1.2
+* JMG	27/06/13	: 130 RAPPEL devient neutre 1.3
+* JMG	03/08/15 	: lot 121 DEM131 1.4
+* JPL	23/03/17	: Changement du terme Secteur en Region (DEM 1173)  1.5
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes generale
+ * ------------------------------------*/
+DEFINE	C_MODULE			"MPRV"	' Nom du module
+
+
+
+
+DEFINE REP_CONFIG "/produits/migrazur/appliSD/fichiers"
+
+
+
+/*A Description des modules a inclures
+ * ----------------------------------
+ */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+INCLUDE	"GESIHM/inc/ITMA_TPRV.h"
+INCLUDE	"GESIHM/inc/ITMA_TPRV_pilotage_PRV.h"
+
+/*A Description des procedures sotckees a appeler
+ * ---------------------------------------------*/
+INCLUDE	"GESIHM/inc/xzac303sp.h"
+INCLUDE	"GESIHM/inc/xzac802sp.h"
+INCLUDE	"GESIHM/inc/xzac61sp.h"
+INCLUDE "GESIHM/inc/xzac611sp.h"
+INCLUDE	"GESIHM/inc/xzat01sp.h"
+INCLUDE	"GESIHM/inc/xzat05sp.h"
+INCLUDE "GESIHM/inc/xzao427sp.h"
+INCLUDE "GESIHM/inc/xzao556sp.h"
+INCLUDE "GESIHM/inc/xzap63sp.h"
+
+
+DEFINE    REP_CONFIG              "/produits/migrazur/appliSD/fichiers/"
+
+
+/*A Description des variables globales
+ * ----------------------------------*/
+var vm_fenetre			' item de la fenetre du module
+var vm_objet_selecte		' L'objet courant de la fenetre
+var vm_la_fenetre_est_active	' flag d'activation de la fenetre
+var	vm_titre_table_picto	' titre du tableau des picto.
+var vm_table_picto			' libelles du tableau des pictogrammes
+var vm_pix_table_picto		' liste des fichiers de picto 20*20
+var	vm_pix_table_picto_big	' liste des fichiers de picto 40*40
+var	vm_titre_table_proposition	' titre du tableau des propositions.
+var vm_table_proposition	' libelles du tableau des proposition
+var vm_pix_table_proposition	' liste des picto 20*20 du tableau proposition
+var	vm_liste_elements		' liste des diferents elements
+var	vm_liste_PRV			' liste des differents PRV
+var	vm_liste_picto			' la liste des pictogrammes disponibles
+var	vm_Text_Actif			' type du text modifie (message ou alternat)
+var	vm_picto				' la liste des pictos (petit,grand,symbole)
+var	vm_District			' le code du district
+var	vm_NomSite			' le nom du district
+var	vm_les_districts		' Liste des district
+var	vm_NomOperateur
+var	vm_validation_nouv_message ' flag de validation d'une modif de message 
+var	vm_Appel
+var	vm_type_Picto			' liste de types de Picto
+
+/*A Description des tableaux
+ * ------------------------*/
+var format PA_PRV 			vm_etat_PRV		' table avec t[n] = etat du PRV numero n
+var format Config_PRV		vm_Config_PRV	' table avec t[n] = configuration du PRV numero n
+var format PA_PRV			vm_PRV		' PRV dont l'etat actuel est affiche
+var format PA_PRV			vm_Lect_PRV	' PRV selectionne dans la liste pour affichage nouveau message
+
+var	vm_auto
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* 	DESCRIPTION DES DIFFERENTS MACROS LIEES AU MODULE
+*		'ITMA_TPRV_pilotage_d_un_PRV.am' :
+*  ----------------------------------------------------------------------------
+*
+*	ITMA_TPRV_pilotage_d_un_PRV (va_appelant,va_1,va_2,va_3) 
+*		description :	Commande l'affichage sur PRV via IHM
+*
+* 	ITMA_TPRV_Tabuler_ligne (old,new,taille)
+*		description :	Centre un message sur une zone de 'n' caractere
+*
+*	ITMA_TPRV_Modif_message
+*		description :	Modifications du message et MAJ de la BL
+*
+*	ITMA_TPRV_Appel_Modif_message 
+*		description :	Affichage d'un BE pour modification du message
+*
+*	ITMA_TPRV_Lecture_PRV 
+*		descritpion :	Lecture des PRV disponibles
+*					via 'XZAT05_Utilisation_PRV'
+*
+*	ITMA_TPRV_MAJ_PRV ( va_type )
+*		description :	MAJ des donnees nouvelle  ou actuel sur l'IHM
+*					depuis la table PRV
+*	ITMA_TPRV_Commande_PRV 
+*		description :	Commande du nouveau PRV
+*
+*	ITMA_TPRV_Liste_Eqt_Dispo 
+*		description :	Lecture des PRV disponible
+*
+*	ITMA_TPRV_Executer_PRV 
+*		description :	Execution des commandes PRV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commande l'affichage sur PRV 
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPRV_pilotage_d_un_PRV (va_appelant,va_1,va_2,va_3,va_4,va_5,va_6)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 a va_6		: Num d'ordre + Num PA  ou  Num Equipement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> PRV dans MTPA : Plan d'action
+*   Selection de Piloter -> PRV dans MTMT : menu textuel
+*  Selection d'un PRV sur synotique ( clic droit) -> ISYN_SOP
+*   Selection d'un PRV sur synotique ( clic gauche ) -> ITMA_TUE
+*
+* FONCTION
+*   Lit en base de donnees puis affiche la liste des alarmes en cours en
+*   mettant en evidence les changements par rapport a la derniere consultation.
+*   Permet a l'operateur de choisir des alarmes dans la liste affichee puis
+*   d'en effectuer l'acquittement, avec mise a jour de la base de donnees.
+*
+---------------------------------------------------------------------------- */
+
+
+var		i,j,k				' index de loop
+var		vl_mess
+var		vl_liste_font			' liste des fonts disponibles sous Applix
+var		vl_objet				' objet en cours de modification
+var		vl_taille				' taille d'une chaine de caracteres
+var		vl_tampon				' table temporaire
+var		vl_retour		 		' code retourne a l'appelant
+var		vl_lib_fmc			' tableau du libelle fmc
+var		vl_fmc				' libelle fmc a construire
+var		vl_fmc1				' 1ere partie du libelle fmc
+var		vl_fmc2				' 2eme partie du libelle fmc
+var		vl_erreur				' flag d'erreur
+var		vl_numero
+var		tl_titres,tl_data,tl_retour
+var		vl_ligne
+var		vl_rang
+var		vl_lecture
+var		vl_message
+var		vl_trouve
+var		vl_tplecture			' text tampon de lecture d'une liste
+var		vl_tptext				' zone de text tampon
+var		vl_messages_acceptes	' les messages accepte en "_poke"
+var		vl_coderet
+var		tl_liste_causes
+var		vl_num_eqt
+var		vl_liste_district
+var		tl_sel_prv
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_retour 	= { COM_QUITTE }
+vl_liste_font 	= LIST_FONT_FAMILIES@()
+
+vm_District 	= SYSTEM_VAR@("vg_site")
+
+vm_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vm_NomOperateur = SUBSTRING@(vm_NomOperateur, 1, 25)
+vm_Config_PRV 	= SYSTEM_VAR@(vg_type_PRV)
+vm_type_Picto 	= SYSTEM_VAR@(vg_type_Picto)
+vm_validation_nouv_message = XDC_FAUX
+
+/*A Definition du traitement a realiser en cas d'erreur
+* -----------------------------------------------------*/
+
+ON ERROR {
+    ERROR_BOX@
+  '  COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+  '  RETURN
+}
+
+vl_tptext = "------------------------------------------------------------"
+COM01_Trace(COM_INFO,vl_tptext)
+vl_tptext = "Start ITMA_TPRV_pilotage_d_un_PRV " ++ "   User : " ++ vm_NomOperateur
+COM01_Trace(COM_INFO,vl_tptext)
+
+vl_tptext = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_tptext)
+
+if NOT(IS_ARRAY@(va_1))
+{vl_tptext = "va_1 : " ++ va_1
+COM01_Trace(0,vl_tptext)}
+
+if NOT(IS_ARRAY@(va_2))
+{vl_tptext = "va_2 : " ++ va_2
+COM01_Trace(0,vl_tptext)}
+
+if NOT(IS_ARRAY@(va_3))
+{vl_tptext = "va_3 : " ++ va_3
+COM01_Trace(0,vl_tptext)}
+
+if NOT(IS_ARRAY@(va_4))
+{vl_tptext = "va_4 : " ++ va_4
+COM01_Trace(0,vl_tptext)}
+
+if NOT(IS_ARRAY@(va_5))
+{vl_tptext = "va_5 : " ++ va_5
+COM01_Trace(0,vl_tptext)}
+
+if NOT(IS_ARRAY@(va_6))
+{vl_tptext = "va_6 : " ++ va_6
+COM01_Trace(0,vl_tptext)}
+
+vm_Appel = SUBSTRING@(va_appelant,1,8)
+
+INSTALL_FILE@( "ITMA_TPRV_Lecture_Etat_PRV.elo")
+
+/*A Definition de la bibliotheque des pictogrammes
+* a l'aide du fichier 'pmv/Config_Pictogrammes_PRV.cfg' 
+* ----------------------------------------------------*/
+if FILE_EXISTS@(REP_CONFIG ++ "pmv/Config_Pictogrammes_PRV.cfg")
+{	
+	vm_table_picto = READ_ASCII_FILE@(REP_CONFIG ++ "pmv/Config_Pictogrammes_PRV.cfg") 
+	vl_taille = ARRAY_SIZE@(vm_table_picto) - 1
+	FOR i = 1 TO vl_taille
+		vl_tampon 	= COMMA_SPLIT@(vm_table_picto[i])
+		vm_picto[vl_tampon[0],0]	= 
+				REP_CONFIG ++ 
+				"pic/" ++ TRIM@(TABS_TO_SPACES@(vl_tampon[1])++".im")  ' fichiers 20*20
+		vm_picto[vl_tampon[0],1]	= 
+				REP_CONFIG ++ "pic/" ++ 
+				TRIM@(TABS_TO_SPACES@(vl_tampon[2]))  ' fichiers 40*40
+		vm_picto[vl_tampon[0],2]	= 
+				TRIM@(TABS_TO_SPACES@(vl_tampon[3]))  ' trigram
+		vm_picto[vl_tampon[0],3]	= 
+				TRIM@(TABS_TO_SPACES@(vl_tampon[4]))  ' libelle
+		vm_pix_table_picto[vl_tampon[0]]	= vm_picto[vl_tampon[0],0]	,""
+	NEXT i
+	
+}
+else
+{
+	info_message@("Le fichier '"++ 
+			REP_CONFIG ++
+			"pmv/Config_Pictogrammes_PRV.cfg' est manquant, les pictogrammes ne seront pas visibles !")
+	for i = 1 to 10
+		vm_picto[i,0]	= REP_CONFIG ++ "pic/pix_panneau_eteint.im"
+		vm_picto[i,1]	= REP_CONFIG ++ "pic/pix_panneau_eteint_40_40"
+		vm_picto[i,3]	= "L0"
+		vm_picto[i,4]	= "Panneau eteint"
+	next i
+}
+
+vm_liste_PRV = ITMA_TPRV_Liste_Eqt_Dispo ()
+
+if NOT IS_ARRAY@(vm_liste_PRV)
+{
+	INFO_MESSAGE@( "Aucun PRV disponible" )
+	RETURN(COM_OK)
+}
+
+/*A Charger la fenetre de pilotage d'un PRV 
+ * ----------------------*/
+vm_fenetre = DB_LOAD@("ITMA_TPRV_pilotage_d_un_PRV")
+
+
+
+if vm_appel="ISYN_SOP"
+{
+	if IS_ARRAY@(va_1) { vl_numero = va_1[0]+0 }
+	else { vl_numero = va_1+0 }
+
+	vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PRV,0),vl_numero)
+	
+	if (vl_numero < 0) {
+		INFO_MESSAGE@("PRV indisponible")
+		RETURN (COM_OK)
+	}
+
+	/* Au CI si appel depuis depuis le synoptique prendre le district du PRV  */
+	if vm_District = XDC_CI
+	{ 
+		if NOT ITMA_COM_District_pilotable(vm_Config_PRV[vl_numero].sitegestion, 
+				XDC_LIB_PRV,TRUE,vm_Config_PRV[vl_numero].Identifiant) 
+		{ 
+			vl_tptext = " Appel pilotage PRV depuis syno pour un PRV pilotable en région " ++ vm_Config_PRV[vl_numero].NomSite
+			COM01_Trace(COM_INFO,vl_tptext)
+				RETURN(COM_OK)
+ 		}
+	}
+	else
+	{ 
+		if (vm_District <> vm_Config_PRV[vl_numero].sitegestion) 
+		{ 
+			vl_tptext = " Appel pilotage PRV depuis syno pour un PRV hors région " ++ vm_Config_PRV[vl_numero].NomSite
+			COM01_Trace(COM_INFO,vl_tptext)
+			RETURN(COM_OK)
+		}
+	}
+	
+
+	vm_Lect_PRV 	= vm_etat_PRV[vl_numero]
+	vm_PRV 		= vm_etat_PRV[vl_numero]
+
+}
+else if vm_appel = "ITMA_TPA"
+{
+DB_CTRL_GRAYED@(vm_fenetre, "BL_PRV", true)
+	ITMA_TPRV_Lire_Prop_PRV_PA(va_1, va_2)
+
+	vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PRV,0),vm_PRV.NumEqt)
+
+	if vl_numero >= 0
+ 	{ 
+
+		vm_PRV 		= vm_etat_PRV[vl_numero]
+
+	}
+vm_Lect_PRV.NumEvt = va_3
+vm_Lect_PRV.CleEvt = va_4
+ ITMA_COM_Lire_Evenement ( va_3, va_4, vl_lib_fmc, C_MODULE)
+        vl_fmc = COM11_Libelle_FMC(vl_lib_fmc)
+        vl_fmc1=SUBSTRING@(vl_fmc,1,46)
+        vl_fmc2=TRIM@(SUBSTRING@(vl_fmc,48,20))
+vm_Lect_PRV.fmc_liee = vl_fmc
+
+vm_auto= va_5
+
+if(vm_auto=1) {
+	DB_CTRL_VALUE@(vm_fenetre,"BO_Arret",
+					vm_Lect_PRV.TypeAffichage )
+	DB_CTRL_VALUE@(vm_fenetre,"BS_nota_picto",vm_Lect_PRV.Bandeau)
+	ITMA_TPRV_EXECUTER_PRV()
+	return (COM_OK)
+
+	}
+}
+else
+{
+	vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PRV,1),vm_liste_PRV[0])
+	if vl_numero >= 0
+ 	{ 
+		vm_Lect_PRV 	= vm_etat_PRV[vl_numero]
+		vm_PRV 		= vm_etat_PRV[vl_numero]
+	}
+}
+
+
+vl_messages_acceptes[0] = COM_CANAL_FIN
+vl_messages_acceptes[1] = COM_CANAL_MTPRV_ETAT
+DB_ACCEPT_POKES@ (vm_fenetre, vl_messages_acceptes)
+DB_DISPLAY_ONLY@(vm_fenetre,TRUE)
+DB_WINDOW_REMAIN@ (vm_fenetre, TRUE)
+DB_XPOS@ (vm_fenetre,0)
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+	DB_YPOS@ (vm_fenetre,300)
+else
+	DB_YPOS@ (vm_fenetre,104)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BO_Arret",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_PRV",TRUE)
+DB_CTRL_MULTI_SELECT@(vm_fenetre,"BL_PRV",TRUE)
+DB_CTRL_HORIZ_SCROLL@(vm_fenetre,"TA_pictogrammes",FALSE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"TA_pictogrammes",TRUE)
+
+
+
+/*A Definir les caracteristiques (initiales) des objets graphiques
+* --------------------------------------------------------------*/
+
+/* effacer certains elements de la boite de dialogue */
+DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",FALSE)
+DB_CTRL_GRAYED@(vm_fenetre,"BP_lier_fmc",FALSE)
+
+
+/*A Affichage de la fenetre
+* -------------------------*/
+DB_DISPLAY@(vm_fenetre)
+
+/*A MAJ TA_pictogrammes
+* -------------------*/
+'vm_pix_table_picto 		= ""
+'vm_pix_table_picto[0]	= REP_CONFIG ++ "pic/pix_panneau_eteint.im",""
+vm_table_picto 		= ""
+vm_table_picto[0,0]		=""
+vm_titre_table_picto 	= ""
+vm_titre_table_picto[0,0] = "Libelle"
+vm_titre_table_picto[0,1] = 150
+
+DB_TABLE_SET_MARKER_WIDTH@(vm_fenetre,"TA_pictogrammes",24)
+DB_TABLE_SET_DATA@(vm_fenetre,"TA_pictogrammes",vm_table_picto,vm_titre_table_picto)
+DB_TABLE_MARKER_PIXMAPS@(vm_fenetre,"TA_pictogrammes",0,vm_pix_table_picto)  		
+
+DB_CTRL_STRINGS@(vm_fenetre,"BL_PRV",vm_liste_PRV)
+vl_numero = ARRAY_INDEX@(vm_liste_PRV,vm_PRV.Identifiant)
+tl_sel_prv = { vl_numero }
+DB_CTRL_VALUE@(vm_fenetre, "BL_PRV", tl_sel_prv)	
+
+
+/*A Lire l'etat actuel des PRV selon l'origine de l'appel
+ * ------------------------------------------------------*/
+vl_erreur = ITMA_TPRV_Lecture_PRV()
+
+if vl_erreur<>COM_NOK then ITMA_TPRV_MAJ_PRV  ( "actuel" )
+
+ITMA_TPRV_MAJ_table_picto 
+
+ITMA_TPRV_MAJ_PRV  ( "nouveau" )
+DB_CTRL_VALUE@(vm_fenetre,"BO_Arret",1)
+
+/*A MAJ de la liste des lignes de message
+* -------------------------------------*/
+/*ITMA_TPRV_BL_elements_click
+*/
+/*A flag de capture des evenements dans la fenetre
+* ------------------------------------------------*/
+DB_DISPLAY_ONLY@(vm_fenetre,FALSE)
+
+/*A Abonnement a l'etat des panneaux */ 
+if (SYSTEM_VAR@(vg_site) = XDC_CI) 
+{
+	vl_liste_district = SYSTEM_VAR@ ( vg_les_districts )
+	for i = 0 to ARRAY_SIZE@(vl_liste_district) - 1
+		if ( vl_liste_district[i][3] = XDC_TYPEM_PC2 ) or 
+		   ( vl_liste_district[i][3] = XDC_TYPEM_PC2LT ) or 
+	 	   ( vl_liste_district[i][3] = XDC_TYPEM_PCS )
+		{
+			ITMA_TPRV_Abt_Etat_PRV(vl_liste_district[i][2])
+		}
+	next i
+}
+else		
+{
+	ITMA_TPRV_Abt_Etat_PRV(SYSTEM_VAR@ (vg_nom_site))
+}
+
+if vm_appel = "ITMA_TPA"
+{
+	    DB_CTRL_TITLE@(vm_fenetre,"LI_fmc_liee_nouveau",vl_fmc1)
+		DB_CTRL_TITLE@(vm_fenetre,"LI_date_fmc_nouveau",vl_fmc2)
+DB_CTRL_DISPLAY@(vm_fenetre, "BP_lier_fmc", false)
+	DB_CTRL_VALUE@(vm_fenetre,"BO_Arret", 
+				vm_Lect_PRV.TypeAffichage )
+}
+
+/*A Gestion des evenements lies a la fiche 'Pilotage des PRV'
+* --------------------------------------------------------*/
+
+vm_la_fenetre_est_active = TRUE
+WHILE (vm_la_fenetre_est_active)
+
+	/*A
+	 * Lecture de la date system et MAJ du libelle
+	 * -------------------------------------------
+	 */
+	DB_DISPLAY@ (vm_fenetre)
+
+    	vm_objet_selecte = DB_EXIT_CTRL@ (vm_fenetre)
+    	IF SYSTEM_VAR@ (vg_verrou) vm_objet_selecte = NULL
+
+	CASE OF vm_objet_selecte
+
+	/*A SI action sur bouton QUITTER */
+	CASE "BP_quitter"
+
+		vm_la_fenetre_est_active = FALSE 
+
+
+ 	/*B appui sur le bouton lier fmc*/
+	CASE "BP_lier_fmc"
+
+		vl_tptext = "Status : appel lien FMC"
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+							"ITMA_TPRV_pilotage_d_un_PRV")
+
+		tl_liste_causes=tl_data[0]
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vm_fenetre,"TA_Evenements",TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"TA_Evenements",TRUE)
+		DB_TABLE_ALLOW_COLUMN_RESIZING@(vm_fenetre,"TA_Evenements",True)
+		DB_TABLE_SET_MARKER_WIDTH@(vm_fenetre, "TA_Evenements", 25)
+		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+		DB_TABLE_SET_DATA@(vm_fenetre,"TA_Evenements",tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vm_fenetre, "TA_Evenements", 0, tl_data[2])
+		
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+		vl_tptext = "Status : selection evenement"
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+		tl_retour=ITMA_COM_Validite_Cause("ITMA_TPRV_pilotage_d_un_PRV",
+										vm_fenetre,tl_liste_causes)
+		vm_Lect_PRV.NumEvt = tl_retour[0][0]
+		vm_Lect_PRV.CleEvt = tl_retour[0][1]
+		vl_fmc = tl_retour[1]
+		if (vm_Lect_PRV.NumEvt<>0 and  vm_Lect_PRV.CleEvt<>0)
+		{
+			vm_Lect_PRV.fmc_liee = vl_fmc
+		}
+		else	
+			vm_Lect_PRV.fmc_liee = "Pas de libelle F.M.C."
+			
+		vl_fmc1=SUBSTRING@(vl_fmc,1,46)
+		vl_fmc2=TRIM@(SUBSTRING@(vl_fmc,48,20))
+
+		DB_CTRL_DISPLAY@(vm_fenetre,"TA_Evenements",FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",FALSE)
+
+	    DB_CTRL_TITLE@(vm_fenetre,"LI_fmc_liee_nouveau",vl_fmc1)
+		DB_CTRL_TITLE@(vm_fenetre,"LI_date_fmc_nouveau",vl_fmc2)
+
+	/*A SI action sur bouton executer  */
+	CASE "BP_executer"
+
+		tl_sel_prv = DB_CTRL_GET_VALUE@(vm_fenetre,"BL_PRV")
+		if NOT IS_ARRAY@ (tl_sel_prv)				' mono-selection, simuler la multi-selection
+			tl_sel_prv = { tl_sel_prv }
+
+		if (ARRAY_SIZE@ (tl_sel_prv) > 0)
+		{
+			if vm_validation_nouv_message = XDC_FAUX
+			{
+				vl_erreur = COM_OK
+				for i = 0  to ARRAY_SIZE@ (tl_sel_prv) - 1
+					vl_rang = tl_sel_prv[i]
+					vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PRV,1), vm_liste_PRV[vl_rang])
+					vm_Lect_PRV.NumEqt = vm_Config_PRV[vl_numero][0]
+					vm_Lect_PRV.Identifiant = vm_liste_PRV[vl_rang]
+					vm_Lect_PRV.Bandeau = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_nota_picto")
+		vm_Lect_PRV.TypeAffichage = DB_CTRL_GET_VALUE@(vm_fenetre,"BO_Arret")	
+
+
+					/* executer la commande sur le PRV */
+					vl_coderet = ITMA_TPRV_EXECUTER_PRV ()
+					if vl_coderet <> COM_OK
+						vl_erreur = COM_NOK
+				next i
+				if vl_erreur = COM_OK
+				{
+					vm_PRV.NumEvt = vm_Lect_PRV.NumEvt
+					vm_PRV.CleEvt = vm_Lect_PRV.CleEvt
+					vm_PRV.fmc_liee = vm_Lect_PRV.fmc_liee
+			'		DB_CTRL_TITLE@(vm_fenetre, "LI_fmc_liee_nouveau","Pas de fmc liee")
+			'		DB_CTRL_TITLE@(vm_fenetre, "LI_date_fmc_nouveau","")
+			'		vm_Lect_PRV.NumEvt	= 0
+			'		vm_Lect_PRV.CleEvt	= 0
+			'		vm_Lect_PRV.fmc_liee	= ""
+				}
+			}
+			else 
+			{
+				info_message@("Execution impossible : Valider ou Annuler la modification du message...")	
+			}
+		}
+		else 
+		{
+			info_message@("Selectionner d'abord un ou plusieurs PRV ...")
+		}
+
+
+	/*A SI action sur bouton refuser le plan d'action pour le 1er PRV 
+	CASE "BP_refuser"
+
+		vl_tptext = "Status : Refus plan d'action"
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_refuser",TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_explication",TRUE)
+		vl_retour[0] = COM_REFUSE*/
+
+	/*A SI action sur liste  des pictos */
+	CASE "TA_pictogrammes"
+
+		vl_tptext = "Status : "
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+		if DB_EXIT_CODE@(vm_fenetre)= 50
+ 		{ 
+			vl_tplecture 	= 	DB_TABLE_GET_SELECTIONS@(
+								vm_fenetre,
+								"TA_pictogrammes")
+
+
+			DB_CTRL_TITLE@(vm_fenetre, "ID_picto_xxx_nouveau",
+				vm_pix_table_picto_big[vl_tplecture[0],0]++".im")
+
+			vm_Lect_PRV.Vitesse = vm_picto[vl_tplecture[0],2]
+
+			vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_etat_PRV,0),
+					vm_PRV.NumEqt)
+		if vl_numero >= 0
+ 		{ 
+			if (vl_tplecture[0]=0 and vm_etat_PRV[vl_numero].VitesseNominale="130")
+			{
+				vm_Lect_PRV.TypeAffichage  =CM_AFF_NEUTRE
+				DB_CTRL_VALUE@(vm_fenetre, "BS_nota_picto", "")
+				DB_CTRL_GRAYED@(vm_fenetre, "BP_executer", false)
+			}
+		/*if ("L"++vm_etat_PRV[vl_numero].VitesseNominale=vm_Lect_PRV.vitesse) 				
+		{
+			vm_Lect_PRV.TypeAffichage  =CM_AFF_NEUTRE
+		}*/
+			else
+				vm_Lect_PRV.TypeAffichage = CM_AFF_PICTO
+			
+			DB_CTRL_VALUE@(vm_fenetre,"BO_Arret",vm_Lect_PRV.TypeAffichage)
+		}
+	}
+
+	/*A SI action sur liste  des PRV */
+	CASE "BL_PRV"
+		vl_tptext = "Status : "
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+		tl_sel_prv = DB_CTRL_GET_VALUE@(vm_fenetre,"BL_PRV")
+		IF NOT IS_ARRAY@ (tl_sel_prv)				' mono-selection, simuler la multi-selection
+			tl_sel_prv = { tl_sel_prv }
+
+		vl_rang = tl_sel_prv[ARRAY_SIZE@ (tl_sel_prv) - 1]
+		vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PRV,1), vm_liste_PRV[vl_rang])
+
+	/*	if (vl_numero <> vm_PRV.NumEqt)
+ 		{ */
+
+			vm_Lect_PRV.NumEqt = vm_etat_PRV[vl_numero].NumEqt
+			vm_Lect_PRV.Identifiant = vm_liste_PRV[vl_rang]
+			vm_Lect_PRV.NomSite = vm_Config_PRV[vl_numero].SiteGestion
+
+			vm_PRV = vm_Lect_PRV
+
+			vl_erreur = ITMA_TPRV_Lecture_PRV()
+			
+			if vl_erreur<>COM_NOK then ITMA_TPRV_MAJ_PRV  ( "actuel" )
+
+			if (vm_Lect_PRV.TypeAffichage = CM_AFF_NEUTRE)
+ 			{
+				vm_Lect_PRV.Vitesse = "L"++vm_etat_PRV[vl_numero].VitesseNominale
+				if vm_etat_PRV[vl_numero].RappelNominal = 1
+					vm_Lect_PRV.Bandeau = "RAPPEL"
+				else
+					vm_Lect_PRV.Bandeau = ""
+			/*DEM131*/
+			/*
+			if vm_lect_prv.vitesse="L130" and vm_lect_prv.bandeau="RAPPEL"
+			{
+				vm_lect_prv.vitesse="L0"
+				vm_lect_prv.bandeau=""
+			}
+			*/
+	
+				ITMA_TPRV_MAJ_PRV ( "nouveau" )
+			}
+	/*	}*/
+
+				
+		
+  	/*A SI clic sur valider message  du  PRV */
+ 	CASE "BP_valider_nouveau"
+
+		vl_tptext = "Status : Validation Modif."
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+		vm_validation_nouv_message = XDC_FAUX
+		ITMA_TPRV_Modif_message
+
+  	/*A SI clic sur annuler modif message  du  PRV */
+	CASE "BP_annuler_nouveau"
+
+		vl_tptext = "Status : Annulation Modif. "
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_valider_nouveau",FALSE)	
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_annuler_nouveau",FALSE)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif1",FALSE)	
+		DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif2",FALSE)	
+		DB_CTRL_DISPLAY@(vm_fenetre, "BS_modif3",FALSE)
+		DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif_direction",FALSE)
+		vm_validation_nouv_message = XDC_FAUX
+		ITMA_TPRV_MAJ_PRV ( "nouveau" )
+
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_message",True)	
+		DB_CTRL_DISPLAY@(vm_fenetre,"BP_alternat",True)
+	
+	/*A SI action bouton mise au neutre du PRV */
+	CASE "BO_Arret"
+	
+		vl_tptext = "Status : "
+ 		DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+		
+		vm_Lect_PRV.TypeAffichage = DB_CTRL_GET_VALUE@(vm_fenetre,"BO_Arret")	
+		if (vm_Lect_PRV.TypeAffichage = CM_AFF_NEUTRE)
+		{
+			vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PRV,0), vm_Lect_PRV.numeqt)
+			
+			vm_Lect_PRV.TypeAffichage = CM_AFF_NEUTRE
+			vm_Lect_PRV.Vitesse = "L"++vm_etat_PRV[vl_numero].VitesseNominale
+			if vm_etat_PRV[vl_numero].RappelNominal = 1
+				vm_Lect_PRV.Bandeau = "RAPPEL"
+			else
+				vm_Lect_PRV.Bandeau = ""
+
+			/*DEM 131*/
+			/*
+			if vm_lect_prv.vitesse="L130" and vm_lect_prv.bandeau="RAPPEL"
+			{
+				vm_lect_prv.vitesse="L0"
+				vm_lect_prv.bandeau=""
+			}
+			*/
+
+			ITMA_TPRV_MAJ_PRV ( "nouveau" )
+  		 	DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",FALSE)
+		}
+		else
+		{
+			vm_Lect_PRV.TypeAffichage = CM_AFF_PICTO
+			
+			vl_tplecture 	= 	DB_TABLE_GET_SELECTIONS@(
+								vm_fenetre,
+								"TA_pictogrammes")
+			
+			if vl_tplecture[0] >=0
+			{
+				DB_CTRL_TITLE@(vm_fenetre, "ID_picto_xxx_nouveau",
+					vm_pix_table_picto_big[vl_tplecture[0],0])
+
+				vm_Lect_PRV.Vitesse = vm_picto[vl_tplecture[0],2]
+			}
+			
+			ITMA_TPRV_MAJ_PRV ( "nouveau" )
+  		 	DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",FALSE)
+		}
+
+
+    CASE "poke_"
+
+     	CASE OF  DB_GET_POKE@ (vm_fenetre)
+
+			/*A SI reception message de FIN */
+			CASE COM_CANAL_FIN
+				vm_la_fenetre_est_active = FALSE
+
+			/*A SI reception etat PRV */
+			CASE COM_CANAL_MTPRV_ETAT
+				/*A capture du message */
+				vl_message = DB_GET_POKE_DATA@(vm_fenetre)
+				
+				/*A dEcomposition du message recu en tableau */
+				vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+				vl_num_eqt = vl_mess[0]+0
+				COM01_Trace(COM_DEBUG2, "Recu etat PRV " ++ vl_num_eqt)
+
+				/* indicateur etat recu = 1*/
+				vm_etat_PRV[vl_num_eqt].NumeroAction	=1	
+				vm_etat_PRV[vl_num_eqt].Vitesse = vl_mess[1]
+				vm_etat_PRV[vl_num_eqt].Bandeau = vl_mess[2]
+
+				if vm_etat_PRV[vl_num_eqt].Vitesse="XXXX"
+					vm_etat_PRV[vl_num_eqt].Vitesse="L0"
+
+				if vm_PRV.NumEqt = vl_num_eqt 
+				{ 	
+					vm_PRV.Bandeau 		= vm_etat_PRV[vl_num_eqt].Bandeau
+					vm_PRV.Vitesse		= vm_etat_PRV[vl_num_eqt].Vitesse
+					ITMA_TPRV_MAJ_PRV ( "actuel" )
+				}
+			ENDCASE
+
+	ENDCASE
+	
+'	DB_CTRL_VALUE@(vm_fenetre,"BO_Arret",vm_Lect_PRV.TypeAffichage)
+	
+'	DB_CTRL_MULTI_SELECT@ (vm_fenetre, "BL_PRV", TRUE)
+
+WEND
+
+vl_tptext = "Stop ITMA_TPRV_pilotage_d_un_PRV " ++ "   User : " ++ vm_NomOperateur
+COM01_Trace(COM_INFO,vl_tptext)
+
+RETURN(COM_QUITTE)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Executer
+*  ----------------------------------------------------------------------------
+*/
+MACRO ITMA_TPRV_EXECUTER_PRV
+/*
+* ARGUMENTS EN ENTREE :
+*   aucun
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : auncun
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPRV_pilotage_d_un_PRV
+*
+*
+---------------------------------------------------------------------------- */
+var 	vl_retour
+var	vl_erreur
+var	vl_index
+var	vl_tptext
+
+	vl_retour = NULL
+	vl_erreur = COM_NOK 
+
+	DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",TRUE)
+	vm_Lect_PRV.TypeAffichage = DB_CTRL_GET_VALUE@(vm_fenetre,"BO_Arret")
+
+	COM01_Trace(COM_INFO,vl_tptext)
+	
+	if (SYSTEM_VAR@(vg_site) = XDC_CI )
+	{
+		if NOT ITMA_COM_District_pilotable(vm_Config_PRV[vm_PRV.NumEqt].sitegestion, 
+			XDC_LIB_PRV,TRUE,vm_Config_PRV[vm_PRV.NumEqt].Identifiant)
+		{ 
+			RETURN(COM_NOK)
+ 		}
+ 	}
+
+	if (vm_Lect_PRV.NumEvt=NULL and vm_Lect_PRV.CleEvt=NULL) 	and
+		vm_Lect_PRV.TypeAffichage <> CM_AFF_NEUTRE
+
+	{
+		info_message@("Vous devez lier cette action a une FMC")
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_lier_fmc",FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_executer",FALSE)
+		vl_erreur = COM_NOK
+	}  
+	else
+ 	{
+		vl_retour = COM_VALIDE
+		vm_Lect_PRV.Bandeau = DB_CTRL_GET_VALUE@( vm_fenetre, "BS_nota_picto")	
+		vm_Lect_PRV.Bandeau = vm_Lect_PRV.Bandeau ++ "      "
+		vm_Lect_PRV.Bandeau = SUBSTRING@(vm_Lect_PRV.Bandeau,1,6)
+
+			vl_erreur = ITMA_TPRV_Commande_PRV()
+
+			if vl_erreur = COM_OK
+			{
+				vm_PRV.NumEvt	= vm_Lect_PRV.NumEvt
+ 				vm_PRV.CleEvt		= vm_Lect_PRV.CleEvt
+				ITMA_TPRV_MAJ_PRV ( "actuel" )
+			}
+	}
+
+
+	RETURN(vl_erreur)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :       MAJ de la liste des pictogrammes
+*
+*  ----------------------------------------------------------------------------
+*/
+MACRO ITMA_TPRV_MAJ_table_picto
+/*
+* ARGUMENTS EN ENTREE :
+*       aucun
+*
+*
+* ARGUMENTS EN SORTIE :
+*
+*
+* CODE RETOUR         : auncun
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPRV_pilotage_d_un_PRV
+*
+*
+---------------------------------------------------------------------------- */
+
+	var     i                       ' index de loop1
+	var     j                       ' index de loop2
+	var     k                       ' index de loop3
+	var     vl_trouve               ' flag de condition
+	var     vl_taille               ' taille d'une table
+	var     vl_Fichier      ' nom du fichier associi au type de picto
+	var     vl_liste_picto_tpm      ' liste tampon
+	var     vl_tptext                       ' zone de text tampon
+
+
+	vl_tptext = "--> ITMA_TPRV_MAJ_table_picto pour Eqt= " ++ vm_Lect_PRV.NumEqt
+	COM01_Trace(0,vl_tptext)
+
+
+	i = 0
+	j = 0
+
+for i = 0 to ARRAY_SIZE@(vm_picto)-1
+		vm_table_picto[i,0]             = vm_picto[i,3]
+		vm_pix_table_picto_big[i,0]             = vm_picto[i,1]
+next i
+
+	DB_TABLE_SET_NEW_TOP_ROW@(vm_fenetre,"TA_pictogrammes",0)
+	DB_TABLE_SET_MARKER_WIDTH@(vm_fenetre,"TA_pictogrammes",24)     
+	DB_TABLE_SET_DATA@(vm_fenetre,"TA_pictogrammes",vm_table_picto,vm_titre_table_picto,vm_pix_table_picto)
+
+	DB_CTRL_DISPLAY@(vm_fenetre,"Liste_picto",TRUE)
+	DB_CTRL_DISPLAY@(vm_fenetre,"TA_pictogrammes",TRUE)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Centre un message sur une zone de 'n' caractere
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPRV_Tabuler_ligne(va_old,va_new,va_taille)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   	va_old        	: Chaine en entree ;
+*	va_taille		: taille de la chaine de sortie
+*
+*
+* ARGUMENTS EN SORTIE : 
+*   va_new     		: Chaine en sortie.
+*
+*
+* CODE RETOUR         : auncun
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPRV_pilotage_d_un_PRV
+*
+*
+---------------------------------------------------------------------------- */
+
+	var	vl_long		' longeur du message
+	var 	x			' variable static
+	var 	i			' index de loop
+	var		vl_tptext					' zone de text tampon
+
+	vl_long = (len@(trim@(va_old)))
+	x = int@((va_taille-vl_long)/2)
+	va_new = ""
+	for i = 1 to x
+		va_new = va_new ++ " "
+	next i
+	vl_tptext = va_new ++ trim@(va_old) ++ "               "
+	va_new = SUBSTRING@(vl_tptext,1,va_taille)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Modifications du message et MAJ de la BL
+*
+*  ----------------------------------------------------------------------------
+*/
+MACRO ITMA_TPRV_Modif_message
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : COM_OK ou COM_NOK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPRV_pilotage_d_un_PRV
+*
+*
+---------------------------------------------------------------------------- */
+	
+var	vl_objet		' object en cours de modification
+var	vl_tplecture	' text tampon de lecture d'une liste
+var	vl_tptext		' zone de text tampon
+
+
+	vl_tplecture[0] = DB_CTRL_GET_VALUE@(vm_fenetre,"BS_nota_picto")
+	vl_tplecture[0] = UPPERCASE@(SUBSTRING@(TRIM@(vl_tplecture[0]),1,15))
+	ITMA_TPRV_Tabuler_ligne(vl_tplecture[0],vl_tptext,15)
+	vl_tplecture[0] = vl_tptext
+	DB_CTRL_DISPLAY@(vm_fenetre,"BS_nota_picto",FALSE)
+	
+	
+	DB_CTRL_DISPLAY@(vm_fenetre,"BP_valider_nouveau",FALSE)
+	DB_CTRL_DISPLAY@(vm_fenetre,"BP_annuler_nouveau",FALSE)
+
+	/*A Afficher le texte et le picto saisis */
+	ITMA_TPRV_MAJ_PRV ( "nouveau" )
+
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Affichage d'un BE pour modification du message
+*
+*  ----------------------------------------------------------------------------
+*/
+MACRO ITMA_TPRV_Appel_Modif_message ( va_Type )
+/*
+* ARGUMENTS EN ENTREE :
+*	va_Type : type d'affichage (message ou alternat)
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : COM_OK ou COM_NOK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPRV_pilotage_d_un_PRV
+*
+*
+---------------------------------------------------------------------------- */
+
+var	vl_tplecture		' text tampon de lecture d'une liste
+	
+
+vl_tplecture = DB_CTRL_GET_STRINGS@(vm_fenetre,"BL_"++ va_Type ++ "_nouveau")
+vm_Lect_PRV.Bandeau = DB_CTRL_GET_VALUE@( vm_fenetre, "BS_nota_picto")	
+vm_Lect_PRV.Bandeau = vm_Lect_PRV.Bandeau ++ "      "
+vm_Lect_PRV.Bandeau = SUBSTRING@(vm_Lect_PRV.Bandeau,1,6)
+
+DB_CTRL_DISPLAY@(vm_fenetre,"BL_message_nouveau",FALSE)
+
+DB_CTRL_VALUE@(vm_fenetre,"BS_modif1",TRIM@(vl_tplecture[0]))
+DB_CTRL_DISPLAY@(vm_fenetre,"BS_modif1",TRUE)	
+
+DB_CTRL_DISPLAY@(vm_fenetre,"BP_valider_nouveau",TRUE)	
+
+/*A griser les boutons de MAJ de message semi-automatique */
+DB_CTRL_DISPLAY@(vm_fenetre,"BP_message",False)	
+
+/*A mise a jour du flag de modification d'un message */
+vm_validation_nouv_message = XDC_VRAI
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_PRV",FALSE)
+DB_CTRL_GRAYED@(vm_fenetre,"BP_lier_fmc",TRUE)
+DB_CTRL_GRAYED@(vm_fenetre,"BO_Arret",TRUE)
+DB_CTRL_GRAYED@(vm_fenetre,"BS_nota_picto",TRUE)
+
+RETURN(COM_OK)
+					
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des PRV disponibles
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPRV_Lecture_PRV
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*   aucun
+*
+*
+* ARGUMENTS EN SORTIE	: 
+*	va_liste_PRV	: Liste des PRV disponibles
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPRV_pilotage_d_un_PRV
+*
+*
+* FONCTION
+*   MAJ de la liste des PRV disponibles dans la fiche de pilotage des PRV.
+*
+---------------------------------------------------------------------------- */
+
+
+	VAR	vl_etat_null		' flag d'etat_PRV NULL
+	VAR	i				' index de boucle
+	var	vl_tptext			' zone de text tampon
+	VAR	vl_erreur
+
+	/*A trace de l'appel de procedure */
+	vl_tptext =  "--> XZAT05_Utilisation_PRV "++ vm_PRV.NumEqt
+	COM01_Trace(0,vl_tptext)
+
+	/*A si num Eqt du PRV nul : sortir */
+	if ( vm_PRV.NumEqt=NULL or TRIM@(vm_PRV.NumEqt)="" )
+	{
+		vl_tptext = "ITMA_TPRV_Lecture_PRV refusee: '"++vm_PRV.NumEqt++"'"
+		COM01_Trace(COM_WARNING,vl_tptext)
+		RETURN(COM_NOK)
+	}
+
+	if	vm_etat_PRV[vm_PRV.NumEqt+0].NumeroAction > 0	
+	{ vl_etat_null = False }
+	else
+	{ vl_etat_null = True }
+
+	vl_erreur = ITMA_TPRV_Lecture_Etat_PRV ( vm_PRV,
+									 vl_etat_null, C_MODULE )
+
+	/*A si pas etat_PRV null : MAJ avec l'etat terrain  */
+	if ( NOT vl_etat_null ) 
+	{
+	 	vm_PRV.Vitesse 		= vm_etat_PRV[vm_PRV.NumEqt+0].Vitesse
+  		vm_PRV.Bandeau 		= vm_etat_PRV[vm_PRV.NumEqt+0].Bandeau
+	}
+
+RETURN (vl_erreur)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	MAJ de l'IHM avec la table PRV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPRV_MAJ_PRV ( va_type )
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_type : actuel ou nouveau
+*
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPRV_pilotage_d_un_PRV
+*
+*
+* FONCTION
+*   MAJ de l'IHM par rapport a la table PRV.
+*
+---------------------------------------------------------------------------- */
+
+	var		vl_objet		' l'objet en cours de modif.
+	var		i			' index de loop
+	var		vl_taille		' taille du text
+	var		vl_fmc1		' libelle fmc 1
+	var		vl_fmc2		' libelle fmc 2
+	var		vl_tplecture	' text tampon de lecture d'une liste
+	var		vl_tptext		' zone de text tampon
+	var format PA_PRV vl_PRV
+	var vl_vitesse
+
+	/*A trace de l'appel de procedure */
+	vl_tptext =  "--> ITMA_TPRV_MAJ_PRV" ++ va_type
+	COM01_Trace(0,vl_tptext)
+
+	if ( va_type = "nouveau" )
+	{ vl_PRV = vm_Lect_PRV 
+'		DUMP_ARRAY@(vl_prv,4)	
+	}
+	else
+	{ vl_PRV = vm_PRV
+'	DUMP_ARRAY@(vl_prv,4)
+ }
+
+	DB_CTRL_TITLE@(vm_fenetre,"LI_identification",vl_PRV.identifiant)
+
+	vl_fmc1=SUBSTRING@(vl_PRV.fmc_liee,1,46)
+	vl_fmc2=TRIM@(SUBSTRING@(vl_PRV.fmc_liee,48,20))
+
+	vl_objet = "LI_fmc_liee_" ++ va_type
+	DB_CTRL_TITLE@(vm_fenetre,vl_objet,vl_fmc1)
+
+	vl_objet = "LI_date_fmc_" ++ va_type
+	DB_CTRL_TITLE@(vm_fenetre,vl_objet,vl_fmc2)
+
+	vl_tplecture = FALSE 
+
+	vl_objet = "ID_picto_xxx_" ++ va_type
+
+	vl_vitesse = vl_PRV.Vitesse
+
+	for i = 0 to 25
+		if (TRIM@(SUBSTRING@(vl_vitesse,1,4)) <> "") and (TRIM@(SUBSTRING@(vl_vitesse,1,4)) = TRIM@(vm_picto[i,2])) 
+		{
+			DB_CTRL_TITLE@(vm_fenetre,vl_objet,vm_picto[i,1]++".im")
+		}
+	next i
+
+	if ( va_type = "nouveau" )
+	{	DB_CTRL_VALUE@(vm_fenetre,"BS_nota_picto",vl_PRV.Bandeau) }
+	else
+	{ 	
+		DB_CTRL_TITLE@(vm_fenetre,"LI_nota_picto_actuel",vl_PRV.Bandeau) }
+
+	if ( va_type = "nouveau" )
+	{ 
+		DB_CTRL_VALUE@(vm_fenetre,"BO_Arret",vm_Lect_PRV.TypeAffichage)
+	}
+
+	if ( vm_validation_nouv_message = XDC_FAUX )
+	{ 
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BL_PRV",TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BP_lier_fmc",FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BO_Arret",FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre,"BS_nota_picto",FALSE)
+	}
+
+	RETURN (COM_OK)
+	
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commande du nouveau PRV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPRV_Commande_PRV
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	aucun
+*
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPRV_pilotage_d_un_PRV
+*
+*
+* FONCTION
+*   	Commande du nouveau PRV.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	var vl_index	
+	var		vl_tptext		' zone de text tampon
+
+	vm_Lect_PRV.Horodate = COM09_Date_Courante()
+	vm_Lect_PRV.Operateur = SUBSTRING@(vm_NomOperateur, 1, 25)
+
+	if NOT IS_NUMERIC_STRING@(vm_Lect_PRV.NumEqt)
+	{
+		vl_tptext ="Commande_PRV refusee (numero d'equipement invalide)"
+		COM01_Trace(COM_WARNING,vl_tptext)
+		RETURN(COM_NOK)
+	}
+
+	vm_Lect_PRV.Operateur = SYSTEM_VAR@("vg_numero_poste")
+
+	vl_parametres[0].type	= SYB#DATETIME_
+	vl_parametres[0].data	= vm_Lect_PRV.Horodate
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type	= SYB#INT4_
+	vl_parametres[1].data	= vm_Lect_PRV.NumEvt
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT1_
+	vl_parametres[2].data	= vm_Lect_PRV.CleEvt
+	vl_parametres[2].output	= FALSE
+
+	vl_parametres[3].type	= SYB#INT2_
+	vl_parametres[3].data	= vm_Lect_PRV.Operateur
+	vl_parametres[3].output	= FALSE
+
+	vl_parametres[4].type	= SYB#INT2_
+	vl_parametres[4].data	= vm_Lect_PRV.NumEqt
+	vl_parametres[4].output	= FALSE
+
+	vl_index= ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PRV,0),
+					vm_Lect_PRV.NumEqt)
+	vl_parametres[5].type	= SYB#INT1_
+	vl_parametres[5].data	= vm_Config_PRV[vl_index].sitegestion 
+	vl_parametres[5].output	= FALSE
+
+	vl_parametres[6].type	= SYB#CHAR_
+	vl_parametres[6].data	= vm_Lect_PRV.Bandeau
+	vl_parametres[6].output	= FALSE
+
+	vl_parametres[7].type	= SYB#CHAR_
+	vl_parametres[7].data	= vm_Lect_PRV.Vitesse
+	vl_parametres[7].output	= FALSE
+
+	vl_parametres[8].type	= SYB#INT2_
+	vl_parametres[8].data	= vm_Lect_PRV.Priorite
+	vl_parametres[8].output	= FALSE
+
+	vl_parametres[9].type	= SYB#INT2_
+	vl_parametres[9].data	= SYSTEM_VAR@(vg_site)
+	vl_parametres[9].output	= FALSE
+
+	vl_parametres[10].type	= SYB#INT4_
+	vl_parametres[10].data	= vm_Lect_PRV.DistanceEvt 
+	vl_parametres[10].output	= FALSE
+
+	/* Si passage au neutre -> terminer l'action */
+	if (vm_Lect_PRV.TypeAffichage = CM_AFF_NEUTRE)
+	{
+
+		IF COM05_SQL_Procedure
+			(XZAC303_Commande_Fin_PRV,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+		{
+			vl_tptext = "Status : "
+			DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+			RETURN (COM_NOK)
+		}
+	
+		vm_Lect_PRV.NumeroAction = 0
+	}
+	else
+	{
+		vl_parametres[11].type	= SYB#INT4_
+		vl_parametres[11].data	= 0 					' Num action
+		vl_parametres[11].output	= TRUE
+
+		IF COM05_SQL_Procedure
+			(XZAC802_Commande_PRV,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+		{
+			vl_tptext = "Status : "
+			DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+			RETURN (COM_NOK)
+		}
+	
+		vm_Lect_PRV.NumeroAction = vl_resultats.return_parameters[0]
+	}
+ 
+
+	vl_tptext = "Status : Commande envoyee ..."
+ 	DB_CTRL_TITLE@(vm_fenetre,"LI_status",vl_tptext)
+
+	RETURN (COM_OK)
+
+ENDMACRO 
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourne un message a l'operateur et trace l'acces interdit
+*				a une macro.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TPRV_Acces_interdit(va_NomMacro)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomMacro	:	le nom de la macro interdite
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+
+* CONDITION D'UTILISATION :
+*   appel d'une macro avec les droits d'acces insuffisant.
+*
+* FONCTION :
+*	Retourne un message a l'operateur et trace l'acces interdit a une macro
+*---------------------------------------------------------------------------- */
+
+	/*A message d'info a l'operateur */
+	var		vl_tptext			' zone de text tampon
+	
+	vl_tptext = "L'utilisateur " ++vm_NomOperateur ++ " n'a pas les droits suffisants" ++ NUM_TO_STRING@(10) ++ "pour piloter un PRV"
+	/*A trace de l'appel de procedure */
+	vl_tptext =  " Acces Macro "
+				 ++ va_NomMacro ++ " refuse pour " ++ vm_NomOperateur
+	COM01_Trace(COM_WARNING,vl_tptext)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des equipements disponibles
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPRV_Liste_Eqt_Dispo
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		aucun
+*
+* ARGUMENTS EN SORTIE : 
+*		ListeEqts		: la liste des equipements correspondants
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPRV_pilotage_d_un_PRV
+*
+*
+* FONCTION
+*   	Lecture des equipements en disponibilites.
+*
+---------------------------------------------------------------------------- */
+	var	FORMAT COM_Donnees_Equipements vl_info_equip
+	var	vl_Liste		' liste formattee
+	var	i,k			' index de loop
+	var vl_district
+
+	if vm_District = XDC_CI
+	{	vl_District	= NULL	}
+	else
+	{	vl_District	= vm_District	}
+
+	ITMA_COM_Lire_Equipements (XDC_EQT_PRV, vl_District,
+				 XDC_EQT_MINEUR, XDC_EQT_MINEUR,
+				 XDC_EQT_HS + XDC_EQT_MAJEUR + XDC_EQT_CRITIQUE + XDC_EQT_DESACTIVE + XDC_EQT_INHIBE, 0,vl_info_equip,
+			C_MODULE)
+
+	/*A Construction de la liste des equipements */
+	k = 0
+	if  IS_ARRAY@(vl_info_equip)
+	{
+	
+		for i = 0 to ARRAY_SIZE@(vl_info_equip) - 1	
+			if (vl_info_equip[i].sitegestion = vm_District) OR 
+			   ((vm_District = XDC_CI) and 
+					(ITMA_COM_District_pilotable( 	
+						vl_info_equip[i].sitegestion, 
+							XDC_LIB_PRV,FALSE,NULL)) )
+			{
+				vl_Liste[k] = vm_Config_PRV[vl_info_equip[i].numero-1].Identifiant
+				k= k + 1
+				}
+	    
+		next i
+	}
+	else
+	{
+		vl_Liste[0]		= 	""
+		info_message@("Pas de PRV diponible dans cette région...")
+	}
+
+
+	for i = 0 to ARRAY_SIZE@(vm_Config_PRV)-1
+	{
+	   if (vm_Config_PRV[i].sitegestion = vm_District) or 
+		 ( (vm_District = XDC_CI) and 
+		 (ITMA_COM_District_pilotable(vm_Config_PRV[i].sitegestion, 
+			XDC_LIB_PRV,FALSE,NULL)) )
+	   {
+		vm_etat_PRV[i].NumEqt 			=	vm_Config_PRV[i].numeqt
+		vm_etat_PRV[i].Horodate 		=	COM09_Date_Courante()
+		vm_etat_PRV[i].Operateur 		= 	""			
+		vm_etat_PRV[i].Identifiant 		= 	vm_Config_PRV[i].Identifiant			
+		vm_etat_PRV[i].DispoPRV 			= 	0			
+  	 	vm_etat_PRV[i].Vitesse			=	""
+  	 	vm_etat_PRV[i].VitesseNominale	=	0
+		vm_etat_PRV[i].Bandeau		 	=	""
+		vm_etat_PRV[i].RappelNominal 	=	0					
+		vm_etat_PRV[i].fmc_liee			=	""			
+		vm_etat_PRV[i].NumEvt			=	0		
+		vm_etat_PRV[i].CleEvt			=	0			
+		vm_etat_PRV[i].Priorite			=	0			
+		vm_etat_PRV[i].DistanceEvt		=	XDC_DISTANCE_INCONNUE		
+		vm_etat_PRV[i].NumeroAction		=	0	
+		vm_etat_PRV[i].NomSite			=	vm_Config_PRV[i].SiteGestion
+	  }
+	next i
+	}
+
+	ITMA_TPRV_Lecture_Vitesse_Nominale_PRV()
+
+	RETURN (vl_Liste)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Reset etat du PRV actuel ou nouveau
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPRV_Reset_PRV ( va_type )
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_type : actuel ou nouveau
+*
+* ARGUMENTS EN SORTIE : 
+*	aucun
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPRV_pilotage_d_un_PRV
+*
+*
+* FONCTION
+*   	Lecture des equipements en disponibilites.
+*
+---------------------------------------------------------------------------- */
+
+	var	format PA_PRV	vl_PRV
+
+	if ( va_type = "nouveau" )
+	{ vl_PRV = vm_Lect_PRV }
+	else
+	{ vl_PRV = vm_PRV }
+
+	vl_PRV.Horodate 		= COM09_Date_Courante()
+
+	vl_PRV.Operateur 		= ""			
+	vl_PRV.Identifiant 		= vm_Config_PRV[vl_PRV.NumEqt].Identifiant			
+	vl_PRV.DispoPRV 		= 0			
+  	vl_PRV.Vitesse		= "L0"					
+  	vl_PRV.Bandeau		= ""					
+	vl_PRV.fmc_liee		= ""			
+	vl_PRV.NumEvt		= 0		
+	vl_PRV.CleEvt			= 0			
+	vl_PRV.Priorite		= 0			
+	vl_PRV.DistanceEvt		= XDC_DISTANCE_INCONNUE
+	vl_PRV.NumeroAction		= 0	
+
+	if ( va_type = "nouveau" )
+	{ vm_Lect_PRV = vl_PRV }
+	else
+	{ vm_PRV = vl_PRV }
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture PRV dans EQT_PRV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPRV_Lecture_Vitesse_Nominale_PRV (  )
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+* ARGUMENTS EN SORTIE : 
+*	aucun
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPRV_pilotage_d_un_PRV
+*
+*
+* FONCTION
+*   	Lecture des equipements en disponibilites.
+*
+---------------------------------------------------------------------------- */
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_ListePRV
+	VAR i
+	var	vl_tptext		' zone de text tampon
+	VAR	indice
+
+	vl_tptext =  " Lecture PRV en base CFG"
+    COM01_Trace(COM_INFO,vl_tptext)
+
+	vl_parametres[0].type	= SYB#CHAR_
+	vl_parametres[0].data	= XDC_BASE_CFG
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type	= SYB#INT2_
+	vl_parametres[1].data	= -1
+	vl_parametres[1].output	= FALSE
+
+	IF COM05_SQL_Procedure(XZAO556_Liste_PRV,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+	{
+		vl_tptext = "Status : Lecture PRV en base : arret"
+    	COM01_Trace(COM_INFO,vl_tptext)
+		RETURN (COM_NOK)
+	}
+
+	vl_ListePRV = vl_resultats.select_results[0]
+
+	for i = 0 to ARRAY_SIZE@(vl_ListePRV)-1
+	{
+		indice = ARRAY_INDEX@(ARRAY_COLUMN@(vm_etat_PRV,0),vl_listePRV[i][0])
+		if indice >= 0
+		{
+			vm_etat_PRV[indice].VitesseNominale = vl_listePRV[i][4]
+			vm_etat_PRV[indice].RappelNominal = vl_listePRV[i][9]
+		}
+		next i
+	}
+	RETURN (COM_OK)
+ENDMACRO 
+
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :       Lecture de la proposition d'affichage du PRV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPRV_Lire_Prop_PRV_PA(va_NumPA,va_Ordre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*               va_numero               :       le numero du PMV traitï¿½
+*               va_NumPA                :       le numero du Plan d'action
+*               va_Ordre                :       le numero d'ordre
+*
+*
+* ARGUMENTS EN SORTIE :
+*               vm_Lect_PMV[va_numero]  :       le tableau contenant les infos pour le PMV
+*
+*
+* CODE RETOUR           : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPM_pilotage_PMV_PA
+*
+*
+* FONCTION
+*       Lecture de la proposition d'affichage du PMV.
+*
+---------------------------------------------------------------------------- */
+    VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     vl_indice
+	VAR		vl_select, vl_numero
+
+    vm_Lect_PRV.Horodate = COM09_Date_Courante()
+    vm_Lect_PRV.Operateur = vm_NomOperateur
+
+    vl_indice = 0
+
+    vl_parametres[vl_indice].type   = SYB#INT4_
+    vl_parametres[vl_indice].data   = va_NumPA+0
+    vl_parametres[vl_indice].output = FALSE
+
+    vl_indice = vl_indice +1
+
+    vl_parametres[vl_indice].type   = SYB#INT2_
+    vl_parametres[vl_indice].data   = va_Ordre+0
+    vl_parametres[vl_indice].output = FALSE
+
+   IF COM05_SQL_Procedure
+                    (XZAP63_Lire_Prop_PRV,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+    {RETURN (COM_NOK)}
+
+    vl_select = vl_resultats.select_results[0,0]
+
+	vm_PRV.NumEqt = vl_select[1]
+
+	vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_Config_PRV,0),vm_PRV.NumEqt)
+	if vl_numero >= 0
+ 	{ 
+		vm_Lect_PRV 	= vm_etat_PRV[vl_numero]
+	}
+
+	vm_Lect_PRV.NumEqt =vm_PRV.NumEqt 
+	vm_Lect_PRV.Bandeau = vl_select[3]
+	vm_Lect_PRV.vitesse = vl_select[4]
+	vm_Lect_PRV.priorite = vl_select[5]
+	
+	vl_numero = ARRAY_INDEX@(ARRAY_COLUMN@(vm_etat_PRV,0),vm_PRV.NumEqt)
+	if vl_numero >= 0
+ 	{ 
+		if ("L"++vm_etat_PRV[vl_numero].VitesseNominale = vm_Lect_PRV.vitesse) {
+			vm_Lect_PRV.TypeAffichage  =CM_AFF_NEUTRE
+		}
+		else
+			vm_Lect_PRV.TypeAffichage  =CM_AFF_PICTO			
+	}
+
+ENDMACRO

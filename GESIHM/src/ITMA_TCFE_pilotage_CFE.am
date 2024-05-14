@@ -1,0 +1,1645 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCFE_pilotage_CFE.am,v 1.2 2018/07/12 09:32:10 pc2dpdy Exp $      Release : $Revision: 1.2 $        Date : $Date: 2018/07/12 09:32:10 $
+------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE MTPM * FICHIER  ITMA_TCFE_pilotage_CFE.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de commande des CFE.
+*
+*
+------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* LCL	03/04/18	: Creation controleurs de feux CTRL_FEUX 1.1 DEM1284
+-------------------------------------------------------------------- */
+
+
+/*A Description des modules a inclures 
+* ------------------------------------ */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+INCLUDE	"GESIHM/inc/ITMA_TCFE.h"
+INCLUDE "../inc/xzap64sp.h"
+INCLUDE "../inc/xzac900sp.h"
+INCLUDE "../inc/xzac901sp.h"
+INCLUDE "../inc/xzac87sp.h"
+INCLUDE "../inc/xzao860sp.h"
+INCLUDE "../inc/xzat065sp.h"
+INCLUDE "../inc/xzae920sp.h"
+
+define REP_CONFIG	"/produits/migrazur/appliSD/fichiers/"
+
+FORMAT T_feu
+	numero,
+	libelle
+
+VAR FORMAT T_feu tm_feux
+
+ /*A Description des procedures sotckees a appeler
+* ------------------------------------------------ */
+
+
+/*A Declaration des variables globales 
+* ------------------------------------ */
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Commande le pilotage des CFE
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCFE_pilotage_CFE(va_appelant,va_1,va_2,va_3,va_4, va_5,va_6,va_7)
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 a va_6		: Suivant la procedure d'appel
+*
+*	Trois appels possibles:
+*
+*		ITMA_TPA	<Numero plan d'action>	<Numero d'ordre>
+*
+*			^			^				^
+*			|			|				|
+*			|		Numero FMC		Numero cle FMC	
+*			|
+*			|
+*		Appel depuis le plan d'action
+*
+*
+*
+*		ITMA_TMT
+*
+*			^
+*			|
+*		Appel depuis le menu textuel --> Liste des CFEs
+*
+*
+*
+*		ISYN_SOP	<Numero de la CFE>
+*
+*			^
+*			|
+*		Appel depuis le synoptique Bp de droite
+*
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant resultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> CFE dans MTMT
+*
+* FONCTION
+*    Pilote les CFE
+*
+--------------------------------------------------------------------- */
+
+/*A Declaration des variables */
+/*A ------------------------- */
+
+/*A Variables secondaires ou de travail */
+/*A ----------------------------------- */
+
+VAR FORMAT 	TMC_actionFiche	vl_ficheAction
+var	vl_appel_connu		' Flag de reconnaisance de l'appel
+var	vl_Poste			' Le nom de la machine
+var	vl_fenetre_active	' flag de fenetre active
+var	vl_controle_sortie	' flag de sortie
+var	vl_erreur			' flag d'erreur
+var	i,j,vl_mess		' index de loop
+var	vl_taille			' taille de tableau
+var	vl_message		' message affiche
+var	vl_objet			' objet en edition
+var	vl_rang			' rang de la selection dans la liste
+var	vl_expliquer		' expliquation du PA
+var	vl_abt_panneau		' flag d'abonnement des panneaux
+var	vl_trouve			' flag pour trouver le bon scenario 		d'après le code
+var	vl_fmc			' libelle fmc a construire
+var	vl_lib_fmc		' tableau du libelle fmc a construire
+var	vl_renvoi_appel	' flag de renvoi d'appel
+var	vl_repondeur		' flag de renvoi d'appel
+var	vl_cpt			' compte-rendu
+var	tl_data,tl_retour	' param. table evenements
+var	tl_titres			' titre evenements
+var	vl_1,vl_2,vl_3,vl_4	' var locales pour l'appel de la camera
+var	vl_flag			' flag de condition
+var	vl_Appel			' appelant
+var	vl_lecture		' le n° d'evenement lie + cle
+var	vl_Nummachine		' n° de la machine
+var	vl_NumAction		' Numero d'action
+var	vl_mode_formation	' Mode Formation
+var	tl_liste_causes
+var	vl_text			' text en edition
+var	vl_etat_actuel_man	' Etat actuel recherche pour la cmd manuelle
+var	vl_message_man		' Message envoye par la commande manuelle
+var	vl_autorisation_executer	'Autorisation d'executer la commande "excuter" depuis le CI
+var     vl_num_equipement
+
+/*A Variables principales */
+/*A --------------------- */
+
+/*A Numero du district
+*/
+var	vl_District
+
+/*A Item de la fenetre du module
+*/
+var 	vl_fenetre_TCFE
+
+/*A Messages acceptes dans la boucle principale
+*/
+var	vl_messages_acceptes
+
+/*A Nom du site en cours
+*/
+var	vl_NomSite
+
+/*A Nom de l'operateur
+*/
+var	vl_NomOperateur
+
+/*A Mode de retour du plan d'action
+*/
+var	vl_mode_PA
+
+
+/*A Liste des CFE et leurs infos associees Table sur indice numero CFE
+*/
+
+var	FORMAT Config_CFE vl_info_liste_CFE
+
+/*A Liste de nom des CFE disponibles
+*/
+var	vl_liste_nom_CFE_dispo
+
+/*A Booleen utilise par "Executer" pour savoir si la CMD est une fin
+												d'action
+*/
+var	vl_fin_action
+
+/*A Structure infos CFE plan d'action
+*/
+var	FORMAT PA_CFE vl_CFE
+var vl_index
+var tl_data2
+VAR vl_indice
+VAR vl_select
+VAR vl_plan_de_feux
+VAR vl_explication
+VAR vl_priorite
+VAR vl_distance
+
+/*A Tableau d'infos contenant les infos sur la configuration des
+	messages et des affichages pour les CFEs Indice du tableau le
+							numero de l'equipement dans la CFE */ 
+/*var	FORMAT ST_affichage_et_message vl_ST_aff_msg
+*/
+
+
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+VAR 	vl_data
+
+/*A MAJ des variables statiques */
+
+vl_District 	= SYSTEM_VAR@(vg_site)
+vl_NomSite 	= SYSTEM_VAR@(vg_nom_site)
+vl_mode_formation = (SYSTEM_VAR@ (vg_formation) <> NULL)
+vl_poste 		= SYSTEM_VAR@(vg_numero_operateur)
+vl_abt_panneau	= FALSE
+vl_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vl_Nummachine 	= SYSTEM_VAR@(vg_numero_poste)
+vl_NomOperateur = SUBSTRING@(vl_NomOperateur, 1, 25)
+vl_mode_PA 	= COM_QUITTE
+vl_Appel		= SUBSTRING@(va_appelant,1,8)
+
+
+vl_appel_connu=FALSE
+vl_num_equipement=0
+
+
+/*B trace du debut du traitement */
+vl_text = "------------------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = " Start ITMA_TCFE_pilotage_CFE   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+vl_text = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_text)
+
+if NOT(IS_ARRAY@(va_1))
+{	vl_text = "va_1 : " ++ va_1
+	COM01_Trace(0,vl_text)}
+else 
+{	vl_text = "va_1  est un tableau"
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_2))
+{	vl_text = "va_2 : " ++ va_2
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_3))
+{	vl_text = "va_3 : " ++ va_3
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_4))
+{	vl_text = "va_4 : " ++ va_4
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_5))
+{	vl_text = "va_5 : " ++ va_5
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_6))
+{	vl_text = "va_6 : " ++ va_6
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_7))
+{	vl_text = "va_7 : " ++ va_7
+	COM01_Trace(0,vl_text)
+}
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+/*ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace(COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN(COM_NOK)
+}*/
+
+/*A Pour initialiser les procedures communes */
+/*  ---------------------------------------- */
+
+
+
+	 vl_liste_nom_CFE_dispo = ITMA_TCFE_Liste_Eqt_Disponibles(vl_District,
+										vl_info_liste_CFE)
+
+/*A Si la liste des CFE dispo est vide */
+ 
+if vl_liste_nom_CFE_dispo[0]=""
+{
+ 		info_message@("Aucun CFE n'est disponible pour cette région !") 
+		RETURN(COM_NOK)
+}
+/*A Finsi */
+
+ITMA_TCFE_init_boite_dialogue_pilotage(vl_fenetre_TCFE,vl_messages_acceptes)
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TCFE, "BL_CFE", true)
+DB_CTRL_DISPLAY@(vl_fenetre_TCFE, "BP_Terminer", true)
+
+vl_CFE.Priorite	= 0
+vl_CFE.DistanceEvt	= XDC_DISTANCE_INCONNUE
+
+DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_NumPlan","")
+DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_LibellePlan","")
+
+
+/*
+if FILE_EXISTS@(REP_CONFIG ++ "deq/Config_Plans_Feux.cfg")
+{	tl_data = READ_ASCII_FILE@(REP_CONFIG ++ "deq/Config_Plans_Feux.cfg") 
+	vl_index = 0
+	FOR i = 0 TO ARRAY_SIZE@(tl_data)
+		tl_data2= ARRAY_FROM_STRING@(tl_data[i],"	")
+		tm_feux[i].numero = tl_data2[0]
+		tm_feux[i].libelle = tl_data2[1]
+	NEXT i
+}
+else
+{
+	info_message@("Le fichier '"++ 
+			REP_CONFIG ++
+			"deq/Config_Plans_Feux.cfg' est manquant!")
+	EXIT@()
+}
+
+DB_CTRL_STRINGS@(vl_fenetre_TCFE, "BC_Plans", ARRAY_COLUMN@(tm_feux, 1))
+*/
+  DB_CTRL_VALUE@(vl_fenetre_TCFE,"BC_Plans",-1)
+
+
+  DB_CTRL_STRINGS@(vl_fenetre_TCFE,"BL_CFE",vl_liste_nom_CFE_dispo)
+  DB_CTRL_VALUE@(vl_fenetre_TCFE,"BL_CFE",-1)
+
+/*A si l'appelant est le menu textuel */
+ 
+
+
+/*A Abonnement a l'etat des panneaux */ 
+
+vl_erreur = ITMA_TCFE_Abt_Etat_CFE(XDC_DEBUT_ABONNEMENT_EQUEXT,
+					COM51_NomSite(vl_info_liste_CFE[vl_CFE.NumEqt].sitegestion))
+
+if (vl_erreur <> COM_NOK)
+{
+	vl_abt_panneau = TRUE
+}
+DB_CTRL_DISPLAY@(vl_fenetre_TCFE,"panneau",FALSE)
+
+
+if (vl_appel = "ITMA_TMC") {
+	vl_FicheAction = va_1
+
+ ITMA_TCFE_Lecture_Action_CFE(
+                   vl_FicheAction.numero_action,
+                                           vl_FicheAction.cle_action,
+                     vl_FicheAction.numero_fiche,
+                      vl_FicheAction.cle_fiche,
+                      vl_FicheAction.libelle_fiche, vl_fenetre_TCFE,
+			vl_cfe, vl_info_liste_CFE)
+
+}
+else {
+DB_CTRL_DISPLAY@(vl_fenetre_TCFE, "LI_lancement", false)
+DB_CTRL_DISPLAY@(vl_fenetre_TCFE, "LI_succes", false)
+DB_CTRL_DISPLAY@(vl_fenetre_TCFE, "LI_fin", false)
+DB_CTRL_DISPLAY@(vl_fenetre_TCFE, "LI_echec", false)
+}
+
+if (vl_appel = "ITMA_TPA") {
+  /*lecture proposition en base */
+  /*XZAP64 avec va_1 = numero_plan et va_2 = ordre*/
+  /*pour recuperer le num d eqt vl_CFE.NumEqt*/
+  vl_indice = 0
+  vl_parametres[vl_indice].type   = SYB#INT4_
+  vl_parametres[vl_indice].data   = va_1+0
+  vl_parametres[vl_indice].output = FALSE
+
+  vl_indice = vl_indice +1
+
+  vl_parametres[vl_indice].type   = SYB#INT2_
+  vl_parametres[vl_indice].data   = va_2+0
+  vl_parametres[vl_indice].output = FALSE
+
+   IF COM05_SQL_Procedure
+                    (XZAP64_Lire_Prop_CFE,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+    {RETURN (COM_NOK)}
+
+  vl_select = vl_resultats.select_results[0,0]
+
+  /* Recuperer numero equipement dans la proposition */
+  vl_CFE.NumEqt = vl_select[1]
+  vl_plan_de_feux = vl_select[3]
+  vl_priorite  = vl_select[4]
+  vl_distance = vl_select[5]
+  /* Recuperer le numero et la cle de la FMC */
+  vl_CFE.NumEvt = va_3
+  vl_CFE.CleEvt = va_4
+  
+  ITMA_COM_Lire_Evenement( vl_CFE.NumEvt, vl_CFE.CleEvt, vl_lib_fmc, "TCFE" )  
+  vl_fmc = COM11_Libelle_FMC(vl_lib_fmc)
+  DB_CTRL_TITLE@(vl_fenetre_TCFE, "LI_fmc_actuel", SUBSTRING@(vl_fmc,1,46))
+
+  /*ne laisser que le bouton liberer*/
+  DB_CTRL_GRAYED@(vl_fenetre_TCFE,"BP_lier_FMC",TRUE)
+  DB_CTRL_GRAYED@(vl_fenetre_TCFE,"BP_executer",TRUE)
+  DB_CTRL_GRAYED@(vl_fenetre_TCFE,"BC_Plans",TRUE)
+  DB_CTRL_GRAYED@(vl_fenetre_TCFE,"BP_Terminer",FALSE)
+
+  /*choisir l equipement dans la liste*/
+  FOR i=0 to ARRAY_SIZE@( vl_info_liste_CFE)
+  	IF vl_info_liste_CFE[i].NumEqt=vl_CFE.NumEqt
+  	{
+    		DB_CTRL_VALUE@(vl_fenetre_TCFE, "BL_CFE", i)
+  	}
+  NEXT i
+
+  /*verrouiller ou griser la liste*/
+  DB_CTRL_GRAYED@(vl_fenetre_TCFE,"BL_CFE",TRUE)
+
+ 		/*A lecture de l'etat actuel du CFE */
+		 ITMA_TCFE_Lecture_CFE(vl_CFE.NumEqt,vl_CFE)
+
+		/*A
+		 * Lire en base de donnees la liste des libelles predefinis
+ 		* --------------------------------------------------------
+ 		*/
+		vl_parametres = null		
+		vl_parametres[0].type = SYB#INT4_
+		vl_parametres[0].data = vl_CFE.NumEqt
+		vl_parametres[0].output = FALSE
+		
+		vl_resultats = null
+		
+			IF COM05_SQL_Procedure (XZAE920_LECT_LIB_CFE,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		 	RETURN (COM_NOK)
+		
+
+		vl_data = vl_resultats.select_results[0]
+		tm_feux=NULL
+		FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+			IF vl_data[i][3]=1
+			{
+				tm_feux[i].numero=vl_data[i][1]
+				tm_feux[i].libelle=vl_data[i][2]
+			}
+		NEXT i
+
+		DB_CTRL_STRINGS@(vl_fenetre_TCFE, "BC_Plans", ARRAY_COLUMN@(tm_feux, 1))
+  		DB_CTRL_VALUE@(vl_fenetre_TCFE,"BC_Plans",-1)
+
+		/* Finsi */
+		/*A MAJ du titre de la fenetre */
+		DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_nom",
+					vl_info_liste_CFE[vl_CFE.NumEqt].Identifiant)
+
+		DB_CTRL_TITLE@(vl_fenetre_TCFE, "LI_NumPlan", "")
+		DB_CTRL_TITLE@(vl_fenetre_TCFE, "LI_LibellePlan", vl_cfe.libellePlan)
+		DB_CTRL_TITLE@(vl_fenetre_TCFE, "LI_fmc_actuel", vl_cfe.fmc_liee)
+}
+
+/*A Boucle de capture des evenements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_TCFE)
+
+	/*A capture de l'evenement dans la BD TCFE */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_TCFE)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL
+ 
+
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+
+	CASE "BP_quitter"
+
+		vl_fenetre_active = FALSE
+
+	/*A sur action refuser */
+
+	CASE "BP_refuser"
+
+		vl_mode_PA = COM_REFUSE
+		vl_fenetre_active = FALSE
+	
+	CASE "BL_CFE"
+		vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_TCFE,"BL_CFE")
+                for i=0 to ARRAY_SIZE@(vl_info_liste_CFE)
+
+                        if vl_info_liste_CFE[i].Identifiant=
+                                                                vl_liste_nom_CFE_dispo[vl_rang]
+                        {
+                                vl_CFE.NumEqt = i
+                        }
+                next i
+
+ 		/*A lecture de l'etat actuel du CFE */
+		 ITMA_TCFE_Lecture_CFE(vl_CFE.NumEqt,vl_CFE)
+
+		/*A
+		 * Lire en base de donnees la liste des libelles predefinis
+ 		* --------------------------------------------------------
+ 		*/
+		vl_parametres = null		
+		vl_parametres[0].type = SYB#INT4_
+		vl_parametres[0].data = vl_CFE.NumEqt
+		vl_parametres[0].output = FALSE
+		
+		vl_resultats = null
+		{
+			IF COM05_SQL_Procedure (XZAE920_LECT_LIB_CFE,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		 	RETURN (COM_NOK)
+		} 
+
+		vl_data = vl_resultats.select_results[0]
+		tm_feux=NULL
+		FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+			IF vl_data[i][3]=1
+			{
+				tm_feux[i].numero=vl_data[i][1]
+				tm_feux[i].libelle=vl_data[i][2]
+			}
+		NEXT i
+
+		DB_CTRL_STRINGS@(vl_fenetre_TCFE, "BC_Plans", ARRAY_COLUMN@(tm_feux, 1))
+  		DB_CTRL_VALUE@(vl_fenetre_TCFE,"BC_Plans",-1)
+
+		/* Finsi */
+		/*A MAJ du titre de la fenetre */
+		DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_nom",
+					vl_info_liste_CFE[vl_CFE.NumEqt].Identifiant)
+
+		DB_CTRL_TITLE@(vl_fenetre_TCFE, "LI_NumPlan", "")
+		DB_CTRL_TITLE@(vl_fenetre_TCFE, "LI_LibellePlan", vl_cfe.libellePlan)
+		DB_CTRL_TITLE@(vl_fenetre_TCFE, "LI_fmc_actuel", vl_cfe.fmc_liee)
+		DB_CTRL_GRAYED@(vl_fenetre_TCFE,"BP_lier_FMC",FALSE)
+
+	/*A sur action lier FMC */
+	CASE "BP_lier_FMC"
+ 		DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_status",
+									"Status : appel lien FMC")
+
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+									"ITMA_TCFE_pilotage_CFE")
+		tl_liste_causes=tl_data[0]
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vl_fenetre_TCFE,"TA_Evenements",TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TCFE,"TA_Evenements",TRUE)
+		DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre_TCFE, "TA_Evenements", 25)
+		DB_TABLE_ALLOW_COLUMN_RESIZING@(
+							vl_fenetre_TCFE,"TA_Evenements",True)
+		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,
+								COM_CAUSE_LONG_LOCALISATION
+		DB_TABLE_SET_DATA@(vl_fenetre_TCFE,"TA_Evenements",
+										tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_TCFE, "TA_Evenements", 0, tl_data[2])
+
+
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+ 		DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_status",
+								"Status : selection evenement")
+
+		tl_retour=ITMA_COM_Validite_Cause("ITMA_TCFE_pilotage_CFE",
+								vl_fenetre_TCFE,tl_liste_causes)
+		vl_CFE.NumEvt = tl_retour[0][0]
+		vl_CFE.CleEvt = tl_retour[0][1]
+		vl_fmc = tl_retour[1]
+		DB_CTRL_DISPLAY@(vl_fenetre_TCFE,"TA_Evenements",FALSE)
+		DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_fmc_nouveau",vl_fmc)
+		vl_CFE.fmc_liee = vl_fmc
+
+
+	CASE "BP_Terminer"
+		/*A Recherche du champ fin d'action */
+
+		if  vl_CFE.NumEvt=0 and vl_CFE.CleEvt=0
+		{
+			info_message@(
+				"Veuillez d'abord lier cette action a une F.M.C")
+		}
+		else
+		{
+			vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_TCFE,"BC_Plans")
+			vl_CFE.Numplan = 0
+			vl_CFE.libelleplan = "Mode calendaire"
+			/*A Griser le bouton Executer et Liberer */
+			DB_CTRL_GRAYED@(vl_fenetre_TCFE,"BP_executer",TRUE)
+			DB_CTRL_GRAYED@(vl_fenetre_TCFE,"BP_Terminer",TRUE)
+			DB_CTRL_GRAYED@(vl_fenetre_TCFE,"BP_lier_FMC",TRUE)
+			DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_fmc_actuel",vl_fmc)
+			DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_fmc_nouveau","")
+
+			/* recuperation du n° d'action dans la base */			
+			vl_NumAction = 0 	
+
+
+			vl_cpt=ITMA_TCFE_Commande_Fin_CFE(vl_poste, 
+						FALSE,
+						vl_mode_formation,vl_CFE.NumEvt,
+						vl_CFE.CleEvt,vl_CFE.NumEqt,
+						vl_CFE,vl_NumAction,
+						vl_info_liste_CFE[vl_CFE.NumEqt].sitegestion)
+			
+		
+
+			if vl_cpt = COM_OK
+			{
+		    		DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_status",
+								"Status : Commande liberation envoyee")
+				if vl_Appel="ITMA_TPA"				
+				{
+					vl_mode_PA=COM_VALIDE
+					vl_fenetre_active = FALSE
+
+		    			DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_status",
+								"Status : Validation du PA")	
+				}
+				else
+				{
+					vl_mode_PA=COM_QUITTE
+					if vl_erreur <> COM_NOK
+					{
+						DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_status",
+								"Status : Pilotage CFE !!!")
+					}
+					else
+					{
+						DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_status",
+							"Status : Problème Pilotage CFE !!!")
+					}
+				}
+			}
+			else
+			{	
+				DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_status",
+					"Status : Commande refusee (manque lien FMC)") 
+			}
+		 }
+	   	 vl_CFE.NumEvt = 0
+		 vl_CFE.CleEvt = 0
+
+
+	/*A sur action executer */
+	CASE "BP_executer"
+
+		/*A Recherche du champ fin d'action */
+
+
+		if  vl_CFE.NumEvt=0 and vl_CFE.CleEvt=0
+		{
+			info_message@(
+				"Veuillez d'abord lier cette action a une F.M.C")
+		}
+		else
+		{
+			vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_TCFE,"BC_Plans")
+
+			if vl_rang > -1
+			{
+				vl_CFE.Numplan = tm_feux[vl_rang][0]
+				vl_CFE.libelleplan = tm_feux[vl_rang][1]
+				/*A Griser le bouton Executer */
+
+				DB_CTRL_GRAYED@(vl_fenetre_TCFE,"BP_executer",FALSE)
+				DB_CTRL_GRAYED@(vl_fenetre_TCFE,"BP_lier_FMC",TRUE)
+				DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_fmc_actuel",vl_fmc)
+				DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_fmc_nouveau","")
+
+				/* recuperation du n° d'action dans la base */			
+				vl_NumAction = 0 	
+				vl_cpt=ITMA_TCFE_Commande_CFE(vl_poste, 
+							FALSE,
+							vl_mode_formation,vl_CFE.NumEvt,
+								vl_CFE.CleEvt,vl_CFE.NumEqt,
+								vl_CFE,vl_NumAction,
+										vl_info_liste_CFE[vl_CFE.NumEqt].sitegestion)
+			
+		
+
+				if vl_cpt = COM_OK
+				{
+			    		DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_status",
+								"Status : Commande envoyee")
+					if vl_Appel="ITMA_TPA"				
+					{
+						vl_mode_PA=COM_VALIDE
+			    			DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_status",
+									"Status : Validation du PA")	
+					}
+					else
+					{
+						vl_mode_PA=COM_QUITTE
+						if vl_erreur <> COM_NOK
+						{
+							DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_status",
+									"Status : Pilotage CFE !!!")
+						}
+						else
+						{
+							DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_status",
+								"Status : Problème Pilotage CFE !!!")
+						}
+					}
+
+				}
+				else
+				{	
+					DB_CTRL_TITLE@(vl_fenetre_TCFE,"LI_status",
+						"Status : Commande refusee (manque lien FMC)") 
+				}
+			}
+			else
+			{
+				info_message@(
+				"Veuillez d'abord selectionner un plan de feux")
+			}
+		}
+
+	   	 vl_CFE.NumEvt = 0
+		 vl_CFE.CleEvt = 0
+
+
+
+
+
+	/*A sur reception de poke */		
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vl_fenetre_TCFE)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_MTCFE
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vl_fenetre_TCFE)
+
+			/*A trace de la reception du message */
+			vl_text = "   MsgPoke MTCFE : " ++ vl_message[0]
+			COM01_Trace(0,vl_text)
+			COM01_Trace(0," ")
+
+			/*A decomposition des messages en tableau */
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+			/*A si numero de CFE en cours d'edition */
+			if vl_mess[0]+0 =  vl_CFE.NumEqt+0
+			{
+                		for i=0 to ARRAY_SIZE@(tm_feux)
+
+                        		if tm_feux[i][0]=vl_mess[1]+0
+                        		{
+							vl_CFE.Numplan = tm_feux[vl_rang][0]
+							vl_CFE.libelleplan = tm_feux[vl_rang][1]
+                        		}
+                		next i
+					DB_CTRL_TITLE@(vl_fenetre_TCFE, "LI_NumPlan", vl_CFE.Numplan)
+					DB_CTRL_TITLE@(vl_fenetre_TCFE, "LI_LibellePlan", vl_CFE.libelleplan)
+
+			}
+			ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+
+
+
+
+vl_erreur = ITMA_TCFE_Abt_Etat_CFE(XDC_FERMER_ABONNEMENT_EQUEXT,
+					COM51_NomSite(vl_info_liste_CFE[vl_CFE.NumEqt].sitegestion))
+
+
+/*B trace de la fin de traitement */
+vl_text = " Stop ITMA_TCFE_pilotage_CFE   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+RETURN(vl_mode_PA)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Initialisation generale de la boite de dialogue
+*												Pilotage
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCFE_init_boite_dialogue_pilotage(va_fenetre_TCFE,
+								va_messages_acceptes)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_fenetre_TCFE			:	Item de la boite de dialogue
+*												Pilotage
+*	va_messages_acceptes	:	Liste des messages acceptes par la
+*											boite de dialogue
+*	va_ST_aff_msg			:	Structure contenant les donnees
+*							d'affichage et de messages vers
+*							les equipements
+*	va_liste_objet			:	Liste des objets pilotage 
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*  	va_fenetre_TCFE			:	Item de la boite de dialogue
+*												Pilotage
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*    Initialisation generale de la boite de dialogue Pilotage
+*
+--------------------------------------------------------------------- */
+
+var i
+
+
+/*A Ouverture de la fiche de pilotage CFE */
+
+va_fenetre_TCFE = DB_LOAD@("ITMA_TCFE_pilotage_CFE")
+
+va_messages_acceptes[0] = COM_CANAL_FIN
+va_messages_acceptes[1] = COM_CANAL_MTCFE
+DB_ACCEPT_POKES@ (va_fenetre_TCFE, va_messages_acceptes)
+
+DB_CTRL_GRAYED@(va_fenetre_TCFE,"BP_lier_FMC",False)
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(va_fenetre_TCFE,0)
+ if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+DB_YPOS@(va_fenetre_TCFE, 1000)
+ELSE
+DB_YPOS@(va_fenetre_TCFE, 104)
+DB_HEIGHT@(va_fenetre_TCFE, 315)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre_TCFE,"BC_Plans",TRUE)
+
+/*A Griser le bouton 'Executer' */
+DB_CTRL_GRAYED@(va_fenetre_TCFE,"BP_executer",FALSE)
+
+DB_DISPLAY_ONLY@(va_fenetre_TCFE,TRUE)
+DB_DISPLAY@(va_fenetre_TCFE)
+DB_DISPLAY_ONLY@(va_fenetre_TCFE,FALSE)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Deselection les objets lies au PA
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCFE_deselectionne_objet_PA(va_fenetre_TCFE,va_expliquer,
+				va_lecture,FORMAT Config_CFE va_info_liste_CFE,
+										FORMAT PA_CFE va_CFE)
+
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_fenetre_TCFE			:	Item de la boite de dialogue
+*												Pilotage
+*	va_expliquer			:	Explication sur le plan d'action
+*	va_lecture			:
+*	va_info_liste_CFE		:	Liste d'info sur les CFE
+*	va_CFE				:	Structure de donnees sur le CFE
+*									en cours en traitement
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*    	Deselection les objets lies au PA
+*
+--------------------------------------------------------------------- */
+
+/*A Griser les boutons lies au PA */
+
+va_expliquer = "L'appelant n'est pas le System Expert"
+va_lecture = ""
+va_lecture[0] = ""
+
+/*A MAJ du titre de la fenetre */
+DB_CTRL_TITLE@(va_fenetre_TCFE,"LI_nom",
+					va_info_liste_CFE[va_CFE.NumEqt].Identifiant)
+DB_CTRL_TITLE@(va_fenetre_TCFE,"LI_fmc_actuel",va_CFE.fmc_liee)
+
+ENDMACRO
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Commander le sequence d'une voie vers SYBASE
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TCFE_Commande_CFE(va_PosteOperateur,
+		va_Manuelle,va_mode_formation,va_NumEvt,
+			va_CleEvt,va_NumCFE,FORMAT PA_CFE va_CFE,va_NumAction,va_NomSite)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+* 
+*		va_PosteOperateur		:	le nom du poste operateur
+*		va_Manuelle			:	le type manuel ou auto
+*		va_mode_formation		:	Indicateur du mode formation
+*		va_NumEvt				:	Numero de l'evenement
+*		va_CleEvt				:	Cle de l'evenement
+*		va_NumCFE				:	Numero de la CFE en cours
+*		va_CFE				: 	La structure action CFE
+*		va_NumAction			:	Numero d'action
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TCFE_pilotage_CFE
+*
+* FONCTION
+*   		Commander le sequence d'une voie vers SYBASE.
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_Heure			' heure courante base
+	var	vl_text
+
+	vl_Heure = COM09_Date_Courante()
+
+	if NOT va_mode_formation
+	{
+		/*A trace de l'appel de la procedure */
+		vl_text = " ---> Appel de la procedure 'XZAC900_Commande_CFE("
+						++va_PosteOperateur++","++va_Manuelle++")'"
+		COM01_Trace(0,vl_text)
+
+		/*A parametrage de vl_parametres */
+		vl_parametres[0].type = SYB#DATETIME_
+		vl_parametres[0].data = vl_heure		' Heure de lancement
+		vl_parametres[0].output = FALSE
+
+		vl_parametres[1].type = SYB#INT4_
+		vl_parametres[1].data = va_NumEvt			' NumEvt
+		vl_parametres[1].output = FALSE
+	
+		vl_parametres[2].type = SYB#INT1_
+		vl_parametres[2].data = va_CleEvt			' CleEvt
+		vl_parametres[2].output = FALSE
+	
+		vl_parametres[3].type = SYB#INT4_
+		vl_parametres[3].data = va_PosteOperateur	' Poste Operateur
+		vl_parametres[3].output = FALSE
+
+		vl_parametres[4].type = SYB#INT4_
+		vl_parametres[4].data = va_NumCFE			' NumEqt
+		vl_parametres[4].output = FALSE
+
+
+		vl_parametres[5].type = SYB#INT1_
+		vl_parametres[5].data = va_NomSite			' Nom du site
+		vl_parametres[5].output = FALSE
+
+		vl_parametres[6].type = SYB#INT1_
+		vl_parametres[6].data = va_cfe.numplan		' numero de plan de feux
+		vl_parametres[6].output = FALSE
+	
+		vl_parametres[7].type = SYB#CHAR_
+		vl_parametres[7].data = va_cfe.libelleplan		' libelle de plan de feux
+		vl_parametres[7].output = FALSE
+	
+		vl_parametres[8].type = SYB#INT1_
+		vl_parametres[8].data = va_CFE.Priorite		' Priorite
+		vl_parametres[8].output = FALSE
+
+		vl_parametres[9].type = SYB#INT4_
+		vl_parametres[9].data = SYSTEM_VAR@(vg_site)  		'site local
+		vl_parametres[9].output = FALSE
+
+
+		vl_parametres[10].type = SYB#INT4_
+		vl_parametres[10].data = NULL				' distance
+		vl_parametres[10].output = false
+
+		vl_parametres[11].type = SYB#INT4_
+		vl_parametres[11].data = NULL				' NumAction
+		vl_parametres[11].output = True
+		IF COM05_SQL_Procedure (XZAC900_Commande_CFE,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+		{
+			RETURN (COM_NOK)
+		}
+		va_NumAction = vl_resultats.return_parameters[0]
+		COM01_Trace(0," ")
+	}
+
+	/*A retour du N° d'action */
+	RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Retour a l'etat normal de la CFE
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TCFE_Commande_fin_CFE(va_PosteOperateur,
+		va_Manuelle,va_mode_formation,va_NumEvt,
+			va_CleEvt,va_NumCFE,FORMAT PA_CFE va_CFE,va_NumAction,va_NomSite)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+* 
+*		va_NumEqt				:	le numero d'equipement
+*		va_NomSite			:	Nom du site
+*		va_Manuelle			:	le type manuel ou auto
+*		va_NomOperateur		:	Le nom de l'operateur
+*		va_mode_formation		:	Indicateur du mode formation
+*		va_NumAction			:	Numero d'action
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TCFE_pilotage_CFE
+*
+* FONCTION
+*   		Retour a l'etat normal de la CFE.
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_Heure			' heure courante
+	var	vl_text
+
+	
+	if NOT(COM04_Operateur_A_Le_Droit_De( XDC_FAM_EXPLOITATION_DISTRICT)) and 
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI))
+	{
+		ITMA_TCFE_Acces_interdit("ITMA_TCFE_Commande_fin_CFE",
+											va_PosteOperateur)
+		RETURN(COM_NOK)
+	}
+
+	if NOT va_mode_formation
+	{
+		vl_Heure = COM09_Date_Courante()
+
+		/*A trace de l'appel de la procedure */
+		vl_text =
+		" ---> Appel de la procedure'XZAC901_Commande_Fin_CFE("
+						++va_NumCFE++","++va_NomSite++","
+							++vl_Heure++","++va_Manuelle++")'"
+		COM01_Trace(0,vl_text)
+
+		/*A parametrage de vl_parametres */
+		vl_parametres[0].type = SYB#DATETIME_
+		vl_parametres[0].data = vl_heure		' Heure de lancement
+		vl_parametres[0].output = FALSE
+
+		vl_parametres[1].type = SYB#INT4_
+		vl_parametres[1].data = va_NumEvt			' NumEvt
+		vl_parametres[1].output = FALSE
+	
+		vl_parametres[2].type = SYB#INT1_
+		vl_parametres[2].data = va_CleEvt			' CleEvt
+		vl_parametres[2].output = FALSE
+	
+		vl_parametres[3].type = SYB#INT4_
+		vl_parametres[3].data = va_PosteOperateur	' Poste Operateur
+		vl_parametres[3].output = FALSE
+
+		vl_parametres[4].type = SYB#INT4_
+		vl_parametres[4].data = va_NumCFE			' NumEqt
+		vl_parametres[4].output = FALSE
+
+
+		vl_parametres[5].type = SYB#INT1_
+		vl_parametres[5].data = va_NomSite			' Nom du site
+		vl_parametres[5].output = FALSE
+
+		vl_parametres[6].type = SYB#INT1_
+		vl_parametres[6].data = va_cfe.numplan		' numero de plan de feux
+		vl_parametres[6].output = FALSE
+	
+		vl_parametres[7].type = SYB#CHAR_
+		vl_parametres[7].data = va_cfe.libelleplan		' libelle de plan de feux
+		vl_parametres[7].output = FALSE
+	
+		vl_parametres[8].type = SYB#INT1_
+		vl_parametres[8].data = va_CFE.Priorite		' Priorite
+		vl_parametres[8].output = FALSE
+
+		vl_parametres[9].type = SYB#INT4_
+		vl_parametres[9].data = SYSTEM_VAR@(vg_site)  		'site local
+		vl_parametres[9].output = FALSE
+
+
+		vl_parametres[10].type = SYB#INT4_
+		vl_parametres[10].data = NULL				' NumAction
+		vl_parametres[10].output = True
+
+
+		IF COM05_SQL_Procedure(XZAC901_Commande_Fin_CFE,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+		{
+			RETURN (COM_NOK)
+		}
+		va_NumAction = vl_resultats.return_parameters[0]
+	}
+
+	/*A retour OK */
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des equipements disponibles
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCFE_Liste_Eqt_Disponibles( va_District, 
+						FORMAT Config_CFE va_Config_CFE )
+
+/*
+* ARGUMENTS EN ENTREE :
+* 
+*		va_District : le numero du district
+*
+* ARGUMENTS EN SORTIE :
+* 
+*		ListeEqts		: la liste des equipements correspondants
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCFE
+*
+*
+* FONCTION
+*   	Lecture des equipements en disponibilites.
+*
+--------------------------------------------------------------------- */
+
+	var	FORMAT COM_Donnees_Equipements vl_info_equip
+	var	FORMAT COM_Donnees_Equipements vl_info_equip_suite
+	var	vl_Liste		' liste formattee
+VAR     FORMAT  COM_Localisation                vl_localisation
+	var	i, k			' index de loop
+VAR     FORMAT  TDO_District                    vl_les_districts
+	var vl_district
+	var vl_nb_eqt
+var vl_index_site
+
+	if va_District = XDC_CI
+
+	{	vl_District=NULL }
+	else
+	{	vl_District=va_District }
+
+	ITMA_COM_Lire_Equipements(	XDC_EQT_CFE, 
+								vl_District,
+								XDC_EQT_MINEUR, 	' Conditions niees
+								XDC_EQT_MINEUR,		' Conditions
+				 				XDC_EQT_HS + XDC_EQT_MAJEUR + XDC_EQT_CRITIQUE + XDC_EQT_DESACTIVE + XDC_EQT_INHIBE,	' Exclusions	
+								0,
+								vl_info_equip,
+					     		C_MODULE )
+vl_les_districts = SYSTEM_VAR@ (vg_les_districts)
+
+	/*A RAZ indicateurs de disponibilite de l'equipement */
+	for i=0 to ARRAY_SIZE@(va_Config_CFE)
+		va_Config_CFE[i].Disponible=FALSE
+	next i
+
+	k = 0
+
+	/*A Construction de la liste des equipements */
+	if  IS_ARRAY@(vl_info_equip)
+	{  
+		for i = 0 to ARRAY_SIZE@(vl_info_equip) - 1	
+	   		if (vl_info_equip[i].sitegestion = va_District) OR
+				((va_District = XDC_CI) )
+			{
+
+	vl_localisation.NumAuto         = vl_info_equip[i].autoroute
+
+	vl_localisation.PR              = vl_info_equip[i].PR
+
+	vl_localisation.sens_circulation = vl_info_equip[i].sens
+	va_Config_CFE [vl_info_equip[i].numero].Identifiant =
+						vl_info_equip[i].nom ++ COM10_Localisation(vl_localisation)
+
+	va_Config_CFE [vl_info_equip[i].numero].Autoroute =
+						vl_info_equip[i].autoroute
+
+		va_Config_CFE [vl_info_equip[i].numero].sitegestion =
+						vl_info_equip[i].sitegestion
+
+	va_Config_CFE [vl_info_equip[i].numero].PR =
+						vl_info_equip[i].PR
+
+        va_Config_CFE [vl_info_equip[i].numero].Sens =
+						vl_info_equip[i].Sens
+
+	vl_Index_Site = ARRAY_INDEX@ (ARRAY_COLUMN@
+			(vl_les_districts,TDO_NUMERO_DISTRICT),
+			ITMA_COM_Site_PR(vl_localisation.NumAuto,
+					vl_localisation.PR,C_MODULE))
+	if vl_Index_Site >= 0
+	{
+		va_Config_CFE [vl_info_equip[i].numero].NumSite =
+					vl_les_districts[vl_Index_Site].numero
+		va_Config_CFE [vl_info_equip[i].numero].NomSite =
+					vl_les_districts[vl_Index_Site].code
+
+	}
+
+
+
+				vl_Liste[k] = va_Config_CFE[vl_info_equip[i].numero].Identifiant
+
+				va_Config_CFE[vl_info_equip[i].numero].Disponible=TRUE
+				k= k + 1
+			}
+
+		next i
+	}
+	else
+	{
+		vl_Liste[0]		= 	""
+		info_message@("Pas de CFE diponible dans cette région ...")
+	}
+
+	RETURN(vl_Liste)
+
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner a l'etat des CFE de la base.
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TCFE_Abt_Etat_CFE(va_Abonnement,va_NomSite)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*
+*		va_Abonnement	:	Type d'abonnement (debut ou fin)
+*		va_NomSite		:	Nom du site
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet de s'abonner a l'etat des panneaux de la CFE.
+* ------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+
+	/*A trace de l'appel de procedure */
+	vl_text = " --> XZEA082_Abt_Etat_CFE "
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA082  
+
+	/*B arguments */
+	vl_cmd[3]= va_Abonnement ++ MTAR_CAR_SEPAR ++ va_NomSite
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'emmission */
+	vl_text = " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture de l'etat d'une CFE a une horodate donnee
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCFE_Lecture_CFE(va_NumCFE,FORMAT PA_CFE va_CFE)
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*
+*	va_NumCFE : N° d'eqt de la CFE ;
+*	va_CFE : La structure action CFE
+*
+* ARGUMENTS EN SORTIE	: 
+*
+*	va_CFE : La structure action CFE
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCFE
+*
+*
+* FONCTION
+*	Lecture de l'etat d'une CFE a une horodate donnee
+*
+--------------------------------------------------------------------- */
+
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR	vl_lib_fmc						' libelle fmc
+	var	vl_tptext							' zone de text tampon
+	VAR	i,j								' index de boucle
+
+	
+	/*A trace de l'appel de procedure */
+	vl_tptext = "--> XZAT06_Utilisation_CFE"
+	COM01_Trace(0,vl_tptext)
+
+
+	/*A si n° Eqt du CFE nul : sortir */
+	if va_NumCFE=NULL or va_NumCFE=0
+	{
+		vl_tptext = "ITMA_TPM_Lecture_CFE("++va_NumCFE++") refusee"
+		COM01_Trace(0,vl_tptext)
+		RETURN(COM_NOK)
+	}
+
+	va_CFE.NumEqt = va_NumCFE
+
+	/*A Definition de vl_parametres */
+	vl_parametres[0].type	= SYB#DATETIME_
+	vl_parametres[0].data	= XDC_DATE_NULLE
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type	= SYB#INT1_
+	vl_parametres[1].data	= va_CFE.NumEqt+0
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT2_
+	vl_parametres[2].data	= 0			' Dispo CFE
+	vl_parametres[2].output	= TRUE
+
+	vl_parametres[3].type	= SYB#INT2_
+	vl_parametres[3].data	= 0			' num
+	vl_parametres[3].output	= TRUE
+
+	vl_parametres[4].type	= SYB#CHAR_
+	vl_parametres[4].data	= 0			' libelle
+	vl_parametres[4].output	= TRUE
+
+	vl_parametres[5].type	= SYB#INT4_
+	vl_parametres[5].data	= 0			' N° Evt
+	vl_parametres[5].output	= TRUE
+
+	vl_parametres[6].type	= SYB#INT2_
+	vl_parametres[6].data	= 0			' Cle Evt
+	vl_parametres[6].output	= TRUE
+
+	vl_parametres[7].type	= SYB#INT2_
+	vl_parametres[7].data	= 0			' Priorite
+	vl_parametres[7].output	= TRUE
+
+	vl_parametres[8].type	= SYB#INT4_
+	vl_parametres[8].data	= 0			' Distance Evt
+	vl_parametres[8].output	= TRUE
+
+	vl_parametres[9].type	= SYB#INT4_
+	vl_parametres[9].data	= 0			' N° Action
+	vl_parametres[9].output	= TRUE
+
+	vl_parametres[10].type	= SYB#INT1_
+	vl_parametres[10].data	= 0			' N° Site Action
+	vl_parametres[10].output	= TRUE
+
+	
+	/*A Execution de la procedure XZAT06_Utilisation_CFE */
+	IF COM05_SQL_Procedure(XZAT065_Utilisation_CFE,vl_parametres,
+							vl_resultats,C_MODULE) <> COM_OK
+	{
+    			RETURN (COM_NOK)
+	}
+
+	/*A MAJ de la table CFE avec les arguments de sorties */
+	va_CFE.Dispo	 		=	vl_resultats.return_parameters[0]
+	va_CFE.NumPlan		=	vl_resultats.return_parameters[1]
+	va_CFE.LibellePlan		=	vl_resultats.return_parameters[2]
+	va_CFE.NumEvt			=	vl_resultats.return_parameters[3]+0
+	va_CFE.CleEvt			=	vl_resultats.return_parameters[4]+0
+	va_CFE.Priorite		=	vl_resultats.return_parameters[5]
+	va_CFE.DistanceEvt		=	vl_resultats.return_parameters[6]
+	va_CFE.NumeroAction		=	vl_resultats.return_parameters[7]
+	va_CFE.NomSite			=	vl_resultats.return_parameters[8]
+
+	if va_CFE.NumEvt<>0 and  va_CFE.CleEvt<>0
+	{
+		/*A MAJ du libelle fmc */
+		ITMA_COM_Lire_Evenement(va_CFE.NumEvt,
+						va_CFE.CleEvt,vl_lib_fmc,C_MODULE)
+		va_CFE.fmc_liee = COM11_Libelle_FMC(vl_lib_fmc)
+	}
+	else
+	{
+		va_CFE.fmc_liee = "Pas de libelle FMC."
+	}
+
+	
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :       Lecture d'une action CFE a partir du num de PA
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TcFE_Lecture_Action_CFE(va_NumAction,va_CleAction,va_evt,va_cle,va_libelle, va_fenetre, FORMAT PA_CFE va_CFE,
+FORMAT Config_CFE va_info_liste_CFE)
+
+/*
+* ARGUMENTS EN ENTREE   :
+*    va_NumAction               : Num d'action
+*    va_CleAction       : Cle action (site)
+*       va_evt          : le num de l'evenement
+*       va_cle          : le num de la cle
+*
+*
+* ARGUMENTS EN SORTIE   :
+*       vm_PRV          : etat du PRV
+*
+*
+* CODE RETOUR           : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPRV_etat_PRV
+*
+*
+---------------------------------------------------------------------------- */
+        VAR     vl_lib_fmc              ' libelle fmc
+        VAR     vl_lecture
+        var     vl_tptext                       ' zone de text tampon
+
+        VAR FORMAT SQL_Procedure_Params@ vl_parametres
+        VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+        /*A trace de l'appel de procedure */
+        vl_tptext = COM09_Date_Courante()
+        vl_tptext =  vl_tptext ++ "--> XZAC805_Lire_Commande_PRV"
+        COM01_Trace(0,vl_tptext)
+
+
+        /*A Definition de vl_parametres */
+        vl_parametres[0].type   = SYB#INT4_
+        vl_parametres[0].data   = va_NumAction
+        vl_parametres[0].output = FALSE
+
+        vl_parametres[1].type   = SYB#INT1_
+        vl_parametres[1].data   = va_CleAction
+        vl_parametres[1].output = FALSE
+
+        vl_parametres[2].type   = SYB#INT4_
+        vl_parametres[2].data   = 0                     ' NumEqt
+        vl_parametres[2].output = TRUE
+
+        vl_parametres[3].type   = SYB#INT4_
+        vl_parametres[3].data   = 0                     ' plan
+        vl_parametres[3].output = TRUE
+
+        vl_parametres[4].type   = SYB#CHAR_
+        vl_parametres[4].data   = 0                     ' libelle
+        vl_parametres[4].output = TRUE
+
+        vl_parametres[5].type   = SYB#DATETIME_
+        vl_parametres[5].data   = 0                     ' heure lancement
+        vl_parametres[5].output = TRUE
+
+        vl_parametres[6].type   = SYB#DATETIME_
+        vl_parametres[6].data   = 0                     ' heure fin lancement
+        vl_parametres[6].output = TRUE
+
+        vl_parametres[7].type   = SYB#DATETIME_
+        vl_parametres[7].data   = 0                     ' heure succes
+        vl_parametres[7].output = TRUE
+
+        vl_parametres[8].type   = SYB#DATETIME_
+        vl_parametres[8].data   = 0                     ' heure echec
+        vl_parametres[8].output = TRUE
+
+        vl_parametres[9].type   = SYB#DATETIME_
+        vl_parametres[9].data   = 0                     ' heure fin
+        vl_parametres[9].output = TRUE
+
+
+        /*A Execution de la procedure XZAC805_Lire_Commande_PRV */
+        IF COM05_SQL_Procedure
+                (XZAC87_Lire_Commande_CFE,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+                RETURN (COM_NOK)
+
+		
+	VA_CFE.NumEqt                   =       vl_resultats.return_parameters[0]+0
+        VA_CFE.numplan                  =       vl_resultats.return_parameters[1]
+	va_cfe.numevt = va_evt
+	va_cfe.cleevt = va_cle
+        VA_CFE.libelleplan                  =       vl_resultats.return_parameters[2]
+	DB_CTRL_TITLE@(va_fenetre, "LI_lancement", "Lancement : " ++
+			COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[3]))
+	DB_CTRL_TITLE@(va_fenetre, "LI_succes", "Succes : " ++
+			COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[5]))
+	DB_CTRL_TITLE@(va_fenetre, "LI_echec", "Echec : " ++
+			COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[6]))
+	DB_CTRL_TITLE@(va_fenetre, "LI_fin", "Fin : " ++
+			COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[7])	)
+	DB_CTRL_TITLE@(va_fenetre, "LI_NumPlan", VA_CFE.numplan)
+	DB_CTRL_TITLE@(va_fenetre, "LI_LibellePlan", VA_CFE.libelleplan)
+	DB_CTRL_TITLE@(va_fenetre, "LI_fmc_actuel", va_libelle)
+	
+
+	DB_CTRL_TITLE@(va_fenetre,"LI_nom",
+					va_info_liste_CFE[va_CFE.NumEqt].Identifiant)
+	DB_CTRL_GRAYED@(va_fenetre, "BL_CFE", true)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_lier_FMC", true)
+
+	/*TODO*/
+	/*afficher BP_Terminer que si succes et non echec ou fin*/
+	IF (COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[5])<>NULL AND
+	    COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[6])=NULL AND
+	    COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[7])=NULL)
+		DB_CTRL_DISPLAY@(va_fenetre, "BP_Terminer", false)
+	ELSE
+		DB_CTRL_DISPLAY@(va_fenetre, "BP_Terminer", true)
+	/* TODO A supprimer */
+	DB_CTRL_DISPLAY@(va_fenetre, "BP_Terminer", true)
+
+		
+
+RETURN (COM_OK)
+
+ENDMACRO
+

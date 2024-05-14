@@ -1,0 +1,1962 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCPT_Coup_De_Poing_Toulon.am,v 1.12 2021/10/15 15:32:53 pc2dpdy Exp $        $Revision: 1.12 $        $Date: 2021/10/15 15:32:53 $
+----------------------------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR
+----------------------------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+----------------------------------------------------------------------------------------------------
+* MODULE MTCPT * FICHIER ITMA_TCPT_Coup_De_Poing_Toulon.am
+----------------------------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fonctions "Coup de poing".
+*
+----------------------------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JPL		20/02/18 : Creation d'apres ITMA_TCP_Coup_De_Poing V1.35 (DEM 1277)  1.1
+* JPL		22/03/18 : Commandes des PAL et BRA avec le site de l'equipement  1.2
+* JPL		22/03/18 : Ajout commandes aux equipements SAGA  1.3
+* JPL		23/03/18 : Suppression evenement "Autre"; commande BAF par fonction d'interface dediee  1.4
+* JPL		28/03/18 : Activation du support des equipements Tunnel et Echangeur  1.5
+* JPL		04/04/18 : Suppression d'une creation d'objet graphique inutile  1.6
+* JPL		13/06/18 : Modification du PR de niches NS13S ? NS12S  1.7
+* PNI		20/08/18 : Envoi du no de scenarion dans le bandeau & Temporisation des envois des sc?narios DEM1277 1.8
+* JPL		09/03/20 : Integration de la GTC Toulon - Suppression de SAGA (SAE-114)  1.9
+* JPL		08/03/21 : Support des actions de sonorisation par le RAU (SAE-256)  1.10
+* LCL		14/10/21 : Support des actions d'insertion de messages d'urgence par l'IMU (SAE-250)  1.11
+------------------------------------------------------------------------------------------------- */
+
+INCLUDE	"dialog_.am"
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzaec_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/xzac01sp.h"
+INCLUDE	"GESIHM/inc/xzac82sp.h"
+INCLUDE	"GESIHM/inc/xzac182sp.h"
+INCLUDE	"GESIHM/inc/xzac903sp.h"
+INCLUDE	"GESIHM/inc/xzac905sp.h"
+INCLUDE	"GESIHM/inc/xzae57sp.h"
+INCLUDE	"GESIHM/inc/xzae60sp.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TMC.h"
+INCLUDE	"GESIHM/inc/ITMA_TPP.h"
+
+INCLUDE	"GESIHM/inc/ITMA_TCPT.h"
+
+
+DEFINE	CM_NUM_MSG_SONO_ATTENTE		1
+DEFINE	CM_NUM_MSG_SONO_EVACUATION	2
+
+DEFINE	CM_MSG_SONO_ATTENTE		"ATTENTE"
+DEFINE	CM_MSG_SONO_EVACUATION		"EVACUATION"
+
+
+DEFINE	CM_MODULE		"MTCPT"				' Nom du module
+
+
+/*A
+** Description des donnees contantes du systeme
+** --------------------------------------------
+*/
+
+DEFINE	TCPT_COUP_POING_REEL		"REEL"
+DEFINE	TCPT_COUP_POING_SIMULE		"SIMU"
+
+
+DEFINE	CM_NUM_AUTO_A50		3				' Pour efficacite et securite
+DEFINE	CM_NUM_AUTO_A57		8
+
+
+DEFINE	CM_NUM_TUN_TOULON1	37				' Tube sens 1
+DEFINE	CM_NUM_TUN_TOULON2	38				' Tube sens 2
+
+
+
+/*A
+** Description des valeurs de types de commandes
+** ---------------------------------------------
+*/
+
+DEFINE	TCPT_CMDS_PHASE1	1				' Commandes de la phase 1
+
+
+
+/*A
+** Description des donnees de configuration
+** ----------------------------------------
+*/
+
+VAR	tm_voies						' Configuration des voies commandee, par sens
+
+
+VAR	FORMAT	TDO_Echangeur		tm_echangeurs		' Liste complete des echangeurs
+
+
+
+/*A
+** Description des donnees de l'IHM
+** --------------------------------
+*/
+
+VAR	vm_BR_niche						' Nom du bouton representant la niche selectionnee
+
+
+VAR	vm_mode							' Mode de fonctionnement (reel ou trace)
+
+
+
+/*A
+** Description des donnees dynamiques
+** ----------------------------------
+*/
+
+VAR	FORMAT	TCPT_Niche		vm_niche		' Niche lieu de l'evenement
+
+
+VAR	FORMAT	COM_Identifiant_FMC	vm_Evt			' Id. de l'evenement cree
+
+
+VAR	FORMAT	TDO_Echangeur		vm_Ech_Deviation	' Donnees de l'echangeur de deviation
+VAR	FORMAT	COM_Identifiant_FMC	vm_Deviation		' Id. de la Fmc Deviation creee
+
+
+VAR	vm_cmd_incendie_envoyee, vm_cmd_plein_soleil_envoyee
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Selon que l'appelant est le module de gestion des donnees
+*  ou le menu ecran textuel, effectue la configuration des actions
+*  "coup de poing" au tunnel de Toulon ou permet leur execution.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Coup_De_Poing_Toulon (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTDO, MTMT
+*
+* FONCTION
+*   Invoque la macro de configuration ou d'action "coup de poing".
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_appelant
+VAR	FORMAT TDO_Autoroute	tl_autoroutes
+VAR	i
+
+vl_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+
+IF vl_appelant = "MTMT"
+	ITMA_TCPT_Saisie_CdP_Toulon (va_appelant)
+
+IF vl_appelant = "MTDO" {
+	/* Ne pas lire la configuration "coup de poing", couteuse, sur le deuxieme ecran */
+	IF SYSTEM_VAR@ (vg_numero_display) <> XDC_ECRAN_SYN {
+		INSTALL_FILE@ ("ITMA_TCP_Trace.elo")
+		INSTALL_FILE@ ("ITMA_TTU_ventilation.elo")
+		INSTALL_FILE@ ("ITMA_TTU_exploitation.elo")
+		INSTALL_FILE@ ("ITMA_TTU_eclairage.elo")
+
+		ITMA_TCPT_Config_CdP_Toulon ()
+		ITMA_TCPT_Activer ()
+
+		/*B Charger les modules communs contenant les macros de pilotage des equipements */
+		ITMA_TTU_commun_TUB ()
+		ITMA_TEC_commun_ECH ()
+		ITMA_TPP_commun_PAL ()
+		ITMA_TNA_commun_NAV ()
+		ITMA_TCPX_Pilotage_Eqt ()
+	}
+}
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Activer/ desactiver le mode reel d'execution des fonctions "coup de poing".
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Activer ()
+
+vm_mode = TCPT_COUP_POING_REEL
+SET_SYSTEM_VAR@ (vg_mode_cdp_toulon, vm_mode)
+
+ENDMACRO
+
+
+MACRO ITMA_TCPT_Desactiver ()
+
+vm_mode = TCPT_COUP_POING_SIMULE
+SET_SYSTEM_VAR@ (vg_mode_cdp_toulon, vm_mode)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affichage des niches, saisie de l'action "coup de poing" a effectuer
+*  et execution des actions configurees pour cette niche.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Saisie_CdP_Toulon (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection d'action sur Tunnels ou de son icone au menu ecran textuel.
+*
+* FONCTION
+*   Affiche la liste des tunnel, saisit l'evenement motivant l'action,
+*   demande confirmation puis lance l'execution des actions correspondantes.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_fenetre				' Nom de la fenetre du module
+VAR	vl_objet_selecte			' L'objet courant de la fenetre
+VAR	vl_les_messages_acceptes		' Pour abonnement aux messages
+VAR	vl_la_fenetre_est_active
+VAR	vl_installer_traitement_erreur
+
+VAR	vl_type_evt
+VAR	vl_conditions					' Conditions d'un type special de Coup de poing
+
+VAR	FORMAT TCPT_Niche	vl_action_cdp		' Les donnees de l'action Coup de poing
+
+
+/*A
+** Traitements en cas d'erreur durant l'initialisation :
+** informer l'operateur, tracer l'erreur et abandonner
+** -----------------------------------------------------
+*/
+
+ON ERROR {
+	ERROR_BOX@ (ERROR_NUMBER@(), ERROR_STRING@(), ERROR_OBJECT@())
+	ITMA_TCP_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN (COM_NOK)
+}
+
+
+/*A
+** Charger la fenetre d'action "coup de poing"
+** -------------------------------------------
+*/
+
+vl_fenetre = DB_LOAD@ ("ITMA_TCPT.d")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 110)
+
+
+/*A
+** Initialiser les caracteristiques des objets graphiques
+** ------------------------------------------------------
+*/
+
+DB_CTRL_DISPLAY@ (vl_fenetre, "__LI_Repere_S", FALSE)
+DB_CTRL_DISPLAY@ (vl_fenetre, "__LI_Repere_N", FALSE)
+
+DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Quitter", TRUE)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BA_Mode_Trace", TRUE)
+
+
+/*A
+** Le mode par defaut est le mode reel
+** -----------------------------------
+*/
+
+ITMA_TCPT_Activer ()
+DB_CTRL_VALUE@ (vl_fenetre, "BA_Mode_Trace", FALSE)
+DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Mode_Trace", FALSE)
+DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Avertissement", TRUE)
+
+
+/*A
+** Initialiser le module (niches, echangeurs ...) et la visualisation
+** ------------------------------------------------------------------
+*/
+
+tm_echangeurs = SYSTEM_VAR@ (vg_les_echangeurs)
+
+ITMA_TCP_Init_Tunnel_Toulon (vl_fenetre)
+IF ITMA_TCPT_Init_Visualisation (vl_fenetre) <> COM_OK {
+	RETURN (COM_NOK)
+}
+
+
+/*A
+** Mettre en place la reception des messages
+** -----------------------------------------
+*/
+
+'vl_les_messages_acceptes[0] = COM_CANAL_FIN			' Pas de fin commandee dans cette situation
+'DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+** Traitements en cas d'erreur durant la visualisation :
+** informer l'operateur et selon la nature et la gravite
+** de l'erreur la tracer ou non, continuer ou abandonner
+** -----------------------------------------------------
+*/
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		ITMA_TCP_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY@ (vl_fenetre)
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+	CASE OF vl_objet_selecte
+
+	CASE "BP_Quitter"
+		vl_la_fenetre_est_active = FALSE
+
+
+	CASE "poke_"
+		/*A Sur reception d'un message de fin fermer la fenetre */
+		CASE OF  DB_GET_POKE@ (vl_fenetre)
+		CASE COM_CANAL_FIN
+			vl_la_fenetre_est_active = FALSE
+		ENDCASE
+
+
+
+	/*A Sur changement de mode, le memoriser et le signaler par le texte correspondant */
+	CASE "BA_Mode_Trace"
+		IF (DB_CTRL_GET_VALUE@ (vl_fenetre, "BA_Mode_Trace") = TRUE) {
+			ITMA_TCPT_Desactiver ()
+			DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Avertissement", FALSE)
+			DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Mode_Trace", TRUE)
+		} ELSE {
+			ITMA_TCPT_Activer ()
+			DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Mode_Trace", FALSE)
+			DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Avertissement", TRUE)
+		}
+
+
+
+	/*A Sur action sur un bouton, creer l'evenement et executer les actions */
+	CASE "BP_Contresens"
+	CASE "BP_Vehicule_Feu"
+	CASE "BP_Accident"
+		ITMA_TCPT_Actions_Inhibees (vl_fenetre, TRUE)
+		vl_conditions = NULL
+
+		CASE OF vl_objet_selecte
+		CASE "BP_Contresens"
+			vl_type_evt = XZAEC_FMC_Contresens
+		CASE "BP_Vehicule_Feu"
+			vl_type_evt = XZAEC_FMC_VehFeu
+		CASE "BP_Accident"
+			vl_type_evt = XZAEC_FMC_Accident
+		ENDCASE
+
+		IF ITMA_TCPT_Sequence_Choisie (vl_conditions, vl_action_cdp) = COM_OK {
+			ITMA_TCPT_Actionner_Coup_De_Poing (vl_type_evt, vl_action_cdp)
+			vl_la_fenetre_est_active = FALSE
+		}
+
+		ITMA_TCPT_Actions_Inhibees (vl_fenetre, FALSE)
+
+
+	DEFAULT
+		/*A Sur selection d'un objet representant une niche ou une interniche */
+		IF (SUBSTRING@ (vl_objet_selecte, 1, 3) = "BR_") {
+			/* si l'objet n'est pas celui selectionne alors */
+			IF (vl_objet_selecte <> vm_BR_niche) {
+				/* annuler toute selection precedente et memoriser le choix */
+				IF (vm_BR_niche <> "") {
+				DB_CTRL_VALUE@ (vl_fenetre, vm_BR_niche, -1)
+				}
+				vm_BR_niche = vl_objet_selecte
+			}
+		}
+
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Inhibe ou autorise les actions dans la fenetre "coup de poing".
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Actions_Inhibees (va_fenetre, va_inhibe)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : nom de la fenetre du module
+*   va_inhibe         : etat d'inhibition (TRUE / FALSE)
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Aucun
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPT_Saisie_CdP_Toulon
+*
+* FONCTION
+*   Grise ou degrise les boutons.
+*
+---------------------------------------------------------------------------- */
+
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Vehicule_Feu", va_inhibe)
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Contresens", va_inhibe)
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Accident", va_inhibe)
+'DB_CTRL_GRAYED@ (va_fenetre, "BP_Quitter", va_inhibe)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Sur choix d'un type d'evenement, verifie qu'une localisation est selectionnee
+*  et extrait de la configuration "coup de poing" la sequence correspondante.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Sequence_Choisie (va_conditions, FORMAT TCPT_Niche va_action_cdp)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_conditions      : Conditions d'application du scenario choisi
+*
+*
+* ARGUMENTS EN SORTIE : 
+*  va_action_cdp      : Donnees de l'action Coup de poing choisie
+*
+*
+* CODE RETOUR         :
+*   COM_OK            : Sequence d'actions Coup de poing trouvee
+*   COM_NOK           : Aucune selection ou aucune action trouvee
+*
+* CONDITION D'UTILISATION
+*   Appui sur un bouton de choix de type d'evenement.
+*
+* FONCTION
+*   Verifie qu'une localisation valide a ete choisie.
+*   Extrait de l'environnement et retourne la configuration adequate.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_nom_niche					' Nom de la niche selectionnee
+VAR	FORMAT TCPT_Niche	tl_niches
+VAR	FORMAT TCPT_Niche	tl_config_cdp		' Configuration "coup de poing"
+VAR	vl_sens_niche
+VAR	vl_i_niche
+VAR	i
+
+va_action_cdp = NULL
+
+/*A Determiner la localisation selectionnee et le sens de l'evenement */
+
+/*A verifier qu'une niche a ete selectionne */
+IF (vm_BR_niche = "") {
+	INFO_MESSAGE@ ("     SELECTIONNER D'ABORD LA NICHE LIEU DE L'EVENEMENT !     ")
+	RETURN (COM_NOK)
+}
+vl_nom_niche = SUBSTRING@ (vm_BR_niche, 4)
+
+
+ITMA_TCPT_Liste_Niches (tl_niches)
+vl_i_niche = COM45_IndexEnColonne (tl_niches, TCPT_NOM_NICHE, vl_nom_niche)
+IF (vl_i_niche < 0) {
+	INFO_MESSAGE@ ("     ERREUR INTERNE : NICHE INCONNUE     ")
+	RETURN (COM_NOK)
+}
+vl_sens_niche = tl_niches[vl_i_niche].sens
+
+
+/*A Lire dans l'environnement la configuration Coup de Poing */
+/*  correspondant au sens du lieu de l'evenement selectionne */
+tl_config_cdp = SYSTEM_VAR@ (vg_cdp_toulon ++ vl_sens_niche)
+
+
+/*A Extraire la sequence pour la localisation choisie et les conditions specifiees */
+FOR i = 0  TO (ARRAY_SIZE@ (tl_config_cdp) - 1)
+	IF (tl_config_cdp[i].nom = vl_nom_niche)  AND
+	   (tl_config_cdp[i].conditions = va_conditions)
+	{
+		va_action_cdp = tl_config_cdp[i]
+		BREAK i
+	}
+NEXT i
+IF IS_NULL@ (va_action_cdp.actions) {
+	INFO_MESSAGE@ ("     AUCUNE SEQUENCE COUP DE POING CONFIGUREE POUR CETTE SITUATION !     ")
+	RETURN (COM_NOK)
+}
+
+
+/* Memoriser la niche ou le coup de poing est lance */
+vm_niche = tl_niches[vl_i_niche]
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Effectue une action "coup de poing" en tracant ou executant la sequence.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Actionner_Coup_De_Poing (va_type_evt, FORMAT TCPT_Niche va_cdp)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_type_evt        : Type d'evenement a creer
+*  va_cdp             : Donnees de la sequence Coup de poing
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*   COM_OK            : Action Coup de poing executee
+*   COM_NOK           : Erreur lors de la creation de la fiche evenement
+*
+* CONDITION D'UTILISATION
+*   Appui sur un bouton d'action Coup de poing avec configuration valide pour la niche.
+*
+* FONCTION
+*   Cree l'evenement de type choisi.
+*   Execute les actions de la phase 1 sur les equipements configures.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT	COM_Identifiant_FMC	vl_evt		' Id. de la FMC creee
+VAR	FORMAT	COM_Intitule_FMC	vl_info_evt	' Infos sur la FMC creee
+VAR	FORMAT	COM_Localisation	vl_loc_evt	' Localisation de la FMC creee
+
+VAR	vl_sens_deviation
+
+VAR	vl_date_evt, vl_date
+VAR	vl_i_ech
+VAR	vl_cr
+VAR	i
+
+/*A Lire dans l'environnement le mode de fonctionnement actuel */
+vm_mode = SYSTEM_VAR@ (vg_mode_cdp_toulon)
+
+
+IF vm_mode = TCPT_COUP_POING_REEL {
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("==> COUP DE POING AU TUNNEL DE TOULON, NICHE %s (MODE REEL)", va_cdp.nom ))
+} ELSE {
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("--> Coup de Poing au tunnel de Toulon, niche %s (Mode Trace)", va_cdp.nom))
+}
+
+
+/*A Creer la fiche main courante avec le type indique */
+vl_loc_evt.NumAuto = CM_NUM_AUTO_A50
+vl_loc_evt.PR = va_cdp.PR
+vl_loc_evt.sens_circulation = va_cdp.sens
+vl_cr = ITMA_TCPT_Creer_FMC (va_type_evt, vl_loc_evt.NumAuto, vl_loc_evt.PR, vl_loc_evt.sens_circulation, vl_evt, vl_date_evt)
+
+IF (vl_cr <> COM_OK) {
+	RETURN (COM_NOK)
+}
+vm_Evt = vl_evt
+
+
+/*A Si un echangeur de deviation est configure, creer la Fmc Deviation */
+vl_i_ech = COM45_IndexEnColonne (tm_echangeurs, TDO_NUMERO_ECH, va_cdp.ech_deviation)
+IF (vl_i_ech >= 0) {
+	vm_Ech_Deviation = tm_echangeurs[vl_i_ech]
+	vl_sens_deviation = va_cdp.sens
+	IF (vm_Ech_Deviation.autoroute = CM_NUM_AUTO_A57) {
+		vl_sens_deviation = (XDC_SENS_1 + XDC_SENS_2) - va_cdp.sens
+	}
+	ITMA_TCPT_Creer_Operation_Echangeur (XZAEC_FMC_Deviation, vm_Evt, vm_Ech_Deviation, vl_sens_deviation, vm_Deviation, vl_date)
+}
+
+
+/*A Envoyer aux equipements les commandes de la phase 1 */
+vm_cmd_incendie_envoyee = XDC_FAUX
+vm_cmd_plein_soleil_envoyee = XDC_FAUX
+ITMA_TCPT_Commander_Equipements (va_cdp.actions, TCPT_CMDS_PHASE1, va_type_evt)
+
+
+/*A En mode reel, ouvrir la fiche main courante */
+IF (vm_mode = TCPT_COUP_POING_REEL) {
+	vl_info_evt.IdFMC = vl_evt
+	vl_info_evt.Numtype = va_type_evt
+	vl_info_evt.localisation = vl_loc_evt
+	vl_info_evt.date = vl_date_evt
+	NEW_TASK@ ("ITMA_TMC_Fiche_Main_Courante", "ITMA_TCPT_Coup_De_Poing_Toulon", vl_info_evt, XDC_VRAI, XDC_FMC_ETAT_TRAI)
+}
+
+
+' /*A Demander confirmation pour l'envoi des commandes de la phase 2 */
+' vl_cr = PEND_FOR_NEW_TASK@ ("ITMA_TCPT_Demande_Confirmation", TCPT_CMDS_PHASE2)
+' IF (vl_cr = XDC_OUI) {
+' 	/*A En cas de reponse affirmative, activer la phase 2 */
+'	ITMA_TCPT_Commander_Equipements (va_cdp.actions, TCPT_CMDS_PHASE2, va_type_evt)
+' }
+
+ITMA_TCP_Trace (COM_INFO, "==========   Fin d'action Coup de Poing a Toulon   ==========")
+
+/*B Au retour, demander la terminaison du module */
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Trace la liste des actions "coup de poing" pour une niche et envoie les
+*  commandes aux equipements si le mode de fonctionnement est le mode reel.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Commander_Equipements (FORMAT TCPT_Action ta_actions, va_numero_phase, va_type_evt)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   ta_actions        : Liste des actions a effectuer / equipements a piloter
+*   va_numero_phase   : Numero de la phase de commandes
+*   va_type_evt       : Type de l'evenement cause du Coup de Poing
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPT_Saisie_CdP_Toulon
+*
+* FONCTION
+*   Ecrit en fichier de trace la liste d'actions du type demande ;
+*   En mode de fontionnement reel, envoie la commande a chaque equipement.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT PA_PAL		vl_PAL				' Donnees PAL pour priorite et distance
+VAR	/*FORMAT PA_NAV*/	vl_NAV				' Donnees NAV pour priorite et distance
+
+VAR	vl_cmd							' Commande a effectuer, scenario SAGA
+VAR	vl_cmd1
+
+VAR	FORMAT COM_Identifiant_FMC	vl_evt			' FMC liee a la commande
+VAR	FORMAT COM_Identifiant_FMC	vl_Ferm_Ech
+
+VAR	FORMAT TCPT_Equipement	tl_eqts
+VAR	FORMAT TCPT_Equipement	vl_eqt, vl_eqt_null
+VAR	vl_num_eqt, vl_i_eqt
+
+VAR	vl_envoi_cmd_incendie, vl_envoi_cmd_plein_soleil
+
+VAR	vl_num_action
+VAR	vl_poste_oper, vl_site_local
+VAR	vl_instruction_attente
+VAR	vl_destinataire
+VAR	vl_txt_trace, vl_txt_evt
+VAR	i
+
+vl_eqt_null.nom = "EQUIPEMENT INCONNU"
+
+vl_instruction_attente = "sleep 1"
+
+
+/*A Lire dans l'environnement la liste des equipements configures dans ce sens */
+tl_eqts = SYSTEM_VAR@ (vg_cdp_toulon_eqts ++ vm_niche.sens)
+
+
+' IF vm_mode = TCPT_COUP_POING_REEL {
+' 	ITMA_TCP_Trace (COM_INFO, "==> Commandes de la phase " ++ va_numero_phase ++ " (envoi reel des commandes)")
+' } ELSE {
+' 	ITMA_TCP_Trace (COM_INFO, "--- Commandes de la phase " ++ va_numero_phase ++ " (trace seulement)")
+' }
+
+
+/*A Initialiser les valeurs des arguments d'actions */
+vl_poste_oper = SYSTEM_VAR@ (vg_numero_poste)
+vl_site_local = SYSTEM_VAR@ (vg_site)
+
+
+/*A Pour chaque equipement de la sequence d'actions */
+FOR i = 0  TO (ARRAY_SIZE@ (ta_actions) - 1)
+	vl_envoi_cmd_incendie = XDC_FAUX
+	vl_envoi_cmd_plein_soleil = XDC_FAUX
+
+	vl_num_eqt = ta_actions[i].num_eqt
+	vl_eqt = vl_eqt_null						' Donnees de l'equipement a activer
+	vl_i_eqt = ta_actions[i].idx_eqt
+	IF (vl_i_eqt >= 0) { vl_eqt = tl_eqts[vl_i_eqt] }
+
+	vl_evt = vm_Evt							' A priori lier l'action a la Fmc evenement
+
+	/*A Si une commande du type precise est configuree alors */
+	vl_cmd = NULL							' ATTENTION : c'est un tableau pour les PMV[A]
+	CASE OF  va_numero_phase
+	CASE TCPT_CMDS_PHASE1	vl_cmd = ta_actions[i].cmd_phase1
+'	CASE TCPT_CMDS_PHASE2	vl_cmd = ta_actions[i].cmd_phase2
+'	CASE TCPT_CMDS_PHASE3	vl_cmd = ta_actions[i].cmd_phase3
+	ENDCASE
+
+	/*A Determiner le scenario destine a la GTC selon le type d'evenement */
+	IF (vl_eqt.type = XDC_EQT_TUB)  AND
+	   ( (vl_eqt.numero = CM_NUM_TUN_TOULON1)  OR  (vl_eqt.numero = CM_NUM_TUN_TOULON2) )
+	{
+		CASE OF  va_type_evt
+		CASE XZAEC_FMC_VehFeu		vl_cmd = vl_cmd[0]
+		CASE XZAEC_FMC_Contresens	vl_cmd = vl_cmd[1]
+		CASE XZAEC_FMC_Accident		vl_cmd = vl_cmd[2]
+		ENDCASE
+	}
+
+	/*A Pour un message sonore par RAU, commander les scenarios dans le cas d'un incendie de vehicule */
+	IF (vl_eqt.type = XDC_EQT_RAU) {
+		IF (va_type_evt <> XZAEC_FMC_VehFeu) {
+			vl_cmd = NULL
+		}
+	}
+
+
+	/*A Si la commande s'adresse a un equipement ECHangeur situe sur un echangeur alors */
+	IF NOT IS_NULL@ (vl_cmd)  AND  (vl_eqt.type = XDC_EQT_ECH)  AND  (vl_eqt.echangeur <> NULL) {
+		/*A si l'echangeur est celui d'une deviation alors y lier l'action */
+		IF (vl_eqt.echangeur = vm_Ech_Deviation.numero)  AND  (vm_Deviation.numero <> NULL) {
+			vl_evt = vm_Deviation
+		}
+	}
+
+	/*A Si la commande s'adresse a une BAFA situee sur un echangeur alors */
+	IF NOT IS_NULL@ (vl_cmd)  AND  (vl_eqt.type = XDC_EQT_BAF)  AND  (vl_eqt.echangeur <> NULL) {
+		/*A creer une Fmc Fermeture echangeur si ce n'est pas deja fait, et y lier l'action */
+		ITMA_TCPT_Fermeture_Echangeur_BAFA (vl_eqt.echangeur, vl_eqt.sens, vl_Ferm_Ech)
+		IF (vl_Ferm_Ech.numero <> NULL) {
+			vl_evt = vl_Ferm_Ech
+		}
+	}
+
+	/*A Tracer la commande */
+	IF NOT IS_NULL@ (vl_cmd) {
+		vl_destinataire = vl_eqt.nom
+		IF (vl_eqt.type = XDC_EQT_TUB) {				' Indiquer le domaine GTC
+			CASE OF  ta_actions[i].type_cmd
+			CASE XDC_ACT_GTC_SIG	vl_destinataire = vl_eqt.nom
+			CASE XDC_ACT_GTC_VEN	vl_destinataire = vl_eqt.nom ++ " Ventilation"
+			CASE XDC_ACT_GTC_EXP	vl_destinataire = vl_eqt.nom ++ " Exploitation"
+			ENDCASE
+		}
+
+		/* Indiquer l'evenement auquel l'action est rattachee si ce n'est pas la FMC du Coup de poing */
+		vl_txt_evt = ""
+		IF (vl_evt.numero <> vm_evt.numero) {
+			vl_txt_evt = "   liee a " ++ vl_evt.numero ++ "/" ++ vl_evt.cle
+		}
+
+		/* Pour un message sonore par RAU une ou deux commandes sont supportees */
+		IF (vl_eqt.type = XDC_EQT_RAU) {
+			vl_txt_trace = ARRAY_TO_STRING@ (vl_cmd[0], "/")
+			ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   %s (%s) : %s%s", vl_destinataire, vl_num_eqt, vl_txt_trace, vl_txt_evt))
+			IF (ARRAY_SIZE@ (vl_cmd) > 1) {
+				vl_txt_trace = ARRAY_TO_STRING@ (vl_cmd[1], "/")
+				ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   %s (%s) : %s%s", vl_destinataire, vl_num_eqt, vl_txt_trace, vl_txt_evt))
+			}
+		} ELSE IF (vl_eqt.type = XDC_EQT_IMU) {
+			vl_txt_trace = ARRAY_TO_STRING@ (vl_cmd[0], "/")
+			ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   %s (%s) : %s%s", vl_destinataire, vl_num_eqt, vl_txt_trace, vl_txt_evt))
+		}
+		ELSE
+		{
+			IF IS_ARRAY@ (vl_cmd) {
+				vl_txt_trace = ARRAY_TO_STRING@ (vl_cmd, "/")
+			} ELSE {
+				vl_txt_trace = vl_cmd
+			}
+			ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   %s (%s) : %s%s", vl_destinataire, vl_num_eqt, vl_txt_trace, vl_txt_evt))
+		}
+	}
+
+
+'	/*A Specificites des commandes au tunnel lieu de l'evenement */
+'	/*! Les traces ci-dessous doivent correspondre aux actions effectuees en mode reel */
+'	IF NOT IS_NULL@ (vl_cmd)  AND  (vl_eqt.type = XDC_EQT_TUB)  AND
+'	   ( (vl_num_eqt <> CM_NUM_TUN_TOULON1) AND (vl_num_eqt <> CM_NUM_TUN_TOULON2) )
+'	{
+'		/*A Sur Vehicule en feu remplacer la premiere commande au tunnel par le scenario Incendie */
+'		IF (va_type_evt = XZAEC_FMC_VehFeu) {
+'			IF (vm_cmd_incendie_envoyee <> XDC_VRAI) {
+'				vm_cmd_incendie_envoyee = XDC_VRAI
+'				vl_envoi_cmd_incendie = XDC_VRAI
+'				ITMA_TCP_Trace (COM_INFO, "     Remplacee par scenario Incendie au tunnel " ++ vl_num_eqt)
+'			} ELSE {
+'				vl_cmd = NULL
+'				ITMA_TCP_Trace (COM_INFO, "     Ignoree")
+'			}
+'		}
+'
+'		/*B Faire suivre la premiere commande du scenario Plein soleil (sauf vehicule en feu ou bouchon) */
+'		IF (va_type_evt <> XZAEC_FMC_VehFeu)  AND  (va_type_evt <> XZAEC_FMC_FermetureEch) {
+'			IF (vm_cmd_plein_soleil_envoyee <> XDC_VRAI) {
+'				vm_cmd_plein_soleil_envoyee = XDC_VRAI
+'				vl_envoi_cmd_plein_soleil = XDC_VRAI
+'				ITMA_TCP_Trace (COM_INFO, "     + Scenario Plein soleil au tunnel " ++ vl_num_eqt)
+'			}
+'		}
+'	}
+
+
+	/*A En mode reel, envoyer la commande a l'equipement */
+	IF NOT IS_NULL@ (vl_cmd)  AND  (vm_mode = TCPT_COUP_POING_REEL) {
+		CASE OF vl_eqt.type
+
+		CASE XDC_EQT_TUB
+			IF ( (vl_num_eqt = CM_NUM_TUN_TOULON1)  OR  (vl_num_eqt = CM_NUM_TUN_TOULON2) )
+			{
+				SHELL_COMMAND@ (vl_instruction_attente)					' Temporisation
+				vl_instruction_attente = "sleep 5"
+
+				IF (ta_actions[i].type_cmd = XDC_ACT_GTC_SIG) {
+					ITMA_TTU_Commun_Cmd_Seq_Tunnel_Renove (CM_MODULE, vl_poste_oper, XDC_FAUX, vl_cmd,
+										  vl_evt.numero, vl_evt.cle, vl_num_eqt,
+										  0, 0, vl_num_action)
+				} ELSE IF (ta_actions[i].type_cmd = XDC_ACT_GTC_VEN) {
+					ITMA_TTU_Commande_Seq_Tunnel_ventilation (vl_num_eqt, XDC_FAUX,
+										     vl_cmd, vl_evt.numero, vl_evt.cle)
+				} ELSE IF (ta_actions[i].type_cmd = XDC_ACT_GTC_EXP) {
+					ITMA_TTU_Commande_Seq_Tunnel_exploitation (vl_num_eqt, XDC_FAUX,
+										     vl_cmd, vl_evt.numero, vl_evt.cle)
+				}
+			}
+'			ELSE {
+'				/*A Pour un vehicule en feu, AU LIEU DE L'EVENEMENT */
+'				IF (vl_envoi_cmd_incendie = XDC_VRAI) {
+'					/*A envoyer le scenario Incendie a la GTC Ventilation du tunnel */
+'					ITMA_TTU_Commande_Seq_Tunnel_ventilation (vl_num_eqt, XDC_FAUX,
+'										     XDC_VEN_SEQ_INCENDIE, vl_evt.numero, vl_evt.cle)
+'				} ELSE {
+'					ITMA_TTU_Commun_Cmd_Seq_Tunnel_Renove (CM_MODULE, vl_poste_oper, XDC_FAUX, vl_cmd,
+'										  vl_evt.numero, vl_evt.cle, vl_num_eqt,
+'										  0, 0, vl_num_action)
+'				}
+'
+'				/*A Au tunnel LIEU DE L'EVENEMENT (sauf vehicule en feu ou bouchon) */
+'				IF (vl_envoi_cmd_plein_soleil = XDC_VRAI) {
+'					/*A faire suivre la premiere commande du scenario Plein soleil a la GTC du tunnel */
+'					ITMA_TTU_Commande_Seq_Tunnel_eclairage (vl_num_eqt, XDC_FAUX,
+'										   XDC_ECL_SEQ_PLEIN_SOLEIL, vl_evt.numero, vl_evt.cle)
+'				}
+'			}
+
+		CASE XDC_EQT_ECH
+'			IF ta_actions[i].renove = XDC_VRAI {
+				ITMA_TEC_Commun_Cmd_Seq_Ech_Renove (CM_MODULE, vl_poste_oper, XDC_FAUX, vl_cmd,
+								       vl_evt.numero, vl_evt.cle, vl_num_eqt, 0, 0, vl_num_action)
+'			} ELSE {
+'				ITMA_TEC_Commun_Cmd_Seq_Ech (CM_MODULE, vl_poste_oper, XDC_FAUX, vl_cmd,
+'								vl_evt.numero, vl_evt.cle, vl_num_eqt, 0, 0, vl_num_action)
+'			}
+
+		CASE XDC_EQT_PMV
+			ITMA_TCPX_Commande_PMV (vl_num_eqt, vl_eqt.site_gestion, vl_evt.numero, vl_evt.cle, vl_cmd, vl_num_action)
+
+		CASE XDC_EQT_PMVA
+			ITMA_TCPX_Commande_PMVA (vl_num_eqt, vl_eqt.site_gestion, vl_evt.numero, vl_evt.cle, vl_cmd, vl_num_action)
+
+		CASE XDC_EQT_PAL
+			vl_PAL.Priorite = 0
+			vl_PAL.DistanceEvt = 0
+			ITMA_TPP_Commande_PAL (vl_poste_oper, XDC_FAUX, vl_cmd[0], vl_cmd[1], FALSE, vl_evt.numero, vl_evt.cle,
+			                          vl_num_eqt, vl_PAL, vl_num_action, vl_eqt.site_gestion)
+
+		CASE XDC_EQT_NAV
+			/*B Envoi de la commande de signalisation ou de neutralisation */
+			vl_NAV = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }		' Pour Priorite et DistanceEvt
+
+			ITMA_TNA_Commande_NAV (vl_poste_oper, XDC_FAUX, vl_cmd, FALSE, vl_evt.numero, vl_evt.cle,
+			                          vl_num_eqt, vl_NAV, vl_num_action, vl_eqt.site_gestion)
+
+		CASE XDC_EQT_BAF
+			/*B Envoi de la commande de signalisation ou de neutralisation */
+			ITMA_TCPX_Piloter_BAF (vl_num_eqt, vl_eqt.site_gestion, vl_evt.numero, vl_evt.cle, vl_cmd, vl_num_action)
+
+		CASE XDC_EQT_RAU
+			vl_cmd1 = vl_cmd[0]
+			ITMA_TCPT_Commande_SONO (vl_cmd1[0], vl_cmd1[1], vl_cmd1[2], vl_cmd1[3], vl_evt.numero, vl_evt.cle, vl_num_action)
+			IF (ARRAY_SIZE@ (vl_cmd) > 1) {
+				vl_cmd1 = vl_cmd[1]
+				ITMA_TCPT_Commande_SONO (vl_cmd1[0], vl_cmd1[1], vl_cmd1[2], vl_cmd1[3], vl_evt.numero, vl_evt.cle, vl_num_action)
+														}
+		CASE XDC_EQT_IMU
+			vl_cmd1 = vl_cmd[0]
+			ITMA_TCPT_Commande_IMU (vl_num_eqt, vl_cmd1[0], vl_cmd1[1], vl_cmd1[2], vl_cmd1[3], vl_evt.numero, vl_evt.cle, vl_num_action)
+		ENDCASE
+	}
+NEXT i
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Envoi d'une commande de sonorisation via le RAU.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Commande_SONO (va_sens, va_PR_min, va_PR_max, va_num_message, va_NumEvt, va_CleEvt, va_NumAction)
+
+VAR	FORMAT SQL_Procedure_Params@    vl_parametres
+VAR	FORMAT SQL_Procedure_Result@    vl_resultats
+
+VAR	vl_site_local
+VAR	vl_operateur
+VAR	vl_maintenant
+VAR	vl_message
+
+va_NumAction = 0
+
+vl_site_local = SYSTEM_VAR@ (vg_site)
+vl_operateur = SYSTEM_VAR@ (vg_numero_operateur)
+vl_maintenant = COM09_Date_Courante ()
+
+IF (va_num_message = CM_NUM_MSG_SONO_ATTENTE) {
+	vl_message = CM_MSG_SONO_ATTENTE
+} ELSE IF (va_num_message = CM_NUM_MSG_SONO_EVACUATION) {
+	vl_message = CM_MSG_SONO_EVACUATION
+} ELSE {
+	RETURN (COM_NOK)
+}
+
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#DATETIME_,		vl_maintenant },
+	{ FALSE,	SYB#INT4_,		va_NumEvt },
+	{ FALSE,	SYB#INT1_,		va_CleEvt },
+	{ FALSE,	SYB#INT2_,		vl_operateur },
+	{ FALSE,	SYB#INT1_,		vl_site_local },
+	{ FALSE,	SYB#CHAR_,		vl_message },
+	{ FALSE,	SYB#CHAR_,		"A50" },
+
+	{ FALSE,	SYB#INT1_,		va_sens },
+	{ FALSE,	SYB#INT4_,		va_PR_min },
+	{ FALSE,	SYB#INT4_,		va_PR_max },
+	{ FALSE,	SYB#INT4_,		0 },			' PAU en erreur
+	{ FALSE,	SYB#INT4_,		0 },			' PAU pilotes
+	{ FALSE,	SYB#INT1_,		0 },			' Priorite
+	{ FALSE,	SYB#INT1_,		vl_site_local },
+	{ FALSE,	SYB#INT4_,		0 },			' Distance evenement
+	{ TRUE,		SYB#INT4_,		NULL },			' Numero d'action creee
+	{ FALSE,	SYB#INT4_,		0 }			' Distant
+} )
+
+IF COM05_SQL_Procedure (XZAC905_Commande_SONO, vl_parametres, vl_resultats, CM_MODULE) <> COM_OK {
+	RETURN (COM_NOK)
+}
+
+va_NumAction = vl_resultats.return_parameters[0]
+RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Envoi d'une commande d'insertion de message d'urgence via l'IMU.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Commande_IMU (va_NumEqt, va_chaine, va_intervalle, va_cycle, va_duree, va_NumEvt, va_CleEvt, va_NumAction)
+
+VAR	FORMAT SQL_Procedure_Params@    vl_parametres
+VAR	FORMAT SQL_Procedure_Result@    vl_resultats
+
+VAR	vl_site_local
+VAR	vl_operateur
+VAR	vl_maintenant
+VAR	vl_message
+
+va_NumAction = 0
+
+vl_site_local = SYSTEM_VAR@ (vg_site)
+vl_operateur = SYSTEM_VAR@ (vg_numero_operateur)
+vl_maintenant = COM09_Date_Courante ()
+
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#DATETIME_,		vl_maintenant },
+	{ FALSE,	SYB#INT4_,		va_NumEvt },
+	{ FALSE,	SYB#INT1_,		va_CleEvt },
+	{ FALSE,	SYB#INT2_,		vl_operateur },
+	{ FALSE,	SYB#INT4_,		va_NumEqt },
+	{ FALSE,	SYB#INT1_,		vl_site_local },
+	{ FALSE,	SYB#CHAR_,		va_chaine },
+	{ FALSE,	SYB#INT4_,		va_intervalle },
+	{ FALSE,	SYB#INT4_,		va_cycle },
+	{ FALSE,	SYB#INT4_,		va_duree },	
+	{ FALSE,	SYB#INT1_,		0 },			' Priorite
+	{ FALSE,	SYB#INT1_,		vl_site_local },
+	{ FALSE,	SYB#INT4_,		0 },			' Distance evenement
+	{ TRUE,		SYB#INT4_,		NULL },			' Numero d'action creee
+	{ FALSE,	SYB#INT4_,		0 }			' Distant
+} )
+
+IF COM05_SQL_Procedure (XZAC903_Commande_IMU, vl_parametres, vl_resultats, CM_MODULE) <> COM_OK {
+	RETURN (COM_NOK)
+}
+
+va_NumAction = vl_resultats.return_parameters[0]
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/* ===========================================================================================================
+*
+*                          DEFINITION DES DONNEES DU MODULE (NICHES, VOIES) - INITIALISATION
+*
+* ============================================================================================================
+*/
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialise les donnees du tunnel de Toulon.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Init_Tunnel_Toulon (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : nom de la fenetre du module
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPT_Saisie_CdP_Toulon
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+/*A
+** Definition des configurations de voies
+**  ou les voie existantes sont bloquees
+** --------------------------------------
+*/
+
+DEFINE	vvvv			XDC_VOIE_SENS_NORMAL
+DEFINE	vXXX			XDC_VOIE_BLOQUEE
+DEFINE	v___			XDC_VOIE_INEXISTANTE
+DEFINE	vBBB			XDC_VOIE_BAU_NORMALE
+
+DEFINE	TCPT_VOIES_2_N_2_I  { vXXX, v___, v___, vXXX, vXXX,   vvvv, v___, v___, vvvv, vBBB }   ' 2 voie circulees, 2 inverses
+
+
+/*A
+** Definir l'etat des voies dans le tunnel
+** lors d'un coup de poing, dans les sens 1 et 2
+** ---------------------------------------------
+*/
+
+tm_voies[1] = TCPT_VOIES_2_N_2_I
+tm_voies[2] = TCPT_VOIES_2_N_2_I
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*B
+** Format des donn?es des objets graphiques repr?sentant une niche
+** ---------------------------------------------------------------
+*/
+
+FORMAT	TCP_Objet_Niche
+	libelle1,
+	libelle2,
+	PR
+
+
+DEFINE	CM_PREFIXE_INTERNICHES		"I-"			' Prefixe du nom des interniches
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Definit la liste des caracteristiques des objets representant une niche.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Liste_Objets_Niches ( FORMAT TCP_Objet_Niche ta_niches_sud,
+                                      FORMAT TCP_Objet_Niche ta_interniches_sud,
+                                      FORMAT TCP_Objet_Niche ta_niches_nord,
+                                      FORMAT TCP_Objet_Niche ta_interniches_nord )
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_niches_sud       : donnees des niches sud
+*   ta_interniches_sud  : donnees des interniches sud
+*   ta_niches_nord      : donnees des niches nord
+*   ta_interniches_nord : donnees des interniches nord
+*
+*
+* CODE RETOUR         : Aucun
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPT_Liste_Niches
+*   ITMA_TCPT_Init_Visualisation
+*
+* FONCTION
+*   Renseigne les tables.
+*   Calcule les PR des interniches d'apres celles des niches.
+*
+---------------------------------------------------------------------------- */
+
+VAR	i
+
+ta_niches_sud = {
+	{ "NE",	"16S",	69284 },
+	{ "NE",	"15SB",	69474 },
+	{ "NE",	"15S",	69596 },
+	{ "NE",	"14S",	69738 },
+	{ "NS",	"13S",	69896 },
+	{ "NE",	"13S",	69939 },
+	{ "NS",	"12SB",	70034 },
+	{ "NE",	"12S",	70111 },
+	{ "NS",	"12S",	70179 },
+	{ "NE",	"11S",	70324 },
+	{ "NE",	"10S",	70479 },
+	{ "NE",	"9S",	70634 },
+	{ "NE",	"8SB",	70771 },
+	{ "NE",	"8S",	70868 },
+	{ "NE",	"7S",	71018 },
+	{ "NS",	"6S",	71164 },
+	{ "NE",	"6SB",	71252 },
+	{ "NE",	"5S",	71424 },
+	{ "NE",	"4S",	71574 },
+	{ "NS",	"3SB",	71689 },
+	{ "NE",	"3S",	71800 },
+	{ "NE",	"2S",	71959 },
+	{ "NE",	"1S",	72109 }
+}
+
+ta_niches_nord = {
+	{ "",	"16N",	69322 },
+	{ "",	"15N",	69517 },
+	{ "",	"14N",	69707 },
+	{ "",	"13N",	69931 },
+	{ "",	"12N",	70122 },
+	{ "",	"11N",	70322 },
+	{ "",	"10N",	70481 },
+	{ "",	"9N",	70672 },
+	{ "",	"8N",	70822 },
+	{ "",	"7N",	71047 },
+	{ "",	"6N",	71231 },
+	{ "",	"5N",	71447 },
+	{ "",	"4N",	71672 },
+	{ "",	"3N",	71822 },
+	{ "",	"2N",	71972 },
+	{ "",	"1N",	72202 }
+}
+
+
+/*
+** Definir les interniches et leur localisation
+** --------------------------------------------
+*/
+
+ta_interniches_sud = {}
+FOR i = 0  TO (ARRAY_SIZE@ (ta_niches_sud) - 2)
+	ta_interniches_sud[i] = ta_niches_sud[i]
+	ta_interniches_sud[i].PR = (ta_niches_sud[i].PR + ta_niches_sud[i + 1].PR) \ 2
+NEXT i
+
+ta_interniches_nord = {}
+FOR i = 0  TO (ARRAY_SIZE@ (ta_niches_nord) - 2)
+	ta_interniches_nord[i] = ta_niches_nord[i]
+	ta_interniches_nord[i].PR = (ta_niches_nord[i].PR + ta_niches_nord[i + 1].PR) \ 2
+NEXT i
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Fournit la liste complete des niches et interniches.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Liste_Niches (FORMAT TCPT_Niche ta_niches)
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_niches           : table des donnees des niches
+*
+*
+* CODE RETOUR         : Aucun
+*
+* CONDITION D'UTILISATION
+*   Toute macro
+*
+* FONCTION
+*   Renseigne les noms identifiant uniquement une niche et leur localisation.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	FORMAT TCP_Objet_Niche	tl_niches_sud, tl_interniches_sud
+	VAR	FORMAT TCP_Objet_Niche	tl_niches_nord, tl_interniches_nord
+	VAR	i, k
+
+ITMA_TCPT_Liste_Objets_Niches (tl_niches_sud, tl_interniches_sud, tl_niches_nord, tl_interniches_nord)
+
+
+/*A
+** Definir la liste complete des niches et interniches avec leurs PR et sens
+** -------------------------------------------------------------------------
+*/
+
+ta_niches = { }
+k = 0
+FOR i = 0  TO (ARRAY_SIZE@ (tl_niches_sud) - 1)
+	ta_niches[k].nom = tl_niches_sud[i].libelle1 ++ tl_niches_sud[i].libelle2
+	ta_niches[k].sens = XDC_SENS_SUD
+	ta_niches[k].PR = tl_niches_sud[i].PR
+	k = k + 1
+NEXT i
+
+FOR i = 0  TO (ARRAY_SIZE@ (tl_interniches_sud) - 1)
+	ta_niches[k].nom = CM_PREFIXE_INTERNICHES ++ tl_interniches_sud[i].libelle1 ++ tl_interniches_sud[i].libelle2
+	ta_niches[k].PR = tl_interniches_sud[i].PR
+	ta_niches[k].sens = XDC_SENS_SUD
+	k = k + 1
+NEXT i
+
+FOR i = 0  TO (ARRAY_SIZE@ (tl_niches_nord) - 1)
+	ta_niches[k].nom = tl_niches_nord[i].libelle1 ++ tl_niches_nord[i].libelle2
+	ta_niches[k].PR = tl_niches_nord[i].PR
+	ta_niches[k].sens = XDC_SENS_NORD
+	k = k + 1
+NEXT i
+
+FOR i = 0  TO (ARRAY_SIZE@ (tl_interniches_nord) - 1)
+	ta_niches[k].nom = CM_PREFIXE_INTERNICHES ++ tl_interniches_nord[i].libelle1 ++ tl_interniches_nord[i].libelle2
+	ta_niches[k].PR = tl_interniches_nord[i].PR
+	ta_niches[k].sens = XDC_SENS_NORD
+	k = k + 1
+NEXT i
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialise la fenetre en creant et configurant les objets graphiques.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Init_Visualisation (va_fenetre)
+	VAR	FORMAT TCP_Objet_Niche	tl_niches_sud, tl_interniches_sud
+	VAR	FORMAT TCP_Objet_Niche	tl_niches_nord, tl_interniches_nord
+	VAR	vl_PR_min, vl_PR_max
+	VAR	vl_posY_niches_sud, vl_posY_niches_nord
+
+	VAR	i, k
+
+ITMA_TCPT_Liste_Objets_Niches (tl_niches_sud, tl_interniches_sud, tl_niches_nord, tl_interniches_nord)
+
+
+/*A
+** Creer les objets niches et leurs libell?s dans la fenetre
+** ---------------------------------------------------------
+*/
+
+vl_PR_min = MIN@ (tl_niches_sud[0].PR, tl_niches_nord[0].PR)
+vl_PR_max = MAX@ (tl_niches_sud[ARRAY_SIZE@(tl_niches_sud)-1].PR, tl_niches_nord[ARRAY_SIZE@(tl_niches_nord)-1].PR)
+
+vl_posY_niches_sud = DB_CTRL_GET_YPOS@ (va_fenetre, "__LI_Repere_S")
+vl_posY_niches_nord = DB_CTRL_GET_YPOS@ (va_fenetre, "__LI_Repere_N")
+
+ITMA_TCPT_Creer_Niches (va_fenetre, tl_niches_sud, vl_posY_niches_sud, vl_PR_min, vl_PR_max, "", "dessous")
+ITMA_TCPT_Creer_Niches (va_fenetre, tl_interniches_sud, vl_posY_niches_sud - 30, vl_PR_min, vl_PR_max, CM_PREFIXE_INTERNICHES, "")
+
+ITMA_TCPT_Creer_Niches (va_fenetre, tl_niches_nord, vl_posY_niches_nord, vl_PR_min, vl_PR_max, "", "dessus")
+ITMA_TCPT_Creer_Niches (va_fenetre, tl_interniches_nord, vl_posY_niches_nord + 30, vl_PR_min, vl_PR_max, CM_PREFIXE_INTERNICHES, "")
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Cree une ligne de niches en les placant horizontalement selon leur PR,
+*  et verticalement selon leur nature de niche ou interniche, le sens
+*  de la chaussee. Cree egalement les libelles d'identification.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Creer_Niches (va_fenetre, FORMAT TCP_Objet_Niche ta_niches, va_positionY, va_PR_min, va_PR_max, va_prefixe, va_libelles)
+	VAR	vl_ecart_PR
+	VAR	vl_posX_1er, vl_largeur_zone
+	VAR	vl_posX, vl_posX_libelle
+	VAR	vl_posY_lib1, vl_posY_lib2
+	VAR	vl_nom, vl_nom_label
+	VAR	vl_lgr_label
+	VAR	i
+
+vl_ecart_PR = va_PR_max - va_PR_min
+
+/* Si des libelles sont a afficher alors d?finir leur position verticale selon indication */
+CASE OF va_libelles
+CASE "dessous"
+	vl_posY_lib1 = va_positionY + 40
+	vl_posY_lib2 = va_positionY + 60
+CASE "dessus"
+	vl_posY_lib1 = va_positionY - 50
+	vl_posY_lib2 = va_positionY - 30
+DEFAULT
+	vl_posY_lib1 = NULL
+	vl_posY_lib2 = NULL
+ENDCASE
+
+
+vl_posX_1er = DB_CTRL_GET_XPOS@ (va_fenetre, "__LI_Repere_S")			' Position horizontale du 1er objet niche
+vl_largeur_zone = DB_GET_WIDTH@ (va_fenetre) - (2 * vl_posX_1er)  - 20		' Marge finale pour la largeur des derniers objets
+
+/* Pour chaque niche dans la liste fournie */
+FOR i = 0  TO (ARRAY_SIZE@ (ta_niches) - 1)
+	/* composer son identifiant avec les deux portions de libelles */
+	vl_nom = "BR_" ++ va_prefixe ++ ta_niches[i].libelle1 ++ ta_niches[i].libelle2
+
+	/* calculer sa position en fonction de son PR par rapport aux PRs des niches aux extremites */
+	vl_posX = vl_posX_1er + ((ta_niches[i].PR - va_PR_min) * vl_largeur_zone \ vl_ecart_PR)
+
+	/* creer l'objet niche avec une seule valeur vide et sans valeur par defaut */
+	DB_CREATE_CTRL@ (va_fenetre, DLG#RADIO_BOX_, vl_nom, "", vl_posX, va_positionY, -1)
+	DB_CTRL_STRINGS@ (va_fenetre, vl_nom, { " " })
+	DB_CTRL_VALUE@ (va_fenetre, vl_nom, -1)
+	DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, vl_nom, TRUE)
+
+	/* puis cr?er et afficher ses libell?s s'ils sont non nuls et si c'est demand? */
+	IF (NOT IS_NULL@ (vl_posY_lib1)  AND  ta_niches[i].libelle1 <> "") {
+		vl_nom_label = "LI_" ++ vl_posY_lib1 ++ i
+		vl_posX_libelle = vl_posX
+		DB_CREATE_CTRL@ (va_fenetre, DLG#LABEL_, vl_nom_label, ta_niches[i].libelle1, vl_posX_libelle, vl_posY_lib1, NULL)
+	}
+
+	IF (NOT IS_NULL@ (vl_posY_lib2)  AND  ta_niches[i].libelle2 <> "") {
+		vl_nom_label = "LI_" ++ vl_posY_lib2 ++ i
+		vl_posX_libelle = vl_posX
+		/* D?caler l?g?rement les libell?s longs de plus de deux caract?res */
+		vl_lgr_label = LEN@ (ta_niches[i].libelle2)
+		IF (vl_lgr_label > 2) {
+			vl_posX_libelle = vl_posX_libelle - (vl_lgr_label - 2) * 5
+		}
+		DB_CREATE_CTRL@ (va_fenetre, DLG#LABEL_, vl_nom_label, ta_niches[i].libelle2, vl_posX_libelle, vl_posY_lib2, NULL)
+	}
+NEXT i
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ===========================================================================================================
+*
+*                                GESTION DES CREATIONS AUTOMATIQUES DE FMC
+*
+* ============================================================================================================
+*/
+
+
+/*B Compteur de numero de FMC factice utilise en mode simulation */
+
+VAR	vm_num_fmc_simu
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Cree une FMC avec le type d'evenement choisi
+*  et certaines informations prerenseignees.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Creer_FMC (va_type_evt, va_autoroute, va_PR, va_sens,
+                              FORMAT COM_Identifiant_FMC va_evt, va_date_debut)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_type_evt        : Type d'evenement a creer
+*  va_autoroute       :
+*  va_PR              :
+*  va_sens            : Localisation de l'evenement a creer.
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_evt             : Id. de l'evenement cree
+*  va_date_debut      : Date de debut de l'evenement
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPT_Action_Coup_De_Poing
+*
+* FONCTION
+*   Cree la fiche main courante ;
+*   Valide la fiche main courante en mettant toutes les voies bloquees.
+*
+---------------------------------------------------------------------------- */
+
+/*B Code de condition accidentogene indefinie */
+DEFINE	TMC_CODE_COND_AUCUNE	0
+
+
+VAR	FORMAT	TMC_fmc		vl_fiche			' Fiche main courante creee
+VAR	FORMAT	TMC_accident	vl_info_acc			' Donnees specifiques accident
+
+VAR	vl_date_valid
+VAR	tl_config						' Table des configurations des voies
+VAR	tl_cr_creation
+VAR	vl_site
+VAR	i, j
+
+va_evt = NULL
+va_date_debut = COM09_Date_Courante (TRUE)
+vl_site = SYSTEM_VAR@ (vg_site)
+
+
+/*B En mode simule, obtenir un numero de Fmc factice */
+IF (vm_mode <> TCPT_COUP_POING_REEL) {
+	vm_num_fmc_simu = vm_num_fmc_simu + 1
+	va_evt = { vm_num_fmc_simu, vl_site }
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   Simulation creation evenement %s de type %s situe en %s-%s-%s",
+	                                      va_evt.numero, va_type_evt, va_autoroute, va_sens, va_PR))
+	RETURN (COM_OK)
+}
+
+
+/*A
+** Creer la fiche main courante
+** ----------------------------
+*/
+
+tl_cr_creation = ITMA_TMC_creer_fiche (va_type_evt, XDC_FMC_ETAT_TRAI, va_date_debut, NULL, vl_site, XDC_NON)
+
+IF tl_cr_creation[0] = COM_OK {
+	va_evt.numero	= tl_cr_creation[1][0]
+	va_evt.cle	= tl_cr_creation[1][1]
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   Creation evenement %s/%s de type %s situe en %s-%s-%s",
+					      va_evt.numero, va_evt.cle, va_type_evt, va_autoroute, va_sens, va_PR))
+} ELSE {
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   Creation evenement de type %s situe en %s-%s-%s : Resultat=%s",
+					      va_type_evt, va_autoroute, va_sens, va_PR, tl_cr_creation[0]))
+	'INFO_MESSAGE@ ("     ERREUR LORS DE LA CREATION DE L'EVENEMENT EN BASE     ")
+	RETURN (COM_NOK)
+}
+
+
+/*A
+** Valider la fiche creee
+** ----------------------
+*/
+
+/* S'assurer que la date de validation est posterieure a celle de creation */
+vl_date_valid = DATE_FORMAT@ (CURRENT_TIME@ () + 1, "dd/mm/yyyy hh:mi:ss")
+
+/*B En premier lieu ecrire les donnees specifiques */
+
+vl_info_acc.vl			= 0
+vl_info_acc.pl			= 0
+vl_info_acc.remorques		= 0
+vl_info_acc.cars		= 0
+vl_info_acc.motos		= 0
+vl_info_acc.bl			= 0
+vl_info_acc.bg			= 0
+vl_info_acc.morts		= 0
+vl_info_acc.vehescota		= XDC_FAUX
+vl_info_acc.matdang		= XDC_FAUX
+vl_info_acc.homescota		= XDC_FAUX
+vl_info_acc.perso		= XDC_FAUX
+vl_info_acc.dummy_degats_dom	= XDC_FAUX
+vl_info_acc.cond_meteo		= TMC_CODE_COND_AUCUNE
+vl_info_acc.cond_visibilite	= TMC_CODE_COND_AUCUNE
+vl_info_acc.cond_etat_chaus	= TMC_CODE_COND_AUCUNE
+vl_info_acc.cond_chantier	= TMC_CODE_COND_AUCUNE
+
+INSTALL_FILE@ (XDC_PATHEXE ++ "/ITMA_TMC_acc.elo")
+ITMA_TMC_acc_sauve (va_evt, vl_info_acc, NULL, vl_date_valid, NULL)
+
+
+/*B En second lieu ecrire les donnees de validation generiques */
+
+vl_fiche.numero		= va_evt.numero
+vl_fiche.cle		= va_evt.cle
+vl_fiche.numero_cause	= NULL
+vl_fiche.cle_cause	= NULL
+vl_fiche.type		= va_type_evt
+vl_fiche.debut		= va_date_debut
+vl_fiche.confirme	= XZAEC_FMC_CONFIRMEE
+vl_fiche.autoroute	= va_autoroute
+vl_fiche.pr		= va_PR
+vl_fiche.sens		= va_sens
+vl_fiche.point_car	= NULL
+vl_fiche.nom_point_car	= NULL
+vl_fiche.position	= NULL
+vl_fiche.degatsdom	= XDC_FAUX
+vl_fiche.fausse_alerte	= XDC_FAUX
+vl_fiche.longueur	= 0
+
+vl_fiche.bau_etroite	= NULL
+vl_fiche.bau_i_etroite	= NULL
+j = 9
+FOR i = 0  TO 9
+	tl_config[j][1] = tm_voies[va_sens][i]
+	j = j - 1
+NEXT i
+
+vl_fiche.origine = "COUP DE POING"
+IF (SYSTEM_VAR@ ("vg_essai") <> NULL)	vl_fiche.origine = "ESSAI " ++ vl_fiche.origine
+
+IF ITMA_TMC_valide (vl_date_valid, vl_fiche, XDC_FMC_ETAT_TRAI, tl_config, NULL, NULL, NULL) <> COM_OK {
+	'INFO_MESSAGE@ ("     ERREUR LORS DE LA VALIDATION DE LA FICHE MAIN COURANTE     ")
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Cree une FMC sur echangeur avec le type d'evenement choisi et la cause,
+*  la localisation et certaines autres informations prerenseignees.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Creer_Operation_Echangeur (va_type_evt, FORMAT COM_Identifiant_FMC va_cause,
+                                              FORMAT TDO_Echangeur va_echangeur, va_sens,
+                                              FORMAT COM_Identifiant_FMC va_evt, va_date_debut)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_type_evt        : Type d'evenement (deviation, fermeture echangeur)
+*  va_cause           : Identifiant de l'evenement cause
+*  va_echangeur       : Donnees de l'echangeur
+*  va_sens            : Sens de la Fmc a creer
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_evt             : Id. de l'evenement cree
+*  va_date_debut      : Date de debut de l'evenement
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPT_Action_Coup_De_Poing
+*
+* FONCTION
+*   Cree la fiche main courante et la valide avec la localisation indiquee.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	FORMAT	TMC_fmc	vl_fiche				' Fiche main courante creee
+VAR	vl_sens							' Sens de la Fmc creee
+VAR	tl_config						' Table des configurations des voies
+VAR	vl_entree1, vl_entree2, vl_sortie1, vl_sortie2		' Bretelles fermees
+
+VAR	vl_lib_fmc, vl_txt_localisation
+VAR	vl_site, vl_poste_oper
+VAR	i, tl_cr_creation
+
+va_evt = NULL
+va_date_debut = COM09_Date_Courante (TRUE)
+
+vl_site = SYSTEM_VAR@ (vg_site)
+vl_poste_oper = SYSTEM_VAR@ (vg_numero_poste)
+
+/*A Preciser le sens de la Fmc et les bretelles pour une fermeture echangeur */
+vl_sens = va_sens
+vl_entree1 = XDC_FAUX
+vl_entree2 = XDC_FAUX
+vl_sortie1 = XDC_FAUX
+vl_sortie2 = XDC_FAUX
+
+CASE OF va_type_evt
+CASE XZAEC_FMC_Deviation
+	/*A Pour une deviation, forcer le sens en sortie */
+	CASE OF va_sens
+	CASE XDC_SENS_2, XDC_SORTIE_SENS_2
+		vl_sens = XDC_SORTIE_SENS_2
+	CASE XDC_SENS_1, XDC_SORTIE_SENS_1
+		vl_sens = XDC_SORTIE_SENS_1
+	DEFAULT
+		RETURN (COM_NOK)
+	ENDCASE
+	vl_lib_fmc = "deviation"
+	vl_txt_localisation = FORMAT@ ("echangeur %s sens %s PR %s", va_echangeur.numero, vl_sens, va_echangeur.PR)
+
+CASE XZAEC_FMC_FermetureEch
+	/*A Pour une fermeture echangeur, indiquer les bretelles fermees selon le sens */
+	CASE OF va_sens
+	CASE XDC_ENTREE_SENS_1
+		vl_entree1 = XDC_VRAI
+	CASE XDC_ENTREE_SENS_2
+		vl_entree2 = XDC_VRAI
+	CASE XDC_SORTIE_SENS_1
+		vl_sortie1 = XDC_VRAI
+	CASE XDC_SORTIE_SENS_2
+		vl_sortie2 = XDC_VRAI
+	CASE XDC_SENS_INCONNU
+		vl_entree1 = XDC_VRAI
+		vl_entree2 = XDC_VRAI
+	DEFAULT
+		RETURN (COM_NOK)
+	ENDCASE
+	vl_lib_fmc = "fermeture echangeur"
+	vl_txt_localisation = FORMAT@ ("echangeur %s sens %s PR %s, acces %s/%s/%s/%s", va_echangeur.numero,
+	                                  vl_sens, va_echangeur.PR, vl_entree1, vl_entree2, vl_sortie1, vl_sortie2)
+
+DEFAULT
+	RETURN (COM_NOK)
+ENDCASE
+
+
+/*B En mode simule, obtenir un numero de Fmc factice */
+IF (vm_mode <> TCPT_COUP_POING_REEL) {
+	vm_num_fmc_simu = vm_num_fmc_simu + 1
+	va_evt = { vm_num_fmc_simu, vl_site }
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   Simulation creation %s %s sur %s", vl_lib_fmc, va_evt.numero, vl_txt_localisation))
+	RETURN (COM_OK)
+}
+
+
+/*A
+** Creer la fiche main courante
+** ----------------------------
+*/
+
+tl_cr_creation = ITMA_TMC_creer_fiche (va_type_evt, XDC_FMC_ETAT_TRAI, va_date_debut, NULL, vl_site, XDC_NON)
+
+IF tl_cr_creation[0] = COM_OK {
+	va_evt.numero	= tl_cr_creation[1][0]
+	va_evt.cle	= tl_cr_creation[1][1]
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   Creation %s %s/%s sur %s", vl_lib_fmc, va_evt.numero, va_evt.cle, vl_txt_localisation))
+} ELSE {
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   Creation %s sur %s : Resultat=%s", vl_lib_fmc, vl_txt_localisation, tl_cr_creation[0]))
+	'INFO_MESSAGE@ ("     ERREUR LORS DE LA CREATION EN BASE DE L'OPERATION ECHANGEUR     ")
+	RETURN (COM_NOK)
+}
+
+
+/*A
+** Pour une fermeture echangeur, ecrire en base les donnees specifiques (les acces fermes)
+** ---------------------------------------------------------------------------------------
+*/
+
+IF (va_type_evt = XZAEC_FMC_FermetureEch) {
+	vl_parametres = COM15_Parametres_Requete ( {
+		{ FALSE,	SYB#INT4_,		va_evt.numero },
+		{ FALSE,	SYB#INT2_,		va_evt.cle },
+		{ FALSE,	SYB#BIT_,		vl_entree1 },
+		{ FALSE,	SYB#BIT_,		vl_entree2 },
+		{ FALSE,	SYB#BIT_,		vl_sortie1 },
+		{ FALSE,	SYB#BIT_,		vl_sortie2 },
+		{ FALSE,	SYB#INT2_,		vl_poste_oper }
+	} )
+	COM05_SQL_Procedure (XZAE57_Ecrire_Fiche_Echangeur, vl_parametres, vl_resultats, CM_MODULE)
+}
+
+
+/*A
+** Valider la fiche creee avec la cause et la localisation indiquees
+** -----------------------------------------------------------------
+*/
+
+vl_fiche.numero		= va_evt.numero
+vl_fiche.cle		= va_evt.cle
+vl_fiche.numero_cause	= va_cause.numero
+vl_fiche.cle_cause	= va_cause.cle
+vl_fiche.type		= va_type_evt
+vl_fiche.debut		= va_date_debut
+vl_fiche.confirme	= XZAEC_FMC_CONFIRMEE
+vl_fiche.autoroute	= va_echangeur.autoroute
+vl_fiche.pr		= va_echangeur.PR
+vl_fiche.sens		= vl_sens
+vl_fiche.point_car	= XDC_POINT_CARACT_ECHANGEUR
+vl_fiche.nom_point_car	= va_echangeur.numero
+vl_fiche.position	= NULL
+vl_fiche.degatsdom	= XDC_FAUX
+vl_fiche.fausse_alerte	= XDC_FAUX
+vl_fiche.longueur	= 0
+
+vl_fiche.bau_etroite	= XDC_VRAI
+vl_fiche.bau_i_etroite	= XDC_FAUX
+FOR i = 0  TO 9
+	tl_config[i][1] = XDC_VOIE_INEXISTANTE
+NEXT i
+IF (va_type_evt = XZAEC_FMC_Deviation) {
+	tl_config[5][1] = XDC_VOIE_BAU_NORMALE
+	tl_config[6][1] = XDC_VOIE_SENS_NORMAL
+}
+
+vl_fiche.origine = "COUP DE POING"
+IF (SYSTEM_VAR@ ("vg_essai") <> NULL)	vl_fiche.origine = "ESSAI " ++ vl_fiche.origine
+
+IF ITMA_TMC_valide (COM09_Date_Courante (TRUE), vl_fiche, XDC_FMC_ETAT_TRAI, tl_config, NULL, NULL, NULL) <> COM_OK {
+	'INFO_MESSAGE@ ("     ERREUR LORS DE LA VALIDATION DE LA FICHE ECHANGEUR     ")
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/* ===========================================================================================================
+*
+*                            GESTION DES FERMETURES ECHANGEUR CREEES AUTOMATIQUEMENT
+*
+* ============================================================================================================
+*/
+
+VAR					lm_Echangeurs_BAFA	' Liste des echangeurs ou une BAFA est fermee
+VAR	FORMAT	COM_Identifiant_FMC	lm_Fmc_Echangeurs	' Liste des Fmc Fermeture Echangeur correspondantes
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Retourne l'identifiant d'une Fmc Fermeture Echangeur pour un echangeur
+*  donne ou est situee une barriere BAFA. Cree la Fmc si elle n'existe pas.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Fermeture_Echangeur_BAFA (va_num_echangeur, va_sens, va_fmc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_echangeur  : Numero de l'echangeur 
+*   va_sens           : Sens de localisation de la barriere
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_fmc            : Identifiant de la Fmc Fermeture Echangeur
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCPT_Commander_Equipements
+*
+* FONCTION
+*   Recherche si une Fmc Fermeture Echangeur a ete creee pour cet echangeur.
+*   Si ce n'est pas le cas, cree cette Fmc, la memorise et la retourne.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_sens						' Sens de la Fermeture Echangeur
+	VAR	vl_i_ferm_ech, vl_i_ech
+	VAR	vl_date
+	VAR	vl_cr
+
+va_fmc = NULL							' Resultat par defaut
+
+/*A Rechercher une Fmc existante pour cet echangeur et la retourner */
+vl_i_ferm_ech = ARRAY_INDEX@ (lm_Echangeurs_BAFA, va_num_echangeur)
+IF (vl_i_ferm_ech >= 0) {
+	va_fmc = lm_Fmc_Echangeurs[vl_i_ferm_ech]
+	RETURN (COM_OK)
+}
+
+
+/*A Si aucune Fmc n'existe alors ajouter l'echangeur a la liste */
+vl_i_ferm_ech = ARRAY_SIZE@ (lm_Echangeurs_BAFA)
+lm_Echangeurs_BAFA[vl_i_ferm_ech] = va_num_echangeur
+
+
+/*A puis creer une Fmc Fermeture Echangeur pour cet echangeur et la memoriser */
+vl_i_ech = COM45_IndexEnColonne (tm_echangeurs, TDO_NUMERO_ECH, va_num_echangeur)
+IF (vl_i_ech < 0) {
+	RETURN (COM_NOK)
+}
+
+/*A Forcer le sens en entree */
+IF (va_sens = XDC_SENS_NORD)  OR  (va_sens = XDC_SENS_ENTREE_NORD) {
+	vl_sens = XDC_SENS_ENTREE_NORD
+} ELSE IF (va_sens = XDC_SENS_SUD)  OR  (va_sens = XDC_SENS_ENTREE_SUD) {
+	vl_sens = XDC_SENS_ENTREE_SUD
+} ELSE {
+	vl_sens = XDC_SENS_INCONNU
+}
+
+vl_cr = ITMA_TCPT_Creer_Operation_Echangeur (XZAEC_FMC_FermetureEch, vm_Evt, tm_echangeurs[vl_i_ech], vl_sens,
+                                                va_fmc, vl_date)
+lm_Fmc_Echangeurs[vl_i_ferm_ech] = va_fmc
+
+RETURN (vl_cr)
+
+ENDMACRO

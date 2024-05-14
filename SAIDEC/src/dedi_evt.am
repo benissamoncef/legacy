@@ -1,0 +1,385 @@
+/*E*/
+/* Fichier : $Id: dedi_evt.am,v 1.3 1998/02/20 14:25:50 verdier Exp $	      Release : $Revision: 1.3 $        Date : $Date: 1998/02/20 14:25:50 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_var.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* module de manipulation des types de FMC et classes d'evt Rtie
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Thomas	21 fev 1994	: Creation						V1.1
+* Thomas	20 nov 1995	: Prise en compte des attributs proba_signale_pmv	et proba_confirme_pmv	V1.2
+* Guilhou	31 dec 1997	: ajout attribut nature_bifurc (dem/1534)		1.3
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+
+/*A macro vide pour charger le module*/
+MACRO dedi_evt
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*	retourne le nom de la classe RTie associee au type de FMC
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ie_classe (va_fmc)
+
+/*
+* ARGUMENTS EN ENTREE : va_fmc
+*
+* ARGUMENTS EN SORTIE : vl_classe
+*
+* CODE RETOUR         : vl_classe / NULL
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: exploite le fichier de config IE_FILE_TYPES_FMC
+*
+---------------------------------------------------------------------------- */
+VAR tl_evts
+VAR vl_indice
+VAR tl_arg
+VAR vl_classe
+
+	tl_evts=READ_ASCII_FILE@(AX_PATH++IE_FILE_TYPES_FMC)
+
+	FOR vl_indice=0 TO ARRAY_SIZE@(tl_evts)
+		tl_arg = ARRAY_FROM_STRING@(tl_evts[vl_indice], DEDI_CAR_SEPAR)
+		IF tl_arg[0] = va_fmc
+			vl_classe = tl_arg[1]
+	NEXT vl_indice
+
+	RETURN(vl_classe)
+	
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*	construit la definition d'un attribut RTie
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ie_att (va_att, va_type, va_legvals)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_att : le nom de l'attribut
+*	va_type : le type de l'attribut (numeric/boolean/string/enumerated)
+*	va_legvals : les valeurs possibles dans le cas d'un attribut de type enumerated
+*
+* ARGUMENTS EN SORTIE : tl_att
+*
+* CODE RETOUR         : tl_att
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: concatenation de chaines de caracteres 
+*
+---------------------------------------------------------------------------- */
+VAR tl_att
+
+	IF va_legvals <> NULL
+	{
+		tl_att[0] = "  (ATT: "++va_att++";"
+		tl_att[1] = "        TYPE: "++va_type++";"
+		tl_att[2] = "        LEGVALS: "++va_legvals++";"
+		tl_att[3] = "        DISTRIBUTE: false;"
+		tl_att[4] = "  )"
+	}
+	ELSE
+	{
+		tl_att[0] = "  (ATT: "++va_att++";"
+		tl_att[1] = "        TYPE: "++va_type++";"
+		tl_att[2] = "        DISTRIBUTE: false;"
+		tl_att[3] = "  )"
+	}
+
+	RETURN(tl_att)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 	retourne la definition des attributs d'une classe RTie
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ie_attributs (va_classe)
+
+/*
+* ARGUMENTS EN ENTREE : va_classe
+*
+* ARGUMENTS EN SORTIE : tl_att
+*
+* CODE RETOUR         : tl_att
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: appel de ie_att() 
+*
+---------------------------------------------------------------------------- */
+VAR tl_att
+
+	/*A suivant la classe RTie*/
+	CASE OF va_classe
+
+		/*A bouchon */
+		CASE "bouchon"
+			tl_att = ie_att("niveau","enumerated","bouchon")
+
+		/*A accident */
+		CASE "accident"
+			tl_att = ie_att("nb_vl","numeric")
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("nb_pl","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("nb_moto","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("nb_car","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("nb_remorque","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("nb_bl","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("nb_bg","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("nb_morts","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("nb_passagers_bus","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("bebes","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("pers_agees","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("personnalite","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("agent_escota","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("veh_escota","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("degat_domaine","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("animaux","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("mat_dangereuses","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("code_matiere","string"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("chargement","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("nb_passagers","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("commentaire_veh","string"))
+
+		/*A penurie de carburant */
+		CASE "penurie"
+			tl_att = ie_att("carburant","string")
+
+		/*A manifestation */
+		CASE "manif"
+			tl_att = ie_att("nombre","numeric")
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("violence","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("perception","boolean"))
+
+		/*A travaux */
+		CASE "travaux"
+			tl_att = ie_att("sur_rau","boolean")
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("voies_retrecies","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("continu","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("deb_continu","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("fin_continu","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("mobile","boolean"))
+
+
+		/*A basculement */
+		CASE "basculement"
+			tl_att = ie_att("etat_bau","numeric")
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("etat_vl","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("etat_vm1","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("etat_vm2","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("etat_vr","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("etat_bau_i","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("etat_vl_i","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("etat_vm1_i","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("etat_vm2_i","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("etat_vr_i","numeric"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("balisage_pose","boolean"))
+
+		/*A fermeture echangeur */
+		CASE "ferm_ech"
+			tl_att = ie_att("entree1", "boolean")
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("entree2","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("sortie1","boolean"))
+			tl_att = ARRAY_APPEND@(tl_att, ie_att("sortie2","boolean"))
+
+	ENDCASE
+
+	RETURN(tl_att)
+
+ENDMACRO
+	
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*	genere le fichier fmc.cl ou fmc.cl.impr
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO  dedi_make_fmc()
+
+/*
+* ARGUMENTS EN ENTREE : aucun
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: applique le modele IE_MODELE_EVT a partir de vg_evts_ie
+*
+---------------------------------------------------------------------------- */
+VAR FORMAT dedi_evt	tl_evts_ie
+VAR vl_indice
+VAR tl_commentaire
+	
+	/*A on recupere le tableau des donnees RTie sur les evts */
+	tl_evts_ie = SYSTEM_VAR@(vg_evts_ie)
+
+	/*A on applique le modele AW ligne par ligne */
+	FOR vl_indice = 0 TO (ARRAY_SIZE@(tl_evts_ie) - 1)
+		dedi_genere(IE_MODELE_EVT, vl_indice, tl_evts_ie[vl_indice])
+		trace_point()
+	NEXT vl_indice
+
+	/*A on genere le fichier fmc.cl */
+	tl_commentaire[0] = "*        DONNEES COMMUNES :" 
+	tl_commentaire[1] = "*        definition des types d'evenement et operations"
+	tl_commentaire[2] = ""
+	dedi_shell(IE_MODELE_EVT, IE_SUFFIXE_CL, tl_commentaire)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*	initialise vg_evts_ie
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO  dedi_evt_init()
+
+/*
+* ARGUMENTS EN ENTREE : aucun
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: lecture des fichiers de config IE_FILE_TYPES_FMC, IE_FILE_GN_TFM, IE_FILE_GV_TFM, IE_FILE_FIN_TFM, IE_FILE_CAUSE_TFM, IE_FILE_OBJET_FAX, IE_FILE_EVT_PMV
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR tl_gn, tl_gv, tl_fin, tl_cause, tl_fax, tl_pmv
+VAR vl_indice
+VAR tl_ligne
+VAR FORMAT dedi_evt	tl_evts_ie
+
+	/*A chargement des types rtie d'evt depuis le fichier de config*/
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_TYPES_FMC)
+
+	/*A chargement des donnees gn_tfm depuis le fichier de config*/
+	tl_gn = READ_ASCII_FILE@(AX_PATH++IE_FILE_NATUREGN_TFM)
+
+	/*A chargement des donnees gn_tfm depuis le fichier de config*/
+	tl_gv = READ_ASCII_FILE@(AX_PATH++IE_FILE_NATUREGV_TFM)
+
+	/*A chargement des donnees fin_tfm depuis le fichier de config*/
+	tl_fin = READ_ASCII_FILE@(AX_PATH++IE_FILE_FIN_TFM)
+
+	/*A chargement des donnees cause_tfm depuis le fichier de config*/
+	tl_cause = READ_ASCII_FILE@(AX_PATH++IE_FILE_CAUSE_TFM)
+
+	/*A chargement des donnees objet_fax depuis le fichier de config*/
+	tl_fax = READ_ASCII_FILE@(AX_PATH++IE_FILE_OBJET_FAX)
+
+	/*A chargement des donnees pmv depuis le fichier de config*/
+	tl_pmv = READ_ASCII_FILE@(AX_PATH++IE_FILE_EVT_PMV)
+
+	/*A init du tableau */
+	FOR vl_indice=0 to (ARRAY_SIZE@(tl_data)-1)
+
+		tl_ligne = ARRAY_FROM_STRING@(tl_data[vl_indice], DEDI_CAR_SEPAR)
+		tl_evts_ie[vl_indice].fmc = tl_ligne[0]
+		tl_evts_ie[vl_indice].classe = tl_ligne[1]
+		tl_evts_ie[vl_indice].classe_mere = tl_ligne[2]
+		tl_evts_ie[vl_indice].attributs = ie_attributs(tl_ligne[1])
+
+		tl_ligne = ARRAY_FROM_STRING@(tl_gn[vl_indice], DEDI_CAR_SEPAR)
+		IF (ARRAY_SIZE@(tl_ligne)=2 
+		AND ARRAY_SIZE@(ARRAY_FROM_STRING@(tl_ligne[1], DEDI_CAR_VAR))<2 )
+			tl_evts_ie[vl_indice].gn_tfm = tl_ligne[1]
+
+		tl_ligne = ARRAY_FROM_STRING@(tl_gv[vl_indice], DEDI_CAR_SEPAR)
+		IF (ARRAY_SIZE@(tl_ligne)=2 
+		AND ARRAY_SIZE@(ARRAY_FROM_STRING@(tl_ligne[1], DEDI_CAR_VAR))<2 )
+			tl_evts_ie[vl_indice].gv_tfm = tl_ligne[1]
+
+		tl_ligne = ARRAY_FROM_STRING@(tl_fin[vl_indice], DEDI_CAR_SEPAR)
+		IF (ARRAY_SIZE@(tl_ligne)=2 
+		AND ARRAY_SIZE@(ARRAY_FROM_STRING@(tl_ligne[1], DEDI_CAR_VAR))<2 )
+			tl_evts_ie[vl_indice].fin_tfm = tl_ligne[1]
+
+		tl_ligne = ARRAY_FROM_STRING@(tl_cause[vl_indice], DEDI_CAR_SEPAR)
+		tl_evts_ie[vl_indice].cause_tfm = tl_ligne[1]
+
+		tl_ligne = ARRAY_FROM_STRING@(tl_fax[vl_indice], DEDI_CAR_SEPAR)
+		IF (ARRAY_SIZE@(tl_ligne)=2 
+		AND ARRAY_SIZE@(ARRAY_FROM_STRING@(tl_ligne[1], DEDI_CAR_VAR))<2 )
+			tl_evts_ie[vl_indice].objet_fax = tl_ligne[1]
+
+		tl_ligne = ARRAY_FROM_STRING@(tl_pmv[vl_indice], DEDI_CAR_SEPAR)
+		tl_evts_ie[vl_indice].picto_pmv = tl_ligne[1]
+		tl_evts_ie[vl_indice].nature_pmv = ARRAY_TO_STRING@( pmv_construit_ligne(
+						tl_ligne[2] ++ DEDI_CAR_SEPAR 
+						++ tl_ligne[3] ++ DEDI_CAR_SEPAR
+						++ tl_ligne[4] ++ DEDI_CAR_SEPAR,IE_FILE_EVT_PMV))
+		tl_evts_ie[vl_indice].nature_fin_pmv=ARRAY_TO_STRING@(pmv_construit_ligne(
+						tl_ligne[5] ++ DEDI_CAR_SEPAR 
+						++ tl_ligne[6] ++ DEDI_CAR_SEPAR
+						++ tl_ligne[7] ++ DEDI_CAR_SEPAR,IE_FILE_EVT_PMV))
+		tl_evts_ie[vl_indice].proba_signale_pmv = ARRAY_TO_STRING@(
+				pmv_construit_ligne(
+						tl_ligne[8] ++ DEDI_CAR_SEPAR 
+						++ tl_ligne[9] ++ DEDI_CAR_SEPAR
+						++ tl_ligne[10] ++ DEDI_CAR_SEPAR,IE_FILE_EVT_PMV))
+		tl_evts_ie[vl_indice].proba_confirme_pmv = ARRAY_TO_STRING@(
+				pmv_construit_ligne(
+						tl_ligne[11] ++ DEDI_CAR_SEPAR 
+						++ tl_ligne[12] ++ DEDI_CAR_SEPAR
+						++ tl_ligne[13] ++ DEDI_CAR_SEPAR,IE_FILE_EVT_PMV))
+		tl_evts_ie[vl_indice].nature_bifurc_pmv = ARRAY_TO_STRING@(
+				pmv_construit_ligne(
+						tl_ligne[14] ++ DEDI_CAR_SEPAR
+						++ tl_ligne[15] ++ DEDI_CAR_SEPAR
+						++ tl_ligne[16] ++ DEDI_CAR_SEPAR,IE_FILE_EVT_PMV))
+	NEXT vl_indice
+
+	/*A init de la variable globale */
+	SET_SYSTEM_VAR@(vg_evts_ie,tl_evts_ie)
+
+
+ENDMACRO
+

@@ -1,0 +1,568 @@
+/*E*/
+/* Fichier : $Id: ITMA_TTR_Transmission_Evt.am,v 1.20 2020/11/03 17:47:14 pc2dpdy Exp $      Release : $Revision: 1.20 $      Date : $Date: 2020/11/03 17:47:14 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TTR * FICHIER ITMA_TTR_Transmission_Evt.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Transmettre un evenement ou le droit d'enrichir
+*
+*   Cf. DCG 2.4.66
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	26 Sep 1994	: Creation						V1.1
+* Guilhou	13 oct 1994	: inclusion xzic_ax.h				V1.2
+* Guilhou  19 dec 1994	: transmission a un site				V1.4
+* C.T.	  04 Fev 1998	: Ajout gestion des nouveaux sites (1536)	V1.5-V1.6-V1.7
+* C.T.	  09 Fev 1998	: Ajout gestion des nouveaux sites (1536)	V1.12-V1.13
+* JMG	09/02/00	: optimisation gestion des reveils 1.15
+* JMG   10/07/07	: 3 districts de recouvrement 1.16
+* JMG	21/11/07	: N PO par district	DEM/717 1.17
+* JMG	20/12/07	: correction DEM/737 1.18
+* JPL	09/01/09	: Plus de transmission du droit d'enrichir a un poste (DEM 848) 1.19
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+* ABE	11/01/22	:	Ajout du param post in a null pour appel xzae18 
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE    "../inc/xzae15sp.h"
+INCLUDE    "../inc/xzae181sp.h"
+INCLUDE    "../inc/xzae18sp.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+include	"../../XDMICG/inc/xzaec_ax.h"
+
+
+DEFINE	C_MODULE	"MTTR"			' Nom du module
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* permet de transmettre un evenement ou le droit d'enrichir a un autre operateur
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTR_Transmission_Evt (va_mode,va_numero,va_numero_tete)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_numero	: numero de la fiche main courante
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR I,J
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR tl_retour,tl_poke_data
+	VAR vl_nom_site
+	VAR vl_numero_fiche,vl_libelle_fiche
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	VAR vl_heading,vl_table_data
+	VAR vl_indice,vl_sel,vl_index,vl_numero_poste,vl_numero_site
+	VAR FORMAT TDO_Poste_Operateur tl_postes
+	VAR FORMAT TDO_District	tl_districts, tl_les_districts
+	VAR FORMAT TDO_District_local tl_info_district_local
+	VAR vl_pos_district
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Lier ..."
+ * ----------------------------------
+ */
+vl_fenetre = DB_LOAD@ ("ITMA_TTR")
+DB_XPOS@(vl_fenetre,517)
+DB_YPOS@(vl_fenetre,677)
+
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TTR_Transmission_Evt")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+tl_les_districts = SYSTEM_VAR@(vg_les_districts)
+tl_info_district_local = SYSTEM_VAR@(vg_info_district_local)
+/*A si transmission de la fmc*/
+IF (va_mode=TRUE)
+{
+	/*A titre du bouton transmettre*/
+	DB_CTRL_TITLE@(vl_fenetre,"BP_transmettre", "Transmettre la fiche main courante")
+
+	/*A liste des districts niveau 1, 2 a qui transmettre*/
+	J = 0
+	IF SYSTEM_VAR@(vg_site) = XDC_CI
+	{
+		FOR I=0 TO ARRAY_SIZE@(tl_les_districts) - 1
+			IF tl_les_districts[i].numero <> XDC_CI AND tl_les_districts[i][TDO_TYPE_DISTRICT] <> XDC_TYPE_PCNIVEAU3
+			{
+				tl_districts[J] = tl_les_districts[i].numero, tl_les_districts[i].nom
+				J = J + 1
+			}
+		NEXT I
+	}
+	else /* sur un district */
+	{
+		/* district local */
+		/*IF tl_info_district_local.type = XDC_TYPE_PCNIVEAU1
+		{
+			tl_districts[J] = tl_info_district_local.numero, tl_info_district_local.nom
+			J = J + 1
+		}*/
+		/* districts voisins */
+		IF tl_info_district_local.district_rec1 <> NULL
+		{
+			I = ARRAY_INDEX@(ARRAY_COLUMN@(tl_les_districts, TDO_NUMERO_DISTRICT), tl_info_district_local.district_rec1)
+			IF I>=0
+			IF tl_les_districts[I][TDO_TYPE_DISTRICT] <> XDC_TYPE_PCNIVEAU3
+			{
+				tl_districts[J] = tl_les_districts[I].numero, tl_les_districts[I].nom
+				J = J + 1
+			}
+		}
+	IF tl_info_district_local.district_rec2 <> NULL
+		{
+			I = ARRAY_INDEX@(ARRAY_COLUMN@(tl_les_districts, TDO_NUMERO_DISTRICT), tl_info_district_local.district_rec2)
+			IF I>=0
+			IF tl_les_districts[I][TDO_TYPE_DISTRICT] <> XDC_TYPE_PCNIVEAU3
+			{
+				tl_districts[J] = tl_les_districts[I].numero, tl_les_districts[I].nom
+				J = J + 1
+			}
+		}
+	IF tl_info_district_local.district_rec3 <> NULL
+		{
+			I = ARRAY_INDEX@(ARRAY_COLUMN@(tl_les_districts, TDO_NUMERO_DISTRICT), tl_info_district_local.district_rec3)
+			IF I>=0
+			IF tl_les_districts[I][TDO_TYPE_DISTRICT] <> XDC_TYPE_PCNIVEAU3
+			{
+				tl_districts[J] = tl_les_districts[I].numero, tl_les_districts[I].nom
+				J = J + 1
+			}
+		}
+	}
+}
+/*A sinon si transmission du droit d'enrichir*/
+ELSE
+{
+	/*A titre du bouton transmettre*/
+	DB_CTRL_TITLE@(vl_fenetre,"BP_transmettre", "Transmettre le droit d'enrichir")
+
+        tl_districts = { }
+	J = 0
+
+/*
+	/*recherche les autres postes operateurs du site*
+        i = 0
+        vl_parametres[i].type= SYB#INT4_
+        vl_parametres[i].data=SYSTEM_VAR@(vg_numero_poste)
+        vl_parametres[i].output=FALSE
+        i = i + 1
+
+        vl_parametres[i].type= SYB#CHAR_
+        vl_parametres[i].data=SYSTEM_VAR@(vg_nom_site)
+        vl_parametres[i].output=FALSE
+        i = i + 1
+
+        /*A execution de la requete SQL*
+        IF COM05_SQL_Procedure(XZAE181_Liste_Fiches_Operateur_Site_Local,
+                vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+        {
+                RETURN (COM_NOK)
+        }
+
+        tl_districts = vl_resultats.select_results[0]
+	J=ARRAY_SIZE@(tl_districts)
+*/
+
+	/*A liste des districts niveau 1,2 + CI a qui transmettre*/
+	IF SYSTEM_VAR@(vg_site) = XDC_CI
+	{
+		FOR I=0 TO ARRAY_SIZE@(tl_les_districts) - 1
+			IF tl_les_districts[i][TDO_TYPE_DISTRICT] <> XDC_TYPE_PCNIVEAU3  AND
+			     tl_les_districts[i][TDO_NUMERO_DISTRICT] <> XDC_CI
+			{
+				tl_districts[J] = tl_les_districts[i].numero, tl_les_districts[i].nom
+				J = J + 1
+			}
+		NEXT I
+	}
+	else /* sur un district */
+	{
+		/* districts voisins */
+		IF tl_info_district_local.district_rec1<> NULL
+		{
+			I = ARRAY_INDEX@(ARRAY_COLUMN@(tl_les_districts, TDO_NUMERO_DISTRICT), tl_info_district_local.district_rec1)
+			IF I>=0
+			IF tl_les_districts[I][TDO_TYPE_DISTRICT] <> XDC_TYPE_PCNIVEAU3
+			{
+				tl_districts[J] = tl_les_districts[I].numero, tl_les_districts[I].nom
+				J = J + 1
+			}
+		}
+		IF tl_info_district_local.district_rec2 <> NULL
+		{
+			I = ARRAY_INDEX@(ARRAY_COLUMN@(tl_les_districts, TDO_NUMERO_DISTRICT), tl_info_district_local.district_rec2)
+			IF I>=0
+			IF tl_les_districts[I][TDO_TYPE_DISTRICT] <> XDC_TYPE_PCNIVEAU3
+			{
+				tl_districts[J] = tl_les_districts[I].numero, tl_les_districts[I].nom
+				J = J + 1
+			}
+		}
+		IF tl_info_district_local.district_rec3 <> NULL
+		{
+			I = ARRAY_INDEX@(ARRAY_COLUMN@(tl_les_districts, TDO_NUMERO_DISTRICT), tl_info_district_local.district_rec3)
+			IF I>=0
+			IF tl_les_districts[I][TDO_TYPE_DISTRICT] <> XDC_TYPE_PCNIVEAU3
+			{
+				tl_districts[J] = tl_les_districts[I].numero, tl_les_districts[I].nom
+				J = J + 1
+			}
+		}
+		/* ajout du CI */
+		I = ARRAY_INDEX@(ARRAY_COLUMN@(tl_les_districts, TDO_NUMERO_DISTRICT), XDC_CI)
+		tl_districts[J] = tl_les_districts[I].numero, tl_les_districts[I].nom
+	}
+}
+
+/*A
+ * afficher les districts 
+ */
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+vl_heading=NULL
+vl_table_data=NULL
+vl_heading[0,0]="Num"
+vl_heading[0,1]=50
+vl_heading[1,0]="Nom"
+vl_heading[1,1]=400
+DB_TABLE_SET_DATA@(vl_fenetre,"BL_site",tl_districts,vl_heading,NULL)
+
+vl_sel[0]=0
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"BL_site",vl_sel)
+vl_numero_site=tl_districts[0].numero
+vl_nom_site=tl_districts[0].nom
+
+/*A
+ * active les tables des sites et des postes operateurs*/
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BL_site",TRUE)
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+
+/*A
+ * le bouton Quitte est choisi par defaut
+ */
+DB_CTRL_DEFAULT_BUTTON@(vl_fenetre,"BP_quitter",TRUE)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A init*/
+vl_numero_fiche=NULL
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		CASE "BP_quitter"
+			/*A Bye*/
+			RETURN (COM_QUITTE)
+
+		/*A choix d'un site dans la table*/
+		CASE "BL_site"
+			/*A
+			* on determine la liste des postes operateurs du site*/
+			vl_sel=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"BL_site")
+			vl_sel=vl_sel[0]
+			vl_numero_site=tl_districts[vl_sel].numero
+			vl_nom_site=tl_districts[vl_sel].nom
+
+
+		/*A je transmets le droit d'enrichir*/
+		CASE "BP_transmettre"
+			MACRO_WINS_BUSY@()
+			
+			/*A suivant le mode*/
+			CASE OF va_mode
+				/*A transmission du droit d'enrichir*/
+				CASE FALSE
+					vl_numero_poste=null
+					/*IF (SUBSTRING@(vl_nom_site,1,2)="PO")  {
+						vl_numero_poste=vl_numero_site
+						vl_numero_site=null
+					}*/
+					/*A je transmets la fiche (ou la queue)*/
+					IF (ITMA_TTR_Transmet_Droit(va_numero,vl_numero_poste,vl_numero_site)
+													<>COM_OK)
+						RETURN (COM_NOK)	
+
+					/*A rafraichit la liste des fmc en cours*/
+					DB_SEND_POKE@(COM_CANAL_MTLT,
+							va_numero[0]++"|"++
+							va_numero[1]++"|"++
+							XDC_REV_FMC_PAS_ENR)
+
+					RETURN (COM_VALIDE)
+
+				/*A transmission de l'evt*/
+				CASE TRUE
+					IF (ITMA_TTR_Transmet_Evt(va_numero,vl_numero_site)
+													<>COM_OK)
+						RETURN (COM_NOK)	
+
+					/*A s'il y a une tete a transmettre*/
+					IF (va_numero_tete<>null)
+						IF (ITMA_TTR_Transmet_Evt(va_numero_tete,
+										vl_numero_site)<>COM_OK)
+							RETURN (COM_NOK)	
+
+					/*A rafraichit la liste des fmc en cours*/
+					DB_SEND_POKE@(COM_CANAL_MTLT,
+							va_numero[0]++"|"++
+							va_numero[1]++"|"++
+							XDC_REV_FMC_PAS_ENR	)
+
+					RETURN (COM_VALIDE)
+
+			ENDCASE	
+	ENDCASE
+WEND
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* transmet le droit d'enrichir
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ITMA_TTR_Transmet_Droit (FORMAT COM_Identifiant_FMC ta_numero,va_numero_poste,va_numero_site)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_numero	: numero de la fiche evenement
+* va_numero_poste: numero du poste operateur a qui transmettre le droit
+* va_numero_site: numero du site ou se trouve le poste
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   appelee par la macro ci-dessus
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+
+     VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_msg
+
+     vl_parametres[0].type = SYB#INT4_
+   vl_parametres[0].data = ta_numero.numero
+     vl_parametres[0].output = FALSE
+
+     vl_parametres[1].type = SYB#INT4_
+   vl_parametres[1].data = ta_numero.cle
+     vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type= SYB#INT4_
+	vl_parametres[2].data= va_numero_site
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type= SYB#INT4_
+	vl_parametres[3].data=va_numero_poste
+	vl_parametres[3].output=FALSE
+
+	vl_parametres[4].type= SYB#INT4_
+	vl_parametres[4].output=TRUE
+
+	vl_parametres[5].type= SYB#INT4_
+	vl_parametres[5].data=0
+	vl_parametres[5].output=FALSE
+
+	vl_parametres[6].type= SYB#INT4_
+	vl_parametres[6].data=0
+	vl_parametres[6].output=FALSE
+
+	vl_parametres[7].type = SYB#CHAR_                               ' Site local
+	vl_parametres[7].data = SYSTEM_VAR@(vg_nom_site)
+	vl_parametres[7].output = FALSE
+
+	/*A execution de la requete SQL*/
+	IF COM05_SQL_Procedure(XZAE15_Transmettre_Droit_Enrichir,
+					vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		/*A suivant la valeur du resultat*/
+		CASE OF vl_resultats.return_parameters[0]
+			CASE XZAEC_FMC_PAS_ENR
+				INFO_MESSAGE@("Pas le droit d'enrichir")
+				RETURN (COM_NOK)
+
+			CASE XZAEC_FMC_OPR_INC
+				INFO_MESSAGE@("Op�rateur non en activit�")
+				RETURN (COM_NOK)
+	
+			CASE XDC_OK
+				RETURN (COM_VALIDE)
+		ENDCASE
+	}
+	RETURN (COM_OK)
+ENDFUNCTION
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* transmet un evenement
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ITMA_TTR_Transmet_Evt(FORMAT COM_Identifiant_FMC ta_numero,va_numero_site)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_numero	: numero de la fiche evenement
+* va_numero_site: numero du site ou on transmet l'evenement
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   appelee par la macro ci-dessus
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+
+     VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_msg
+
+ 	vl_parametres[0].type= SYB#INT4_
+	vl_parametres[0].data= va_numero_site
+	vl_parametres[0].output = FALSE
+
+    vl_parametres[1].type = SYB#INT4_
+   vl_parametres[1].data = ta_numero.numero
+     vl_parametres[1].output = FALSE
+
+     vl_parametres[2].type = SYB#INT4_
+   vl_parametres[2].data = ta_numero.cle
+     vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type= SYB#INT4_
+	vl_parametres[3].output=TRUE
+
+	vl_parametres[4].type= SYB#INT4_
+	vl_parametres[4].data= null
+	vl_parametres[4].output=FALSE
+
+	vl_parametres[5].type= SYB#CHAR_
+	vl_parametres[5].data=SYSTEM_VAR@(vg_nom_site)
+	vl_parametres[5].output=FALSE
+
+	/*A execution de la requete SQL*/
+	CASE OF  COM05_SQL_Procedure(XZAE18_Ajout_Liste_Evt_Traiter,
+					vl_parametres, vl_resultats, C_MODULE) 
+		CASE XDC_OK
+			INFO_MESSAGE@("Succ�s de la transmission")
+			RETURN (COM_OK)
+		
+		CASE XDC_ARG_INV
+			INFO_MESSAGE@("Arguments invalides")
+			RETURN (COM_NOK)
+
+		CASE XDC_NOK
+			INFO_MESSAGE@("Erreur dans la transmission de l'�v�nement")
+			RETURN (COM_NOK)
+			
+		ENDCASE
+ENDFUNCTION
+

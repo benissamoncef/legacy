@@ -1,0 +1,135 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMA_diffusion_tdp_web.am,v 1.1 2009/10/05 10:36:49 gesconf Exp $     Release : $Revision: 1.1 $      Date :  $Date: 2009/10/05 10:36:49 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLS * FICHIER ITMA_TMA_diffusion_tdp_web.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* PNI 15/01/2009            : Creation DEM v1.1
+* JMG 29/09/2009            : SECTO DEM 887
+* 
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+
+
+DEFINE	C_MODULE	"MTMA"					' Nom du module
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+Demande la diffusion ou la non diffusion des TDP sur le webtrafic.
+Modification du fichier web_tdp_diff.txt sur SPCI pour taweb.x
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMA_diffusion_tdp_web ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_appelant       : Nom de la macro Applix ayant invoque la presente.
+*
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_diffusion                         
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+    VAR	    vl_cmd, i,j 
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+*/
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+    }
+
+/*A
+ * Charger la fenetre 
+ * ------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TMA_diffusion_tdp_web")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_WIDTH@(vl_fenetre, 700)
+DB_XPOS@(vl_fenetre, 0)
+DB_YPOS@(vl_fenetre, 93)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TMA_diffusion_tdp_web")
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BO_diffusion", TRUE)
+
+
+/* affichage a l'ecran de la boite de dialogue et interdit tout calcul */
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+/* affichage de la liste des evts*/
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    
+    CASE OF vl_objet_selecte
+
+    	CASE "BP_Quitter"
+		
+		vl_la_fenetre_est_active = FALSE
+
+	CASE "BO_diffusion"
+		
+		
+		vl_diffusion = DB_CTRL_GET_VALUE@(vl_fenetre,"BO_diffusion") 
+		/* preparation de la commande*/
+		IF (vl_diffusion=0)
+			vl_cmd="remsh SPCI 'cd /produits/migrazur/appliSD/fichiers/stra; cp web_tdp_diff_O.txt web_tdp_diff.txt'"
+		ELSE
+
+			vl_cmd="remsh SPCI 'cd /produits/migrazur/appliSD/fichiers/stra; cp web_tdp_diff_N.txt web_tdp_diff.txt'"
+		/*envoi de la commande*/
+		SHELL_COMMAND@ (vl_cmd)
+		
+    ENDCASE
+WEND
+
+ENDMACRO

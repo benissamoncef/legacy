@@ -1,0 +1,192 @@
+/*E*/
+/* Fichier : $Id: ITMA_TBR_Graver_CD.am,v 1.3 2014/03/24 17:33:52 gesconf Exp $        Release : $Revision: 1.3 $        Date : $Date: 2014/03/24 17:33:52 $
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTBR * FICHIER ITMA_TBR_Graver_CD.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Lancement d'une copie de fichiers sur un CD
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* FERRERO 12/10/04	: creation  1.0
+* FERRERO 15/10/04	: modif :	 1.3	Renomer pf_graver_cd en ITMA_BR....
+* FERRERO 08/02/05	: modif :	 1.5	faute d'orthographe retourner a l'ecole
+* FERRERO 26/03/07	: modif :	 1.6	???
+* JPL	08/02/04	: Stockage en format ASCII; identique a la precedente 1.7
+-------------------------------------------------------------------------------
+*/
+
+INCLUDE	"dbase_.am"
+INCLUDE	"app_ids_.am"				'pour récupérer le nom des appli Applix
+INCLUDE	"windows_.am"				'pour récupérer le nom des appli Applix
+include "errors_.am"
+
+DEFINE	REP_FICHIER	"/produits/migrazur/appliSD/traces/"
+DEFINE	PATH_OUTILS	"/produits/migrazur/appliSD/fichiers/mbo"
+DEFINE	DRIVER_USB	"/produits/migrazur/appliSD/fichiers/deq/DriverCleUSB.txt"
+DEFINE  CMD_RCP		"/produits/migrazur/appliSD/exec/tscmd.x "
+
+DEFINE CMD_DETECTER	"/produits/migrazur/appliSD/exec/tscmd.x '/bin/mount -t vfat "
+
+DEFINE	CMD_RETIRER	"/produits/migrazur/appliSD/exec/tscmd.x '/bin/umount -v /media'"
+
+DEFINE DRIVER_USB_DEBUT	"/produits/migrazur/appliSD/exec/tscmd.x '/bin/ls /dev/sd* > /tmp/Compte-USB-DEBUT'"
+DEFINE DRIVER_USB_FIN   "/produits/migrazur/appliSD/exec/tscmd.x '/bin/ls /dev/sd* > /tmp/Compte-USB-FIN'"
+DEFINE DRIVER_USB_NOM   "/produits/migrazur/appliSD/exec/script_usb.sh"
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Creation d'une boite de dialogue pour permettre de graver un CD
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+
+MACRO ITMA_TBR_Graver_CD ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Aucun
+*
+* CONDITION D'UTILISATION
+*   Appel depuis le sous menu Application / Fonctions annexes
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_exit_value
+	VAR vl_la_fenetre_est_active
+	VAR vl_fenetre			 
+    	VAR vl_indice
+	VAR vl_commande
+	VAR vl_commande2
+	VAR vl_machine
+	VAR vl_liste_fichiers
+	VAR tl_fichiers
+	VAR vl_host
+	VAr tl_data
+	VAR tl_donnees
+	VAR vl_retour_CMD
+	VAR vl_string_CMD
+	VAR vl_trouve
+	VAR vl_driver
+	VAR tl_param
+	VAR count
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	RETURN
+}
+
+
+/*A
+ * Charger la fenetre "menu principal"
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TBR_Graver_CD")
+DB_XPOS@ (vl_fenetre, 300)
+DB_YPOS@ (vl_fenetre, 100)
+
+/*A Recuperer la liste des fichiers disponibles */
+vl_liste_fichiers = SORT@(FILE_SYSTEM_FILES@(PATH_OUTILS,"*"),FALSE)
+
+/*A Initialiser la liste des fichiers */
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_fichiers", vl_liste_fichiers)
+vl_la_fenetre_est_active = TRUE
+
+
+SHELL_COMMAND@(DRIVER_USB_DEBUT)
+
+/*A boucle infinie de traitement des evenements*/
+WHILE vl_la_fenetre_est_active
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+
+	/*B si demande d'execution */
+
+	CASE "BP_Detecter"
+	MACRO_WINS_BUSY@()
+	SHELL_COMMAND@(DRIVER_USB_FIN)
+	SHELL_COMMAND@(DRIVER_USB_NOM)
+
+	if FILE_EXISTS@(DRIVER_USB)
+	{
+		OPEN_ASCII_FILE@(DRIVER_USB, "r")
+		tl_param[0] = READ_FILE@(DRIVER_USB)
+		CLOSE_FILE@(DRIVER_USB)
+		INFO_MESSAGE@("CLE USB DETECTEE :")
+		
+	}
+	else
+	{
+		INFO_MESSAGE@("ATTENTION : CLE USB NON DETECTEE : Enlever le cle USB, puis fermer la fenetre et re-ouvrir la fenetre.")
+		RETURN
+	}
+
+vl_commande=CMD_DETECTER++tl_param[0]++" /media'"
+	vl_retour_CMD=SHELL_COMMAND@(vl_commande)
+/*
+INFO_MESSAGE@ (vl_commande)
+*/
+
+
+	CASE "BP_Copier"
+	MACRO_WINS_BUSY@()
+	tl_fichiers = DB_CTRL_GET_VALUE@(vl_fenetre, "BL_fichiers")
+	IF ((IS_ARRAY@(tl_fichiers)=FALSE) OR(ARRAY_SIZE@(tl_fichiers)=0))
+		INFO_MESSAGE@("Choisir d'abord le ou les fichiers a graver")
+	ELSE
+	{			
+		for vl_indice=0 to (ARRAY_SIZE@(tl_fichiers)-1)
+			vl_commande="cp " ++PATH_OUTILs++"/"++ vl_liste_fichiers[tl_fichiers[vl_indice]]++" /media"
+
+			vl_commande2=CMD_RCP++"'"++vl_commande++"'" 
+INFO_MESSAGE@(vl_commande2)
+				SHELL_COMMAND@(vl_commande2)
+
+		next vl_indice
+
+	}
+
+	CASE "BP_Retirer"
+	MACRO_WINS_BUSY@()
+INFO_MESSAGE@("COMMANDE RETIRER CLE USB EXECUTEE :")
+
+	vl_retour_CMD=SHELL_COMMAND@(CMD_RETIRER)
+
+
+	CASE "BP_quitter"
+	RETURN
+	ENDCASE	
+
+WEND
+ENDMACRO
+
+

@@ -1,0 +1,2061 @@
+/*E*/
+/* Fichier : $Id: ITMA_TVH_Viabilite_Hivernale.am,v 1.8 2020/11/03 17:48:31 pc2dpdy Exp $        $Revision: 1.8 $        $Date: 2020/11/03 17:48:31 $
+------------------------------------------------------------------------------
+*  ESCOTA  *  PROJET PASTRE
+------------------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+------------------------------------------------------------------------------
+*  MODULE MTVH  *  Fichier ITMA_TVH_Viabilite_Hivernale.am
+------------------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*
+*   Gere la table des Conditions de Conduite Hivernale,
+*   la production du document XML et son envoi aux destinataires.
+*
+------------------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  JPL	20/09/12 : Creation (DEM 1032)  1.1
+*  JPL	07/11/12 : Impression date et statut action passee; nom doc. exporte; couleur statut  1.2
+*  JPL	13/11/12 : Suppression 'Secteur ' dans le doc. XML; commande d'export du doc. Excel  1.3
+*  JPL	10/02/15 : Production et envoi aux ASF des conditions de circulation par sens (DEM 1118)  1.4
+*  JPL	17/02/15 : Choix des meilleures conditions de circulation (DEM 1118)  1.5
+*  JPL	19/11/18 : Correction des conditions tracees en base (par sens)  1.6
+*  JPL	20/11/18 : Choix des conditions les moins favorables des deux plus favorables, hors C4 (DEM 1313)  1.7
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+------------------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzaec_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/xzao215sp.h"
+INCLUDE	"GESIHM/inc/xzae76sp.h"
+INCLUDE	"GESIHM/inc/xzac45sp.h"
+INCLUDE	"GESIHM/inc/xzac78sp.h"
+INCLUDE	"GESIHM/inc/xzac79sp.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+
+
+
+/*A Définition des constantes */
+
+DEFINE	CM_MODULE		"MTVH"			' Nom du module
+
+
+DEFINE	CM_CCH_DEFAUT		XZAEC_CCH_C1		' Valeur par defaut des conditions
+DEFINE	CM_CCH_LIB_DEFAUT	XZAEC_CCH_LIB_C1	' ... et son libelle
+
+
+DEFINE	CM_NOM_FICHIER_VH	"vh-donnees-ESCOTA"
+DEFINE	CM_FMT_FICHIER_ASF	"%s_vh-ESCOTA.xml"
+
+DEFINE	CM_MODELE_CCH		"ITMA_TVH_Viabilite_Hivernale"
+DEFINE	CM_SOUS_REP_MODELES	COM_SOUS_REP_IHM
+
+DEFINE	CM_CMD_ENVOI_VH		"tienvoivh.ksh"
+DEFINE	CM_CMD_ENVOI_VH_ASF	"tienvoivh_ASF.ksh"
+DEFINE	CM_CMD_EXPORT_VH	"tiexportvh.ksh"
+
+DEFINE	CM_REP_TEMPO		"/tmp/"
+
+
+DEFINE	CM_ERR_LGR_MAX_CMT	1			' Codes d'erreur specifiques au module
+
+
+DEFINE	CM_LG_MAX_CMT		200			' Taille maximale des commentaires
+
+
+
+/*A
+** Format d'une fiche action transmise de la main courante
+** -------------------------------------------------------
+*/
+
+FORMAT	TMC_actionFiche
+	numero_fiche,
+	cle_fiche,
+	numero_action,
+	cle_action,
+	libelle_fiche,
+	heure_action,
+	etat_action
+
+
+
+/*A
+** Format des donnees Troncons de Viabilite Hivernale
+** --------------------------------------------------
+*/
+
+DEFINE	TVH_TRC_VH_NUMERO	0
+DEFINE	TVH_TRC_VH_NOM		1
+DEFINE	TVH_TRC_VH_VALIDE	6
+
+FORMAT	TVH_Troncon_VH
+	numero,						' Numero du troncon
+	nom,						' Nom du troncon
+	district,					' Numero du secteur du troncon
+	autoroute,					' Numero de l'autoroute
+	PR_debut,					' Pr de debut du troncon
+	PR_fin,						' Pr de fin du troncon
+	valide,
+	inversee
+
+
+
+/*A
+** Format des donnees VH affichees
+** -------------------------------
+*/
+
+DEFINE	TVH_CCH_NOM_TRC		0
+DEFINE	TVH_CCH_SENS_TRC	1
+
+FORMAT	TVH_Conditions_Conduite
+	troncon,
+	sens,
+	valeur_cch,
+	commentaire
+
+
+
+/*A
+** Format d'un noeud de document XML
+** ---------------------------------
+*/
+
+FORMAT	XML_Noeud
+	nom,
+	t_attributs,
+	FORMAT XML_Noeud valeur
+
+
+
+/*A Définition des variables globales */
+VAR	FORMAT TVH_Troncon_VH		tm_troncons_VH		' Liste des troncons de viabilite hivernale
+
+VAR	FORMAT TVH_Conditions_Conduite	tm_CCH			' Donnees de conditions de conduite affichees
+VAR	tm_titres_CCH						' Titres de cette table
+
+VAR	vm_num_action_VH					' Numero de la derniere action
+VAR	vm_date_action_VH					' Date derniere action, valuee a chaque envoi
+VAR	vm_etat_action_VH					' Etat (resultat) de la derniere action
+
+VAR	vm_envoi_ASF_et_DIT					' Faux en consultation, envoi DIT seulement
+
+
+/*A Données de configuration */
+VAR	FORMAT TDO_Dictionnaire		tm_Config_CCH		' Valeurs et libelles des conditions de conduite
+
+VAR	FORMAT TDO_District		tm_Secteurs		' Donnees des secteurs du reseau
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Visualisation et saisie des Conditions de Conduite Hivernale.
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TVH_Viabilite_Hivernale (va_appelant, va_ficheAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*  va_ficheAction     : Donnees de l'action consultee depuis la main courante.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*  Presente a l'operateur la table des conditions de conduite hivernale,
+*  permet la modification des conditions et du commentaire pour chaque
+*  tronçon, et la production et l'envoi du document XML.
+*
+--------------------------------------------------------------------------------- */
+
+	VAR	vl_fenetre
+	VAR	vl_objet_selecte			' L'objet courant de la fenetre
+	VAR	tl_les_messages_acceptes		' Pour reception de signaux
+	VAR	vl_la_fenetre_est_active
+	VAR	vl_installer_traitement_erreur
+
+	VAR	FORMAT TVH_Conditions_Conduite	tl_CCH_trc, tl_CCH_ASF
+	VAR	vl_fichier_VH, vl_fichier_ASF
+	VAR	vl_commentaire, vl_cmt_synthese, vl_lg_cmt
+
+	VAR	vl_appelant
+	VAR	vl_date_export, vl_date_doc_ASF
+	VAR	vl_date
+	VAR	vl_jour, vl_mois, vl_annee, vl_heure, vl_minute, vl_seconde
+	VAR	vl_txt_err
+	VAR	vl_select
+	VAR	vl_cmd, tl_cr_cmd
+	VAR	vl_cr, vl_cr_ASF
+	VAR	vl_i_cch, vl_i
+
+vl_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+
+
+/*A
+** Traitements en cas d'erreur :
+** informer l'operateur, tracer l'erreur et abandonner
+** ---------------------------------------------------
+*/
+
+ON ERROR
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN
+}
+
+
+/*A
+** Charger la fenetre "Viabilite Hivernale"
+** ----------------------------------------
+*/
+
+vl_fenetre = DB_LOAD@ ("ITMA_TVH")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+
+
+/*A
+** Definir les caracteristiques (initiales) des objets graphiques
+** --------------------------------------------------------------
+*/
+
+
+
+/*A
+** Mettre en place la reception des messages
+** -----------------------------------------
+*/
+
+tl_les_messages_acceptes = {
+	COM_CANAL_FIN
+}
+DB_ACCEPT_POKES@ (vl_fenetre, tl_les_messages_acceptes)
+
+
+
+/*A
+** Initialiser la visualisation
+** ----------------------------
+*/
+
+IF ITMA_TVH_Init_Viabilite_Hivernale (vl_fenetre, vl_appelant, va_ficheAction) <> COM_OK {
+	RETURN (COM_NOK)
+}
+
+
+
+/*A
+** Traitements en cas d'erreur durant la visualisation :
+** informer l'operateur et selon la nature et la gravite
+** de l'erreur la tracer ou non, continuer ou abandonner
+** -----------------------------------------------------
+*/
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		IF (ERROR_NUMBER@ () <> CM_ERR_LGR_MAX_CMT) {
+			COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+		}
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+
+/*A
+** Tant que la fenetre n'est pas desactivee, la visualiser
+** -------------------------------------------------------
+*/
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY_ONLY@ (vl_fenetre, FALSE)
+	DB_DISPLAY@ (vl_fenetre)
+	DB_DISPLAY_ONLY@ (vl_fenetre, TRUE)
+
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+	CASE OF vl_objet_selecte
+
+	/*A
+	** Sur selection d'une ligne de troncon dans la table,
+	** copier ses donnees en zone de saisie pour edition
+	** ---------------------------------------------------
+	*/
+
+	CASE "TA_CCH"
+		vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_CCH")
+		vl_i = vl_select[0]
+
+		DB_EDITBOX_SET_DATA@ (vl_fenetre, "BE_Commentaire", { tm_CCH[vl_i].commentaire })
+		vl_i_cch = COM45_IndexEnColonne (tm_Config_CCH, TDO_DICO_VAL, tm_CCH[vl_i].valeur_cch)
+		DB_CTRL_VALUE@ (vl_fenetre, "BC_CCH", vl_i_cch)
+
+
+
+	/*A
+	** Sur action "Modifier", si un troncon est selectionne
+	** alors le mettre a jour et autoriser l'envoi du document
+	** -------------------------------------------------------
+	*/
+
+	CASE "BP_Modifier"
+		DB_CTRL_TITLE@ (vl_fenetre, "LI_Statut", "")
+
+		vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre, "TA_CCH")
+		IF ARRAY_SIZE@ (vl_select) > 0
+		{
+			vl_i_cch = DB_CTRL_GET_VALUE@ (vl_fenetre, "BC_CCH")
+			vl_commentaire = TVH_Commentaire (vl_fenetre, "BE_Commentaire")
+
+			/*B verifier que la taille du commentaire n'excede pas sa limite */
+			vl_lg_cmt = LEN@ (vl_commentaire)
+			IF (vl_lg_cmt > CM_LG_MAX_CMT)
+			{
+				DB_EDITBOX_SELECTION@ (vl_fenetre, "BE_Commentaire", 1, 1, 1, 2)
+				vl_txt_err = "La taille du commentaire est de " ++ vl_lg_cmt ++
+				                " caractères, la limite est " ++ CM_LG_MAX_CMT
+				ERROR@ (CM_ERR_LGR_MAX_CMT, vl_txt_err)
+			}
+
+			/*B mettre a jour la table avec les valeurs saisies */
+			vl_i = vl_select[0]
+			tm_CCH[vl_i].valeur_cch = tm_Config_CCH[vl_i_cch].valeur
+			tm_CCH[vl_i].commentaire = vl_commentaire
+			DB_TABLE_SET_DATA@ (vl_fenetre, "TA_CCH", tm_CCH, tm_titres_CCH, NULL)
+			DB_TABLE_SET_SELECTIONS@ (vl_fenetre, "TA_CCH", vl_select)
+
+			/*B reinitialiser l'action et sa date */
+			vm_num_action_VH = NULL
+			vm_date_action_VH = NULL
+			vm_etat_action_VH = NULL
+		}
+
+
+
+	/*A
+	** Sur actions "Envoyer", produire et transferer les documents au format DIT et/ou ASF
+	** -----------------------------------------------------------------------------------
+	*/
+
+	CASE "BP_Envoyer"
+	CASE "BP_Envoyer_ASF"
+		DB_CTRL_TITLE@ (vl_fenetre, "LI_Statut", "")
+
+		vl_cmt_synthese = TVH_Commentaire (vl_fenetre, "BE_Comment_Gen")
+		/*B verifier que la taille du commentaire n'excede pas sa limite */
+		vl_lg_cmt = LEN@ (vl_cmt_synthese)
+		IF (vl_lg_cmt > CM_LG_MAX_CMT)
+		{
+			DB_EDITBOX_SELECTION@ (vl_fenetre, "BE_Comment_Gen", 1, 1, 1, 2)
+			vl_txt_err = "La taille du commentaire de synthèse est de " ++ vl_lg_cmt ++
+					" caractères, la limite est " ++ CM_LG_MAX_CMT
+			ERROR@ (CM_ERR_LGR_MAX_CMT, vl_txt_err)
+		}
+
+		/*B Inhiber un nouvel envoi */
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Envoyer", TRUE)
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Envoyer_ASF", TRUE)
+		DB_DISPLAY@ (vl_fenetre)
+
+		vl_date = COM09_Date_Courante (TRUE)
+
+		/* Si l'envoi aux ASF est demande */
+		IF (vl_objet_selecte = "BP_Envoyer_ASF")  OR  (vm_envoi_ASF_et_DIT = TRUE)
+		{
+			ITMA_TVH_Formater_CCH_ASF (tm_CCH, tl_CCH_ASF)
+
+			vl_seconde = TRUE
+			COM14_Valeurs_Horodate (vl_date, vl_jour, vl_mois, vl_annee, vl_heure, vl_minute, vl_seconde)
+			vl_date_doc_ASF = FORMAT@ ("%04d%02d%02d%02d%02d%02d",
+						      vl_annee, vl_mois, vl_jour, vl_heure, vl_minute, vl_seconde)
+			vl_fichier_ASF = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_DYN ++
+					    FORMAT@ (CM_FMT_FICHIER_ASF, vl_date_doc_ASF)
+			vl_cr_ASF = TVH_Produire_Document_VH (vl_fichier_ASF, vl_date, vl_cmt_synthese, tl_CCH_ASF)
+			IF (vl_cr_ASF = COM_OK) {
+				vl_cmd = FORMAT@ ("%s %s", CM_CMD_ENVOI_VH_ASF, vl_fichier_ASF)
+				tl_cr_cmd = SHELL_COMMAND@ (vl_cmd)
+			}
+		}
+
+		/* Si l'envoi a la DIT est demande */
+		IF (vl_objet_selecte = "BP_Envoyer")
+		{
+			ITMA_TVH_Synthese_Sens (tm_CCH, tl_CCH_trc)
+			vl_fichier_VH = SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+					   COM_SOUS_REP_DYN ++ CM_NOM_FICHIER_VH ++ ".xml"
+			vl_cr = TVH_Produire_Document_VH (vl_fichier_VH, vl_date, vl_cmt_synthese, tl_CCH_trc)
+			IF (vl_cr = COM_OK) {
+				vl_cr = TVH_Envoyer_Document_VH (vl_date, vl_fichier_VH, tl_CCH_trc, vl_fenetre)
+			}
+		}
+
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Envoyer", FALSE)
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Envoyer_ASF", FALSE)
+
+
+
+	/*A
+	** Sur action "Exporter", produire le tableau au format EXCEL
+	** ----------------------------------------------------------
+	*/
+
+	CASE "BP_Exporter"
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Exporter", TRUE)
+
+		vl_cmt_synthese = TVH_Commentaire (vl_fenetre, "BE_Comment_Gen")
+		vl_cmt_synthese = SUBSTRING@ (vl_cmt_synthese, 1, CM_LG_MAX_CMT)
+
+		TVH_Exporter (vl_fenetre, vm_num_action_VH, vm_date_action_VH, vl_cmt_synthese, tm_CCH)
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Exporter", FALSE)
+
+
+
+	/*A
+	** Sur action "Imprimer", produire un document texte et l'imprimer
+	** ---------------------------------------------------------------
+	*/
+
+	CASE "BP_Imprimer"
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Imprimer", TRUE)
+		DB_DISPLAY@ (vl_fenetre)
+
+		vl_cmt_synthese = TVH_Commentaire (vl_fenetre, "BE_Comment_Gen")
+		vl_cmt_synthese = SUBSTRING@ (vl_cmt_synthese, 1, CM_LG_MAX_CMT)
+
+		TVH_Imprimer (vm_num_action_VH, vm_date_action_VH, vm_etat_action_VH,
+		                 vl_cmt_synthese, tm_CCH)
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Imprimer", FALSE)
+
+
+
+	CASE "BP_Quitter"
+		vl_la_fenetre_est_active = FALSE
+
+
+
+	CASE "poke_"
+		CASE OF  DB_GET_POKE@ (vl_fenetre)
+
+		/*A
+		** Sur reception d'un message de fin,
+		** terminer la tache et fermer la fenetre
+		** --------------------------------------
+		*/
+
+		CASE COM_CANAL_FIN
+			vl_la_fenetre_est_active = FALSE
+
+		ENDCASE
+	ENDCASE
+WEND
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialise la visualisation du module de Viabilite Hivernale.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TVH_Init_Viabilite_Hivernale (va_fenetre, va_appelant, va_ficheAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fenetre          : Id. de la fenetre a initialiser ;
+* va_appelant         : Nom du module appelant ;
+* va_ficheAction      : Donnees de l'action a visualiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TVH_Viabilite_Hivernale
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+	VAR	vl_cr
+	VAR	i, k
+
+vl_cr = COM_OK
+
+/*A Lire dans l'environnement la liste des secteurs */
+tm_Secteurs = SYSTEM_VAR@ (vg_les_districts)
+
+
+/*A Initialiser la configuration des conditions de conduite */
+tm_Config_CCH = {
+	{ XZAEC_CCH_C1,		XZAEC_CCH_LIB_C1 },
+	{ XZAEC_CCH_C2,		XZAEC_CCH_LIB_C2 },
+	{ XZAEC_CCH_C3,		XZAEC_CCH_LIB_C3 },
+	{ XZAEC_CCH_C4,		XZAEC_CCH_LIB_C4 }
+}
+
+DB_CTRL_STRINGS@ (va_fenetre, "BC_CCH", ARRAY_COLUMN@ (tm_Config_CCH, TDO_DICO_VAL))
+DB_COMBO_EDITABLE@ (va_fenetre, "BC_CCH", FALSE)
+
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Statut", "")
+
+/*A Definir les colonnes de la table des conditions de conduite */
+tm_titres_CCH = {
+	{ "Tronçon",		280 },
+	{ "Sens",		40 },
+	{ "CCH",		40 },
+	{ "Commentaire",	1200 }
+}
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)
+DB_DISPLAY@ (va_fenetre)
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_CCH", NULL, tm_titres_CCH, NULL)
+
+'NOTHING								' 105, cars, scroll 145
+'DB_TABLE_SET_FONT@ (va_fenetre, "TA_CCH", NULL, 14, FALSE, FALSE)	' 100, cars, scroll 140
+'DB_TABLE_SET_FONT@ (va_fenetre, "TA_CCH", NULL, 13, TRUE, FALSE)	' 110, cars, scroll 150
+
+DB_TABLE_ALLOW_EDITING@ (va_fenetre, "TA_CCH", FALSE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (va_fenetre, "TA_CCH", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, "TA_CCH", TRUE)
+
+DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_CCH", NULL)
+
+
+/*A Lire en base la liste des troncons VH */
+vl_parametres = { }
+
+IF COM05_SQL_Procedure (XZAO215_Liste_Troncons_VH,
+			   vl_parametres, vl_resultats, CM_MODULE) <> COM_OK
+{
+	INFO_MESSAGE@ ("Erreur lors de la lecture des tronçons de Viabilité hivernale")
+	RETURN (COM_NOK)
+}
+
+tm_troncons_VH = vl_resultats.select_results[0]
+
+
+/*A Afficher la liste des troncons d'autoroute */
+k = 0
+FOR i = 0  TO ARRAY_SIZE@ (tm_troncons_VH) - 1
+	tm_CCH[k].troncon	= tm_troncons_VH[i].nom
+	tm_CCH[k].sens		= XDC_LIB_SENS_SUD
+	tm_CCH[k+1].troncon	= tm_troncons_VH[i].nom
+	tm_CCH[k+1].sens	= XDC_LIB_SENS_NORD
+	k = k + 2
+NEXT i
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_CCH", tm_CCH, tm_titres_CCH, NULL)
+
+
+/*A Sur appel depuis la main courante, lire et afficher l'action VH selectionnee */
+IF (va_appelant = "MTMC") {
+	vm_envoi_ASF_et_DIT = FALSE
+	vl_cr = ITMA_TVH_Consulter_Action (va_fenetre, va_ficheAction)
+} ELSE IF (va_appelant = "MTMT") {
+	/*A et sur appel depuis le menu, constituer les conditions actuelles */
+	vm_envoi_ASF_et_DIT = TRUE
+	vl_cr = ITMA_TVH_Init_Conditions_Actuelles (va_fenetre)
+}
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche l'etat d'une action d'envoi de Conditions de Conduite Hivernale.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+/* Format des donnees d'action VH lues en base */
+FORMAT	TVH_Donnees_CCH
+	troncon,
+	cch,
+	commentaire
+
+
+MACRO ITMA_TVH_Consulter_Action (va_fenetre, FORMAT TMC_actionFiche va_ficheAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fenetre          : Id. de la fenetre a initialiser ;
+* va_ficheAction      : Donnees de l'action a visualiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TVH_Viabilite_Hivernale
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+	VAR	FORMAT TVH_Donnees_CCH	tl_conditions
+	VAR	vl_id_cch, vl_id_cch_defaut
+	VAR	vl_id_trc, vl_nom_trc
+	VAR	i, k
+
+
+/*A Lire en base les donnees de l'action VH */
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#INT4_,		va_ficheAction.numero_action },
+	{ FALSE,	SYB#INT1_,		va_ficheAction.cle_action },
+	{ TRUE,		SYB#DATETIME_,		NULL },
+	{ TRUE,		SYB#DATETIME_,		NULL },
+	{ TRUE,		SYB#DATETIME_,		NULL },
+	{ TRUE,		SYB#DATETIME_,		NULL }
+} )
+
+IF COM05_SQL_Procedure (XZAC45_Lire_Action_Envoi_CCH,
+			   vl_parametres, vl_resultats, CM_MODULE) <> COM_OK
+{
+	INFO_MESSAGE@ ("Erreur lors de la lecture de l'action d'envoi des conditions de conduite")
+	RETURN (COM_NOK)
+}
+tl_conditions = vl_resultats.select_results[0]
+
+
+/*A Initialiser la table de synthese avec les conditions par defaut */
+vl_id_cch_defaut = COM45_IndexEnColonne (tm_Config_CCH, TDO_DICO_CLE, CM_CCH_DEFAUT)
+FOR i = 0  TO (ARRAY_SIZE@ (tm_CCH) - 1)
+	tm_CCH[i].valeur_cch	= tm_Config_CCH[vl_id_cch_defaut].valeur
+	tm_CCH[i].commentaire	= ""
+NEXT i
+
+
+/*A Surcharger la table de synthese avec les donnees de l'action */
+FOR i = 0  TO (ARRAY_SIZE@ (tl_conditions) - 1)
+	IF (tl_conditions[i].troncon = 0)
+	{
+		DB_EDITBOX_SET_DATA@ (va_fenetre, "BE_Comment_Gen", { tl_conditions[i].commentaire })
+	}
+	ELSE
+	{
+		vl_id_trc = COM45_IndexEnColonne (tm_troncons_VH, TVH_TRC_VH_NUMERO, tl_conditions[i].troncon)
+		vl_id_cch = COM45_IndexEnColonne (tm_Config_CCH, TDO_DICO_CLE, tl_conditions[i].cch)
+		IF (vl_id_trc >= 0)  AND  (vl_id_cch >= 0)
+		{
+			vl_nom_trc = tm_troncons_VH[vl_id_trc].nom
+			FOR k = 0  TO (ARRAY_SIZE@ (tm_CCH) - 1)
+				IF (tm_CCH[k].troncon = vl_nom_trc) {
+					tm_CCH[k].valeur_cch	= tm_Config_CCH[vl_id_cch].valeur
+					tm_CCH[k].commentaire	= tl_conditions[i].commentaire
+				}
+			NEXT k
+		}
+	}
+NEXT i
+
+vm_num_action_VH = va_ficheAction.numero_action
+vm_date_action_VH = COM18_Date_SGBD_Formatee (va_ficheAction.heure_action)
+vm_etat_action_VH = va_ficheAction.etat_action
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_CCH", tm_CCH, tm_titres_CCH, NULL)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Retourne la condition resultant de deux conditions RENSEIGNEES.
+*  Le choix consiste a prendre la moins favorable des deux.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TVH_Condition_Composee (vl_cch_1, vl_cch_2)
+	IF (vl_cch_1 = XZAEC_CCH_NR) {
+		RETURN (vl_cch_2)
+	} ELSE IF (vl_cch_2 = XZAEC_CCH_NR) {
+		RETURN (vl_cch_1)
+	} ELSE {
+		RETURN (MAX@ (vl_cch_1, vl_cch_2))
+	}
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  A partir des donnees par sens, produit les conditions sens confondus.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TVH_Synthese_Sens (FORMAT TVH_Conditions_Conduite ta_CCH,
+                                 FORMAT TVH_Conditions_Conduite ta_CCH_trc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   ta_CCH            : Conditions de conduite par sens.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_CCH_trc        : Conditions de conduite sens confondus.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TVH_Viabilite_Hivernale
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	vl_i_trc
+	VAR	vl_id_cch1, vl_id_cch2
+	VAR	vl_cch_trc
+	VAR	FORMAT TVH_Conditions_Conduite	vl_CCH
+	VAR	i
+
+ta_CCH_trc = { }
+
+/*A Pour chaque donnee de conditions de circulation orientee */
+FOR i = 0  TO (ARRAY_SIZE@ (ta_CCH) - 1)
+	vl_i_trc = COM45_IndexEnColonne (ta_CCH_trc, TVH_CCH_NOM_TRC, ta_CCH[i].troncon)
+
+	/*A si des conditions existent pour ce troncon dans l'autre sens */
+	IF (vl_i_trc >= 0) {
+		/*A alors effectuer la synthese des deux sens pour le troncon */
+		vl_id_cch1 = COM45_IndexEnColonne (tm_Config_CCH, TDO_DICO_VAL, ta_CCH_trc[vl_i_trc].valeur_cch)
+		vl_id_cch2 = COM45_IndexEnColonne (tm_Config_CCH, TDO_DICO_VAL, ta_CCH[i].valeur_cch)
+		vl_cch_trc = TVH_Condition_Composee (tm_Config_CCH[vl_id_cch1].kle, tm_Config_CCH[vl_id_cch2].kle)
+		IF (vl_cch_trc <> tm_Config_CCH[vl_id_cch1].kle) {
+			ta_CCH_trc[vl_i_trc].valeur_cch = ta_CCH[i].valeur_cch
+		}
+		IF (ta_CCH[i].commentaire <> "") {
+			ta_CCH_trc[vl_i_trc].commentaire = TRIM@ (ta_CCH_trc[vl_i_trc].commentaire) ++
+			                                      "; " ++ ta_CCH[i].commentaire
+		}
+	}
+	ELSE {
+		vl_CCH = { }
+		vl_CCH.troncon = ta_CCH[i].troncon
+		vl_CCH.sens = "les 2 sens"
+		vl_CCH.valeur_cch = ta_CCH[i].valeur_cch
+		vl_CCH.commentaire = ta_CCH[i].commentaire
+		ta_CCH_trc[ARRAY_SIZE@ (ta_CCH_trc)] = vl_CCH
+	}
+NEXT i
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Formate les donnees de conditions de conduite (troncon, sens) pour ASF.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TVH_Formater_CCH_ASF (FORMAT TVH_Conditions_Conduite ta_CCH,
+                                    FORMAT TVH_Conditions_Conduite ta_CCH_ASF)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   ta_CCH            : Conditions de conduite affichees.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   ta_CCH_ASF        : Conditions de conduite au format ASF.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TVH_Viabilite_Hivernale
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	vl_i_trc
+	VAR	vl_cr
+	VAR	i, j
+
+vl_cr = COM_OK
+ta_CCH_ASF = { }
+j = 0
+
+/*A Pour chaque donnee de conditions de circulation */
+FOR i = 0  TO (ARRAY_SIZE@ (ta_CCH) - 1)
+	vl_i_trc = COM45_IndexEnColonne (tm_troncons_VH, TVH_TRC_VH_NOM, ta_CCH[i].troncon)
+
+	/*A si le troncon est connu alors */
+	IF (vl_i_trc >= 0) {
+		/*A renseigner le sens positif ou negatif au sens ASF et renommer le troncon */
+		IF ( (ta_CCH[i].sens = XDC_LIB_SENS_SUD) AND (tm_troncons_VH[vl_i_trc].inversee > 0) )  OR
+		   ( (ta_CCH[i].sens = XDC_LIB_SENS_NORD) AND (tm_troncons_VH[vl_i_trc].inversee < 0) )
+		{
+			ta_CCH_ASF[j].troncon = ta_CCH[i].troncon ++ " p"
+			ta_CCH_ASF[j].sens = "positif"
+		}
+		ELSE
+		{
+			ta_CCH_ASF[j].troncon = ta_CCH[i].troncon ++ " n"
+			ta_CCH_ASF[j].sens = "négatif"
+		}
+		ta_CCH_ASF[j].valeur_cch = ta_CCH[i].valeur_cch
+		ta_CCH_ASF[j].commentaire = ta_CCH[i].commentaire
+		j = j + 1
+	} ELSE {
+		vl_cr = COM_NOK
+	}
+NEXT i
+
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Retourne la condition la moins favorable des deux plus favorables
+*  ou la condition la plus favorable s'il n'y en a que des deux
+*  parmi celles d'une liste donnée (les valeurs des voies circulées).
+*  La condition C4 est ignoree sauf si elle concerne toutes les voies.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TVH_Condition_Voies (la_cch)
+	VAR	ll_cch
+	VAR	i
+
+/* Filtrer les valeurs renseignées */
+ll_cch = { }
+FOR i = 0  TO (ARRAY_SIZE@ (la_cch) - 1)
+	IF (la_cch[i] <> XZAEC_CCH_NR) {
+		ll_cch[ARRAY_SIZE@ (ll_cch)] = la_cch[i]
+	}
+NEXT i
+
+CASE OF  ARRAY_SIZE@ (ll_cch)
+CASE 0
+	RETURN (XZAEC_CCH_NR)
+CASE 1
+	RETURN (ll_cch[0])
+DEFAULT
+	ll_cch = SORT@ (ll_cch, FALSE)
+	IF (ARRAY_SIZE@ (ll_cch) = 2) {
+		RETURN (ll_cch[0])			' Ignorer la voie la plus défavorable
+	} ELSE IF (ll_cch[1] = XZAEC_CCH_C4) {
+		RETURN (ll_cch[0])
+	} ELSE {
+		RETURN (ll_cch[1])
+	}
+ENDCASE
+
+ENDFUNCTION
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche et prepare l'envoi des Conditions de Conduite actuelles.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+/* Format des donnees Meteo actuelles lues en base */
+FORMAT	TVH_Donnees_Meteo_CCH
+	evenement, cle,
+	date_validation,
+	autoroute,
+	PR_debut, PR_fin,
+	cch_VR, cch_VM2, cch_VM1, cch_VL, cch_BAU,
+	cch_VR_I, cch_VM2_I, cch_VM1_I, cch_VL_I, cch_BAU_I,
+	precipitations,
+	sit
+
+
+MACRO ITMA_TVH_Init_Conditions_Actuelles (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fenetre          : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TVH_Viabilite_Hivernale
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+	VAR	FORMAT TVH_Donnees_Meteo_CCH	tl_meteo, tl_CCH_zone
+	VAR	ll_CCH_zone_s1, ll_CCH_zone_s2, ll_CCH_trc
+	VAR	vl_cch_s1, vl_cch_s2
+	VAR	vl_deb_zone, vl_fin_zone
+	VAR	vl_deb_trc, vl_fin_trc
+	VAR	vl_PR1, vl_PR2
+	VAR	vl_cmt
+	VAR	i, j, k, t
+
+/*A Lire en base les donnees les conditions meteo actuelles */
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#DATETIME_,		NULL },
+	{ FALSE,	SYB#INT4_,		NULL },
+	{ FALSE,	SYB#INT1_,		NULL }
+} )
+
+IF COM05_SQL_Procedure (XZAE76_Lire_Conditions_Conduite,
+			   vl_parametres, vl_resultats, CM_MODULE) <> COM_OK
+{
+	INFO_MESSAGE@ ("Erreur lors de la lecture des conditions de conduite actuelles")
+	RETURN (COM_NOK)
+}
+tl_meteo = vl_resultats.select_results[0]
+
+
+tl_CCH_zone = { }
+j = 0
+
+/*A Pour chaque zone ou les conditions meteo sont definies */
+FOR i = 0  TO (ARRAY_SIZE@ (tl_meteo) - 1)
+	/*A determiner la condition la moins favorable a deneiger sur les voies circulees de la zone en sens 1 */
+	vl_cch_s1 = TVH_Condition_Voies ({ tl_meteo[i].cch_VR, tl_meteo[i].cch_VM2, tl_meteo[i].cch_VM1, tl_meteo[i].cch_VL })
+
+	/*A determiner la condition la moins favorable a deneiger sur les voies circulees de la zone en sens 2 */
+	vl_cch_s2 = TVH_Condition_Voies ({ tl_meteo[i].cch_VR_I, tl_meteo[i].cch_VM2_I, tl_meteo[i].cch_VM1_I, tl_meteo[i].cch_VL_I })
+
+	/*A conserver la zone si ses conditions sont plus mauvaises que le defaut */
+	IF (vl_cch_s1 = XZAEC_CCH_NR)  vl_cch_s1 = CM_CCH_DEFAUT
+	IF (vl_cch_s2 = XZAEC_CCH_NR)  vl_cch_s2 = CM_CCH_DEFAUT
+
+	IF NOT ( (vl_cch_s1 = CM_CCH_DEFAUT)  AND  (vl_cch_s2 = CM_CCH_DEFAUT) )
+	{
+		tl_CCH_zone[j] = tl_meteo[i]
+		ll_CCH_zone_s1[j] = vl_cch_s1
+		ll_CCH_zone_s2[j] = vl_cch_s2
+		j = j + 1
+	}
+NEXT i
+
+
+/*A Initialiser les conditions sur les troncons */
+FOR i = 0  TO (ARRAY_SIZE@ (tm_CCH) - 1)
+	ll_CCH_trc[i] = XZAEC_CCH_NR
+NEXT i
+
+
+/*A Mettre a jour les conditions sur les troncons avec les conditions meteo */
+/*A Pour chaque zone ou les conditions sont plus mauvaises que le defaut */
+FOR i = 0  TO (ARRAY_SIZE@ (tl_CCH_zone) - 1)
+	/*A pour chaque ligne de conditions de conduite */
+	FOR j = 0  TO (ARRAY_SIZE@ (tm_CCH) - 1)
+		t = COM45_IndexEnColonne (tm_troncons_VH, TVH_TRC_VH_NOM, tm_CCH[j].troncon)
+		vl_deb_trc = tm_troncons_VH[t].PR_debut
+		vl_fin_trc = tm_troncons_VH[t].PR_fin
+
+		/*A si l'autoroute du troncon est celle de la zone alors */
+		IF (tm_troncons_VH[t].autoroute = tl_CCH_zone[i].autoroute)
+		{
+			/*A ramener l'ordre des PR zone a celui des PR troncon */
+			vl_deb_zone = tl_CCH_zone[i].PR_debut
+			vl_fin_zone = tl_CCH_zone[i].PR_fin
+			IF (vl_deb_trc < vl_fin_trc  AND  vl_deb_zone > vl_fin_zone) OR
+			   (vl_deb_trc > vl_fin_trc  AND  vl_deb_zone < vl_fin_zone)
+			{
+				vl_deb_zone = tl_CCH_zone[i].PR_fin
+				vl_fin_zone = tl_CCH_zone[i].PR_debut
+			}
+
+			/*A determiner l'intersection de la zone avec le troncon */
+			IF (vl_deb_trc < vl_fin_trc) {
+				vl_PR1 = MAX@ (vl_deb_trc, vl_deb_zone)
+				vl_PR2 = MIN@ (vl_fin_trc, vl_fin_zone)
+			} ELSE {
+				vl_PR1 = MIN@ (vl_deb_trc, vl_deb_zone)
+				vl_PR2 = MAX@ (vl_fin_trc, vl_fin_zone)
+			}
+
+			/*A et si l'intersection n'est pas vide alors */
+			IF (vl_deb_trc < vl_fin_trc AND vl_PR1 < vl_PR2)  OR  (vl_deb_trc > vl_fin_trc AND vl_PR1 > vl_PR2)
+			{
+				k = (-1)
+				IF (tm_CCH[j].sens = XDC_LIB_SENS_SUD)  AND  (ll_CCH_zone_s1[i] > CM_CCH_DEFAUT) {
+					/*A le troncon en sens 1 est impacte dans l'intersection */
+					ll_CCH_trc[j] = TVH_Condition_Composee (ll_CCH_trc[j], ll_CCH_zone_s1[i])
+					k = COM45_IndexEnColonne (tm_Config_CCH, TDO_DICO_CLE, ll_CCH_zone_s1[i])
+				}
+				IF (tm_CCH[j].sens = XDC_LIB_SENS_NORD)  AND  (ll_CCH_zone_s2[i] > CM_CCH_DEFAUT) {
+					/*A le troncon en sens 2 est impacte dans l'intersection */
+					ll_CCH_trc[j] = TVH_Condition_Composee (ll_CCH_trc[j], ll_CCH_zone_s2[i])
+					k = COM45_IndexEnColonne (tm_Config_CCH, TDO_DICO_CLE, ll_CCH_zone_s2[i])
+				}
+
+				IF (k >= 0) {
+					vl_cmt = FORMAT@ ("%s de %s a %s", tm_Config_CCH[k].valeur,
+							     COM31_Libelle_PR (vl_PR1), COM31_Libelle_PR (vl_PR2))
+					IF (tm_CCH[j].commentaire = "")
+						tm_CCH[j].commentaire = vl_cmt
+					ELSE
+						tm_CCH[j].commentaire = tm_CCH[j].commentaire ++ "; " ++ vl_cmt
+				}
+			}
+		}
+	NEXT j
+NEXT i
+
+
+/*A Convertir les conditions de circulation en libelles et afficher la table */
+FOR i = 0  TO (ARRAY_SIZE@ (tm_CCH) - 1)
+	IF (ll_CCH_trc[i] = XZAEC_CCH_NR) {
+		tm_CCH[i].valeur_cch = CM_CCH_LIB_DEFAUT
+	} ELSE {
+		k = COM45_IndexEnColonne (tm_Config_CCH, TDO_DICO_CLE, ll_CCH_trc[i])
+		tm_CCH[i].valeur_cch = tm_Config_CCH[k].valeur
+	}
+NEXT i
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_CCH", tm_CCH, tm_titres_CCH, NULL)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Acquiert le texte saisi dans une zone de saisie de commentaire
+*  d'une fenetre et le formate en une seule ligne de texte.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TVH_Commentaire (va_fenetre, va_champ)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Identifiant de la fenetre de saisie.
+*   va_champ          : Identifiant du champ de saisie.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   Aucun
+*
+*
+* VALEUR RETOUR       : la chaine de caracteres du texte de commentaire.
+*
+*
+* CONDITION D'UTILISATION
+*   Toute macro
+*
+* FONCTION
+*   Lit la valeur de la zone de commentaire (liste de chaines),
+*   formate chacune des lignes puis les concatene en une seule chaine.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	tl_texte
+	VAR	vl_ligne, vl_commentaire
+	VAR	i
+
+tl_texte = DB_EDITBOX_GET_DATA@ (va_fenetre, va_champ)
+
+vl_commentaire = "" ++ TRIM@ (tl_texte[0])
+
+FOR i = 1  TO (ARRAY_SIZE@ (tl_texte) - 1)
+	vl_ligne = TRIM@ (tl_texte[i])
+	IF (vl_ligne <> "") {
+		vl_commentaire = vl_commentaire ++ " " ++ vl_ligne
+	}
+NEXT i
+
+RETURN (vl_commentaire)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Determine le troncon dont le nom est contenu dans le texte indique.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TVH_Id_Troncon (va_Txt_Troncon)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_Txt_Troncon    : Texte contenant un nom de troncon.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   Aucun
+*
+*
+* VALEUR RETOUR       : le rang du troncon dans leur table, -1 si absent.
+*
+*
+* CONDITION D'UTILISATION
+*   Toute macro
+*
+* FONCTION
+*   Recherche en table des troncons celui dont le nom figure dans le texte.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_i_trc
+
+vl_i_trc = ARRAY_SIZE@ (tm_troncons_VH) - 1
+
+WHILE (vl_i_trc >= 0)
+	IF (STRING_INDEX@ (va_Txt_Troncon, tm_troncons_VH[vl_i_trc].nom) <> 0) {
+		RETURN (vl_i_trc)
+	}
+	vl_i_trc = vl_i_trc - 1
+WEND
+
+RETURN (-1)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche dans la zone de statut le texte indique dans la couleur specifiee.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TVH_Afficher_Statut (va_fenetre, va_texte, va_nom_couleur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Identifiant de la fenetre de saisie ;
+*   va_texte          : Texte de statut a afficher ;
+*   va_nom_couleur    : Couleur du texte demandee.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   Aucun
+*
+*
+* VALEUR RETOUR       : Aucune
+*
+*
+* CONDITION D'UTILISATION
+*   Toute macro
+*
+* FONCTION
+*   Definit la valeur de la zone de commentaire (liste de chaines),
+*   formate chacune des lignes puis les concatene en une seule chaine.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	tl_couleurs, vl_couleur
+	VAR	i
+
+tl_couleurs = SYSTEM_VAR@ (vg_couleur)
+i = COM45_IndexEnColonne (tl_couleurs, 0, va_nom_couleur)
+
+/*B si la couleur est inconnue alors prendre la premiere (noir) */
+IF (i < 0)  i = 0
+
+DB_CTRL_LABEL_COLOR@ (va_fenetre, "LI_Statut", { 1, tl_couleurs[i][1] })
+DB_CTRL_TITLE@ (va_fenetre, "LI_Statut", va_texte)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Produit un document de Conditions de Conduite Hivernale au format EXCEL
+*  a partir des donnees contenues dans la table fournie.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+
+MACRO TVH_Exporter (va_fenetre, va_num_action, va_date_action,
+                       va_cmt_synthese, FORMAT TVH_Conditions_Conduite ta_CCH)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : fenetre de saisie ;
+*   va_num_action     : numero de l'action d'envoi du document VH ;
+*   va_date_action    : date de l'action au format standard ;
+*   va_cmt_synthese   : texte du commentaire de synthese DIR ;
+*   ta_CCH            : table des Conditions de conduite saisies.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   Aucun
+*
+*
+* VALEUR RETOUR       : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   MTVH
+*
+* FONCTION
+*   Produit le document EXCEL avec les donnees fournies.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT TVH_Conditions_Conduite	tl_CCH_trc
+VAR	vl_ligne_debut, vl_ligne_fin
+VAR	vl_colonne_debut, vl_colonne_fin
+VAR	tl_cmts, tl_cch_inverses
+VAR	vl_date, vl_jour, vl_mois, vl_annee, vl_heure, vl_minute, vl_seconde
+VAR	vl_fichier
+VAR	vl_cmd, tl_cr_cmd
+
+/*A Constituer la synthese des conditions de conduite puis supprimer le sens */
+ITMA_TVH_Synthese_Sens (ta_CCH, tl_CCH_trc)
+tl_cch_inverses = ARRAY_TRANSPOSE@ (tl_CCH_trc)
+tl_cch_inverses = ARRAY_DELETE@ (tl_cch_inverses, TVH_CCH_SENS_TRC)
+tl_CCH_trc = ARRAY_TRANSPOSE@ (tl_cch_inverses)
+
+/*B Construire le nom du fichier exporte avec l'action et sa date */
+vl_date = va_date_action
+IF (vl_date = NULL) {
+	vl_date = COM09_Date_Courante (TRUE)
+}
+vl_seconde = TRUE
+COM14_Valeurs_Horodate (vl_date, vl_jour, vl_mois, vl_annee, vl_heure, vl_minute, vl_seconde)
+
+vl_fichier = FORMAT@ ("%s-%d-%s%s%s_%s%s%s.xls", CM_NOM_FICHIER_VH, va_num_action,
+                         vl_annee, vl_mois, vl_jour, vl_heure, vl_minute, vl_seconde)
+vl_fichier = SYSTEM_VAR@ (vg_repertoire_migrazur) ++ COM_SOUS_REP_MBO ++ vl_fichier
+
+
+/* Ouvrir le tableur et y ecrire les donnees de conditions de conduite */
+vl_ligne_debut = 0
+vl_ligne_fin = vl_ligne_debut + (ARRAY_SIZE@ (tl_CCH_trc) - 1)
+vl_colonne_debut = 0
+vl_colonne_fin = vl_colonne_debut + (ARRAY_SIZE@ (tl_cch_inverses) - 1)
+
+SS_APPLICATION_DLG@ (NULL, TRUE)
+SS_PUT_RANGE@ (SS_RANGE@ (vl_colonne_debut, vl_ligne_debut, vl_colonne_fin, vl_ligne_fin), tl_CCH_trc)
+
+/* S'assurer que les commentaires sont bien ecrits ... */
+tl_cmts = ARRAY_COLUMN@ (tl_CCH_trc, ARRAY_SIZE@ (tl_cch_inverses) - 1)
+SS_PUT_RANGE@ (SS_RANGE@ (vl_colonne_fin, vl_ligne_debut, vl_colonne_fin, vl_ligne_fin), tl_cmts)
+
+/* Ecrire le document dans le fichier au format EXCEL */
+SS_SAVE_AS@ (vl_fichier, 14)
+SS_EXIT@ ()
+
+
+/* Exporter le fichier et afficher le statut de l'action */
+vl_cmd = FORMAT@ ("%s %s", CM_CMD_EXPORT_VH, vl_fichier)
+tl_cr_cmd = SHELL_COMMAND@ (vl_cmd)
+IF (ARRAY_SIZE@ (tl_cr_cmd) = 0) {
+	TVH_Afficher_Statut (va_fenetre, "Le document de conditions de conduite a été exporté", "noir")
+} ELSE {
+	TVH_Afficher_Statut (va_fenetre, tl_cr_cmd[0], "rouge")
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Produit un document textuel des Conditions de Conduite Hivernale
+*  a partir des donnees contenues dans la table fournie puis l'imprime.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+
+MACRO TVH_Imprimer (va_action, va_date, va_etat,
+                       va_cmt_synthese, FORMAT TVH_Conditions_Conduite ta_CCH)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_action         : numero de l'action ;
+*   va_date           : date de l'action ;
+*   va_etat           : etat (resultat) de l'action ;
+*   va_cmt_synthese   : texte du commentaire de synthese DIR ;
+*   ta_CCH            : table des Conditions de conduite saisies.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   Aucun
+*
+*
+* VALEUR RETOUR       : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   MTVH
+*
+* FONCTION
+*   Charge le modele de document a imprimer, renseigne les champs
+*   avec les donnees fournies et imprime ce fichier.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_etat_action
+VAR	vl_ligne, vl_troncon
+VAR	vl_fichier
+VAR	i
+
+/* Ouvrir une fenetre ApplixWord non visible et charger le document modele */
+WP_APPLICATION_DLG@ (NULL, TRUE)
+WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+                  CM_SOUS_REP_MODELES ++ CM_MODELE_CCH ++ ".aw")
+
+IF (va_action <> NULL)
+{
+	IF (va_etat = XDC_ACT_ETAT_SUCCES)  OR  (va_etat = XDC_ACT_ETAT_SUCCES_FIN)
+		vl_etat_action = "Succès"
+	ELSE IF (va_etat = XDC_ACT_ETAT_ECHEC)  OR  (va_etat = XDC_ACT_ETAT_ECHEC_FIN)
+		vl_etat_action = "Echec"
+	ELSE vl_etat_action = ""
+
+	vl_ligne = FORMAT@ ("Envoi du %s à %s : %s",
+	                       SUBSTRING@ (va_date, 1, 10), SUBSTRING@ (va_date, 12, 8), vl_etat_action)
+	WP_SET_DOC_VAR@ ("action_envoi", vl_ligne)
+}
+
+WP_SET_DOC_VAR@ ("synthese_dir", va_cmt_synthese)
+
+WP_GOTO_END@ ()
+WP_TEXT_COURIER@ ()
+
+FOR i = 0  TO (ARRAY_SIZE@ (ta_CCH) - 1)
+	vl_troncon = TRIM@ (ta_CCH[i].troncon) ++ " s" ++ ta_CCH[i].sens
+	vl_ligne = FORMAT@ ("%-50s%s   %s",
+	                      vl_troncon, ta_CCH[i].valeur_cch, ta_CCH[i].commentaire)
+	WP_ENTER_TEXT@ (vl_ligne)
+	IF (LEN@ (ta_CCH[i].commentaire) > 35) {
+		WP_ENTER_TEXT@ ("\n\n")
+	} ELSE {
+		WP_ENTER_TEXT@ ("\n\n")
+	}
+NEXT i
+
+/* Produire un fichier au format adequat et l'imprimer */
+vl_fichier = CM_MODELE_CCH ++ "_" ++ SYSTEM_VAR@ (vg_numero_poste)
+COM36_Imprimer_Texte (vl_fichier)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Produit le document de Conditions de Conduite Hivernale au format XML
+*  a partir des donnees saisies stockees dans la table fournie
+*  et en ecrit le texte dans le fichier dont le chemin d'acces est indique.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+
+MACRO TVH_Produire_Document_VH (va_fichier_VH, va_date, va_cmt_synthese,
+                                   FORMAT TVH_Conditions_Conduite ta_CCH)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fichier_VH     : chemin d'acces au fichier a produire ;
+*   va_date           : date de l'action au format standard ;
+*   va_cmt_synthese   : texte du commentaire de synthese DIR ;
+*   ta_CCH            : table des Conditions de conduite saisies.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   Aucun
+*
+*
+* VALEUR RETOUR       : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   MTVH
+*
+* FONCTION
+*   Construit le document XML avec les donnees fournies,
+*   puis ecrit le texte de ce document dans le fichier specifie.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	tl_doc_VH
+
+ON ERROR
+{
+	ERROR_BOX@ ()
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN (COM_NOK)
+}
+
+DELETE_FILE@ (va_fichier_VH)
+
+/* Constituer le document XML de Viabilite Hivernale */
+TVH_Document_VH (tl_doc_VH, va_date, va_cmt_synthese, ta_CCH)
+
+TVH_Ecrire_Document_VH (va_fichier_VH, tl_doc_VH)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Construit le document de Conditions de Conduite Hivernale
+*  sous forme d'une table a partir des donnees saisies.
+*  Cette table est directement elaboree dans les donnees
+*  de la macro appelante pour economie de memoire.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+
+MACRO TVH_Document_VH (FORMAT XML_Noeud ta_doc_VH, va_date, va_cmt_synthese,
+                          FORMAT TVH_Conditions_Conduite ta_CCH)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_date           : date de l'action au format standard ;
+*   va_cmt_synthese   : teste du commentaire de synthese DIR ;
+*   ta_CCH            : table des Conditions de conduite saisies.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   MTVH
+*
+*
+* VALEUR RETOUR       : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   Toute macro
+*
+* FONCTION
+*   Construit l'en-tete du document puis parcourt la liste de troncons
+*   en ajoutant a la structure du document un noeud par troncon.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	FORMAT XML_Noeud vl_n_synthese_nat, vl_n_synthese_dir
+	VAR	FORMAT XML_Noeud vl_n_VH, vl_n_dir, vl_n_district, vl_n_troncon
+
+	VAR	vl_date_doc_VH
+	VAR	vl_jour, vl_mois, vl_annee, vl_heure, vl_minute, vl_seconde
+	VAR	vl_district, vl_nom_district
+	VAR	vl_i_district, vl_i_trc_CCH
+	VAR	i, vl_i_troncon, vl_i_secteur
+	VAR	vl_attr_date, tl_attributs
+
+ON ERROR
+{
+	ERROR_BOX@ ()
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN (COM_NOK)
+}
+
+
+/* Mettre la date au format attendu dans le document */
+vl_seconde = TRUE
+COM14_Valeurs_Horodate (va_date, vl_jour, vl_mois, vl_annee, vl_heure, vl_minute, vl_seconde)
+vl_date_doc_VH = FORMAT@ ("\"%4d-%02d-%02dT%02d:%02d:%02d.000+01:00\"",
+			     vl_annee, vl_mois, vl_jour, vl_heure, vl_minute, vl_seconde)
+vl_attr_date = "dateMaj=" ++ vl_date_doc_VH
+
+
+/* Constituer les noeuds principaux du document */
+vl_n_VH = XML_Nouveau_Noeud ("VH", { "dateExtraction=" ++ vl_date_doc_VH }, NULL)
+vl_n_dir = XML_Nouveau_Noeud ("DIR", { "name=\"ESCOTA\"" }, NULL)
+vl_n_synthese_nat = XML_Nouveau_Noeud ("SyntheseNationale", NULL, NULL)
+vl_n_synthese_dir = XML_Nouveau_Noeud ("SyntheseDir", NULL, va_cmt_synthese)
+
+
+/* Constituer le document sous forme d'un arbre */
+ta_doc_VH = vl_n_VH
+ta_doc_VH.valeur[0] = vl_n_synthese_nat
+ta_doc_VH.valeur[1] = vl_n_dir
+
+ta_doc_VH.valeur[1].valeur[0] = vl_n_synthese_dir
+
+/*A Initialiser la liste des districts de l'entite */
+vl_i_district = 1
+vl_district = NULL
+
+/*A Pour chaque element de conditions de circulation */
+FOR i = 0  TO (ARRAY_SIZE@ (ta_CCH) - 1)
+	/*A determiner le troncon */
+	vl_i_troncon = TVH_Id_Troncon (ta_CCH[i].troncon)
+	IF (vl_i_troncon < 0) {
+		ERROR@ (COM_ERR_VAL_INVAL, "Troncon inconnu : " ++ ta_CCH[i].troncon)
+	}
+
+	/*A si le troncon est sur un district different du precedent */
+	IF (tm_troncons_VH[vl_i_troncon].district <> vl_district)
+	{
+		IF (i > 0)
+		{
+			/*A ajouter les donnees du district courant a la fin de l'entite */
+			ta_doc_VH.valeur[1].valeur[vl_i_district] = vl_n_district
+			vl_i_district = vl_i_district + 1
+		}
+
+		/*A puis creer un nouveau district sans aucun troncon */
+		vl_district = tm_troncons_VH[vl_i_troncon].district
+		vl_i_secteur = COM45_IndexEnColonne (tm_Secteurs, TDO_NUMERO_DISTRICT, vl_district)
+		vl_nom_district = REPLACE_SUBSTR@ (tm_Secteurs[vl_i_secteur].nom, "'", " ")
+		tl_attributs = { "name=\"" ++ vl_nom_district ++ "\"" }
+		vl_n_district = XML_Nouveau_Noeud ("District", tl_attributs, NULL)
+		vl_i_trc_CCH = 0
+	}
+
+	/*A Dans tous les cas creer un troncon */
+	tl_attributs = { vl_attr_date, "id=\"" ++ ta_CCH[i].troncon ++ "\"" }
+	vl_n_troncon = XML_Nouveau_Noeud ("Itineraire", tl_attributs, NULL)
+	vl_n_troncon.valeur = {
+		XML_Nouveau_Noeud ("CCH", NULL, ta_CCH[i].valeur_cch),
+		XML_Nouveau_Noeud ("CCH2", NULL, "NR"),
+		XML_Nouveau_Noeud ("Commentaire", NULL, TRIM@ (ta_CCH[i].commentaire)),
+		XML_Nouveau_Noeud ("CommentaireInterne", NULL, NULL),
+		XML_Nouveau_Noeud ("Equipement", NULL, "NR"),
+		XML_Nouveau_Noeud ("Meteo", NULL, "NR"),
+		XML_Nouveau_Noeud ("TendanceCC", NULL, "="),
+		XML_Nouveau_Noeud ("Traitement", NULL, "NR"),
+		XML_Nouveau_Noeud ("EtatChaussee", NULL, "NR"),
+		XML_Nouveau_Noeud ("Temperature", NULL, "NR"),
+		XML_Nouveau_Noeud ("Vent", NULL, "NR"),
+		XML_Nouveau_Noeud ("Sens", NULL, ta_CCH[i].sens)
+	}
+	/*A et l'ajouter au district courant */
+	vl_n_district.valeur[vl_i_trc_CCH] = vl_n_troncon
+	vl_i_trc_CCH = vl_i_trc_CCH + 1
+NEXT i
+
+/*A ajouter le dernier district construit a la fin de l'entite */
+ta_doc_VH.valeur[1].valeur[vl_i_district] = vl_n_district
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Produit le document de Conditions de Conduite Hivernale au format XML
+*  a partir des donnees saisies stockees dans la table fournie
+*  et en ecrit le texte dans le fichier dont le chemin d'acces est indique.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+DEFINE	CM_EN_TETE_DOC_VH	"<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>"
+
+
+MACRO TVH_Ecrire_Document_VH (va_fichier_VH, ta_doc_VH)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fichier_VH     : chemin d'acces au fichier a produire ;
+*   ta_doc_VH         : document a ecrire sous forme de table.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   Aucun
+*
+*
+* VALEUR RETOUR       : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   MTVH
+*
+* FONCTION
+*   Ouvre le fichier specifie et y ecrit les donnees fournies
+*   en remplacant tout contenu eventuel.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	tl_args
+
+ON ERROR
+{
+	IF IS_FILE_OPEN@ (va_fichier_VH) {
+		CLOSE_FILE@ (va_fichier_VH)
+	}
+	ERROR_BOX@ ()
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN (COM_NOK)
+}
+
+
+/*B Ouvrir le fichier en ecriture ou reecriture */
+/*B et ecrire l'en-tete du document XML */
+OPEN_ASCII_FILE@ (va_fichier_VH, "w")
+WRITE_FILE@ (va_fichier_VH, CM_EN_TETE_DOC_VH)
+
+/*B Parcourir l'arbre XML pour obtenir le texte du document */
+tl_args = { "", va_fichier_VH }
+XML_Traiter_Noeud (ta_doc_VH, 0, tl_args)
+
+/*B Ecrire le texte du document XML et fermer le fichier */
+'WRITE_FILE@ (va_fichier_VH, tl_args[0])
+
+CLOSE_FILE@ (va_fichier_VH)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Cree et retourne un nouveau noeud XML avec les valeurs specifiees.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO XML_Nouveau_Noeud (va_nom, ta_attributs, va_valeur)
+
+	VAR	FORMAT XML_Noeud vl_noeud
+
+vl_noeud.nom		= va_nom
+vl_noeud.t_attributs	= ta_attributs
+vl_noeud.valeur		= va_valeur
+
+RETURN (vl_noeud)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Fonction recursive de traitement d'un noeud XML.
+*  Effectue un traitement de debut, un traitement de la valeur et
+*  un traitement de fin pour chaque noeud de l'arbre parcouru en preordre.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO XML_Traiter_Noeud (FORMAT XML_Noeud va_noeud, va_profondeur, ta_args)
+
+	VAR	vl_texte_noeud
+	VAR	vl_sans_valeur, vl_est_feuille
+	VAR	i
+
+/* Determiner si le noeud a une valeur ou non */
+vl_sans_valeur = FALSE
+vl_est_feuille = TRUE
+IF IS_ARRAY@ (va_noeud.valeur) {
+	IF ARRAY_SIZE@ (va_noeud.valeur) = 0 {
+		vl_sans_valeur = TRUE
+	} ELSE {
+		vl_est_feuille = FALSE
+	}
+} ELSE IF (va_noeud.valeur = "") {
+	vl_sans_valeur = TRUE
+}
+
+
+/*A Traitement de debut du noeud : */
+/*A constituer sa balise avec ses attributs */
+vl_texte_noeud = "<" ++ va_noeud.nom
+IF (ARRAY_SIZE@ (va_noeud.t_attributs) > 0) {
+	vl_texte_noeud = vl_texte_noeud ++ " " ++ ARRAY_TO_STRING@ (va_noeud.t_attributs, " ")
+}
+IF (vl_sans_valeur = TRUE) {
+	vl_texte_noeud = vl_texte_noeud ++ "/>"
+} ELSE {
+	vl_texte_noeud = vl_texte_noeud ++ ">"
+}
+
+
+/*A Traitement de la valeur du noeud : */
+/*A si c'est une feuille alors traiter sa valeur */
+IF (vl_est_feuille = TRUE)
+{
+	IF NOT IS_ARRAY@ (va_noeud.valeur) {
+		vl_texte_noeud = vl_texte_noeud ++ va_noeud.valeur
+	}
+} ELSE {
+	/*B si le noeud a des fils alors traiter la balise de debut puis ces fils */
+	ta_args[0] = ta_args[0] ++ vl_texte_noeud
+	WRITE_FILE@ (ta_args[1], vl_texte_noeud)
+	vl_texte_noeud = ""
+
+	FOR i = 0  TO (ARRAY_SIZE@ (va_noeud.valeur) - 1)
+		XML_Traiter_Noeud (va_noeud.valeur[i], va_profondeur + 1, ta_args)
+	NEXT i
+}
+
+
+/*A Traitement de fin du noeud : */
+/*A s'il a une valeur alors constituer sa balise de fin */
+IF (vl_sans_valeur = FALSE) {
+	vl_texte_noeud = vl_texte_noeud ++ "</" ++ va_noeud.nom ++ ">"
+}
+
+/*B traiter la balise de fin, ou le noeud complet si c'est une feuille */
+ta_args[0] = ta_args[0] ++ vl_texte_noeud
+WRITE_FILE@ (ta_args[1], vl_texte_noeud)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Execute la commande d'envoi au destinataire du document
+*  de Conditions de Conduite Hivernale.
+*  Enregistre en base de donnees l'action d'envoi du document
+*  avec l'etat des donnees envoyees, les dates et le resultat de l'action.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+DEFINE	CM_NB_TRONCONS_ECRITS	10
+
+
+MACRO TVH_Envoyer_Document_VH (va_date_action, va_fichier_VH, FORMAT TVH_Conditions_Conduite ta_CCH_troncon, va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_date_action    : date de l'action au format standard ;
+*   va_fichier_VH     : chemin d'acces au fichier a envoyer ;
+*   ta_CCH_troncon    : table des conditions de conduite par troncon ;
+*   va_fenetre        : fenetre de saisie.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   Aucun
+*
+*
+* VALEUR RETOUR       : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   MTVH
+*
+* FONCTION
+*   Execute la commande d'envoi du document au destinataire, recupere
+*   le resultat et le visualise dans la ligne d'etat de la fenetre.
+*   Puis ecrit en base une action avec les donnees et le statut de l'action.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+	VAR	FORMAT TVH_Conditions_Conduite	tl_CCH, tl_CCH_ecrites, vl_CCH_nul
+
+	VAR	vl_num_action, vl_num_site
+	VAR	vl_date_resultat, vl_date_succes, vl_date_echec
+	VAR	vl_resultat
+	VAR	vl_cmt_synthese
+	VAR	vl_cmd
+	VAR	tl_cr_cmd
+	VAR	i, j, k
+
+ON ERROR
+{
+	ERROR_BOX@ ()
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN (COM_NOK)
+}
+
+
+vl_num_site = SYSTEM_VAR@ (vg_site)
+
+/*A Executer la commande d'envoi du document VH */
+vl_num_action = 0
+vl_cmd = FORMAT@ ("%s %d %d", CM_CMD_ENVOI_VH, vl_num_action, vl_num_site)
+tl_cr_cmd = SHELL_COMMAND@ (vl_cmd)
+vl_date_resultat = COM09_Date_Courante (TRUE)
+
+
+/*A Visualiser le resultat de la commande d'envoi */
+IF (ARRAY_SIZE@ (tl_cr_cmd) = 0)
+{
+	vl_resultat = XDC_ACT_ETAT_SUCCES
+	vl_date_succes = vl_date_resultat
+	vl_date_echec = XDC_DATE_NULLE
+	TVH_Afficher_Statut (va_fenetre, "Le document de Viabilité Hivernale a été correctement envoyé", "noir")
+}
+ELSE
+{
+	vl_resultat = XDC_ACT_ETAT_ECHEC
+	vl_date_succes = XDC_DATE_NULLE
+	vl_date_echec = vl_date_resultat
+	TVH_Afficher_Statut (va_fenetre, tl_cr_cmd[0], "rouge")
+}
+
+
+/*A Ecrire en base une action VH associee a la Fmc operateur */
+vl_cmt_synthese = TVH_Commentaire (va_fenetre, "BE_Comment_Gen")
+vl_cmt_synthese = SUBSTRING@ (vl_cmt_synthese, 1, CM_LG_MAX_CMT)
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#INT4_,		SYSTEM_VAR@ (vg_num_fiche_operateur) },
+	{ FALSE,	SYB#INT1_,		SYSTEM_VAR@ (vg_cle_fiche_operateur) },
+	{ FALSE,	SYB#DATETIME_,		va_date_action },
+	{ FALSE,	SYB#DATETIME_,		vl_date_succes },
+	{ FALSE,	SYB#DATETIME_,		vl_date_echec },
+	{ FALSE,	SYB#INT2_,		SYSTEM_VAR@ (vg_numero_operateur) },
+	{ FALSE,	SYB#CHAR_,		vl_cmt_synthese },
+	{ TRUE,		SYB#INT4_,		NULL },
+	{ FALSE, 	SYB#CHAR_, 		SYSTEM_VAR@(vg_nom_site) }
+} )
+
+IF COM05_SQL_Procedure (XZAC78_Action_Envoi_CCH,
+			   vl_parametres, vl_resultats, CM_MODULE) <> COM_OK
+{
+	INFO_MESSAGE@ ("Erreur lors de l'écriture de l'action d'envoi des conditions de conduite")
+	RETURN (COM_NOK)
+}
+vl_num_action = vl_resultats.return_parameters[0]
+
+
+/*A Memoriser l'action VH, sa date et son resultat */
+vm_num_action_VH = vl_num_action
+vm_date_action_VH = va_date_action
+vm_etat_action_VH = vl_resultat
+
+
+/*A Ecrire en base les donnees de l'action VH */
+
+/*A Filtrer les troncons dans un etat different du nominal (C1 et commentaire vide) */
+tl_CCH = { }
+j = 0
+FOR i = 0  TO (ARRAY_SIZE@ (ta_CCH_troncon) - 1)
+	k = COM45_IndexEnColonne (tm_Config_CCH, TDO_DICO_VAL, ta_CCH_troncon[i].valeur_cch)
+	IF (tm_Config_CCH[k].kle <> CM_CCH_DEFAUT)  OR  (ta_CCH_troncon[i].commentaire <> "")
+	{
+		tl_CCH[j].troncon = tm_troncons_VH[i].numero
+		tl_CCH[j].valeur_cch = tm_Config_CCH[k].kle
+		tl_CCH[j].commentaire = ta_CCH_troncon[i].commentaire
+		j = j + 1
+	}
+NEXT i
+
+
+vl_CCH_nul.troncon = 0
+vl_CCH_nul.valeur_cch = XZAEC_CCH_NR
+vl_CCH_nul.commentaire = ""
+
+/*A Tant que la liste des troncons a ecrire n'est pas vide */
+WHILE ARRAY_SIZE@ (tl_CCH) > 0
+	/*A ecrire les premiers troncons */
+	tl_CCH_ecrites = SUBARRAY@ (tl_CCH, 0, CM_NB_TRONCONS_ECRITS)
+	tl_CCH = SUBARRAY@ (tl_CCH, CM_NB_TRONCONS_ECRITS)
+
+	/*A completer si besoin la liste des troncons ecrits */
+	FOR i = ARRAY_SIZE@ (tl_CCH_ecrites) TO (CM_NB_TRONCONS_ECRITS - 1)
+		tl_CCH_ecrites[i] = vl_CCH_nul
+	NEXT i
+
+	vl_parametres = COM15_Parametres_Requete ( {
+		{ FALSE,	SYB#INT4_,	vl_num_action },
+		{ FALSE,	SYB#INT1_,	vl_num_site }
+	} )
+	j = ARRAY_SIZE@ (vl_parametres)
+	FOR i = 0 TO (CM_NB_TRONCONS_ECRITS - 1)
+		vl_parametres[j].type = SYB#INT2_
+		vl_parametres[j].data = tl_CCH_ecrites[i].troncon
+		vl_parametres[j].output = FALSE
+		j = j + 1
+
+		vl_parametres[j].type = SYB#INT1_
+		vl_parametres[j].data = tl_CCH_ecrites[i].valeur_cch
+		vl_parametres[j].output = FALSE
+		j = j + 1
+
+		vl_parametres[j].type = SYB#CHAR_
+		vl_parametres[j].data = tl_CCH_ecrites[i].commentaire
+		vl_parametres[j].output = FALSE
+		j = j + 1
+	NEXT i
+
+	IF COM05_SQL_Procedure (XZAC79_Ajouter_Conditions_CCH,
+	                           vl_parametres, vl_resultats, CM_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@ ("Erreur lors de l'écriture en base des conditions de conduite")
+		RETURN (COM_NOK)
+	}
+WEND
+
+RETURN (COM_OK)
+
+ENDMACRO

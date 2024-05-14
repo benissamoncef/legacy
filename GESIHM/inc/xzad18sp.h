@@ -1,0 +1,1 @@
+DEFINE XZAD18_Liste_TDP_6mn	"XZAD18"

@@ -1,0 +1,2660 @@
+/*E*/
+/*  Fichier : $Id: ITMA_TCP_Coup_De_Poing.am,v 1.37 2021/10/15 15:25:12 pc2dpdy Exp $        Release : $Revision: 1.37 $        Date : $Date: 2021/10/15 15:25:12 $
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTCP * FICHIER ITMA_TCP_Coup_De_Poing.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fonctions "Coup de poing".
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JPL		03/10/07 : Creation 1.1
+* JPL		15/10/07 : Initialisation et mecanismes IHM complets  1.2
+* JPL		17/10/07 : Envoi des commandes 1.3
+* JPL		18/10/07 : Creation FMC ; macros de definition du mode 1.4
+* JPL		23/10/07 : Version complete 1.5
+* JPL		24/10/07 : Lecture conf: pas sur ecran 1; ordre configs de voies 1.6
+* JPL		26/10/07 : Config. normale des voies inverses; format actions PAL 1.7
+* JPL		08/01/08 : Pas de flash demande pour les PMV  1.8
+* JPL		01/02/08 : Simple changement de nom des deux phases  1.9
+* JPL		23/06/08 : Prise en compte tunnels et echangeurs renoves (DEM 783) 1.10
+* 		06/10/10 : Position fenetre, visibilite avertissement  1.11
+* JPL		21/12/10 : En mode "Trace seule", ne pas creer de FMC  1.12
+* JPL		14/01/13 : Ajout coup de poing pour bouchon au tunnel Monaco s1 (DEM 1060)  1.13
+* PNI		17/01/13 : Ajout parametres Depassement seuil, site a la commande PMVA xzac82  1.14
+* JPL		18/09/13 : Fonction de trace deplacee dans le module dedie a la trace  1.15
+* JPL		24/09/13 : Initialisations differentes  1.16
+* JPL		25/09/13 : Gestion du bouton de mode Trace a l'IHM (DEM 1083)  1.17
+* JPL		04/10/13 : Fonction lecture tunnels en config.; parametres commandes; idem precedente  1.18
+* JPL		04/10/13 : Support des commandes BAF de fermeture d'une seule barriere (DEM 1083)  1.19
+* JPL		07/10/13 : Support de la phase 3 dediee aux commandes BAD (DEM 1083)  1.20
+* JPL		10/10/13 : Creation d'une fermeture echangeur de Monaco sur bouchon (DEM 1083)  1.21
+* JPL		15/10/13 : Creation FMC deviation consequence de l'evenement ; actions ECHangeur liees (DEM 1083)  1.22
+* JPL		18/10/13 : Creation fermetures echangeur liees aux actions BAFA (DEM 1083)  1.23
+* JPL		11/10/13 : Gestion du cas bidirectionnel (DEM 1083)  1.24
+* JPL		22/10/13 : Commandes au tunnel de l'evenement : eclairage, ventilation (DEM 1083)  1.25
+* JPL		29/10/13 : Vehicule en feu a Monaco: ignorer toute commande tunnel a l'autre extremite (DEM 1083)  1.26
+* JPL		05/11/13 : Trace des ITPC en cas de basculement; affichage selection Monaco s1 pour Bouchon  1.27
+* JPL		27/03/14 : Envoi cmde. desenfumage sur Veh. feu aux 4 tunnels non renoves PES1, PES2, LB2, CC2 (DEM 1089)  1.28
+* JPL		04/04/14 : Desenfumage : ajout CG1 non renove ; fermer aussitot la fenetre de desenfumage  1.29
+* JPL		07/04/14 : Desenfumage : prise en compte tubes renoves (t1 CG2, LP1, LP2, LB1 - t2 AR1, AR2, LC1, LC2)  1.30
+* JPL		29/04/16 : Vehicule en feu : eviter l'envoi multiple de commande; suppression de boutons par defaut  1.31
+* JPL		09/05/16 : Structure, fonctions et enchainements ; identique a la precedente  1.32
+* JPL		22/08/16 : Prise en compte Tunnel de la Borne Romaine (DEM 1158)  1.33
+* JPL		07/09/16 : Accident: eviter erreur lecture fiche : ecrire des donnees specifiques datees a la validation  1.34
+* JPL		12/09/17 : Tracer pour chaque action le nom complet de l'equipement pris en configuration  1.35
+* LCL   	22/04/20 : MOVIS Ajout site local pilotage DEM-SAE93
+* LCL		15/10/21 : Support des actions d'insertion de messages d'urgence par l'IMU (SAE-250)  1.37
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzaec_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/xzac01sp.h"
+INCLUDE	"GESIHM/inc/xzac82sp.h"
+INCLUDE	"GESIHM/inc/xzac903sp.h"
+INCLUDE	"GESIHM/inc/xzae57sp.h"
+INCLUDE	"GESIHM/inc/xzae60sp.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TMC.h"
+INCLUDE	"GESIHM/inc/ITMA_TPM_pilotage_PMV.h"
+INCLUDE	"GESIHM/inc/ITMA_TPP.h"
+
+INCLUDE	"GESIHM/inc/ITMA_TCP.h"
+
+
+DEFINE	C_MODULE		"MTCP"				' Nom du module
+
+
+/*A
+** Description des donnees contantes du systeme
+** --------------------------------------------
+*/
+
+DEFINE	CM_NUM_TUN_CANTAGALET_S1	2			' Numero des tunnels en base de donnees
+DEFINE	CM_NUM_TUN_PESSICART_S1		6
+DEFINE	CM_NUM_TUN_LAS_PLANAS_S1	8
+DEFINE	CM_NUM_TUN_LA_BAUME_S1		12
+DEFINE	CM_NUM_TUN_BORNE_ROMAINE_S1	36
+DEFINE	CM_NUM_TUN_L_ARME_S1		19
+DEFINE	CM_NUM_TUN_LA_COUPIERE_S1	23
+
+DEFINE	CM_NUM_TUN_CANTAGALET_S2	1
+DEFINE	CM_NUM_TUN_PESSICART_S2		5
+DEFINE	CM_NUM_TUN_LAS_PLANAS_S2	7
+DEFINE	CM_NUM_TUN_CAP_CROIX_S2		9
+DEFINE	CM_NUM_TUN_LA_BAUME_S2		11
+DEFINE	CM_NUM_TUN_L_ARME_S2		18
+DEFINE	CM_NUM_TUN_LA_COUPIERE_S2	22
+
+DEFINE	CM_NUM_TUN_MONACO_S1		34
+DEFINE	CM_NUM_TUN_MONACO_S2		35
+
+DEFINE	CM_NUM_ECH_MONACO_A8	56				' Numero de l'echangeur de Monaco sur l'A8
+
+
+
+/*A
+** Description des valeurs de types de commandes
+** ---------------------------------------------
+*/
+
+DEFINE	TCP_CMDS_PHASE1		1				' Commandes de la phase 1
+DEFINE	TCP_CMDS_PHASE2		2				' Commandes de la phase 2
+DEFINE	TCP_CMDS_PHASE3		3				' Commandes de la phase 3
+
+DEFINE	TCP_SEQ_CDP_AUCUNE	0				' Numero de sequence Coup de Poing invalide
+
+
+
+/*A
+** Description des donnees de configuration
+** ----------------------------------------
+*/
+
+VAR	FORMAT	COM_Donnees_Equipements	tm_tunnels		' [3][3] par groupe et par sens
+VAR	tm_voies						' [3][3] par groupe et par sens
+
+
+VAR	lm_noms_eqts						' Liste des noms des equipements configures
+
+
+VAR	FORMAT	TDO_Echangeur		tm_echangeurs		' Liste complete des echangeurs
+VAR	FORMAT	TDO_Echangeur		vm_ech_Monaco_A8	' Donnees de l'echangeur de Monaco sur l'A8
+
+
+VAR	FORMAT	TCP_Sequence_Bascule	tm_seq_bascule		' Liste des sequences Coup de Poing avec basculement
+
+
+
+/*A
+** Description des donnees de l'IHM
+** --------------------------------
+*/
+
+VAR	tm_ctrl_tunnels					' [3][3] noms des objets graphiques
+
+VAR	vm_groupe					' groupe du tunnel selectionne
+VAR	vm_sens						' sens du tunnel selectionne
+VAR	vm_i_tunnel					' index du tunnel selectionne
+
+
+VAR	vm_basculement					' Indicateur refletant l'etat de la case 'Basculement'
+
+VAR	vm_mode						' Mode de fonctionnement (reel ou trace)
+
+
+
+/*A
+** Description des donnees dynamiques
+** ----------------------------------
+*/
+
+VAR	FORMAT	TCP_Sequence_Bascule	tm_seq_bascule_tube	' Liste des sequences avec basculement POUR LE TUNNEL CHOISI
+
+VAR	FORMAT	COM_Identifiant_FMC	vm_Evt			' Id. de l'evenement cree
+
+
+VAR	FORMAT	TDO_Echangeur		vm_Ech_Deviation	' Donnees de l'echangeur de deviation
+VAR	FORMAT	COM_Identifiant_FMC	vm_Deviation		' Id. de la Fmc Deviation creee
+
+VAR	FORMAT	TDO_Echangeur		vm_Ech_Deviation_Inv	' Donnees de l'echangeur de deviation inverse
+VAR	FORMAT	COM_Identifiant_FMC	vm_Deviation_Inverse	' Id. de la Fmc Deviation inverse creee
+
+
+VAR	vm_cmd_incendie_envoyee, vm_cmd_plein_soleil_envoyee
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Selon que l'appelant est le module de gestion des donnees
+*  ou le menu ecran textuel, effectue la configuration
+*  des actions "coup de poing" ou permet leur execution.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Coup_De_Poing (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTDO, MTMT
+*
+* FONCTION
+*   Invoque la macro de configuration ou d'action "coup de poing".
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_appelant
+
+vl_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+
+IF vl_appelant = "MTMT"
+	ITMA_TCP_Saisie_Coup_De_Poing (va_appelant)
+
+IF vl_appelant = "MTDO" {
+	/* Ne pas lire la configuration "coup de poing", couteuse, sur le deuxieme ecran */
+	IF SYSTEM_VAR@ (vg_numero_display) <> XDC_ECRAN_SYN {
+		INSTALL_FILE@ ("ITMA_TCP_Trace.elo")
+		INSTALL_FILE@ ("ITMA_TTU_ventilation.elo")
+		INSTALL_FILE@ ("ITMA_TTU_eclairage.elo")
+		ITMA_TCP_Config_Coup_De_Poing ()
+		ITMA_TCP_Activer ()
+
+		/*B Charger les modules communs contenant les macros de pilotage des equipements */
+		ITMA_TTU_commun_TUB ()
+		ITMA_TEC_commun_ECH ()
+		ITMA_TPP_commun_PAL ()
+		ITMA_TNA_commun_NAV ()
+		ITMA_TBAF_commun_BAF ()
+		ITMA_TBAD_commun_BAD ()
+	}
+}
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Activer/ desactiver le mode reel d'execution des fonctions "coup de poing".
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Activer ()
+
+vm_mode = TCP_COUP_POING_REEL
+SET_SYSTEM_VAR@ (vg_mode_coup_de_poing, vm_mode)
+
+ENDMACRO
+
+
+MACRO ITMA_TCP_Desactiver ()
+
+vm_mode = TCP_COUP_POING_SIMULE
+SET_SYSTEM_VAR@ (vg_mode_coup_de_poing, vm_mode)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affichage des tunnels, saisie de l'action "coup de poing" a effectuer
+*  et execution des actions configurees pour ce tunnel.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Saisie_Coup_De_Poing (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection d'action sur Tunnels ou de son icone au menu ecran textuel.
+*
+* FONCTION
+*   Affiche la liste des tunnel, saisit l'evenement motivant l'action,
+*   demande confirmation puis lance l'execution des actions correspondantes.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_fenetre				' Nom de la fenetre du module
+VAR	vl_objet_selecte			' L'objet courant de la fenetre
+VAR	vl_les_messages_acceptes		' Pour abonnement aux messages
+VAR	vl_la_fenetre_est_active
+VAR	vl_installer_traitement_erreur
+
+VAR	vl_type_evt
+VAR	vl_conditions					' Conditions d'un type special de Coup de poing
+VAR	vl_num_seq_bascule				' En cas de basculement, numero de la sequence choisie
+VAR	vl_couple_ITPC					' Noms des ITPC de basculement pour la sequence choisie
+
+VAR	FORMAT TCP_Tunnel	vl_action_cdp		' Les donnees de l'action Coup de poing
+
+VAR	vl_i_ITPC, vl_i_ech
+
+
+/*A
+** Traitements en cas d'erreur durant l'initialisation :
+** informer l'operateur, tracer l'erreur et abandonner
+** -----------------------------------------------------
+*/
+
+ON ERROR {
+	ERROR_BOX@ (ERROR_NUMBER@(), ERROR_STRING@(), ERROR_OBJECT@())
+	ITMA_TCP_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN (COM_NOK)
+}
+
+
+/*A
+** Charger la fenetre d'action "coup de poing"
+** -------------------------------------------
+*/
+
+vl_fenetre = DB_LOAD@ ("ITMA_TCP.d")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 105)
+
+
+/*A
+** Initialiser les caracteristiques des objets graphiques
+** ------------------------------------------------------
+*/
+
+DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Quitter", TRUE)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BA_Mode_Trace", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BA_Basculement", TRUE)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BR_Tunnels_1_Sens_1", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BR_Tunnels_1_Sens_2", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BR_Tunnels_2_Sens_1", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BR_Tunnels_2_Sens_2", TRUE)
+
+tm_ctrl_tunnels[1][1] = "BR_Tunnels_1_Sens_1"
+tm_ctrl_tunnels[1][2] = "BR_Tunnels_1_Sens_2"
+tm_ctrl_tunnels[2][1] = "BR_Tunnels_2_Sens_1"
+tm_ctrl_tunnels[2][2] = "BR_Tunnels_2_Sens_2"
+
+/*A
+** Le mode par defaut est le mode reel
+** -----------------------------------
+*/
+
+ITMA_TCP_Activer ()
+DB_CTRL_VALUE@ (vl_fenetre, "BA_Mode_Trace", FALSE)
+DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Mode_Trace", FALSE)
+DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Avertissement", TRUE)
+
+
+/*A
+** Initialiser le module (tunnels, echangeurs, sequences ...) et la visualisation
+** ------------------------------------------------------------------------------
+*/
+
+tm_echangeurs = SYSTEM_VAR@ (vg_les_echangeurs)
+vl_i_ech = COM45_IndexEnColonne (tm_echangeurs, TDO_NUMERO_ECH, CM_NUM_ECH_MONACO_A8)
+vm_ech_Monaco_A8 = tm_echangeurs[vl_i_ech]
+
+IF ITMA_TCP_Init_Liste_Tunnels (vl_fenetre) <> COM_OK {
+	RETURN (COM_NOK)
+}
+
+tm_seq_bascule = SYSTEM_VAR@ (vg_sequences_bidi)
+vm_basculement = XDC_FAUX
+
+lm_noms_eqts = SYSTEM_VAR@ (vg_coup_poing_eqts)
+
+
+/*A
+** Mettre en place la reception des messages
+** -----------------------------------------
+*/
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+** Traitements en cas d'erreur durant la visualisation :
+** informer l'operateur et selon la nature et la gravite
+** de l'erreur la tracer ou non, continuer ou abandonner
+** -----------------------------------------------------
+*/
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		ITMA_TCP_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY@ (vl_fenetre)
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+	CASE OF vl_objet_selecte
+
+	CASE "BP_Quitter"
+		vl_la_fenetre_est_active = FALSE
+
+
+	CASE "poke_"
+		/*A Sur reception d'un message de fin fermer la fenetre */
+		CASE OF  DB_GET_POKE@ (vl_fenetre)
+		CASE COM_CANAL_FIN
+			vl_la_fenetre_est_active = FALSE
+		ENDCASE
+
+
+
+	/*A Sur changement de mode, le memoriser et le signaler par le texte correspondant */
+	CASE "BA_Mode_Trace"
+		IF (DB_CTRL_GET_VALUE@ (vl_fenetre, "BA_Mode_Trace") = TRUE) {
+			ITMA_TCP_Desactiver ()
+			DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Avertissement", FALSE)
+			DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Mode_Trace", TRUE)
+		} ELSE {
+			ITMA_TCP_Activer ()
+			DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Mode_Trace", FALSE)
+			DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Avertissement", TRUE)
+		}
+
+
+
+	/*A Sur changement d'etat de basculement, cacher le bouton de choix des ITPC */
+	/*A  ou l'afficher et proposer les ITPC correspondant au tunnel selectionne  */
+	CASE "BA_Basculement"
+		IF (DB_CTRL_GET_VALUE@ (vl_fenetre, "BA_Basculement") = TRUE) {
+			vm_basculement = XDC_VRAI
+		} ELSE {
+			vm_basculement = XDC_FAUX
+		}
+		ITMA_TCP_Proposer_ITPC (vl_fenetre, vm_groupe, vm_sens, vm_i_tunnel, vm_basculement)
+
+
+
+	/*A Sur selection d'un tunnel verifier et memoriser le choix */
+	CASE "BR_Tunnels_1_Sens_1"
+		ITMA_TCP_Choix_Tunnel (vl_fenetre, 1, 1, DB_CTRL_GET_VALUE@ (vl_fenetre, "BR_Tunnels_1_Sens_1"))
+
+	CASE "BR_Tunnels_1_Sens_2"
+		ITMA_TCP_Choix_Tunnel (vl_fenetre, 1, 2, DB_CTRL_GET_VALUE@ (vl_fenetre, "BR_Tunnels_1_Sens_2"))
+
+	CASE "BR_Tunnels_2_Sens_1"
+		ITMA_TCP_Choix_Tunnel (vl_fenetre, 2, 1, 0)
+
+	CASE "BR_Tunnels_2_Sens_2"
+		ITMA_TCP_Choix_Tunnel (vl_fenetre, 2, 2, 0)
+
+
+
+	/*A Sur action sur un bouton, creer l'evenement et executer les actions */
+	CASE "BP_Contresens"
+	CASE "BP_Vehicule_Feu"
+	CASE "BP_Accident"
+	CASE "BP_Autre"
+	CASE "BP_Bouchon_Monaco_s1"
+		ITMA_TCP_Actions_Inhibees (vl_fenetre, TRUE)
+		vl_conditions = NULL
+
+		CASE OF vl_objet_selecte
+		CASE "BP_Contresens"
+			vl_type_evt = XZAEC_FMC_Contresens
+		CASE "BP_Vehicule_Feu"
+			vl_type_evt = XZAEC_FMC_VehFeu
+		CASE "BP_Accident"
+			vl_type_evt = XZAEC_FMC_Accident
+		CASE "BP_Autre"
+			vl_type_evt = XZAEC_FMC_Autre
+
+		CASE "BP_Bouchon_Monaco_s1"
+			vl_conditions = TCP_COND_BOUCHON
+			vl_type_evt = XZAEC_FMC_FermetureEch
+			ITMA_TCP_Choix_Tunnel (vl_fenetre, 2, 1, 0)	' Forcer la selection tunnel
+		ENDCASE
+
+		vl_num_seq_bascule = TCP_SEQ_CDP_AUCUNE
+		IF (vm_basculement = XDC_VRAI) {
+			vl_i_ITPC = DB_CTRL_GET_VALUE@ (vl_fenetre, "BO_ITPC")
+			vl_num_seq_bascule = tm_seq_bascule_tube[vl_i_ITPC].numero_sequence
+			vl_couple_ITPC = tm_seq_bascule_tube[vl_i_ITPC].couple_ITPC
+		}
+
+		IF ITMA_TCP_Sequence_CDP_choisie (vl_conditions, vm_basculement, vl_num_seq_bascule, vl_action_cdp) = COM_OK {
+			ITMA_TCP_Action_Coup_De_Poing (vl_type_evt, vm_basculement, vl_couple_ITPC, vl_action_cdp)
+			vl_la_fenetre_est_active = FALSE
+		}
+
+		ITMA_TCP_Actions_Inhibees (vl_fenetre, FALSE)
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Sur selection de l'indicateur de basculement ou choix d'un tunnel,
+*  recherche les sequences configurees pour ce tunnel en bidirectionnel
+*  et affiche les couples d'ITPC pour choix de la sequence.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Proposer_ITPC (va_fenetre, va_groupe, va_sens, va_i_tunnel, va_bascule)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Identifiant de la boite de dialogue
+*  va_groupe          : Numero du groupe de tunnels choisi
+*  va_sens            : Sens du groupe de tunnels choisi
+*  va_i_tunnel        : Index de l'element choisi
+*  va_bascule         : Indicateur de basculement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+*
+* CONDITION D'UTILISATION
+*   Selection d'un tunnel ou de la case de basculement.
+*
+* FONCTION
+*   Affiche ou masque le bouton de choix des ITPC de basculement.
+*   Renseigne la liste des ITPC proposes selon le tunnel selectionne.
+*
+---------------------------------------------------------------------------- */
+
+DEFINE	TCP_COUPLE_ITPC_AUCUN		"_______ - _______"
+
+VAR	vl_numero_tunnel					' Numero du tunnel selectionne
+
+VAR	FORMAT TCP_Sequence_Bascule	vl_seq_bascule
+VAR	vl_ypos_groupe						' Position verticale du groupe selectionne
+VAR	i
+
+/*A Si l'indicateur de basculement est decoche, masquer le bouton de choix des ITPC */
+IF (va_bascule = XDC_FAUX) {
+	DB_CTRL_DISPLAY@ (va_fenetre, "BO_ITPC", FALSE)
+	RETURN (COM_OK)
+}
+
+
+/*A Si aucun tunnel n'est selectionne, masquer le bouton de choix des ITPC */
+IF IS_NULL@ (va_groupe)  OR  IS_NULL@ (va_sens)  OR  IS_NULL@ (va_i_tunnel) {
+	DB_CTRL_DISPLAY@ (va_fenetre, "BO_ITPC", FALSE)
+	RETURN (COM_NOK)
+}
+
+
+vl_numero_tunnel = tm_tunnels[va_groupe][va_sens][va_i_tunnel].numero
+
+/*A Construire la liste des sequences avec basculement configurees pour ce tunnel */
+vl_seq_bascule.numero_sequence = TCP_SEQ_CDP_AUCUNE
+vl_seq_bascule.couple_ITPC = TCP_COUPLE_ITPC_AUCUN
+tm_seq_bascule_tube = { vl_seq_bascule }
+
+FOR i = 0  TO (ARRAY_SIZE@ (tm_seq_bascule) - 1)
+	IF (tm_seq_bascule[i].numero_tunnel = vl_numero_tunnel) {
+		tm_seq_bascule_tube[ARRAY_SIZE@ (tm_seq_bascule_tube)] = tm_seq_bascule[i]
+	}
+NEXT i
+
+
+/*A Afficher les couples d'ITPC et selectionner le premier, invalide */
+DB_CTRL_STRINGS@ (va_fenetre, "BO_ITPC", ARRAY_COLUMN@ (tm_seq_bascule_tube, 2))
+DB_CTRL_VALUE@ (va_fenetre, "BO_ITPC", 0)
+
+/*A Positionner le bouton de choix du couple d'ITPC face au tunnel */
+vl_ypos_groupe = DB_CTRL_GET_YPOS@ (va_fenetre, tm_ctrl_tunnels[va_groupe][va_sens])
+DB_CTRL_YPOS@ (va_fenetre, "BO_ITPC", vl_ypos_groupe + 5 + (va_i_tunnel * 31))
+DB_CTRL_DISPLAY@ (va_fenetre, "BO_ITPC", TRUE)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Sur choix d'un tunnel, verifie que ce choix est valide et le memorise.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Choix_Tunnel (va_fenetre, va_groupe, va_sens, va_i_tunnel)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Identifiant de la boite de dialogue
+*  va_groupe          : Numero du groupe de tunnels choisi
+*  va_sens            : Sens du groupe de tunnels choisi
+*  va_i_tunnel        : Index de l'element choisi
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK si le choix est valide, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   Selection d'un tunnel dans l'un des groupes de tunnels affiches.
+*
+* FONCTION
+*   Verifie que le tunnel choisi est valide.
+*   Si le choix est valide alors annule toute autre selection.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_valide				' Validite du choix effectue
+VAR	g, s					' Indices groupe, sens
+
+/*A Si le tunnel choisi etait deja selectionne alors il n'y a rien a faire */
+IF (vm_groupe = va_groupe)  AND  (vm_sens = va_sens)  AND  (vm_i_tunnel = va_i_tunnel) {
+	RETURN
+}
+
+
+/*A Verifier que le tunnel choisi est valide */
+IF IS_NULL@ (tm_tunnels[va_groupe][va_sens][va_i_tunnel].numero) {
+	vl_valide = FALSE
+} ELSE {
+	vl_valide = TRUE
+}
+
+
+/*A
+** Si le choix est valide, le memoriser et annuler toute autre selection
+** ---------------------------------------------------------------------
+*/
+
+IF vl_valide {
+	vm_groupe = va_groupe
+	vm_sens = va_sens
+	vm_i_tunnel = va_i_tunnel
+
+	FOR g = 1  TO 2
+		FOR s = 1  TO 2
+			IF (g = va_groupe  AND  s = va_sens) {
+				DB_CTRL_VALUE@ (va_fenetre, tm_ctrl_tunnels[g][s] , va_i_tunnel)
+			} ELSE {
+				DB_CTRL_VALUE@ (va_fenetre, tm_ctrl_tunnels[g][s] , -1)
+			}
+		NEXT s
+	NEXT g
+
+	/*B definir les couples d'ITPC proposes si un basculement est declare */
+	ITMA_TCP_Proposer_ITPC (va_fenetre, va_groupe, va_sens, va_i_tunnel, vm_basculement)
+} ELSE {
+	/*A sinon annuler le choix et restaurer le precedent s'il est dans ce groupe */
+	IF (vm_groupe = va_groupe)  AND  (vm_sens = va_sens) {
+		DB_CTRL_VALUE@ (va_fenetre, tm_ctrl_tunnels[va_groupe][va_sens] , vm_i_tunnel)
+	} ELSE {
+		DB_CTRL_VALUE@ (va_fenetre, tm_ctrl_tunnels[va_groupe][va_sens] , -1)
+	}
+}
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Sur choix d'un type d'evenement, verifie qu'un tunnel est selectionne
+*  et extrait de la configuration "coup de poing" la sequence correspondante.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Sequence_CDP_choisie (va_conditions, va_basculement, va_num_sequence, FORMAT TCP_Tunnel va_action_cdp)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_conditions      : Conditions d'application du scenario choisi
+*  va_basculement     : Indicateur de basculement
+*  va_num_sequence    : Identifiant de la sequence CdP du tunnel avec basculement
+*
+*
+* ARGUMENTS EN SORTIE : 
+*  va_action_cdp      : Donnees de l'action Coup de poing choisie
+*
+*
+* CODE RETOUR         :
+*   COM_OK            : Sequence d'actions Coup de poing trouvee pour ce tunnel
+*   COM_NOK           : Aucune tunnel selectionne ou aucune action pour ce tunnel
+*
+* CONDITION D'UTILISATION
+*   Appui sur un bouton de choix de type d'evenement.
+*
+* FONCTION
+*   Verifie qu'un tunnel valide a ete choisi.
+*   Extrait de l'environnement et retourne la configuration adequate.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_num_tunnel					' Numero du tunnel selectionne
+VAR	FORMAT	TCP_Tunnel	tl_config_cdp		' Configuration "coup de poing"
+VAR	i
+
+va_action_cdp = NULL
+
+/*A Determiner le tunnel concerne et le sens de l'evenement */
+IF (va_conditions = TCP_COND_BOUCHON) {
+	/*A le cas d'un bouchon ne concerne que le tunnel de Monaco en sens 1 */
+	vl_num_tunnel = CM_NUM_TUN_MONACO_S1
+} ELSE {
+	/*A sinon verifier qu'un tunnel valide a ete selectionne */
+	IF IS_NULL@ (vm_groupe)  OR  IS_NULL@ (vm_sens)  OR  IS_NULL@ (vm_i_tunnel) {
+		INFO_MESSAGE@ ("     SELECTIONNER D'ABORD LE TUNNEL ET LE SENS DE L'EVENEMENT !     ")
+		RETURN (COM_NOK)
+	}
+	vl_num_tunnel = tm_tunnels[vm_groupe][vm_sens][vm_i_tunnel].numero
+}
+
+
+/*A Si un basculement est indique, verifier qu'un couple d'ITPC est selectionne */
+IF (va_basculement = XDC_VRAI)  AND  (va_num_sequence = TCP_SEQ_CDP_AUCUNE) {
+	INFO_MESSAGE@ ("     SELECTIONNER D'ABORD LE COUPLE D'ITPC DE BASCULEMENT.     ")
+	RETURN (COM_NOK)
+}
+
+
+/*A Lire dans l'environnement la configuration Coup de Poing correspondant */
+/*A  au sens de l'evenement choisi ainsi qu'a l'indicateur de basculement  */
+IF (va_basculement = XDC_VRAI) {
+	tl_config_cdp = SYSTEM_VAR@ (vg_coup_poing_bidi ++ vm_sens)
+} ELSE {
+	tl_config_cdp = SYSTEM_VAR@ (vg_coup_poing_uni ++ vm_sens)
+}
+
+
+/*A Extraire la sequence pour le tunnel choisi et les conditions specifiees. */
+/*A En cas de basculement, extraire la sequence choisie par le couple d'ITPC */
+FOR i = 0  TO (ARRAY_SIZE@ (tl_config_cdp) - 1)
+	IF (tl_config_cdp[i].numero = vl_num_tunnel)  AND
+	   (tl_config_cdp[i].conditions = va_conditions)  AND
+	   ( (va_basculement = XDC_FAUX)  OR  (tl_config_cdp[i].num_sequence = va_num_sequence) )
+	{
+		va_action_cdp = tl_config_cdp[i]
+		BREAK i
+	}
+NEXT i
+IF IS_NULL@ (va_action_cdp.actions) {
+	INFO_MESSAGE@ ("     AUCUNE SEQUENCE COUP DE POING CONFIGUREE POUR CETTE SITUATION !     ")
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Effectue une action "coup de poing" en tracant ou executant la sequence.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Action_Coup_De_Poing (va_type_evt, va_basculement, va_couple_ITPC, FORMAT TCP_Tunnel va_cdp)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_type_evt        : Type d'evenement a creer
+*  va_basculement     : Indicateur de basculement
+*  va_couple_ITPC     : En cas de basculement, couple d'ITPC choisi (texte)
+*  va_cdp             : Donnees de la sequence Coup de poing
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*   COM_OK            : Action Coup de poing executee
+*   COM_NOK           : Erreur lors de la creation de la fiche evenement
+*
+* CONDITION D'UTILISATION
+*   Appui sur un bouton d'action Coup de poing avec configuration valide pour le tunnel.
+*
+* FONCTION
+*   Cree l'evenement de type choisi.
+*   Execute les actions de la phase 1 (signalisation) sur les equipements configures.
+*   Demande confirmation puis execute les actions des phases suivantes (neutralisation).
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_num_tunnel					' Numero du tunnel selectionne
+
+VAR	FORMAT	COM_Identifiant_FMC	vl_evt		' Id. de la FMC creee
+VAR	FORMAT	COM_Intitule_FMC	vl_info_evt	' Infos sur la FMC creee
+VAR	FORMAT	COM_Localisation	vl_loc_evt	' Localisation de la FMC creee
+
+VAR	vl_texte
+VAR	vl_date_evt, vl_date
+VAR	vl_i_ech
+VAR	vl_cr
+VAR	i
+
+/*A Lire dans l'environnement le mode de fonctionnement actuel */
+vm_mode = SYSTEM_VAR@ (vg_mode_coup_de_poing)
+
+vl_num_tunnel = va_cdp.numero
+
+
+vl_texte = ""
+IF (va_basculement = XDC_VRAI) {
+	vl_texte = " avec basculement " ++ va_couple_ITPC
+}
+IF vm_mode = TCP_COUP_POING_REEL {
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("==> COUP DE POING AU TUNNEL %s%s (MODE REEL)", va_cdp.nom, UPPERCASE@ (vl_texte)))
+} ELSE {
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("--> Coup de Poing au tunnel %s%s (Mode Trace)", va_cdp.nom, vl_texte))
+}
+
+
+/*A Creer la fiche main courante avec le type indique */
+IF (va_type_evt = XZAEC_FMC_FermetureEch) {
+	vl_loc_evt.NumAuto = vm_ech_Monaco_A8.autoroute
+	vl_loc_evt.PR = vm_ech_Monaco_A8.PR
+	vl_loc_evt.sens_circulation = XDC_SENS_SORTIE_SUD
+	vl_loc_evt.type_point_caract = XDC_POINT_CARACT_ECHANGEUR
+	vl_loc_evt.point_caract = CM_NUM_ECH_MONACO_A8
+
+	vl_cr = ITMA_TCP_Creer_Operation_Echangeur (va_type_evt, { }, vm_ech_Monaco_A8, XDC_SENS_SORTIE_SUD, vl_evt, vl_date_evt)
+} ELSE {
+	vl_loc_evt.NumAuto = va_cdp.autoroute
+	vl_loc_evt.PR = va_cdp.PR
+	vl_loc_evt.sens_circulation = va_cdp.sens
+
+	vl_cr = ITMA_TCP_Creer_FMC (va_type_evt, va_cdp.autoroute, va_cdp.PR, va_cdp.sens, vl_evt, vl_date_evt)
+}
+
+IF (vl_cr <> COM_OK) {
+	RETURN (COM_NOK)
+}
+vm_Evt = vl_evt
+
+
+/*A Si un echangeur de deviation est configure, creer la Fmc Deviation */
+vl_i_ech = COM45_IndexEnColonne (tm_echangeurs, TDO_NUMERO_ECH, va_cdp.ech_deviation)
+IF (vl_i_ech >= 0) {
+	vm_Ech_Deviation = tm_echangeurs[vl_i_ech]
+	ITMA_TCP_Creer_Operation_Echangeur (XZAEC_FMC_Deviation, vm_Evt, vm_Ech_Deviation, va_cdp.sens, vm_Deviation, vl_date)
+}
+
+/*A En cas de basculement, si un echangeur de deviation inverse est configure, creer la Deviation inverse */
+IF (va_basculement = XDC_VRAI) {
+	vl_i_ech = COM45_IndexEnColonne (tm_echangeurs, TDO_NUMERO_ECH, va_cdp.ech_deviation_inv)
+	IF (vl_i_ech >= 0) {
+		vm_Ech_Deviation_Inv = tm_echangeurs[vl_i_ech]
+		ITMA_TCP_Creer_Operation_Echangeur (XZAEC_FMC_Deviation, vm_Evt, vm_Ech_Deviation_Inv,
+		                                       (XDC_SENS_NORD + XDC_SENS_SUD) - vm_sens, vm_Deviation_Inverse, vl_date)
+	}
+}
+
+
+/*A Envoyer aux equipements les commandes de la phase 1 */
+vm_cmd_incendie_envoyee = XDC_FAUX
+vm_cmd_plein_soleil_envoyee = XDC_FAUX
+ITMA_TCP_Commande_Equipements (vl_num_tunnel, va_cdp.actions, TCP_CMDS_PHASE1, va_type_evt)
+
+
+/*A En mode reel, ouvrir la fiche main courante */
+IF (vm_mode = TCP_COUP_POING_REEL) {
+	vl_info_evt.IdFMC = vl_evt
+	vl_info_evt.Numtype = va_type_evt
+	vl_info_evt.localisation = vl_loc_evt
+	vl_info_evt.date = vl_date_evt
+	NEW_TASK@ ("ITMA_TMC_Fiche_Main_Courante", "ITMA_TCP_Coup_De_Poing", vl_info_evt, XDC_VRAI, XDC_FMC_ETAT_TRAI)
+}
+
+
+/*A Demander confirmation pour l'envoi des commandes de la phase 2 */
+vl_cr = PEND_FOR_NEW_TASK@ ("ITMA_TCP_Demande_Confirmation", TCP_CMDS_PHASE2)
+IF (vl_cr = XDC_OUI) {
+	/*A En cas de reponse affirmative, activer la phase 2 */
+	ITMA_TCP_Commande_Equipements (vl_num_tunnel, va_cdp.actions, TCP_CMDS_PHASE2, va_type_evt)
+
+	/*A puis si la sequence comporte une action en phase 3 (equipements BAD) */
+	/*A alors demander confirmation, et dans l'affirmative activer la phase */
+	IF ITMA_TCP_Contient_Action_Phase3 (va_cdp.actions) {
+		vl_cr = PEND_FOR_NEW_TASK@ ("ITMA_TCP_Demande_Confirmation", TCP_CMDS_PHASE3)
+		IF (vl_cr = XDC_OUI) {
+			ITMA_TCP_Commande_Equipements (vl_num_tunnel, va_cdp.actions, TCP_CMDS_PHASE3, va_type_evt)
+		}
+	}
+}
+
+ITMA_TCP_Trace (COM_INFO, "==========   Fin d'action Coup de Poing   ==========")
+
+/*B Au retour, demander la terminaison du module */
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Trace la liste des actions "coup de poing" pour un tunnel et envoie les
+*  commandes aux equipements si le mode de fonctionnement est le mode reel.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Commande_Equipements (va_Tunnel_Evt, FORMAT TCP_Equipement ta_actions, va_numero_phase, va_type_evt)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_Tunnel_Evt     : Numero du tunnel lieu de l'evenement
+*   ta_actions        : Liste des actions a effectuer / equipements a piloter
+*   va_numero_phase   : Numero de la phase de commandes
+*   va_type_evt       : Type de l'evenement cause du Coup de Poing
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Saisie_Coup_De_Poing
+*
+* FONCTION
+*   Ecrit en fichier de trace la liste d'actions du type demande ;
+*   En mode de fontionnement reel, envoie la commande a chaque equipement.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT PA_PAL		vl_PAL				' Donnees PAL pour priorite et distance
+VAR	/*FORMAT PA_NAV*/	vl_NAV				' Donnees NAV pour priorite et distance
+VAR	/*FORMAT PA_BAD*/	vl_BAD				' Donnees BAD pour priorite et distance
+
+VAR	vl_cmd							' Commande a effectuer
+VAR	FORMAT COM_Identifiant_FMC	vl_evt			' FMC liee a la commande
+VAR	FORMAT COM_Identifiant_FMC	vl_Ferm_Ech
+
+VAR	vl_num_eqt, vl_num_tunnel_GTC
+VAR	vl_nomEqt, vl_i_nom
+
+VAR	vl_cmd_incendie_avant_phase, vl_envoi_cmd_incendie, vl_envoi_cmd_plein_soleil
+VAR	vl_PR_desenfumage, vl_scenario_desenfumage
+
+VAR	vl_num_action
+VAR	vl_operateur, vl_site_local
+VAR	vl_txt_trace
+VAR	i
+
+VAR vl_cmd_IMU
+
+
+vl_cmd_incendie_avant_phase = vm_cmd_incendie_envoyee			' Etat en debut de cette phase
+
+IF vm_mode = TCP_COUP_POING_REEL {
+	ITMA_TCP_Trace (COM_INFO, "==> Commandes de la phase " ++ va_numero_phase ++ " (envoi reel des commandes)")
+} ELSE {
+	ITMA_TCP_Trace (COM_INFO, "--- Commandes de la phase " ++ va_numero_phase ++ " (trace seulement)")
+}
+
+
+/*A Initialiser les valeurs des arguments d'actions */
+vl_operateur = SYSTEM_VAR@ (vg_numero_operateur)
+vl_site_local = SYSTEM_VAR@ (vg_site)
+
+/*A Le tunnel auquel envoyer les commandes GTC est toujours celui en sens 1 a Monaco */
+vl_num_tunnel_GTC = va_Tunnel_Evt
+IF (va_Tunnel_Evt = CM_NUM_TUN_MONACO_S2)   { vl_num_tunnel_GTC = CM_NUM_TUN_MONACO_S1 }
+
+
+/*A Pour chaque equipement de la sequence d'actions */
+FOR i = 0  TO (ARRAY_SIZE@ (ta_actions) - 1)
+	vl_envoi_cmd_incendie = XDC_FAUX
+	vl_envoi_cmd_plein_soleil = XDC_FAUX
+
+	vl_num_eqt = ta_actions[i].numero
+	vl_evt = vm_Evt							' A priori lier l'action a la Fmc evenement
+
+	/*A Si une commande du type precise est configuree alors */
+	vl_cmd = NULL							' ATTENTION : c'est un tableau pour les PMV[A]
+	CASE OF  va_numero_phase
+	CASE TCP_CMDS_PHASE1	vl_cmd = ta_actions[i].cmd_phase1
+	CASE TCP_CMDS_PHASE2	vl_cmd = ta_actions[i].cmd_phase2
+	CASE TCP_CMDS_PHASE3	vl_cmd = ta_actions[i].cmd_phase3
+	ENDCASE
+
+	/*B PRECAUTION : Si une commande a une BAD n'est pas dans la phase dediee alors l'ignorer */
+	IF (ta_actions[i].type = XDC_EQT_BAD)  AND  (va_numero_phase <> TCP_CMDS_PHASE3) {
+		vl_cmd = NULL
+	}
+
+	/*A Si la commande s'adresse a un equipement ECHangeur situe sur un echangeur alors */
+	IF NOT IS_NULL@ (vl_cmd)  AND  (ta_actions[i].type = XDC_EQT_ECH)  AND  (ta_actions[i].echangeur <> NULL) {
+		/*A si l'echangeur est celui d'une deviation alors y lier l'action */
+		IF (ta_actions[i].echangeur = vm_Ech_Deviation.numero)  AND  (vm_Deviation.numero <> NULL) {
+			vl_evt = vm_Deviation
+		} ELSE IF (ta_actions[i].echangeur = vm_Ech_Deviation_Inv.numero)  AND  (vm_Deviation_Inverse.numero <> NULL) {
+			vl_evt = vm_Deviation_Inverse
+		}
+	}
+
+	/*A Si la commande s'adresse a une BAFA situee sur un echangeur alors */
+	IF NOT IS_NULL@ (vl_cmd)  AND  (ta_actions[i].type = XDC_EQT_BAF)  AND  (ta_actions[i].echangeur <> NULL) {
+		/*A creer une Fmc Fermeture echangeur si ce n'est pas deja fait, et y lier l'action */
+		ITMA_TCP_Fermeture_Echangeur_BAFA (ta_actions[i].echangeur, ta_actions[i].sens, vl_Ferm_Ech)
+		IF (vl_Ferm_Ech.numero <> NULL) {
+			vl_evt = vl_Ferm_Ech
+		}
+	}
+
+
+	/*A Tracer la commande */
+	IF NOT IS_NULL@ (vl_cmd) {
+		IF IS_ARRAY@ (vl_cmd) {
+			vl_txt_trace = ARRAY_TO_STRING@ (vl_cmd, "/")
+		} ELSE {
+			vl_txt_trace = vl_cmd
+		}
+		IF (vl_evt.numero <> vm_evt.numero) {
+			vl_txt_trace = vl_txt_trace ++ "   liee a " ++ vl_evt.numero ++ "/" ++ vl_evt.cle
+		}
+
+		vl_nomEqt = ta_actions[i].nom
+		IF (IS_NUMERIC_STRING@ (ta_actions[i].nom)) {					' devenu l'index du nom
+			vl_i_nom = ta_actions[i].nom + 0
+			IF (vl_i_nom < 0) {
+				vl_nomEqt = "Equipement inconnu"
+			} ELSE {
+				vl_nomEqt = lm_noms_eqts[vl_i_nom]
+			}
+		}
+		ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   %s (%s) : %s", vl_nomEqt, vl_num_eqt, vl_txt_trace))
+	}
+
+
+	/*A Sur Vehicule en feu a Monaco, ignorer toute commande a l'autre extremite */
+	IF NOT IS_NULL@ (vl_cmd)  AND  (va_type_evt = XZAEC_FMC_VehFeu)  AND  (ta_actions[i].type = XDC_EQT_TUB)  AND
+	   ( (vl_num_eqt = CM_NUM_TUN_MONACO_S1  AND  va_Tunnel_Evt = CM_NUM_TUN_MONACO_S2)  OR
+	     (vl_num_eqt = CM_NUM_TUN_MONACO_S2  AND  va_Tunnel_Evt = CM_NUM_TUN_MONACO_S1) )
+	{
+		vl_cmd = NULL
+		ITMA_TCP_Trace (COM_INFO, "     Ignoree dans le sens oppose")
+	}
+
+	/*A Specificites des commandes au tunnel lieu de l'evenement */
+	/*! Les traces ci-dessous doivent correspondre aux actions effectuees en mode reel */
+	IF NOT IS_NULL@ (vl_cmd)  AND  (ta_actions[i].type = XDC_EQT_TUB)  AND  (vl_num_eqt = va_Tunnel_Evt) {
+		/*A Sur Vehicule en feu remplacer la premiere commande au tunnel par le scenario Incendie */
+		IF (va_type_evt = XZAEC_FMC_VehFeu) {
+			IF (vm_cmd_incendie_envoyee <> XDC_VRAI) {
+				vm_cmd_incendie_envoyee = XDC_VRAI
+				vl_envoi_cmd_incendie = XDC_VRAI
+				ITMA_TCP_Trace (COM_INFO, "     Remplacee par scenario Incendie au tunnel " ++ vl_num_tunnel_GTC)
+			} ELSE {
+				vl_cmd = NULL
+				ITMA_TCP_Trace (COM_INFO, "     Ignoree")
+			}
+		}
+
+		/*B Faire suivre la premiere commande du scenario Plein soleil (sauf vehicule en feu ou bouchon) */
+		IF (va_type_evt <> XZAEC_FMC_VehFeu)  AND  (va_type_evt <> XZAEC_FMC_FermetureEch) {
+			IF (vm_cmd_plein_soleil_envoyee <> XDC_VRAI) {
+				vm_cmd_plein_soleil_envoyee = XDC_VRAI
+				vl_envoi_cmd_plein_soleil = XDC_VRAI
+				ITMA_TCP_Trace (COM_INFO, "     + Scenario Plein soleil au tunnel " ++ vl_num_tunnel_GTC)
+			}
+		}
+	}
+
+
+	/*A En mode reel, envoyer la commande a l'equipement */
+	IF NOT IS_NULL@ (vl_cmd)  AND  (vm_mode = TCP_COUP_POING_REEL) {
+		CASE OF ta_actions[i].type
+
+		CASE XDC_EQT_TUB
+			/*A Pour un vehicule en feu, AU LIEU DE L'EVENEMENT */
+			IF (vl_envoi_cmd_incendie = XDC_VRAI) {
+				/*A envoyer le scenario Incendie a la GTC Ventilation du tunnel */
+				ITMA_TTU_Commande_Seq_Tunnel_ventilation (vl_num_tunnel_GTC, XDC_FAUX,
+				                                             XDC_VEN_SEQ_INCENDIE, vl_evt.numero, vl_evt.cle)
+			} ELSE {
+				ITMA_TTU_Commun_Cmd_Seq_Tunnel_Renove (C_MODULE, vl_operateur, XDC_FAUX, vl_cmd,
+				                                          vl_evt.numero, vl_evt.cle, vl_num_eqt,
+				                                          0, 0, vl_num_action)
+			}
+
+			/*A Au tunnel LIEU DE L'EVENEMENT (sauf vehicule en feu ou bouchon) */
+			IF (vl_envoi_cmd_plein_soleil = XDC_VRAI) {
+				/*A faire suivre la premiere commande du scenario Plein soleil a la GTC du tunnel */
+				ITMA_TTU_Commande_Seq_Tunnel_eclairage (vl_num_tunnel_GTC, XDC_FAUX,
+				                                           XDC_ECL_SEQ_PLEIN_SOLEIL, vl_evt.numero, vl_evt.cle)
+			}
+
+		CASE XDC_EQT_ECH
+			IF ta_actions[i].renove = XDC_VRAI {
+				ITMA_TEC_Commun_Cmd_Seq_Ech_Renove (C_MODULE, vl_operateur, XDC_FAUX, vl_cmd,
+								       vl_evt.numero, vl_evt.cle, vl_num_eqt, 0, 0, vl_num_action)
+			} ELSE {
+				ITMA_TEC_Commun_Cmd_Seq_Ech (C_MODULE, vl_operateur, XDC_FAUX, vl_cmd,
+								vl_evt.numero, vl_evt.cle, vl_num_eqt, 0, 0, vl_num_action)
+			}
+
+		CASE XDC_EQT_PMV
+			ITMA_TCP_Commande_PMV (vl_num_eqt, vl_evt.numero, vl_evt.cle, vl_cmd, vl_num_action)
+
+		CASE XDC_EQT_PMVA
+			ITMA_TCP_Commande_PMVA (vl_num_eqt, vl_evt.numero, vl_evt.cle, vl_cmd, vl_num_action)
+
+		CASE XDC_EQT_PAL
+			vl_PAL.Priorite = 0
+			vl_PAL.DistanceEvt = 0
+			ITMA_TPP_Commande_PAL (vl_operateur, XDC_FAUX, vl_cmd[0], vl_cmd[1], FALSE, vl_evt.numero, vl_evt.cle,
+			                          vl_num_eqt, vl_PAL, vl_num_action, vl_site_local)
+
+		CASE XDC_EQT_NAV
+			/*B Envoi de la commande de signalisation ou de neutralisation */
+			vl_NAV = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }		' Pour Priorite et DistanceEvt
+
+			ITMA_TNA_Commande_NAV (vl_operateur, XDC_FAUX, vl_cmd, FALSE, vl_evt.numero, vl_evt.cle,
+			                          vl_num_eqt, vl_NAV, vl_num_action, vl_site_local)
+
+		CASE XDC_EQT_BAF
+			/*B Envoi de la commande de signalisation ou de neutralisation */
+			ITMA_TCP_Commande_BAF (vl_num_eqt, vl_evt.numero, vl_evt.cle, vl_cmd, vl_num_action)
+
+		CASE XDC_EQT_BAD
+			/*B Envoi de la commande de neutralisation */
+			vl_BAD = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }		' Pour Priorite et DistanceEvt
+
+			ITMA_TBAD_Commande_BAD (vl_operateur, XDC_FAUX, vl_cmd, vl_evt.numero, vl_evt.cle,
+			                          vl_num_eqt, vl_BAD, vl_num_action, vl_site_local)
+
+		CASE XDC_EQT_IMU
+			/*B Envoi de la commande d'insertion de message d'urgence */
+			vl_cmd_IMU = ARRAY_FROM_STRING@ (vl_cmd, "/")
+			ITMA_TCPT_Commande_IMU (vl_num_eqt, vl_cmd_IMU[0], vl_cmd_IMU[1], vl_cmd_IMU[2], vl_cmd_IMU[3], vl_evt.numero, vl_evt.cle, vl_num_action)
+		ENDCASE
+	}
+NEXT i
+
+
+/*A Si le scenario Incendie a ete envoye DANS CETTE PHASE alors */
+IF (va_type_evt = XZAEC_FMC_VehFeu)  AND  (vm_cmd_incendie_envoyee = XDC_VRAI)  AND  (vl_cmd_incendie_avant_phase <> XDC_VRAI) {
+	/*A pour le tunnel de Monaco choisir par le PR le scenario de desenfumage */
+	IF (va_Tunnel_Evt = CM_NUM_TUN_MONACO_S1)  OR  (va_Tunnel_Evt = CM_NUM_TUN_MONACO_S2) {
+		vl_scenario_desenfumage = PEND_FOR_NEW_TASK@ ("ITMA_TCP_Desenfumage_Monaco")
+	} ELSE {
+		/*A et pour un autre tunnel choisir le scenario de desenfumage selon ses capacites de ventilation */
+		vl_scenario_desenfumage = PEND_FOR_NEW_TASK@ ("ITMA_TCP_Scenario_Desenfumage", va_Tunnel_Evt, vm_basculement)
+	}
+
+	IF (vl_scenario_desenfumage > 0) {
+		ITMA_TCP_Trace (COM_INFO, FORMAT@ ("     + scenario de desenfumage %s au tunnel %s",
+		                                      vl_scenario_desenfumage, vl_num_tunnel_GTC))
+
+		/*A En mode reel, envoyer la commande a l'equipement */
+		IF (vm_mode = TCP_COUP_POING_REEL) {
+			ITMA_TTU_Commande_Seq_Tunnel_ventilation (vl_num_tunnel_GTC, XDC_FAUX,
+								     vl_scenario_desenfumage, vm_Evt.numero, vm_Evt.cle)
+		}
+	}
+}
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Envoi d'une commande a un PMV.
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCP_Commande_PMV (va_NumPMV, va_NumEvt, va_CleEvt, va_Message, va_NumAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_NumPMV		: numero de l'equipement
+*   va_NumEvt		: numero de l'evenement
+*   va_CleEvt		: cle de l'evenement
+*   va_Message 		: message de trois lignes
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_NumAction	: le numero d'action retourn? par la base
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Commande_Equipements
+*
+*
+* FONCTION
+*   	Ecrire en base de donnees la commande au PMV.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	vl_site_local
+VAR	vl_operateur
+VAR	vl_maintenant
+
+/*A Trace de l'appel de procedure */
+COM01_Trace (0, "--> XZAC01_Commande_PMV")
+
+vl_site_local = SYSTEM_VAR@ (vg_site)
+vl_operateur = SYSTEM_VAR@ (vg_numero_operateur)
+vl_maintenant = COM09_Date_Courante ()
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#DATETIME_,		vl_maintenant },
+	{ FALSE,	SYB#INT4_,		va_NumEvt },
+	{ FALSE,	SYB#INT2_,		va_CleEvt },
+	{ FALSE,	SYB#INT2_,		vl_operateur },
+	{ FALSE,	SYB#INT2_,		va_NumPMV },
+	{ FALSE,	SYB#INT1_,		vl_site_local },
+
+	{ FALSE,	SYB#CHAR_,		va_Message[0] },
+	{ FALSE,	SYB#CHAR_,		va_Message[1] },
+	{ FALSE,	SYB#CHAR_,		va_Message[2] },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+
+	{ FALSE,	SYB#INT1_,		XDC_PMV_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMV_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMV_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMV_PASFLASH },
+
+	{ FALSE,	SYB#CHAR_,		"XXXX" },			' Type picto
+	{ FALSE,	SYB#CHAR_,		"" },				' Texte picto
+	{ FALSE,	SYB#INT1_,		XDC_PICTO_PASCLIGNO },		' Clignotement picto
+
+	{ FALSE,	SYB#INT1_,		0 },				' Priorite
+	{ FALSE,	SYB#INT4_,		0 },				' Distance evenement
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },		' Ligne direction
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },		' Direction alternat
+	{ FALSE,	SYB#INT2_,		0 },				' Destination
+	{ FALSE,	SYB#INT2_,		0 },				' Destination alternat
+	{ FALSE,	SYB#INT1_,		CM_NO_SEUIL },			' Depassement seuil
+	{ FALSE,	SYB#INT1_,		vl_site_local },		' Site origine
+
+	{ TRUE,		SYB#INT4_,		NULL },				' Numero d'action creee
+	{ FALSE,	SYB#INT2_,		0 }				' Destination noeud
+} )
+
+
+IF COM05_SQL_Procedure (XZAC01_Commande_PMV, vl_parametres, vl_resultats, C_MODULE) <> COM_OK {
+	va_NumAction = NULL
+	RETURN (COM_NOK)
+}
+
+va_NumAction = vl_resultats.return_parameters[0]
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Envoi d'une commande a un PMVA.
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCP_Commande_PMVA (va_NumPMVA, va_NumEvt, va_CleEvt, va_Message, va_NumAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_NumPMVA		: numero de l'equipement
+*   va_NumEvt		: numero de l'evenement
+*   va_CleEvt		: cle de l'evenement
+*   va_Message 		: message de cinq lignes
+*
+* ARGUMENTS EN SORTIE :
+*   va_NumAction	: le numero d'action retourn? par la base
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Commande_Equipements
+*
+*
+* FONCTION
+*   	Ecrire en base de donnees la commande au PMV.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	vl_site_local
+VAR	vl_operateur
+VAR	vl_maintenant
+
+/*A Trace de l'appel de procedure */
+COM01_Trace (0, "--> XZAC82_Commande_PMVA")
+
+vl_site_local = SYSTEM_VAR@ (vg_site)
+vl_operateur = SYSTEM_VAR@ (vg_numero_operateur)
+vl_maintenant = COM09_Date_Courante ()
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#DATETIME_,		vl_maintenant },
+	{ FALSE,	SYB#INT4_,		va_NumEvt },
+	{ FALSE,	SYB#INT2_,		va_CleEvt },
+	{ FALSE,	SYB#INT2_,		vl_operateur },
+	{ FALSE,	SYB#INT2_,		va_NumPMVA },
+	{ FALSE,	SYB#INT1_,		vl_site_local },
+
+	{ FALSE,	SYB#CHAR_,		va_Message[0] },
+	{ FALSE,	SYB#CHAR_,		va_Message[1] },
+	{ FALSE,	SYB#CHAR_,		va_Message[2] },
+	{ FALSE,	SYB#CHAR_,		va_Message[3] },
+	{ FALSE,	SYB#CHAR_,		va_Message[4] },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+	{ FALSE,	SYB#CHAR_,		XDC_CHAINE_VIDE },
+
+	{ FALSE,	SYB#INT1_,		XDC_PMVA_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMVA_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMVA_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMVA_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMVA_PASCLIGNO },
+	{ FALSE,	SYB#INT1_,		XDC_PMVA_PASFLASH },
+
+	{ FALSE,	SYB#INT1_,		0 },				' Priorite
+	{ FALSE,	SYB#INT4_,		0 },				' Distance evenement
+	{ FALSE,	SYB#INT1_,		CM_NO_SEUIL },			' Depassement seuil
+	{ FALSE,	SYB#INT1_,		vl_site_local },		' Site origine
+
+	{ FALSE,	SYB#INT2_,		0 },				' Destination 1 proche
+	{ FALSE,	SYB#INT2_,		0 },				' Destination 1 lointaine
+	{ FALSE,	SYB#INT2_,		0 },				' Destination 2 proche
+	{ FALSE,	SYB#INT2_,		0 },				' Destination 2 lointaine
+
+	{ TRUE,		SYB#INT4_,		NULL }				' Numero d'action creee
+} )
+
+
+IF COM05_SQL_Procedure (XZAC82_Commande_PMVA, vl_parametres, vl_resultats, C_MODULE) <> COM_OK {
+	va_NumAction = NULL
+	RETURN (COM_NOK)
+}
+
+va_NumAction = vl_resultats.return_parameters[0]
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*   Envoi d'une commande a une barriere BAF.
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TCP_Commande_BAF (va_NumBAF, va_NumEvt, va_CleEvt,
+                                 va_Commande_BAF, va_NumAction)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_NumBAF           : numero de l'equipement
+*   va_NumEvt           : numero de l'evenement
+*   va_CleEvt           : cle de l'evenement
+*   va_Commande_BAF     : commande globale a l'equipement BAF
+*
+* ARGUMENTS EN SORTIE :
+*   va_NumAction	: le numero d'action retourn? par la base
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Commande_Equipements
+*
+*
+* FONCTION
+*   Envoi de la commande equipement en detaillant les commandes des modules.
+*
+---------------------------------------------------------------------------- */
+
+DEFINE	TCP_CMD_BARRIERE_AUCUNE		{ 0, 0, 0 }
+DEFINE	TCP_CMD_BARRIERE_FEUX		{ 1, 1, 0 }
+DEFINE	TCP_CMD_BARRIERE_FERMEE		{ 1, 1, 1 }
+
+VAR	vl_cmd_barriere_VL, vl_cmd_barriere_VR
+VAR	vl_site_local, vl_operateur
+VAR	vl_action_feux, vl_cr
+
+VAR	/*FORMAT PA_BAF*/	vl_BAF				' Donnees BAF pour priorite et distance
+
+vl_BAF = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }			' Pour Priorite et DistanceEvt
+vl_site_local = SYSTEM_VAR@ (vg_site)
+vl_operateur = SYSTEM_VAR@ (vg_numero_operateur)
+
+
+vl_cmd_barriere_VL = TCP_CMD_BARRIERE_AUCUNE			' Par defaut
+vl_cmd_barriere_VR = TCP_CMD_BARRIERE_AUCUNE
+
+IF (va_Commande_BAF = "FEUX")
+{
+	vl_cmd_barriere_VL = TCP_CMD_BARRIERE_FEUX
+	vl_cmd_barriere_VR = TCP_CMD_BARRIERE_FEUX
+}
+ELSE IF (va_Commande_BAF = "FERMETURE")
+{
+	vl_cmd_barriere_VL = TCP_CMD_BARRIERE_FERMEE
+	vl_cmd_barriere_VR = TCP_CMD_BARRIERE_FERMEE
+}
+ELSE IF (va_Commande_BAF = "FERMETURE1")  OR  (va_Commande_BAF = "FERMETURE2")
+{
+	/*A Envoyer une commande prealable d'allumage des feux a la barriere a fermer */
+	IF (va_Commande_BAF = "FERMETURE1") {
+		ITMA_TBAF_Commande_BAF (vl_operateur, XDC_FAUX, 1,1,0, 0,0,0,
+					  FALSE, va_NumEvt, va_CleEvt, va_NumBAF, vl_BAF, vl_action_feux, vl_site_local)
+		vl_cmd_barriere_VL = TCP_CMD_BARRIERE_FERMEE
+	} ELSE {
+		ITMA_TBAF_Commande_BAF (vl_operateur, XDC_FAUX, 0,0,0, 1,1,0,
+					  FALSE, va_NumEvt, va_CleEvt, va_NumBAF, vl_BAF, vl_action_feux, vl_site_local)
+		vl_cmd_barriere_VR = TCP_CMD_BARRIERE_FERMEE
+	}
+}
+ELSE RETURN (COM_NOK)
+
+vl_cr = ITMA_TBAF_Commande_BAF (vl_operateur, XDC_FAUX,
+				  vl_cmd_barriere_VL[0], vl_cmd_barriere_VL[1], vl_cmd_barriere_VL[2],
+				  vl_cmd_barriere_VR[0], vl_cmd_barriere_VR[1], vl_cmd_barriere_VR[2],
+				  FALSE, va_NumEvt, va_CleEvt, va_NumBAF, vl_BAF, va_NumAction, vl_site_local)
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Envoi d'une commande d'insertion de message d'urgence via l'IMU.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCPT_Commande_IMU (va_NumEqt, va_chaine, va_intervalle, va_cycle, va_duree, va_NumEvt, va_CleEvt, va_NumAction)
+
+VAR	FORMAT SQL_Procedure_Params@    vl_parametres
+VAR	FORMAT SQL_Procedure_Result@    vl_resultats
+
+VAR	vl_site_local
+VAR	vl_operateur
+VAR	vl_maintenant
+VAR	vl_message
+
+va_NumAction = 0
+
+vl_site_local = SYSTEM_VAR@ (vg_site)
+vl_operateur = SYSTEM_VAR@ (vg_numero_operateur)
+vl_maintenant = COM09_Date_Courante ()
+
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#DATETIME_,		vl_maintenant },
+	{ FALSE,	SYB#INT4_,		va_NumEvt },
+	{ FALSE,	SYB#INT1_,		va_CleEvt },
+	{ FALSE,	SYB#INT2_,		vl_operateur },
+	{ FALSE,	SYB#INT4_,		va_NumEqt },
+	{ FALSE,	SYB#INT1_,		vl_site_local },
+	{ FALSE,	SYB#CHAR_,		va_chaine },
+	{ FALSE,	SYB#INT4_,		va_intervalle },
+	{ FALSE,	SYB#INT4_,		va_cycle },
+	{ FALSE,	SYB#INT4_,		va_duree },	
+	{ FALSE,	SYB#INT1_,		0 },			' Priorite
+	{ FALSE,	SYB#INT1_,		vl_site_local },
+	{ FALSE,	SYB#INT4_,		0 },			' Distance evenement
+	{ TRUE,		SYB#INT4_,		NULL },			' Numero d'action creee
+	{ FALSE,	SYB#INT4_,		0 }			' Distant
+} )
+
+IF COM05_SQL_Procedure (XZAC903_Commande_IMU, vl_parametres, vl_resultats, C_MODULE) <> COM_OK {
+	INFO_MESSAGE@("Err xzac903")
+	RETURN (COM_NOK)
+}
+
+va_NumAction = vl_resultats.return_parameters[0]
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*B Code de condition accidentogene indefinie */
+
+DEFINE	TMC_CODE_COND_AUCUNE	0
+
+
+/*B Compteur de numero de FMC factice utilise en mode simulation */
+
+VAR	vm_num_fmc_simu
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Cree une FMC avec le type d'evenement choisi
+*  et certaines informations prerenseignees.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Creer_FMC (va_type_evt, va_autoroute, va_PR, va_sens,
+                             FORMAT COM_Identifiant_FMC va_evt, va_date_debut)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_type_evt        : Type d'evenement a creer
+*  va_autoroute       :
+*  va_PR              :
+*  va_sens            : Localisation de l'evenement a creer.
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_evt             : Id. de l'evenement cree
+*  va_date_debut      : Date de debut de l'evenement
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Action_Coup_De_Poing
+*
+* FONCTION
+*   Cree la fiche main courante ;
+*   Valide la fiche main courante en mettant toutes les voies bloquees.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT	TMC_fmc		vl_fiche			' Fiche main courante creee
+VAR	FORMAT	TMC_accident	vl_info_acc			' Donnees specifiques accident
+
+VAR	vl_date_valid
+VAR	tl_config						' Table des configurations des voies
+VAR	tl_cr_creation
+VAR	vl_site
+VAR	i, j
+
+va_evt = NULL
+va_date_debut = COM09_Date_Courante (TRUE)
+vl_site = SYSTEM_VAR@ (vg_site)
+
+
+/*B En mode simule, obtenir un numero de Fmc factice */
+IF (vm_mode <> TCP_COUP_POING_REEL) {
+	vm_num_fmc_simu = vm_num_fmc_simu + 1
+	va_evt = { vm_num_fmc_simu, vl_site }
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   Simulation creation evenement %s de type %s situe en %s-%s-%s",
+	                                      va_evt.numero, va_type_evt, va_autoroute, va_sens, va_PR))
+	RETURN (COM_OK)
+}
+
+
+/*A
+** Creer la fiche main courante
+** ----------------------------
+*/
+
+tl_cr_creation = ITMA_TMC_creer_fiche (va_type_evt, XDC_FMC_ETAT_TRAI, va_date_debut, NULL, vl_site, XDC_NON)
+
+IF tl_cr_creation[0] = COM_OK {
+	va_evt.numero	= tl_cr_creation[1][0]
+	va_evt.cle	= tl_cr_creation[1][1]
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   Creation evenement %s/%s de type %s situe en %s-%s-%s",
+					      va_evt.numero, va_evt.cle, va_type_evt, va_autoroute, va_sens, va_PR))
+} ELSE {
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   Creation evenement de type %s situe en %s-%s-%s : Resultat=%s",
+					      va_type_evt, va_autoroute, va_sens, va_PR, tl_cr_creation[0]))
+	'INFO_MESSAGE@ ("     ERREUR LORS DE LA CREATION DE L'EVENEMENT EN BASE     ")
+	RETURN (COM_NOK)
+}
+
+
+/*A
+** Valider la fiche creee
+** ----------------------
+*/
+
+/* S'assurer que la date de validation est posterieure a celle de creation */
+vl_date_valid = DATE_FORMAT@ (CURRENT_TIME@ () + 1, "dd/mm/yyyy hh:mi:ss")
+
+/*B En premier lieu ecrire les donnees specifiques */
+
+vl_info_acc.vl			= 0
+vl_info_acc.pl			= 0
+vl_info_acc.remorques		= 0
+vl_info_acc.cars		= 0
+vl_info_acc.motos		= 0
+vl_info_acc.bl			= 0
+vl_info_acc.bg			= 0
+vl_info_acc.morts		= 0
+vl_info_acc.vehescota		= XDC_FAUX
+vl_info_acc.matdang		= XDC_FAUX
+vl_info_acc.homescota		= XDC_FAUX
+vl_info_acc.perso		= XDC_FAUX
+vl_info_acc.dummy_degats_dom	= XDC_FAUX
+vl_info_acc.cond_meteo		= TMC_CODE_COND_AUCUNE
+vl_info_acc.cond_visibilite	= TMC_CODE_COND_AUCUNE
+vl_info_acc.cond_etat_chaus	= TMC_CODE_COND_AUCUNE
+vl_info_acc.cond_chantier	= TMC_CODE_COND_AUCUNE
+
+INSTALL_FILE@ (XDC_PATHEXE ++ "/ITMA_TMC_acc.elo")
+ITMA_TMC_acc_sauve (va_evt, vl_info_acc, NULL, vl_date_valid, NULL)
+
+
+/*B En second lieu ecrire les donnees de validation generiques */
+
+vl_fiche.numero		= va_evt.numero
+vl_fiche.cle		= va_evt.cle
+vl_fiche.numero_cause	= NULL
+vl_fiche.cle_cause	= NULL
+vl_fiche.type		= va_type_evt
+vl_fiche.debut		= va_date_debut
+vl_fiche.confirme	= XZAEC_FMC_CONFIRMEE
+vl_fiche.autoroute	= va_autoroute
+vl_fiche.pr		= va_PR
+vl_fiche.sens		= va_sens
+vl_fiche.point_car	= NULL
+vl_fiche.nom_point_car	= NULL
+vl_fiche.position	= NULL
+vl_fiche.degatsdom	= XDC_FAUX
+vl_fiche.fausse_alerte	= XDC_FAUX
+vl_fiche.longueur	= 0
+
+vl_fiche.bau_etroite	= NULL
+vl_fiche.bau_i_etroite	= NULL
+j = 9
+FOR i = 0  TO 9
+	tl_config[j][1] = tm_voies[vm_groupe][vm_sens][vm_i_tunnel][i]
+	j = j - 1
+NEXT i
+
+vl_fiche.origine = "COUP DE POING"
+IF (SYSTEM_VAR@ ("vg_essai") <> NULL)	vl_fiche.origine = "ESSAI " ++ vl_fiche.origine
+
+IF ITMA_TMC_valide (vl_date_valid, vl_fiche, XDC_FMC_ETAT_TRAI, tl_config, NULL, NULL, NULL) <> COM_OK {
+	'INFO_MESSAGE@ ("     ERREUR LORS DE LA VALIDATION DE LA FICHE MAIN COURANTE     ")
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Cree une FMC sur echangeur avec le type d'evenement choisi et la cause,
+*  la localisation et certaines autres informations prerenseignees.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Creer_Operation_Echangeur (va_type_evt, FORMAT COM_Identifiant_FMC va_cause,
+                                             FORMAT TDO_Echangeur va_echangeur, va_sens,
+                                             FORMAT COM_Identifiant_FMC va_evt, va_date_debut)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_type_evt        : Type d'evenement (deviation, fermeture echangeur)
+*  va_cause           : Identifiant de l'evenement cause
+*  va_echangeur       : Donnees de l'echangeur
+*  va_sens            : Sens de la Fmc a creer
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_evt             : Id. de l'evenement cree
+*  va_date_debut      : Date de debut de l'evenement
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Action_Coup_De_Poing
+*
+* FONCTION
+*   Cree la fiche main courante et la valide avec la localisation indiquee.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	FORMAT	TMC_fmc	vl_fiche				' Fiche main courante creee
+VAR	vl_sens							' Sens de la Fmc creee
+VAR	tl_config						' Table des configurations des voies
+VAR	vl_entree1, vl_entree2, vl_sortie1, vl_sortie2		' Bretelles fermees
+
+VAR	vl_lib_fmc, vl_txt_localisation
+VAR	vl_site, vl_operateur
+VAR	i, tl_cr_creation
+
+va_evt = NULL
+va_date_debut = COM09_Date_Courante (TRUE)
+
+vl_site = SYSTEM_VAR@ (vg_site)
+vl_operateur = SYSTEM_VAR@ (vg_numero_poste)
+
+/*A Preciser le sens de la Fmc et les bretelles pour une fermeture echangeur */
+vl_sens = va_sens
+vl_entree1 = XDC_FAUX
+vl_entree2 = XDC_FAUX
+vl_sortie1 = XDC_FAUX
+vl_sortie2 = XDC_FAUX
+
+CASE OF va_type_evt
+CASE XZAEC_FMC_Deviation
+	/*A Pour une deviation, forcer le sens en sortie */
+	CASE OF va_sens
+	CASE XDC_SENS_2, XDC_SORTIE_SENS_2
+		vl_sens = XDC_SORTIE_SENS_2
+	CASE XDC_SENS_1, XDC_SORTIE_SENS_1
+		vl_sens = XDC_SORTIE_SENS_1
+	DEFAULT
+		RETURN (COM_NOK)
+	ENDCASE
+	vl_lib_fmc = "deviation"
+	vl_txt_localisation = FORMAT@ ("echangeur %s sens %s PR %s", va_echangeur.numero, vl_sens, va_echangeur.PR)
+
+CASE XZAEC_FMC_FermetureEch
+	/*A Pour une fermeture echangeur, indiquer les bretelles fermees selon le sens */
+	CASE OF va_sens
+	CASE XDC_ENTREE_SENS_1
+		vl_entree1 = XDC_VRAI
+	CASE XDC_ENTREE_SENS_2
+		vl_entree2 = XDC_VRAI
+	CASE XDC_SORTIE_SENS_1
+		vl_sortie1 = XDC_VRAI
+	CASE XDC_SORTIE_SENS_2
+		vl_sortie2 = XDC_VRAI
+	CASE XDC_SENS_INCONNU
+		vl_entree1 = XDC_VRAI
+		vl_entree2 = XDC_VRAI
+	DEFAULT
+		RETURN (COM_NOK)
+	ENDCASE
+	vl_lib_fmc = "fermeture echangeur"
+	vl_txt_localisation = FORMAT@ ("echangeur %s sens %s PR %s, acces %s/%s/%s/%s", va_echangeur.numero,
+	                                  vl_sens, va_echangeur.PR, vl_entree1, vl_entree2, vl_sortie1, vl_sortie2)
+
+DEFAULT
+	RETURN (COM_NOK)
+ENDCASE
+
+
+/*B En mode simule, obtenir un numero de Fmc factice */
+IF (vm_mode <> TCP_COUP_POING_REEL) {
+	vm_num_fmc_simu = vm_num_fmc_simu + 1
+	va_evt = { vm_num_fmc_simu, vl_site }
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   Simulation creation %s %s sur %s", vl_lib_fmc, va_evt.numero, vl_txt_localisation))
+	RETURN (COM_OK)
+}
+
+
+/*A
+** Creer la fiche main courante
+** ----------------------------
+*/
+
+tl_cr_creation = ITMA_TMC_creer_fiche (va_type_evt, XDC_FMC_ETAT_TRAI, va_date_debut, NULL, vl_site, XDC_NON)
+
+IF tl_cr_creation[0] = COM_OK {
+	va_evt.numero	= tl_cr_creation[1][0]
+	va_evt.cle	= tl_cr_creation[1][1]
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   Creation %s %s/%s sur %s", vl_lib_fmc, va_evt.numero, va_evt.cle, vl_txt_localisation))
+} ELSE {
+	ITMA_TCP_Trace (COM_INFO, FORMAT@ ("   Creation %s sur %s : Resultat=%s", vl_lib_fmc, vl_txt_localisation, tl_cr_creation[0]))
+	'INFO_MESSAGE@ ("     ERREUR LORS DE LA CREATION EN BASE DE L'OPERATION ECHANGEUR     ")
+	RETURN (COM_NOK)
+}
+
+
+/*A
+** Pour une fermeture echangeur, ecrire en base les donnees specifiques (les acces fermes)
+** ---------------------------------------------------------------------------------------
+*/
+
+IF (va_type_evt = XZAEC_FMC_FermetureEch) {
+	vl_parametres = COM15_Parametres_Requete ( {
+		{ FALSE,	SYB#INT4_,		va_evt.numero },
+		{ FALSE,	SYB#INT2_,		va_evt.cle },
+		{ FALSE,	SYB#BIT_,		vl_entree1 },
+		{ FALSE,	SYB#BIT_,		vl_entree2 },
+		{ FALSE,	SYB#BIT_,		vl_sortie1 },
+		{ FALSE,	SYB#BIT_,		vl_sortie2 },
+		{ FALSE,	SYB#INT2_,		vl_operateur },
+		{ FALSE,	SYB#CHAR_,		SYSTEM_VAR@(vg_nom_site) }
+	} )
+	COM05_SQL_Procedure (XZAE57_Ecrire_Fiche_Echangeur, vl_parametres, vl_resultats, C_MODULE)
+}
+
+
+/*A
+** Valider la fiche creee avec la cause et la localisation indiquees
+** -----------------------------------------------------------------
+*/
+
+vl_fiche.numero		= va_evt.numero
+vl_fiche.cle		= va_evt.cle
+vl_fiche.numero_cause	= va_cause.numero
+vl_fiche.cle_cause	= va_cause.cle
+vl_fiche.type		= va_type_evt
+vl_fiche.debut		= va_date_debut
+vl_fiche.confirme	= XZAEC_FMC_CONFIRMEE
+vl_fiche.autoroute	= va_echangeur.autoroute
+vl_fiche.pr		= va_echangeur.PR
+vl_fiche.sens		= vl_sens
+vl_fiche.point_car	= XDC_POINT_CARACT_ECHANGEUR
+vl_fiche.nom_point_car	= va_echangeur.numero
+vl_fiche.position	= NULL
+vl_fiche.degatsdom	= XDC_FAUX
+vl_fiche.fausse_alerte	= XDC_FAUX
+vl_fiche.longueur	= 0
+
+vl_fiche.bau_etroite	= XDC_VRAI
+vl_fiche.bau_i_etroite	= XDC_FAUX
+FOR i = 0  TO 9
+	tl_config[i][1] = XDC_VOIE_INEXISTANTE
+NEXT i
+IF (va_type_evt = XZAEC_FMC_Deviation) {
+	tl_config[5][1] = XDC_VOIE_BAU_NORMALE
+	tl_config[6][1] = XDC_VOIE_SENS_NORMAL
+}
+
+vl_fiche.origine = "COUP DE POING"
+IF (SYSTEM_VAR@ ("vg_essai") <> NULL)	vl_fiche.origine = "ESSAI " ++ vl_fiche.origine
+
+IF ITMA_TMC_valide (COM09_Date_Courante (TRUE), vl_fiche, XDC_FMC_ETAT_TRAI, tl_config, NULL, NULL, NULL) <> COM_OK {
+	'INFO_MESSAGE@ ("     ERREUR LORS DE LA VALIDATION DE LA FICHE ECHANGEUR     ")
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialise les listes des Tunnels a piloter.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Init_Liste_Tunnels (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : nom de la fenetre du module
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Saisie_Coup_De_Poing
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+/*A
+** Definition des configurations de voies
+**  ou les voie existantes sont bloquees
+** --------------------------------------
+*/
+
+DEFINE	vvvv			XDC_VOIE_SENS_NORMAL
+DEFINE	vXXX			XDC_VOIE_BLOQUEE
+DEFINE	v___			XDC_VOIE_INEXISTANTE
+DEFINE	vBBB			XDC_VOIE_BAU_NORMALE
+
+DEFINE	TCP_VOIES_1_N_2_I  { v___, v___, v___, vXXX, vXXX,   vvvv, v___, v___, vvvv, vBBB }   ' 1 voie circulee, 2 inverses
+DEFINE	TCP_VOIES_2_N_1_I  { vXXX, v___, v___, vXXX, vXXX,   v___, v___, v___, vvvv, vBBB }   ' 2 voie circulees, 1 inverse
+DEFINE	TCP_VOIES_2_N_2_I  { vXXX, v___, v___, vXXX, vXXX,   vvvv, v___, v___, vvvv, vBBB }   ' 2 voie circulees, 2 inverses
+DEFINE	TCP_VOIES_2_N_3_I  { vXXX, v___, v___, vXXX, vXXX,   vvvv, v___, vvvv, vvvv, vBBB }   ' 2 voie circulees, 3 inverses
+DEFINE	TCP_VOIES_3_N_2_I  { vXXX, v___, vXXX, vXXX, vXXX,   vvvv, v___, v___, vvvv, vBBB }   ' 3 voie circulees, 2 inverses
+DEFINE	TCP_VOIES_3_N_3_I  { vXXX, v___, vXXX, vXXX, vXXX,   vvvv, v___, vvvv, vvvv, vBBB }   ' 3 voie circulees, 3 inverses
+
+VAR	TC_TUNNELS_NICE_NOMS			' Constantes des noms des tunnels de l'A8
+VAR	TC_TUNNELS_NICE_NUMEROS_S1		' Constantes des numeros de tunnels sens 1
+VAR	TC_TUNNELS_NICE_NUMEROS_S2		' Constantes des numeros de tunnels sens 2
+VAR	TC_TUNNELS_NICE_VOIES_S1		' Constantes des voies du sens 1
+VAR	TC_TUNNELS_NICE_VOIES_S2		' Constantes des voies du sens 2
+
+VAR	ll_noms_tunnels
+VAR	g, s					' Indices groupe, sens
+VAR	i, j
+
+TC_TUNNELS_NICE_NOMS = {
+	{ "CANTAGALET",		"CANTAGA" },
+	{ "ST PIERRE DE FERIC",	"PIERRE" },
+	{ "PESSICART",		"PESSIC" },
+	{ "LAS PLANAS",		"PLANAS" },
+	{ "CAP DE CROIX",	"CAP " },
+	{ "LA BAUME",		"BAUME" },
+	{ "LE PAILLON",		"PAILLON" },
+	{ "ROSTI",		"ROSTI" },
+	{ "BORNE ROMAINE",	"BORNE_R" },
+	{ "COL DE GUERRE",	"COL " },
+	{ "L'ARME",		"ARME" },
+	{ "RICARD",		"RICARD" },
+	{ "LA COUPIERE",	"COUPIER" },
+	{ "COL DE GARDE",	"GARDE" },
+	{ "STE LUCIE",		"LUCIE" },
+	{ "LE CASTELLAR",	"CASTEL" },
+	{ "LE PEYRONNET",	"PEYRON" },
+	{ "LA GIRAUDE",		"GIRAUD" }
+}
+
+TC_TUNNELS_NICE_NUMEROS_S1 = {  2,  4,  6,  8, 10, 12,   13, 15,   36, 17, 19, 21, 23, 25, 27, 29, 31, 33 }
+TC_TUNNELS_NICE_NUMEROS_S2 = {  1,  3,  5,  7,  9, 11, null, 14, null, 16, 18, 20, 22, 24, 26, 28, 30, 32 }
+
+TC_TUNNELS_NICE_VOIES_S1 = {
+	TCP_VOIES_3_N_2_I,			' CANTAGALET
+	TCP_VOIES_2_N_3_I,			' ST PIERRE
+	TCP_VOIES_2_N_3_I,			' PESSICART
+	TCP_VOIES_2_N_3_I,			' LAS PLANAS
+	TCP_VOIES_2_N_3_I,			' CAP DE CROIX
+	TCP_VOIES_2_N_3_I,			' LA BAUME
+	TCP_VOIES_3_N_3_I,			' PAILLON
+	TCP_VOIES_3_N_3_I,			' ROSTI
+	TCP_VOIES_3_N_3_I,			' BORNE ROMAINE
+	TCP_VOIES_2_N_3_I,			' COL GUERRE
+	TCP_VOIES_2_N_3_I,			' L'ARME
+	TCP_VOIES_2_N_2_I,			' RICARD
+	TCP_VOIES_2_N_2_I,			' COUPIERE
+	TCP_VOIES_2_N_2_I,			' COL GARDE
+	TCP_VOIES_2_N_2_I,			' STE LUCIE
+	TCP_VOIES_2_N_2_I,			' CASTELLAR
+	TCP_VOIES_2_N_2_I,			' PEYRONNET
+	TCP_VOIES_2_N_2_I			' GIRAUDE
+}
+
+TC_TUNNELS_NICE_VOIES_S2 = {
+	TCP_VOIES_2_N_3_I,			' CANTAGALET
+	TCP_VOIES_3_N_2_I,			' ST PIERRE
+	TCP_VOIES_3_N_2_I,			' PESSICART
+	TCP_VOIES_3_N_2_I,			' LAS PLANAS
+	TCP_VOIES_3_N_2_I,			' CAP DE CROIX
+	TCP_VOIES_3_N_2_I,			' LA BAUME
+	NULL,					' XXXXX
+	TCP_VOIES_3_N_3_I,			' ROSTI
+	NULL,					' XXXXX
+	TCP_VOIES_3_N_2_I,			' COL GUERRE
+	TCP_VOIES_3_N_2_I,			' L'ARME
+	TCP_VOIES_2_N_2_I,			' RICARD
+	TCP_VOIES_2_N_2_I,			' COUPIERE
+	TCP_VOIES_2_N_2_I,			' COL GARDE
+	TCP_VOIES_2_N_2_I,			' STE LUCIE
+	TCP_VOIES_2_N_2_I,			' CASTELLAR
+	TCP_VOIES_2_N_2_I,			' PEYRONNET
+	TCP_VOIES_2_N_2_I			' GIRAUDE
+}
+
+
+/*A
+** Definir les listes de tunnels proposees dans la fenetre
+** -------------------------------------------------------
+*/
+
+FOR i = 0  TO (ARRAY_SIZE@ (TC_TUNNELS_NICE_NOMS) - 1)
+	tm_tunnels[1][1][i].nom = TC_TUNNELS_NICE_NOMS[i][0]
+	tm_tunnels[1][1][i].numero = TC_TUNNELS_NICE_NUMEROS_S1[i]
+
+	IF NOT IS_NULL@ (TC_TUNNELS_NICE_NUMEROS_S2[i]) {
+		tm_tunnels[1][2][i].nom = TC_TUNNELS_NICE_NOMS[i][0]
+		tm_tunnels[1][2][i].numero = TC_TUNNELS_NICE_NUMEROS_S2[i]
+	}
+NEXT i
+
+/* Definir les numeros d'equipements pour le groupe 2 (A500, tunnel de Monaco) */
+tm_tunnels[2][1][0].nom = "MONACO"
+tm_tunnels[2][1][0].numero = CM_NUM_TUN_MONACO_S1
+
+tm_tunnels[2][2][0].nom = "MONACO"
+tm_tunnels[2][2][0].numero = CM_NUM_TUN_MONACO_S2
+
+
+/*A
+** Afficher les listes de tunnels, deselectionner tout
+** ---------------------------------------------------
+*/
+
+FOR g = 1  TO 2
+	FOR s = 1  TO 2
+		ll_noms_tunnels = { }
+		FOR i = 0  TO (ARRAY_SIZE@ (tm_tunnels[g][s]) - 1)
+			ll_noms_tunnels[i] = "   " ++ tm_tunnels[g][s][i].nom
+		NEXT i
+		DB_CTRL_STRINGS@ (va_fenetre, tm_ctrl_tunnels[g][s], ll_noms_tunnels)
+		DB_CTRL_VALUE@ (va_fenetre, tm_ctrl_tunnels[g][s], -1)
+	NEXT s
+NEXT g
+
+
+/*A
+** Definir egalement les voies pour les deux groupes de tunnels dans les deux sens
+** -------------------------------------------------------------------------------
+*/
+
+FOR i = 0  TO (ARRAY_SIZE@ (TC_TUNNELS_NICE_NOMS) - 1)
+	tm_voies[1][1][i] = TC_TUNNELS_NICE_VOIES_S1[i]
+	tm_voies[1][2][i] = TC_TUNNELS_NICE_VOIES_S2[i]
+NEXT i
+
+tm_voies[2][1][0] = TCP_VOIES_1_N_2_I
+tm_voies[2][2][0] = TCP_VOIES_2_N_1_I
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Inhibe ou autorise les actions dans la fenetre "coup de poing".
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Actions_Inhibees (va_fenetre, va_inhibe)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : nom de la fenetre du module
+*   va_inhibe         : etat d'inhibition (TRUE / FALSE)
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Aucun
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Saisie_Coup_De_Poing
+*
+* FONCTION
+*   Grise ou degrise les boutons.
+*
+---------------------------------------------------------------------------- */
+
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Contresens", va_inhibe)
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Vehicule_Feu", va_inhibe)
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Accident", va_inhibe)
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Autre", va_inhibe)
+DB_CTRL_GRAYED@ (va_fenetre, "BP_Bouchon_Monaco_s1", va_inhibe)
+'DB_CTRL_GRAYED@ (va_fenetre, "BP_Quitter", va_inhibe)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Demande confirmation pour l'envoi aux equipements
+*  des commandes d'une phase donnee.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Demande_Confirmation (va_numero_phase)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_numero_phase   : numero de la phase a activer selon la reponse
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_OUI ou XDC_NON
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Saisie_Coup_De_Poing
+*
+* FONCTION
+*   Ouvre une fenetre comportant un message et deux choix Oui / Non.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_fenetre
+
+vl_fenetre = DB_LOAD@ ("ITMA_TCP_Confirmation.d")
+
+DB_XPOS@ (vl_fenetre, 1150)
+DB_YPOS@ (vl_fenetre, 470)
+
+DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Non", FALSE)
+
+/*A Afficher la question correspondant a la phase a activer */
+IF (va_numero_phase = TCP_CMDS_PHASE3) {
+	DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Phase2_1", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Phase2_3", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Phase2_4", FALSE)
+
+	DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Phase3_1", TRUE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Phase3_3", TRUE)
+	DB_CTRL_DISPLAY@ (vl_fenetre, "LI_Phase3_4", TRUE)
+} ELSE IF (va_numero_phase <> TCP_CMDS_PHASE2) {
+	RETURN (XDC_NON)
+}
+
+WHILE TRUE
+	DB_DISPLAY@ (vl_fenetre)
+
+	CASE OF  DB_EXIT_CTRL@ (vl_fenetre)
+	CASE "BP_Oui"
+		RETURN (XDC_OUI)
+	CASE "BP_Non"
+		RETURN (XDC_NON)
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Permet le choix par l'operateur du scenario de desenfumage
+*  en cas de vehicule en feu dans le tunnel de Monaco.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Desenfumage_Monaco ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Numero du scenario choisi, ou (-1) si aucun.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Commande_Equipements
+*
+* FONCTION
+*   Ouvre une fenetre proposant le choix du Pr ou "Non localise".
+*
+---------------------------------------------------------------------------- */
+
+	VAR	TC_ZONES_DESENF
+	VAR	vl_PR
+	VAR	vl_fenetre
+	VAR	i
+
+ON ERROR {
+	ERROR_BOX@ (ERROR_NUMBER@(), ERROR_STRING@(), ERROR_OBJECT@())
+	ITMA_TCP_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN (-1)
+}
+
+/*B Table des zones de desenfumage : PR debut, Pr fin, Scenario applique */
+TC_ZONES_DESENF = {
+	{ 1200,		1262,		11 },				' Desenfumage Monaco 1
+	{ 1263,		1323,		32 },				' Desenfumage Monaco 2
+
+	{ 1324,		1385,		30 },				' Desenfumage Monaco 3
+	{ 1386,		1446,		29 },				' Desenfumage Monaco 4
+	{ 1447,		1508,		28 },				' Desenfumage Monaco 5
+	{ 1509,		1569,		27 },				' Desenfumage Monaco 6
+
+	{ 1570,		1631,		31 },				' Desenfumage Monaco 7
+
+	{ 1632,		1692,		26 },				' Desenfumage Monaco 8
+	{ 1693,		1754,		25 },				' Desenfumage Monaco 9
+	{ 1755,		1815,		24 },				' Desenfumage Monaco 10
+	{ 1816,		1877,		23 },				' Desenfumage Monaco 11
+	{ 1878,		1938,		22 },				' Desenfumage Monaco 12
+	{ 1939,		2000,		21 },				' Desenfumage Monaco 13
+	{ 2001,		2062,		20 },				' Desenfumage Monaco 14
+
+	{ 2063,		2123,		19 },				' Desenfumage Monaco 15
+	{ 2124,		2185,		18 },				' Desenfumage Monaco 16
+	{ 2186,		2246,		17 },				' Desenfumage Monaco 17
+	{ 2247,		2308,		16 },				' Desenfumage Monaco 18
+	{ 2309,		2369,		15 },				' Desenfumage Monaco 19
+	{ 2370,		2431,		14 },				' Desenfumage Monaco 20
+	{ 2432,		2492,		13 },				' Desenfumage Monaco 21
+	{ 2493,		2554,		12 },				' Desenfumage Monaco 22
+
+	{ 2555,		2615,		33 },				' Desenfumage Monaco 23
+	{ 2616,		2677,		34 },				' Desenfumage Monaco 24
+	{ 2678,		2738,		35 },				' Desenfumage Monaco 25
+	{ 2739,		2800,		36 }				' Desenfumage Monaco 26
+}
+
+vl_fenetre = DB_LOAD@ ("ITMA_TCP_Desenfumage_Monaco.d")
+DB_XPOS@ (vl_fenetre, 1150)
+DB_YPOS@ (vl_fenetre, 470)
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_PR", COM_CHIFFRES ++ ".,")
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BA_Non_Localise", TRUE)
+DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Annuler", FALSE)
+
+WHILE TRUE
+	DB_DISPLAY@ (vl_fenetre)
+
+	CASE OF  DB_EXIT_CTRL@ (vl_fenetre)
+	CASE "BA_Non_Localise"
+		IF DB_CTRL_GET_VALUE@ (vl_fenetre, "BA_Non_Localise") {
+			DB_CTRL_GRAYED@ (vl_fenetre, "BS_PR", TRUE)
+		} ELSE {
+			DB_CTRL_GRAYED@ (vl_fenetre, "BS_PR", FALSE)
+		}
+
+	CASE "BP_Valider"
+		IF DB_CTRL_GET_VALUE@ (vl_fenetre, "BA_Non_Localise") {
+			RETURN (XDC_VEN_SEQ_DESENFUM_NON_LOC)
+		} ELSE {
+			vl_PR = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_PR") * 1000
+			FOR i = 0  TO (ARRAY_SIZE@ (TC_ZONES_DESENF) - 1)
+				IF (vl_PR >= TC_ZONES_DESENF[i][0])  AND  (vl_PR <= TC_ZONES_DESENF[i][1]) {
+					ITMA_TCP_Trace (COM_INFO, "        PR de desenfumage choisi = " ++ vl_PR)
+					RETURN (TC_ZONES_DESENF[i][2])
+				}
+			NEXT i
+			INFO_MESSAGE@ ("   Choisir 'Non localise' ou un PR entre 1.200 et 2.800   ")
+		}
+
+	CASE "BP_Annuler"
+		RETURN (-1)
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Permet le choix par l'operateur d'un scenario de desenfumage
+*  en cas de vehicule en feu dans un tunnel autre que celui de Monaco.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Scenario_Desenfumage (va_Num_Tunnel, va_Basculement)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_Num_Tunnel     : Identifiant du tube lieu de l'evenement
+*   va_Basculement    : Indicateur de circulation bidirectionnelle
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : le numero du scenario choisi, (-1) si aucun
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Commande_Equipements
+*
+* FONCTION
+*   Similaire aux fonctions ITMA_TTU_Commande_Desenfumage_XXX
+*   du module ITMA_TTU_ventilation.am.
+*   Ouvre une fenetre proposant le choix d'un scenario de desenfumage.
+*   Celle-ci est differente dans les cas de ventilation renovee ou non.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_tube_renove
+	VAR	vl_ventilation_inverse
+	VAR	vl_ventilation_par_moitie
+	VAR	vl_fenetre
+
+ON ERROR {
+	ERROR_BOX@ (ERROR_NUMBER@(), ERROR_STRING@(), ERROR_OBJECT@())
+	ITMA_TCP_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN (-1)
+}
+
+/*
+** Definir l'etat de renovation et les capacites de ventilation par tube
+** ---------------------------------------------------------------------
+*/
+
+vl_tube_renove = XDC_VRAI
+vl_ventilation_inverse = XDC_FAUX				' Pour tubes non renoves
+vl_ventilation_par_moitie = XDC_FAUX				' Pour tubes renoves
+
+CASE OF va_Num_Tunnel
+
+/* les tubes non renoves */
+CASE CM_NUM_TUN_CANTAGALET_S1
+CASE CM_NUM_TUN_PESSICART_S1
+CASE CM_NUM_TUN_PESSICART_S2
+CASE CM_NUM_TUN_CAP_CROIX_S2
+CASE CM_NUM_TUN_LA_BAUME_S2
+	vl_tube_renove = XDC_FAUX
+	IF (va_Num_Tunnel = CM_NUM_TUN_PESSICART_S1) {
+		vl_ventilation_inverse = XDC_VRAI
+	}
+
+/* les tubes renoves de type 1 et 2 */
+CASE CM_NUM_TUN_CANTAGALET_S2
+CASE CM_NUM_TUN_LAS_PLANAS_S1
+CASE CM_NUM_TUN_LAS_PLANAS_S2
+CASE CM_NUM_TUN_LA_BAUME_S1
+	vl_ventilation_par_moitie = XDC_VRAI
+
+/* les tubes renoves de type 3 */
+CASE CM_NUM_TUN_BORNE_ROMAINE_S1
+CASE CM_NUM_TUN_L_ARME_S1
+CASE CM_NUM_TUN_L_ARME_S2
+CASE CM_NUM_TUN_LA_COUPIERE_S1
+CASE CM_NUM_TUN_LA_COUPIERE_S2
+	NOTHING
+
+DEFAULT
+	/* Si le tunnel n'a pas d'equipement de ventilation, pas de desenfumage */
+	RETURN (-1)
+ENDCASE
+
+
+/*
+** Saisir la commande de ventilation selon le cas renove / non renove
+** ------------------------------------------------------------------
+*/
+
+IF (vl_tube_renove = XDC_VRAI)
+{
+	vl_fenetre = DB_LOAD@ ("ITMA_TCP_Desenfumage_Renove.d")
+	DB_XPOS@ (vl_fenetre, 400)
+	DB_YPOS@ (vl_fenetre, 140)
+
+	/* La commande d'anti-recyclage dans le tube oppose a DEJA ETE ENVOYEE par la sequence Incendie */
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Anti_Recycl", TRUE)
+
+	IF (vl_ventilation_par_moitie <> XDC_VRAI) {
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moitie1", TRUE)
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moitie2", TRUE)
+	}
+
+	/* En situation de circulation bidirectionnelle, proposer seulement D'ARRETER la ventilation */
+	IF (va_Basculement = XDC_VRAI) {
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moitie1", TRUE)
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Moitie2", TRUE)
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Sans_Congestion", TRUE)
+	}
+
+	DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Annuler", FALSE)
+
+	WHILE TRUE
+		DB_DISPLAY@ (vl_fenetre)
+
+		CASE OF  DB_EXIT_CTRL@ (vl_fenetre)
+		CASE "BP_Moitie1"
+			RETURN (XDC_VEN_SEQ_DESENF_MOITIE1)
+		CASE "BP_Moitie2"
+			RETURN (XDC_VEN_SEQ_DESENF_MOITIE2)
+		CASE "BP_Sans_Congestion"
+			RETURN (XDC_VEN_SEQ_DESENF_SANS_CONG)
+		CASE "BP_Arret"
+			RETURN (XDC_VEN_SEQ_ARRET_SEQ_DESENF)
+		CASE "BP_Annuler"
+			RETURN (-1)
+		ENDCASE
+	WEND
+}
+ELSE
+{
+	vl_fenetre = DB_LOAD@ ("ITMA_TCP_Desenfumage_Non_Renove.d")
+	DB_XPOS@ (vl_fenetre, 550)
+	DB_YPOS@ (vl_fenetre, 200)
+
+	/* La commande d'anti-recyclage dans le tube oppose a DEJA ETE ENVOYEE par la sequence Incendie */
+	DB_CTRL_GRAYED@ (vl_fenetre, "BP_Anti_Recycl", TRUE)
+
+	IF (vl_ventilation_inverse <> XDC_VRAI) {
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Sens_Inverse", TRUE)
+	}
+
+	/* En situation de circulation bidirectionnelle, proposer seulement D'ARRETER la ventilation */
+	IF (va_Basculement = XDC_VRAI) {
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Sens_Direct", TRUE)
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Sens_Inverse", TRUE)
+	}
+
+	DB_CTRL_DEFAULT_BUTTON@ (vl_fenetre, "BP_Annuler", FALSE)
+
+	WHILE TRUE
+		DB_DISPLAY@ (vl_fenetre)
+
+		CASE OF  DB_EXIT_CTRL@ (vl_fenetre)
+		CASE "BP_Sens_Direct"
+			RETURN (XDC_VEN_SEQ_DESENF_TETE)
+		CASE "BP_Sens_Inverse"
+			RETURN (XDC_VEN_SEQ_DESENF_SANS_CONG)
+		CASE "BP_Arret"
+			RETURN (XDC_VEN_SEQ_ARRET_SEQ_DESENF)
+		CASE "BP_Annuler"
+			RETURN (-1)
+		ENDCASE
+	WEND
+}
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Determine si la liste des actions d'une sequence Coup de Poing
+*  comporte une action devant etre executee en phase 3.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ITMA_TCP_Contient_Action_Phase3 (FORMAT TCP_Equipement ta_actions)
+
+	VAR i
+
+FOR i = 0  TO (ARRAY_SIZE@ (ta_actions) - 1)
+	IF NOT IS_NULL@ (ta_actions[i].cmd_phase3) {
+		RETURN (TRUE)
+	}
+NEXT i
+
+RETURN (FALSE)
+
+ENDFUNCTION
+
+
+
+/* ===========================================================================================================
+*
+*                            GESTION DES FERMETURES ECHANGEUR CREEES AUTOMATIQUEMENT
+*
+* ============================================================================================================
+*/
+
+VAR					lm_Echangeurs_BAFA	' Liste des echangeurs ou une BAFA est fermee
+VAR	FORMAT	COM_Identifiant_FMC	lm_Fmc_Echangeurs	' Liste des Fmc Fermeture Echangeur correspondantes
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Retourne l'identifiant d'une Fmc Fermeture Echangeur pour un echangeur
+*  donne ou est situee une barriere BAFA. Cree la Fmc si elle n'existe pas.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Fermeture_Echangeur_BAFA (va_num_echangeur, va_sens, va_fmc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_echangeur  : Numero de l'echangeur 
+*   va_sens           : Sens de localisation de la barriere
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_fmc            : Identifiant de la Fmc Fermeture Echangeur
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Commande_Equipements
+*
+* FONCTION
+*   Recherche si une Fmc Fermeture Echangeur a ete creee pour cet echangeur.
+*   Si ce n'est pas le cas, cree cette Fmc, la memorise et la retourne.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_sens						' Sens de la Fermeture Echangeur
+	VAR	vl_i_ferm_ech, vl_i_ech
+	VAR	vl_date
+	VAR	vl_cr
+
+va_fmc = NULL							' Resultat par defaut
+
+/*A Rechercher une Fmc existante pour cet echangeur et la retourner */
+vl_i_ferm_ech = ARRAY_INDEX@ (lm_Echangeurs_BAFA, va_num_echangeur)
+IF (vl_i_ferm_ech >= 0) {
+	va_fmc = lm_Fmc_Echangeurs[vl_i_ferm_ech]
+	RETURN (COM_OK)
+}
+
+
+/*A Si aucune Fmc n'existe alors ajouter l'echangeur a la liste */
+vl_i_ferm_ech = ARRAY_SIZE@ (lm_Echangeurs_BAFA)
+lm_Echangeurs_BAFA[vl_i_ferm_ech] = va_num_echangeur
+
+
+/*A puis creer une Fmc Fermeture Echangeur pour cet echangeur et la memoriser */
+vl_i_ech = COM45_IndexEnColonne (tm_echangeurs, TDO_NUMERO_ECH, va_num_echangeur)
+IF (vl_i_ech < 0) {
+	RETURN (COM_NOK)
+}
+
+/*A Forcer le sens en entree */
+IF (va_sens = XDC_SENS_NORD)  OR  (va_sens = XDC_SENS_ENTREE_NORD) {
+	vl_sens = XDC_SENS_ENTREE_NORD
+} ELSE IF (va_sens = XDC_SENS_SUD)  OR  (va_sens = XDC_SENS_ENTREE_SUD) {
+	vl_sens = XDC_SENS_ENTREE_SUD
+} ELSE {
+	vl_sens = XDC_SENS_INCONNU
+}
+
+vl_cr = ITMA_TCP_Creer_Operation_Echangeur (XZAEC_FMC_FermetureEch, vm_Evt, tm_echangeurs[vl_i_ech], vl_sens, va_fmc, vl_date)
+lm_Fmc_Echangeurs[vl_i_ferm_ech] = va_fmc
+
+RETURN (vl_cr)
+
+ENDMACRO

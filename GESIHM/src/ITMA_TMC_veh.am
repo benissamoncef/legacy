@@ -1,0 +1,761 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_veh.am,v 1.24 2019/05/13 12:03:31 devgfi Exp $        $Revision: 1.24 $        $Date: 2019/05/13 12:03:31 $
+------------------------------------------------------------------------------------
+*  GTIE  *  PROJET MIGRAZUR
+------------------------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+------------------------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMC_veh.am
+------------------------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*
+*   Gere les donnees specifiques au type vehicules
+*   et les champs correspondants dans la fenetre de saisie FMC
+*
+------------------------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  Guilhou	24 Oct 1994	1.1	: Création
+*  Torregrossa	04 Jul 1995	1.6	: Suppression du bouton description
+*                                         remplace par les saisies ds fmc
+*  Torregrossa	01 Aou 1995	1.7	: Suppression init de BO_Typeveh
+*  Niepceron	22 Sep 1998	1.8	: suppression du DB_CTRL_RETURN_ON_CHANGE v1.8
+*  Niepceron	11 Jan 1999	1.9	: modif intergestionnaire (1723)
+*  Lizot        14 Avr 2004     1.10    : Gestion du droit de propriete ESCOTA/DDE83 (SAGA)
+*  Lecrivain	22 Mar 2007	1.14	: Afficher/effacer champs pour retypage (dem/637)
+*  Lecrivain	28 Mar 2007	1.15	: Chargement (xzae95) et affichage comme les autres classes
+*  Lecrivain	30 Mar 2007	1.16	: Macro de lecture a l'ecran des données véhicule (lie a DEM/637)
+*  Lecrivain	09/02/2009	1.17	: Gestion du champ 'feu maitrise' (DEM 845)
+*  Lecrivain	16/03/2009	1.18	: Affichage: gestion complete des champs NULLs lus en base
+*  Lecrivain	16/03/2009	1.19	: Restauration de la  macro "_sauve" comme a l'origine
+*  JPL		04/05/2009	1.20	: Recherche des donnees anciennes en base historique (DEM 702)
+*  JPL		20/11/2009	1.21	: Gestion du bouton "Ecoulement" sauf pour Contresens (DEM 919)
+*  LCL		18/07/2011  	1.22	: Ajout du rappel client (DEM 1000)
+*  LCL		15/11/2011	1.23	: Correction problème affichage donnees rappel client
+*  JPL		02/04/19	1.24	: Gestion de l'indicateur d'écoulement (DEM 1326)
+------------------------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"xdc_ax.h"
+INCLUDE	"xzic_ax.h"
+INCLUDE	"xzaec_ax.h"
+
+INCLUDE	"xzae54sp.h"
+INCLUDE	"xzae95sp.h"
+
+INCLUDE	"ITMA_COM.h"
+INCLUDE	"ITMA_TDO.h"
+INCLUDE	"ITMA_TAR.h"
+INCLUDE	"ITMA_TMC.h"
+
+
+/*A Définition des constantes */
+
+DEFINE	C_MODULE		"MTMC"		' Nom du module
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche / masque dans la fenetre FMC les champs specifiques au type vehicules
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_veh (va_fenetre, va_type_fmc, va_visible)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : id de la boite de dialogue ou afficher les champs
+*  va_type_fmc        : type de la fmc
+*  va_visible         : indicateur de visibilite demandee
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+--------------------------------------------------------------------------------- */
+
+VAR	tl_controles
+VAR	vl_indice
+VAR	vl_fenetre
+VAR	vl_droits
+VAR	i
+VAR vl_type_rappel
+
+
+/*A Traitements en cas d'erreur :
+ *   informer l'operateur, tracer l'erreur et abandonner
+ * ------------------------------------------------------
+ */
+ON ERROR
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN
+}
+
+	vl_fenetre = va_fenetre
+
+	/*A rendre visibles ou masquer les champs associes au type fmc */
+
+	/* Modif SAGA : la visibilite depend du droit de propriete */
+	vl_droits = SYSTEM_VAR@ (vg_datex_propriete)
+
+	/* Champs visibles, grises sans droit de propriete */
+	tl_controles = {
+		/* donnees de l'application */
+		"BO_typeveh",
+		"BS_passagers",
+		"BS_volume",
+		"BS_matiere",
+		"BS_bebes",
+		"BS_persagees",
+		"BT_escota",
+		"BT_animaux",
+		"BE_commveh",
+		/* rappel client */
+		"BO_rappel",
+		"BS_complement_rappel",
+		"BP_appeler",
+
+		/* autres champs, specifiques IHM */
+		"BP_matiere"
+	}
+	IF va_type_fmc = XZAEC_FMC_VehFeu {
+		tl_controles = ARRAY_APPEND@ (tl_controles,
+			{ "BT_feu_maitrise", "BT_degats" }
+		)
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice], va_visible)
+		DB_CTRL_GRAYED@ (vl_fenetre, tl_controles[vl_indice],
+		                     va_visible AND (vl_droits = XDC_FAUX))
+	NEXT vl_indice
+
+	/* Champs visibles inconditionnellement */
+	tl_controles = {
+		/* donnees de l'application */
+
+		/* autres champs, specifiques IHM */
+		"LI_typeveh",
+		"LI_passagers",
+		"LI_volume",
+		"LI_bebes",
+		"LI_commveh"
+	}
+	IF (va_type_fmc = XZAEC_FMC_VehArrete)  OR
+	   (va_type_fmc = XZAEC_FMC_VehPanne)  OR
+	   (va_type_fmc = XZAEC_FMC_VehFeu)
+	{
+		tl_controles = ARRAY_APPEND@ (tl_controles, { "BP_ecoulement", "BA_Ecoulement" })
+	}
+	FOR vl_indice = 0 TO ARRAY_SIZE@ (tl_controles) - 1
+		DB_CTRL_DISPLAY@ (vl_fenetre, tl_controles[vl_indice], va_visible)
+	NEXT vl_indice
+
+
+	/* Champs a masquer sur demande mais a n'afficher que sur action operateur */
+	IF (NOT va_visible) {
+		DB_CTRL_DISPLAY@ (vl_fenetre, "TA_Code_matiere", va_visible)
+	}
+
+	/* Aligner les cases a cocher */
+	DB_CTRL_XPOS@ (vl_fenetre, "BT_degats", DB_CTRL_GET_XPOS@ (vl_fenetre, "BT_animaux"))
+
+	IF (va_type_fmc = XZAEC_FMC_VehArrete)  OR
+	   (va_type_fmc = XZAEC_FMC_VehPanne)  OR
+	   (va_type_fmc = XZAEC_FMC_VehFeu)
+	{
+		/* Cacher les champs rappel client avec affichage conditionne */
+		DB_CTRL_DISPLAY@ (vl_fenetre, "BO_rappel", va_visible)
+		vl_type_rappel = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_rappel")
+		
+
+		IF (vl_type_rappel = XZAEC_TYP_RAP_NUM_CLIENT)
+		{
+			DB_CTRL_DISPLAY@ (vl_fenetre, "BP_appeler", va_visible)
+			DB_CTRL_DISPLAY@ (vl_fenetre, "BS_complement_rappel", va_visible)	
+			DB_CTRL_TITLE@ (vl_fenetre, "BS_complement_rappel", "Num. Tel. Client")
+		} 
+		ELSE IF (vl_type_rappel = XZAEC_TYP_RAP_AUTRE)
+		{
+			DB_CTRL_DISPLAY@ (vl_fenetre, "BP_appeler", FALSE)
+			DB_CTRL_DISPLAY@ (vl_fenetre, "BS_complement_rappel", va_visible)
+			DB_CTRL_TITLE@ (vl_fenetre, "BS_complement_rappel", "Complément rappel")
+		}
+		ELSE
+		{
+			DB_CTRL_DISPLAY@ (vl_fenetre, "BP_appeler", FALSE)
+			DB_CTRL_DISPLAY@ (vl_fenetre, "BS_complement_rappel", FALSE)
+		}
+		
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre, "BO_rappel",TRUE)
+		
+		/* Masquer les observations */
+		DB_CTRL_DISPLAY@ (vl_fenetre, "BE_commveh", FALSE)
+		DB_CTRL_DISPLAY@ (vl_fenetre, "LI_commveh", FALSE)
+	}
+	ELSE
+	{
+		/* Cacher tous les champs relatifs au rappel client */
+		DB_CTRL_DISPLAY@ (vl_fenetre, "BS_complement_rappel", FALSE)
+		DB_CTRL_DISPLAY@ (vl_fenetre, "BP_appeler", FALSE)
+		DB_CTRL_DISPLAY@ (vl_fenetre, "BO_rappel", FALSE)		
+
+		/* afficher les observations */
+		DB_CTRL_DISPLAY@ (vl_fenetre, "BE_commveh", va_visible)
+		DB_CTRL_DISPLAY@ (vl_fenetre, "LI_commveh", va_visible)
+		}
+	
+	RETURN (vl_fenetre)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Charge les informations specifiques d'une fiche de classe Vehicule
+*  et les visualise dans la zone specifique de la fenetre
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_veh_charge (va_fenetre, FORMAT COM_Identifiant_FMC ta_num_evt, va_horodate, va_type_fmc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : id de la boite de dialogue fiche main courante
+*  ta_num_evt         : numero et cle d'evenement
+*  va_horodate        : date de l'evenement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+--------------------------------------------------------------------------------- */
+
+VAR	tl_vehicules
+VAR	tl_retour
+
+	ITMA_TMC_Lire_Vehicules (ta_num_evt, va_horodate, tl_vehicules)
+
+	/* Si une fiche vehicule au moins a ete lue alors */
+	IF IS_ARRAY@ (tl_vehicules) {
+		/* afficher les donnees du premier vehicule */
+		ITMA_TMC_veh_affiche (va_fenetre, tl_vehicules[0], null, va_type_fmc)
+	}
+
+	tl_retour[0] = va_fenetre
+	tl_retour[1] = tl_vehicules[0]
+
+	RETURN (tl_retour)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit et retourne la liste des informations concernant les vehicules attaches
+*  a un evenement donne (qu'il soit de type vehicules ou accident ...)
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Lire_Vehicules (FORMAT COM_Identifiant_FMC ta_num_evt, va_horodate,
+                                  ta_vehicules)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  ta_num_evt         : numero et cle d'evenement
+*  va_horodate        : date de l'evenement
+*
+*
+* ARGUMENTS EN SORTIE :
+*  ta_vehicules       : liste des donnees des vehicules
+*
+*
+* CODE RETOUR         : COM_OK / COM_NOK
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+--------------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+VAR	vl_indice
+
+	ta_vehicules = NULL
+
+	/*A preparation de la requete*/
+	vl_indice = 0
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].data = va_horodate
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_num_evt.numero
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = ta_num_evt.cle
+	vl_parametres[vl_indice].output = FALSE
+
+	IF COM50_DateHistorique (va_horodate)
+	{
+		IF (COM41_SQL_Procedure_HIS (XZAE95_Lire_Liste_Vehicule,
+		                            vl_parametres, vl_resultats, C_MODULE) <> COM_OK)
+		{
+			INFO_MESSAGE@ ("Erreur lors de la lecture des données de véhicule(s)")
+			RETURN (COM_NOK)
+		}
+	}
+	ELSE
+	{
+		IF (COM05_SQL_Procedure (XZAE95_Lire_Liste_Vehicule,
+		                            vl_parametres, vl_resultats, C_MODULE) <> COM_OK)
+		{
+			INFO_MESSAGE@ ("Erreur lors de la lecture des données de véhicule(s)")
+			RETURN (COM_NOK)
+		}
+	}
+
+	ta_vehicules = vl_resultats.select_results[0]
+
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Ecrit en base les donnees specifiques d'une fiche de classe Vehicule
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_veh_sauve (FORMAT COM_Identifiant_FMC ta_num_evt,
+                            FORMAT TMC_Fiche_Vehicule va_tampon, va_1, va_2, va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  ta_num_evt         : numero et cle d'evenement
+*  va_tampon          : liste des données de la fiche véhicule
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_NOK si une erreur bloquante s'est produite,
+*                       le code de retour de la procedure sinon.
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+--------------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+VAR	vl_indice
+VAR	vl_cr
+
+	MACRO_WINS_BUSY@()
+
+	vl_indice=0
+	vl_parametres[vl_indice].data=ta_num_evt.numero
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].data=ta_num_evt.cle
+	vl_parametres[vl_indice].type=SYB#INT2_
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT2_
+	vl_parametres[vl_indice].data=va_tampon.type_veh
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT2_
+	vl_parametres[vl_indice].data=va_tampon.passagers
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].data=va_tampon.animaux
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].data=va_tampon.escota
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].data=va_tampon.volume
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#CHAR_
+	vl_parametres[vl_indice].data=va_tampon.mat_dang
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#CHAR_
+	vl_parametres[vl_indice].data=va_tampon.comment
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].data=va_tampon.num_veh
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT2_
+	vl_parametres[vl_indice].data=va_tampon.site_creation
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].data=va_tampon.nb_bebes
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT4_
+	vl_parametres[vl_indice].data=va_tampon.nb_agees
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT1_
+	vl_parametres[vl_indice].data=va_tampon.feu_maitrise
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#INT1_
+	vl_parametres[vl_indice].data=va_tampon.type_rappel
+	vl_parametres[vl_indice].output=FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type=SYB#CHAR_
+	vl_parametres[vl_indice].data=va_tampon.complement_rappel
+	vl_parametres[vl_indice].output=FALSE
+
+	vl_cr = COM05_SQL_Procedure (XZAE54_Ecrire_Fiche_Vehicule,
+	                                vl_parametres, vl_resultats, C_MODULE)
+	IF (vl_cr <> XDC_OK) {
+		INFO_MESSAGE@ ("Erreur lors de l'écriture en base des données véhicule")
+		RETURN (XDC_NOK)
+	}
+
+	RETURN (vl_resultats.status)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche les donnees specifiques d'une fiche vehicule
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_veh_affiche (va_fenetre, FORMAT TMC_Fiche_Vehicule va_vehicule,  va_unused, va_type_fmc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*  va_vehicule        : Données de la fiche véhicule
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur ouverture fiche vehicule ou retypage d'accident
+*
+* FONCTION
+*  Value les champs de saisie spécifiques aux FMC de classe Vehicule
+*
+--------------------------------------------------------------------------------- */
+
+VAR	vl_commentaire
+
+	CASE OF va_vehicule.type_veh
+	CASE XZAEC_VEH_PL
+		DB_CTRL_VALUE@ (va_fenetre, "BO_typeveh", TMC_veh_PL)
+	CASE XZAEC_VEH_VL
+		DB_CTRL_VALUE@ (va_fenetre, "BO_typeveh", TMC_veh_VL)
+	CASE XZAEC_VEH_Car
+		DB_CTRL_VALUE@ (va_fenetre, "BO_typeveh", TMC_veh_Car)
+	CASE XZAEC_VEH_Moto
+		DB_CTRL_VALUE@ (va_fenetre, "BO_typeveh", TMC_veh_Moto)
+	CASE XZAEC_VEH_Remorque
+		DB_CTRL_VALUE@ (va_fenetre, "BO_typeveh", TMC_veh_Remorque)
+	ENDCASE
+
+	DB_CTRL_VALUE@ (va_fenetre, "BS_passagers", va_vehicule.passagers)
+	DB_CTRL_VALUE@ (va_fenetre, "BS_volume", va_vehicule.volume)
+	DB_CTRL_TITLE@ (va_fenetre, "BS_matiere", va_vehicule.mat_dang)
+
+	DB_CTRL_VALUE@ (va_fenetre, "BS_bebes", va_vehicule.nb_bebes)
+	DB_CTRL_VALUE@ (va_fenetre, "BS_persagees", va_vehicule.nb_agees)
+
+	IF (va_vehicule.escota = NULL)  OR  (va_vehicule.escota = XDC_FAUX) {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_escota", FALSE)
+	} ELSE {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_escota", TRUE)
+	}
+
+	IF (va_vehicule.animaux = NULL)  OR  (va_vehicule.animaux = XDC_FAUX) {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_animaux", FALSE)
+	} ELSE {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_animaux", TRUE)
+	}
+
+	IF (va_vehicule.feu_maitrise = NULL)  OR  (va_vehicule.feu_maitrise = XDC_FAUX) {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_feu_maitrise", FALSE)
+	} ELSE {
+		DB_CTRL_VALUE@ (va_fenetre, "BT_feu_maitrise", TRUE)
+	}
+
+	/* gestion du rappel client */
+
+	DB_CTRL_VALUE@ (va_fenetre, "BO_rappel", va_vehicule.type_rappel)
+
+	IF (va_type_fmc = XZAEC_FMC_VehArrete)  OR
+          (va_type_fmc = XZAEC_FMC_VehPanne)  OR
+          (va_type_fmc = XZAEC_FMC_VehFeu)
+	{
+	
+		IF (va_vehicule.type_rappel = XZAEC_TYP_RAP_NUM_CLIENT)
+		{
+			DB_CTRL_VALUE@ (va_fenetre, "BS_complement_rappel", va_vehicule.complement_rappel)
+			DB_CTRL_DISPLAY@ (va_fenetre, "BS_complement_rappel", TRUE)
+			DB_CTRL_TITLE@ (va_fenetre, "BS_complement_rappel", "Num. Tel. Client")
+			DB_CTRL_DISPLAY@ (va_fenetre, "BP_appeler", TRUE)
+		} 
+		ELSE IF (va_vehicule.type_rappel = XZAEC_TYP_RAP_AUTRE)
+		{
+			DB_CTRL_VALUE@ (va_fenetre, "BS_complement_rappel", va_vehicule.complement_rappel)
+			DB_CTRL_DISPLAY@ (va_fenetre, "BS_complement_rappel", TRUE)
+			DB_CTRL_TITLE@ (va_fenetre, "BS_complement_rappel", "Complément rappel")
+			DB_CTRL_DISPLAY@ (va_fenetre, "BP_appeler", FALSE)
+		}
+		else
+		{
+			DB_CTRL_DISPLAY@ (va_fenetre, "BS_complement_rappel", FALSE)
+			DB_CTRL_DISPLAY@ (va_fenetre, "BP_appeler", FALSE)
+		}
+	}
+
+	/*A afficher le commentaire */
+	vl_commentaire = ARRAY_FROM_STRING@ (va_vehicule.comment, MTAR_CAR_SEPAR)
+	DB_EDITBOX_SET_DATA@ (va_fenetre, "BE_commveh", vl_commentaire)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit les donnees specifiques d'une fiche vehicule saisies dans la fenetre
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_veh_saisie (va_fenetre, FORMAT TMC_Fiche_Vehicule va_vehicule)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_vehicule        : Donnees de la fiche vehicule
+*
+*
+* CODE RETOUR         : XDC_NOK si une valeur saisie est incorrecte, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche vehicule
+*
+* FONCTION
+*  Remplit la fiche avec les donnees des champs de saisie specifiques.
+*
+--------------------------------------------------------------------------------- */
+
+VAR	vl_index
+VAR	vl_commentaires
+
+	/* Si le numero de vehicule est nul (creation ou retypage d'un accident) alors c'est le vehicule 1 */
+	IF IS_NULL@ (va_vehicule.num_veh) {
+		va_vehicule.num_veh = 1
+	}
+
+
+	vl_index = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_typeveh")
+	CASE OF vl_index
+	CASE TMC_VEH_PL
+		va_vehicule.type_veh = XZAEC_VEH_PL
+	CASE TMC_VEH_VL
+		va_vehicule.type_veh = XZAEC_VEH_VL
+	CASE TMC_VEH_Car
+		va_vehicule.type_veh = XZAEC_VEH_Car
+	CASE TMC_VEH_Moto
+		va_vehicule.type_veh = XZAEC_VEH_Moto
+	CASE TMC_VEH_Remorque
+		va_vehicule.type_veh = XZAEC_VEH_Remorque
+	ENDCASE
+
+	va_vehicule.passagers	= DB_CTRL_GET_VALUE@ (va_fenetre, "BS_passagers")
+	va_vehicule.volume	= DB_CTRL_GET_VALUE@ (va_fenetre, "BS_volume")
+	va_vehicule.mat_dang	= DB_CTRL_GET_TITLE@ (va_fenetre, "BS_matiere")
+
+	va_vehicule.nb_bebes = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_bebes")
+	va_vehicule.bebe = XDC_FAUX
+
+	va_vehicule.nb_agees=DB_CTRL_GET_VALUE@ (va_fenetre, "BS_persagees")
+	va_vehicule.agee = XDC_FAUX
+
+	IF DB_CTRL_GET_VALUE@ (va_fenetre, "BT_escota") = TRUE {
+		va_vehicule.escota = XDC_VRAI
+	} ELSE {
+		va_vehicule.escota = XDC_FAUX
+	}
+	IF DB_CTRL_GET_VALUE@ (va_fenetre, "BT_animaux") = TRUE {
+		va_vehicule.animaux = XDC_VRAI
+	} ELSE {
+		va_vehicule.animaux = XDC_FAUX
+	}
+
+	va_vehicule.feu_maitrise = NULL
+	/* extraire la valeur du champ s'il est affiche (cas d'une Fmc Vehicule en feu) */
+	IF (DB_CTRL_GET_DISPLAY@ (va_fenetre, "BT_feu_maitrise") = TRUE) {
+		IF (DB_CTRL_GET_VALUE@ (va_fenetre, "BT_feu_maitrise") = TRUE) {
+			va_vehicule.feu_maitrise = XDC_VRAI
+		} ELSE {
+			va_vehicule.feu_maitrise = XDC_FAUX
+		}
+	}
+
+	vl_commentaires = DB_EDITBOX_GET_DATA@ (va_fenetre, "BE_commveh")
+	IF IS_NULL@ (vl_commentaires) {
+		va_vehicule.comment = NULL
+	} ELSE {
+		va_vehicule.comment = ARRAY_TO_STRING@ (vl_commentaires, MTAR_CAR_SEPAR)
+	}
+
+	va_vehicule.type_rappel = DB_CTRL_GET_VALUE@ (va_fenetre, "BO_rappel")
+	va_vehicule.complement_rappel = DB_CTRL_GET_VALUE@ (va_fenetre, "BS_complement_rappel")
+
+
+	RETURN (XDC_OK)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Effectue les controles de validite des donnees specifiques d'une fiche vehicule
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_veh_controle (FORMAT TMC_fmc va_fiche, FORMAT TMC_Fiche_Vehicule va_vehicule)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fiche           : Donnees generiques de la Fmc ;
+*  va_vehicule        : Donnees specifiques a la Fmc Vehicule
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_NOK si les donnees sont incorrectes, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche vehicule
+*
+* FONCTION
+*
+--------------------------------------------------------------------------------- */
+VAR vl_retour
+
+	vl_retour = XDC_OK
+
+	/* La saisie de complement_rappel est obligatoire pour un rappel de type AUTRE */
+	IF (va_fiche.type = XZAEC_FMC_VehArrete)  OR
+	   (va_fiche.type = XZAEC_FMC_VehPanne)  OR
+	   (va_fiche.type = XZAEC_FMC_VehFeu)
+	{
+		IF (va_vehicule.type_rappel = XZAEC_TYP_RAP_AUTRE)
+		{
+			IF (va_vehicule.complement_rappel = "")
+			{
+				INFO_MESSAGE@ ("Complément rappel client obligatoire")
+
+				vl_retour = XDC_NOK
+			}
+		}
+	}
+
+	RETURN (vl_retour)
+ENDMACRO

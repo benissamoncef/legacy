@@ -1,0 +1,328 @@
+/*E*/
+/* Fichier : $Id: ITMA_TSR_Sauv_Restaur_Histo.am,v 1.3 1996/03/07 17:05:39 gaborit Exp $      Release : $Revision: 1.3 $        Date : $Date: 1996/03/07 17:05:39 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_THE * FICHIER ITMA_TSR_Sauv_Restaur_Histo.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Sauvegarde et restauration base historique.
+*
+*   Non decrit dans le DCG.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain   10 Jan 1995	: Creation                                V1.1
+* Torregrossa 07 Mar 1995	: Modif liste des mois a sauvegarder      V1.3
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE "../inc/ITMA_TAR.h"
+
+
+
+DEFINE	C_MODULE	"MTSR"			' Nom du module
+
+
+
+DEFINE	C_TITRE_RESTAUR		"Restauration Historique"
+
+DEFINE	C_PERIODE_HISTO		5		' Conservation histo.(en annees)
+DEFINE	C_ANNEE_INSTALL		1995
+DEFINE	C_MOIS_INSTALL		02
+
+
+
+VAR     vm_l_id_volume				' Liste d'id. de volume proposes
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Sauvegarde ou restauration base historique.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TSR_Sauv_Restaur_Histo (va_appelant, va_mode)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_appelant       : Nom de la macro Applix ayant invoque la presente ;
+*   va_mode[]         : Liste d'arguments :
+*     va_mode[0]      : Mode d'utilisation (sauvegarde ou restauration).
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+*
+* CONDITION D'UTILISATION
+*   Activation par message depuis GMOT.
+*
+* FONCTION
+*   Dialogue de gestion de la sauvegarde ou restauration de la base historique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_sauv			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_mode_sauvegarde			' Indicateur du mode sauvegarde
+    VAR     vl_mois, vl_annee
+    VAR     vl_cmd, vl_args			' Message: commande et arguments
+    VAR     i
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Sauvegarde et Restauration Historique"
+ * ----------------------------------------------------------
+ */
+
+vl_fenetre_sauv = DB_LOAD@ ("ITMA_TSR")
+DB_WINDOW_REMAIN@ (vl_fenetre_sauv, TRUE)
+
+DB_XPOS@ (vl_fenetre_sauv, 400)
+DB_YPOS@ (vl_fenetre_sauv, 300)
+
+COM02_Attacher_Aide (vl_fenetre_sauv, "ITMA_TSR_Sauv_Restaur_Histo")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_sauv, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+vl_mode_sauvegarde = (UPPERCASE@ (SUBSTRING@ (va_mode[0], 1, 1)) = "S")
+
+IF NOT vl_mode_sauvegarde
+    DB_TITLE@ (vl_fenetre_sauv, C_TITRE_RESTAUR)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_sauv, "BL_Ident_Volume", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre_sauv, "BL_Ident_Volume", -1)
+
+DB_CTRL_TITLE@ (vl_fenetre_sauv, "LI_Ident_Volume", NULL)
+
+DB_CTRL_GRAYED@ (vl_fenetre_sauv, "BP_Valider", TRUE)
+
+
+/*A
+ * Initialiser la visualisation (liste des identifiants de volume)
+ * ---------------------------------------------------------------
+ */
+
+IF TSR_Init_Ident_Volume (vl_fenetre_sauv, vl_mode_sauvegarde) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_sauv)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_sauv)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_sauv)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur selection dans la liste, afficher
+     * l'identifiant choisi et autoriser la validation
+     * -----------------------------------------------
+     */
+
+    CASE "BL_Ident_Volume"
+	i = DB_CTRL_GET_VALUE@ (vl_fenetre_sauv, "BL_Ident_Volume")
+	DB_CTRL_TITLE@ (vl_fenetre_sauv, "LI_Ident_Volume", vm_l_id_volume[i])
+
+	DB_CTRL_GRAYED@ (vl_fenetre_sauv, "BP_Valider", FALSE)
+
+
+    /*A
+     * Sur choix "Valider", envoyer la demande de sauvegarde ou restauration
+     * ---------------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	vl_annee = vm_l_id_volume[i] \ 100
+	vl_mois = vm_l_id_volume[i] MOD 100
+
+	IF vl_mode_sauvegarde
+	    vl_args = "S", vl_mois, vl_annee
+	ELSE vl_args = "R", vl_mois, vl_annee
+	vl_cmd = MTAR_MSG_EXEC,
+		    1,
+		    MTAR_FCT_XZCA02_03,
+		    ARRAY_TO_STRING@ (vl_args, MTAR_CAR_SEPAR)
+	DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+
+	vl_la_fenetre_est_active = FALSE
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des identifiants de volume.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TSR_Init_Ident_Volume (va_fenetre, va_mode_sauvegarde)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_mode_sauvegarde: Indicateur de mode de sauvegarde.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TSR_Sauv_Restaur_Histo
+*
+* FONCTION
+*   Initialise les valeurs de la liste des identifiants de volume.
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_mois_debut, vl_annee_debut			' Premiere proposition
+    VAR vl_jj, vl_mm, vl_aa, vl_hh, vl_mn
+
+
+/*A
+ * Lire la date courante ; prendre le mois precedent pour dernier mois.
+ * En mode sauvegarde, le debut se situe PERIODE_HISTO annees plus tot ;
+ * en mode restauration, la date de debut est la date d'installation
+ * ---------------------------------------------------------------------
+ */
+
+COM14_Valeurs_Horodate(COM09_Date_Courante(), vl_jj, vl_mm, vl_aa, vl_hh, vl_mn)
+
+IF va_mode_sauvegarde {
+    /*B si la date actuelle est inferieure au huitieme jour du mois alors le mois precedent n'est pas propose */
+    IF vl_jj < 8 {
+	vl_mm = vl_mm - 1
+	IF vl_mm = 0 {
+		vl_aa = vl_aa - 1
+		vl_mm = 12
+	}
+    }
+    vl_annee_debut = vl_aa - C_PERIODE_HISTO
+    vl_mois_debut = vl_mm
+    IF (vl_annee_debut * 100 + vl_mois_debut) <
+	  (C_ANNEE_INSTALL * 100 + C_MOIS_INSTALL) {
+	vl_mois_debut = C_MOIS_INSTALL
+	vl_annee_debut = C_ANNEE_INSTALL
+    }
+} ELSE {
+    vl_mois_debut = C_MOIS_INSTALL
+    vl_annee_debut = C_ANNEE_INSTALL
+}
+
+
+/*A
+ * Construire et afficher la liste des valeurs d'identifiants de volume
+ * --------------------------------------------------------------------
+ */
+
+WHILE vl_aa > vl_annee_debut  OR  vl_mm > vl_mois_debut
+    vl_mm = vl_mm - 1
+    IF vl_mm = 0 {
+	vl_aa = vl_aa - 1
+	vl_mm = 12
+    }
+
+    vm_l_id_volume[ARRAY_SIZE@ (vm_l_id_volume)] = TSR_Id_Volume (vl_mm, vl_aa)
+WEND
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Ident_Volume", vm_l_id_volume)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+FUNCTION TSR_Id_Volume (va_mois, va_annee)
+    RETURN (va_annee * 100 + va_mois)
+ENDFUNCTION

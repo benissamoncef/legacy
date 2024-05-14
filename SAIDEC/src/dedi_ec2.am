@@ -1,0 +1,743 @@
+/*E*/
+/* Fichier : $Id: dedi_ec2.am,v 1.3 1995/09/07 11:13:00 thomas Exp $	      Release : $Revision: 1.3 $        Date : $Date: 1995/09/07 11:13:00 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec2.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* definition des objectifs d'information trafic FM
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	12 dec 1994	: Creation						V1.1
+* Thomas	06 sep 1995	: modif titres tableau	(1.2)
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+DEFINE	CAR_SEPAR_DEF			"$"
+
+
+FORMAT dedi_duree
+	libelle,
+	comp,
+	duree
+
+FORMAT dedi_entete_objectif
+	nom,
+	condition,
+	type,
+	duree
+
+
+VAR						tm_types
+VAR 	FORMAT dedi_objectif_tfm	tm_objectifs
+VAR 						tm_elements
+VAR 						tm_elementMessages
+VAR						tm_definitions
+VAR	FORMAT dedi_duree		tm_durees
+VAR						tm_conditions
+VAR						tm_comparateurs
+VAR FORMAT dedi_entete_objectif tm_entetes
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition des objectifs TFM
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec2 ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice
+var vl_selection,vl_selectionDef
+var tl_titres,tl_data
+var vl_nom
+var vl_nomInitial
+var tl_perts_indices	'indices des perts concernees par les chgts d'obj
+var tl_pokes
+var tl_ligneDef
+var vl_titreComp
+var vl_taille
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec2")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,5)
+DB_YPOS@(vl_fenetre,72)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec2_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A choix d'un comparateur pour la duree*/
+		CASE "cp_duree"
+			/*A recupere le titre*/
+			vl_titreComp=DB_CTRL_GET_TITLE@(vl_fenetre,vl_evt)
+
+			/*A position dans la table des titres de comparateurs*/
+			vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_comparateurs,1),
+										vl_titreComp)
+
+			/*A j'affiche l'icone suivante*/
+			vl_indice=(vl_indice+1) MOD 3
+			DB_CTRL_TITLE@(vl_fenetre,vl_evt,tm_comparateurs[vl_indice][1])
+
+		/*A appui sur la fleche vers le bas*/
+		CASE "BP_bas"
+			/*A si une ligne de definition est selectionnee*/
+			IF ((vl_selectionDef++"")<>null)
+			{
+				/*A recupere la ligne courante*/
+				tl_ligneDef=tm_definitions[vl_selection][vl_selectionDef]
+
+				/*A si ce n'est pas la derniere*/
+				IF (vl_selectionDef<
+						(ARRAY_SIZE@(tm_definitions[vl_selection])-1))
+				{
+					/*A je la decale vers le bas*/
+					tm_definitions[vl_selection][vl_selectionDef]=
+						tm_definitions[vl_selection][vl_selectionDef+1]
+					tm_definitions[vl_selection][vl_selectionDef+1]=tl_ligneDef
+
+					/*A je mets a jour l'affichage*/
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_def",
+										tm_definitions[vl_selection])
+
+
+					/*A je mets a jour la liste des elements*/
+					tl_ligneDef=tm_elements[vl_selection][vl_selectionDef]
+
+					/*A je la decale vers le bas*/
+					tm_elements[vl_selection][vl_selectionDef]=
+						tm_elements[vl_selection][vl_selectionDef+1]
+					tm_elements[vl_selection][vl_selectionDef+1]=tl_ligneDef
+
+					/*A je reselectionne la ligne deplacee*/
+					vl_selectionDef=vl_selectionDef+1
+					vl_indice[0]=vl_selectionDef
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_def",vl_indice)
+				}
+			}
+
+		/*A appui sur la fleche vers le haut*/
+		CASE "BP_haut"
+			/*A si une ligne de definition est selectionnee*/
+			IF ((vl_selectionDef++"")<>null)
+			{
+				/*A recupere la ligne courante*/
+				tl_ligneDef=tm_definitions[vl_selection][vl_selectionDef]
+
+				/*A si ce n'est pas la premiere*/
+				IF (vl_selectionDef>0)
+				{
+					/*A je la decale vers le haut*/
+					tm_definitions[vl_selection][vl_selectionDef]=
+						tm_definitions[vl_selection][vl_selectionDef-1]
+					tm_definitions[vl_selection][vl_selectionDef-1]=tl_ligneDef
+
+					/*A je mets a jour l'affichage*/
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_def",
+										tm_definitions[vl_selection])
+
+					/*A je mets a jour la liste des elements*/
+					tl_ligneDef=tm_elements[vl_selection][vl_selectionDef]
+
+					/*A je la decale vers le haut*/
+					tm_elements[vl_selection][vl_selectionDef]=
+						tm_elements[vl_selection][vl_selectionDef-1]
+					tm_elements[vl_selection][vl_selectionDef-1]=tl_ligneDef
+
+					/*A je reselectionne la ligne deplacee*/
+					vl_selectionDef=vl_selectionDef-1
+					vl_indice[0]=vl_selectionDef
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_def",vl_indice)
+				}
+			}
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			IF (ec2_valide()=TRUE)
+				RETURN
+
+		/*A selection d'un element dans la liste des objectifs*/
+		CASE "TA_objs"
+			/*A on affiche les caracteristiques de l'objectif selectionnee */
+			vl_indice = DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_objs")
+			vl_selection=vl_indice[0]
+				
+			/*A j'affiche les caracteristiques de l'objectif*/
+			DB_CTRL_VALUE@(vl_fenetre,"BS_nom",tm_objectifs[vl_selection].nom)
+			DB_CTRL_TITLE@(vl_fenetre,"LI_objectif",
+									tm_objectifs[vl_selection].nom)
+			DB_CTRL_VALUE@(vl_fenetre,"duree",tm_durees[vl_selection].duree)
+			vl_indice=ARRAY_INDEX@(tm_types,tm_objectifs[vl_selection].type)
+			DB_CTRL_VALUE@(vl_fenetre,"BL_type",vl_indice)			
+			vl_indice=ARRAY_INDEX@(tm_conditions,
+								tm_objectifs[vl_selection].condition)
+			DB_CTRL_VALUE@(vl_fenetre,"BO_condition",vl_indice)			
+			vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_comparateurs,0),
+									tm_durees[vl_selection].comp)
+			IF (vl_indice<>-1)
+				DB_CTRL_TITLE@(vl_fenetre,"cp_duree",
+									tm_comparateurs[vl_indice][1])	
+			ELSE		
+				DB_CTRL_TITLE@(vl_fenetre,"cp_duree",tm_comparateurs[0][1])	
+
+			/*A j'affiche la definition de l'objectif*/
+			DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_def",0,-1)
+			tl_titres[0][0] = tm_objectifs[vl_selection].nom
+			tl_titres[0][1] = 600
+			DB_TABLE_SET_DATA@(vl_fenetre,"TA_def",
+								tm_definitions[vl_selection],tl_titres)	
+
+			/*A je deselectionne toutes les lignes de definition*/
+			vl_selectionDef=null
+			DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_def",null)
+
+			/*A j'initialise les controles de definition*/
+			DB_CTRL_VALUE@(vl_fenetre,"BS_intro",null)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_ponctu",null)
+			DB_CTRL_VALUE@(vl_fenetre,"BO_element",0)
+
+		/*A selection d'un element dans la liste des definitions*/
+		CASE "TA_def"
+			/*A on affiche les caracteristiques de l'objectif selectionnee */
+			vl_indice = DB_TABLE_GET_SELECTIONS@(vl_fenetre, vl_evt)
+			vl_selectionDef=vl_indice[0]
+
+			DB_CTRL_VALUE@(vl_fenetre,"BS_intro",
+						tm_elements[vl_selection][vl_selectionDef][0])
+			DB_CTRL_VALUE@(vl_fenetre,"BS_ponctu",
+						tm_elements[vl_selection][vl_selectionDef][2])
+
+			vl_indice=ARRAY_INDEX@(tm_elementMessages,
+					TRIM@(tm_elements[vl_selection][vl_selectionDef][1]))
+			DB_CTRL_VALUE@(vl_fenetre,"BO_element",vl_indice)
+
+		/*A appui sur le bouton ajouter une ligne de definition*/
+		CASE "BP_ajouterdef"
+			/*A si un objectif est bien selectionne*/
+			IF ((vl_selection++"")<>null)	
+			{
+				/*A on ajoute la definition, dans le tableau*/
+				vl_taille=ARRAY_SIZE@(tm_definitions[vl_selection])
+
+				/*A je recupere intro,element et ponctuation*/
+				tm_elements[vl_selection][vl_taille][0]=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_intro")
+				tm_elements[vl_selection][vl_taille][1]=
+						tm_elementMessages[DB_CTRL_GET_VALUE@
+									(vl_fenetre,"BO_element")]
+				tm_elements[vl_selection][vl_taille][2]=
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ponctu")
+
+				tm_definitions[vl_selection][vl_taille][0]=
+						tm_elements[vl_selection][vl_taille][0]++" "++	
+						tm_elements[vl_selection][vl_taille][1]++" "++
+						tm_elements[vl_selection][vl_taille][2]
+
+				DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_def",0,-1)
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_def",
+									tm_definitions[vl_selection], 0)
+
+				/*A je selectionne cette nouvelle ligne*/
+				vl_indice[0]=vl_taille
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_def",vl_indice)
+				vl_selectionDef=vl_taille
+			}
+
+		/*A appui sur le bouton modifier une ligne de definition*/
+		CASE "BP_modifierdef"
+			/*si une ligne de definition est selectionnee*/
+			IF ((vl_selectionDef++"")<>null)
+			{
+				/*A je recupere intro,element et ponctuation*/
+				tm_elements[vl_selection][vl_selectionDef][0]=
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BS_intro")
+				tm_elements[vl_selection][vl_selectionDef][1]=
+					tm_elementMessages[DB_CTRL_GET_VALUE@
+								(vl_fenetre,"BO_element")]
+				tm_elements[vl_selection][vl_selectionDef][2]=
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BS_ponctu")
+
+				tm_definitions[vl_selection][vl_selectionDef][0]=
+					tm_elements[vl_selection][vl_selectionDef][0]++" "++	
+					tm_elements[vl_selection][vl_selectionDef][1]++" "++
+					tm_elements[vl_selection][vl_selectionDef][2]
+
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_def", 
+									tm_definitions[vl_selection], 0)
+				vl_indice[0]=vl_selectionDef
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_def",vl_indice)
+			}
+
+		/*A appui sur le bouton modifier un objectif*/
+		CASE "BP_modifierobj"
+			/*si un objectif est selectionne*/
+			IF ((vl_selection++"")<>null)
+			{
+				/*A recupere le nom */
+				vl_nom=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_nom")
+
+				/*A si le nom est null*/
+				IF (vl_nom=null)
+					INFO_MESSAGE@("Le nom doit être non nul")
+				ELSE
+				{
+					/*A je lis les nouvelles valeurs de l'objectif*/
+					tm_objectifs[vl_selection].nom=vl_nom
+					vl_indice=DB_CTRL_GET_VALUE@(vl_fenetre,"BO_condition")
+					tm_objectifs[vl_selection].condition=
+										tm_conditions[vl_indice]
+					vl_indice=DB_CTRL_GET_VALUE@(vl_fenetre,"BL_type")
+					tm_objectifs[vl_selection].type=
+										tm_types[vl_indice]
+
+					/*A je lis la duree*/
+					tm_durees[vl_selection].duree=DB_CTRL_GET_VALUE@(
+												vl_fenetre,"duree")
+					
+					/*A si elle est nulle*/
+					IF (tm_durees[vl_selection].duree=null)
+					{
+						/*A j'initialise la structure associee*/
+						tm_durees[vl_selection].comp=null
+						tm_durees[vl_selection].libelle=null
+						tm_objectifs[vl_selection].duree=null
+					}
+					ELSE
+					{
+						/*A je valorise la structure associee*/
+						tm_durees[vl_selection].libelle="duree"
+						vl_indice=ARRAY_INDEX@(
+								ARRAY_COLUMN@(tm_comparateurs,1),
+								DB_CTRL_GET_TITLE@(vl_fenetre,"cp_duree"))
+						tm_durees[vl_selection].comp=
+								tm_comparateurs[vl_indice][0]
+
+						tm_objectifs[vl_selection].duree=ARRAY_TO_STRING@(
+									tm_durees[vl_selection]," ")
+					}
+
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_objs", 
+												tm_objectifs, 0)
+					vl_indice[0]=vl_selection
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_objs",vl_indice)
+		
+					/*A j'affiche la definition de l'objectif*/
+					DB_CTRL_TITLE@(vl_fenetre,"LI_objectif",
+								tm_objectifs[vl_selection].nom)
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_def",0,-1)
+					tl_titres[0][0] = tm_objectifs[vl_selection].nom
+					tl_titres[0][1] = 600
+					DB_TABLE_SET_DATA@(vl_fenetre,"TA_def",
+								tm_definitions[vl_selection],tl_titres)	
+
+					IF ((vl_selectionDef++"")<>null)
+						vl_indice[0]=vl_selectionDef
+					ELSE
+						vl_indice=null
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_def",vl_indice)
+				}
+			}
+
+		/*A appui sur le bouton ajouter un objectif*/
+		CASE "BP_ajouterobj"
+			/*A on verifie qu'il n'existe pas d'objectif de meme nom */
+			vl_nom =  DB_CTRL_GET_VALUE@(vl_fenetre, "BS_nom")
+			vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_objectifs,0),vl_nom)
+
+			IF (vl_indice<>-1)
+				INFO_MESSAGE@("Il existe deja un objectif d'information de meme nom. Creation refusee.")
+			ELSE
+			{					
+				/*A on ajoute l'objectif dans le tableau*/
+				vl_taille=ARRAY_SIZE@(tm_objectifs)
+
+				/*A si le nom est null*/
+				IF (vl_nom=null)	
+				{
+					INFO_MESSAGE@("Le nom doit être non nul")
+				}
+				ELSE
+				{
+					/*A ajoute cet element dans la liste*/
+					tm_objectifs[vl_taille].nom=vl_nom
+					vl_indice=DB_CTRL_GET_VALUE@(vl_fenetre,"BO_condition")
+					tm_objectifs[vl_taille].condition=
+										tm_conditions[vl_indice]
+					vl_indice=DB_CTRL_GET_VALUE@(vl_fenetre,"BL_type")
+					tm_objectifs[vl_taille].type=
+										tm_types[vl_indice]
+
+					/*A je lis la duree*/
+					tm_durees[vl_taille].duree=DB_CTRL_GET_VALUE@(
+												vl_fenetre,"duree")
+					
+					/*A si elle est nulle*/
+					IF (tm_durees[vl_taille].duree=null)
+					{
+						/*A j'initialise la structure associee*/
+						tm_durees[vl_taille].comp=null
+						tm_durees[vl_taille].libelle=null
+						tm_objectifs[vl_taille].duree=null
+					}
+					ELSE
+					{
+						/*A je valorise la structure associee*/
+						tm_durees[vl_taille].libelle="duree"
+						vl_indice=ARRAY_INDEX@(
+								ARRAY_COLUMN@(tm_comparateurs,1),
+								DB_CTRL_GET_TITLE@(vl_fenetre,"cp_duree"))
+						tm_durees[vl_taille].comp=
+								tm_comparateurs[vl_indice][0]
+
+						tm_objectifs[vl_taille].duree=ARRAY_TO_STRING@(
+									tm_durees[vl_taille]," ")
+					}
+
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_objs", 
+												tm_objectifs, 0)
+					vl_indice[0]=vl_taille
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_objs",vl_indice)
+					vl_selection=vl_taille
+						
+					/*A j'affiche la definition de l'objectif*/
+					DB_CTRL_TITLE@(vl_fenetre,"LI_objectif",
+								tm_objectifs[vl_taille].nom)
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_def",0,-1)
+					tl_titres[0][0] = tm_objectifs[vl_taille].nom
+					tl_titres[0][1] = 600
+					DB_TABLE_SET_DATA@(vl_fenetre,"TA_def",null,tl_titres)
+					vl_selectionDef=null
+					vl_indice[0]=vl_selectionDef
+				}
+			}
+
+		/*A appui sur le bouton supprimer un objectif*/
+		CASE "BP_supprimerobj"
+			/*A si un element est selectionne*/
+			IF ((vl_selection++"")<>null)
+			{
+				/*A efface l'element des listes des objectifs*/
+				tm_objectifs=ARRAY_DELETE@(tm_objectifs,vl_selection)
+				tm_durees=ARRAY_DELETE@(tm_durees,vl_selection)			
+
+				/*A met a jour la boite*/
+				DB_TABLE_CLEAR_DATA@(vl_fenetre, "TA_objs", 0, -1)
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_objs", tm_objectifs, 0)
+
+				/*A effacer les valeurs des controles*/
+				DB_CTRL_VALUE@(vl_fenetre,"BS_nom",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_condition",0)
+				DB_CTRL_VALUE@(vl_fenetre,"BL_type",-1)
+				DB_CTRL_VALUE@(vl_fenetre,"duree",null)	
+				DB_CTRL_TITLE@(vl_fenetre,"cp_duree",tm_comparateurs[0][1])
+				vl_selection=null
+
+				/*A efface la definition associe a l'objectif*/
+				tm_definitions=ARRAY_DELETE@(tm_definitions,vl_selection)
+				tm_elements=ARRAY_DELETE@(tm_elements,vl_selection)
+
+				/*A j'initialise les controles de definition*/
+				DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_def",0,-1)
+				tl_titres[0][0] = null
+				tl_titres[0][1] = 600
+				DB_TABLE_SET_DATA@(vl_fenetre,"TA_def",null,tl_titres)
+				DB_CTRL_TITLE@(vl_fenetre,"LI_objectif",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_intro",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_ponctu",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_element",0)				
+			}
+			
+		/*A appui sur le bouton supprimer un element de definition*/
+		CASE "BP_supprimerdef"
+			/*A si un element est selectionne*/
+			IF ((vl_selectionDef++"")<>null)
+			{
+				/*A si c'est la derniere*/
+				IF (ARRAY_SIZE@(tm_definitions[vl_selection])=1)
+					INFO_MESSAGE@("Il faut au moins une ligne de definition par objectif")
+				ELSE
+				{
+					/*A efface la definition associe a l'objectif*/
+					tm_definitions[vl_selection]=ARRAY_DELETE@(
+										tm_definitions[vl_selection],
+										vl_selectionDef)
+					tm_elements[vl_selection]=ARRAY_DELETE@(
+										tm_elements[vl_selection],
+										vl_selectionDef)
+
+					/*A j'initialise les controles de definition*/
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_def",0,-1)
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_def",
+										tm_definitions[vl_selection],0)
+					DB_CTRL_VALUE@(vl_fenetre,"BS_intro",null)
+					DB_CTRL_VALUE@(vl_fenetre,"BS_ponctu",null)
+					DB_CTRL_VALUE@(vl_fenetre,"BO_element",0)	
+					vl_selectionDef=null		
+				}	
+			}
+			
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec2_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_titre_objs
+VAR tl_data
+VAR vl_indice
+VAR tl_elements
+VAR vl_index
+
+	/*A caracteres valides pour le nom de l'objectif*/
+	DB_CTRL_VALID_CHARS@(va_fenetre,"BS_nom",DEDI_CAR_VALIDES)
+
+	/*A initialise le tableau des comparateurs*/
+	tm_comparateurs[0]="=","logo_egal"
+	tm_comparateurs[1]="<","logo_inf"
+	tm_comparateurs[2]=">","logo_sup"
+
+	/*A recupere les types d'evenements*/
+	tm_types=SYSTEM_VAR@(vg_types_evts)
+	tm_types=ARRAY_INSERT@(tm_types,"",0)
+
+	/*A affiche cette liste*/
+	DB_CTRL_STRINGS@(va_fenetre,"BL_type",tm_types)
+	DB_CTRL_VALUE@(va_fenetre,"BL_type",-1)
+
+	/*A conditions d'utilisation*/
+	tm_conditions="","Prevu","Signale","Confirme et non termine","Termine"
+	DB_CTRL_STRINGS@(va_fenetre,"BO_condition",tm_conditions)
+
+	/*A recupere les objectifs*/
+	tm_objectifs=SYSTEM_VAR@(vg_objectifs_tfm)
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_objectifs)-1)
+		/*A formate la condition de duree*/
+		tm_durees[vl_indice]=ARRAY_FROM_STRING@(tm_objectifs[vl_indice].duree,
+											" ")
+
+		FOR vl_index=3 TO (ARRAY_SIZE@(tm_objectifs[vl_indice])-3) STEP 3
+			/*A je recupere la def et les elements de definition separes*/
+			tm_elements[vl_indice][vl_index/3-1][0]=
+								tm_objectifs[vl_indice][vl_index+1]		
+			tm_elements[vl_indice][vl_index/3-1][1]=
+								tm_objectifs[vl_indice][vl_index+2]		
+			tm_elements[vl_indice][vl_index/3-1][2]=
+								tm_objectifs[vl_indice][vl_index+3]
+			tm_definitions[vl_indice][vl_index/3-1][0]=
+						tm_elements[vl_indice][vl_index/3-1][0]++" "++
+						tm_elements[vl_indice][vl_index/3-1][1]++" "++
+						tm_elements[vl_indice][vl_index/3-1][2]
+		NEXT vl_index
+	NEXT vl_indice	
+
+	/*A elements de message*/
+	tm_elementMessages="autoroute","sens","evt_GV","evt_GN","periode",
+			"localisation","neutralisations","secours","voies_bloquees",
+			"bouchon","visibilite","glisse","conseil","guidage",
+			"retour_normal","cause","fin","signature","heure_debut",
+			"duree","vehicules","gravite","victimes"
+
+	/*A affichage de cette liste*/
+	DB_CTRL_STRINGS@(va_fenetre,"BO_element",tm_elementMessages)
+
+	/*A active cette liste*/
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BO_element",TRUE)
+
+	/*A affiche la liste des definition*/
+	tl_titre_objs[0][0] = null
+	tl_titre_objs[0][1] = 600
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_def", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_def",TRUE)
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_def", null, tl_titre_objs)
+
+	/*A affiche la liste des objectifs*/
+	tl_titre_objs=null
+	tl_titre_objs[0][0] = "Objectifs"
+	tl_titre_objs[0][1] = 150
+	tl_titre_objs[1][0] = "Etat de la fmc"
+	tl_titre_objs[1][1] = 100
+	tl_titre_objs[2][0] = "Type de fmc"
+	tl_titre_objs[2][1] = 100
+	tl_titre_objs[3][0] = "Durée"
+	tl_titre_objs[3][1] = 100
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_objs", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_objs",TRUE)
+
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_objs", tm_objectifs, tl_titre_objs)
+
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation des objectifs
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec2_valide ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR tl_definitions
+VAR tl_objectifs_tfm
+VAR vl_index
+
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_objectifs)-1)	
+		/*A je recupere les entetes des objectifs (nom,type,condition,duree)*/
+		tm_entetes[vl_indice].nom=tm_objectifs[vl_indice].nom
+		tm_entetes[vl_indice].condition=tm_objectifs[vl_indice].condition
+		tm_entetes[vl_indice].type=tm_objectifs[vl_indice].type
+
+		IF (tm_durees[vl_indice].duree<>null)
+			tm_entetes[vl_indice].duree=ARRAY_TO_STRING@(tm_durees[vl_indice],
+												" ")
+		ELSE
+			tm_entetes[vl_indice].duree=null
+
+		/*A je formatte les entetes*/
+		tm_entetes[vl_indice]=ARRAY_TO_STRING@(tm_entetes[vl_indice],
+											DEDI_CAR_SEPAR)
+
+		/*A si l'objectif n'a pas de definition*/
+		IF (tm_elements[vl_indice]=null)
+		{
+			INFO_MESSAGE@("L'objectif "++tm_objectifs[vl_indice].nom++" n'a pas de definition")
+			RETURN (FALSE)
+		}
+
+		/*A je formatte les definitions*/
+		FOR vl_index=0 TO (ARRAY_SIZE@(tm_elements[vl_indice])-1)	
+			tl_definitions[vl_indice]=tl_definitions[vl_indice]++
+					ARRAY_TO_STRING@(tm_elements[vl_indice][vl_index],
+											DEDI_CAR_SEPAR)
+					++DEDI_CAR_SEPAR
+		NEXT vl_index
+		
+		tl_data[vl_indice]=tm_entetes[vl_indice]++DEDI_CAR_SEPAR++
+								tl_definitions[vl_indice]
+		tl_objectifs_tfm[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+											DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+
+	SET_SYSTEM_VAR@(vg_objectifs_tfm,tl_objectifs_tfm)
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_OBJ_TFM,tl_data)
+	RETURN (TRUE)
+ENDMACRO
+
+
+

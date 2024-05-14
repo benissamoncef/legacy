@@ -1,0 +1,778 @@
+/*E*/
+/* Fichier : $Id: ITMA_TNA_Config_Matrices_NAV.am,v 1.16 2017/04/25 11:08:23 devgfi Exp $      Release : $Revision: 1.16 $        Date : $Date: 2017/04/25 11:08:23 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTNA * FICHIER ITMA_TNA_Config_Matrices_NAV.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de Configuration des matrices NAV.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Cornu 		30 Nov 1994	: Creation						1.1
+* Cornu		05 Dec 1994	: Ajout de la gestion du PA			1.2
+* Cornu		08 Dec 1994	: Ajout des messages vers tàche relais 	1.3
+* Charles		30 Mai 1995	: Type variables + etat matrice	 	1.10
+* Mismer		24 Sep 1996	: Modif titre (RADT_W)			 	1.12
+* Mismer		11 Dec 1996	: Remplacement de NAV par BRA (DEM/1293)   1.13
+* Mismer		10 Jan 1997	: Modif matrice BRA active (DEM/1419)  	1.14
+* JMG                   29/09/2009     : SECTO DEM 887
+* JPL			23/03/2017	: Changement du terme Secteur en Region (DEM 1173)  1.16
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes générales
+ * ------------------------------------- */
+DEFINE	C_MODULE			"MTNA"	' Nom du module
+DEFINE	REP_CONFIG		"../fichiers/"
+
+
+/*A Description des modules à inclures 
+* ---------------------------------------*/
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/xzat01sp.h"
+INCLUDE	"../inc/xzat06sp.h"
+INCLUDE	"../inc/xzao05sp.h"
+
+
+ /*A Description des procedures sotckées à appeler
+* ------------------------------------------------ */
+INCLUDE	"../inc/xzac52sp.h"
+
+
+/*A Description des variables globales
+ * ----------------------------------- */
+var     	vm_fenetre_TNA			' item de la fenetre du module
+var		vm_messages_acceptes
+var		vm_District			' N° du district
+var		vm_NomSite			' Nom du site en cours
+var		vm_NomOperateur		' nom de l'operateur
+var		vm_F_NAV				' listes des noms des NAV
+var		vm_NumBRA				' listes des numero des NAV
+var		vm_machine_LT			' nom de la machine LT
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Configuration des NAV par matrices
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TNA_Config_Matrices_NAV(va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant résultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> Piloter matrice BRA dans MTMT
+*
+* FONCTION
+*    Configuration des BRA par matrices
+*
+---------------------------------------------------------------------------- */
+
+/*A Déclaration des variables statiques */
+var		vl_fenetre_active	' flag de fenetre active
+var		vl_controle_sortie	' flag de sortie
+var		vl_erreur			' flag d'erreur
+var		i,j				' index de loop
+var		vl_taille			' taille de tableau
+var		vl_rang			' rang selectionné dans une liste
+var		vl_message		' mesage affiché
+var		vl_text			' text libre
+var		vl_mode			' choix de la matrice
+var		vl_titre			' titre de la fenetre matrice
+var		vl_F_tpm			' fichier tampon
+var		vl_objet			' objet en cours d'utilisation
+var		vl_table			' table d'etat des bascules
+var		vl_NumEqt			' n° d'equipement
+var		vl_mess			' message provenant de la tache relais
+var		vl_nom_matrice
+
+/*A MAJ des variables statiques */
+vm_District = SYSTEM_VAR@("vg_site")
+vm_NomSite = SYSTEM_VAR@("vg_nom_site")
+vm_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vm_NomOperateur = SUBSTRING@(vm_NomOperateur, 1, 25)
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN(COM_NOK)
+}
+
+
+/*A Tracer l'initialisation de la procedure :
+* -------------------------------------------*/
+vl_text = "------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = " Start ITMA_TNA_Config_Matrices_NAV "
+COM01_Trace(0,vl_text)
+COM01_Trace(0," ")
+
+vl_text = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_text)
+
+
+/*A Ouvertue de la liste des NAV */
+vm_fenetre_TNA = DB_LOAD@("ITMA_TNA_liste_NAV")
+vm_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vm_fenetre_TNA, vm_messages_acceptes)
+
+
+
+/*A Consultation dans SYBASE de la liste des NAV */
+vm_F_NAV = ITMA_TNA_Liste_Eqt_Dispo(vm_District)
+if NOT IS_ARRAY@(vm_F_NAV) 
+{
+	info_message@("Aucun BRA disponible dans cette région !")
+	RETURN(COM_NOK)
+}
+
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(vm_fenetre_TNA,0)
+DB_YPOS@(vm_fenetre_TNA, 300)
+
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TNA,"BL_NAV",True)
+DB_CTRL_STRINGS@(vm_fenetre_TNA,"BL_NAV",vm_F_NAV)
+DB_CTRL_VALUE@(vm_fenetre_TNA,"BL_NAV",-1)
+
+DB_CTRL_DISPLAY@(vm_fenetre_TNA,"BP_presignalisation",True)
+DB_CTRL_DISPLAY@(vm_fenetre_TNA,"BP_neutralisation",True)
+DB_CTRL_DISPLAY@(vm_fenetre_TNA,"T_matrices",True)
+DB_CTRL_DISPLAY@(vm_fenetre_TNA,"LI_matrices",True)
+
+/*A Boucle de capture des événements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vm_fenetre_TNA)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vm_fenetre_TNA)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+	CASE "BP_quitter"
+
+		/*A fermer la fenetre */
+		RETURN(COM_NOK)
+
+	/*A sur action quitter */
+	CASE "BP_presignalisation"
+
+		/*A fermer la fenetre */
+		vl_fenetre_active = FALSE
+		vl_titre = "Matrice de présignalisation  --  " ++ vm_F_NAV[vl_rang]
+		vl_nom_matrice = "matrice de présignalisation."
+		vl_mode = "PRES"
+
+	/*A sur action quitter */
+	CASE "BP_neutralisation"
+
+		/*A fermer la fenetre */
+		vl_fenetre_active = FALSE
+		vl_titre = "Matrice de neutralisation  --  " ++ vm_F_NAV[vl_rang]
+		vl_nom_matrice = "matrice de neutralisation."
+		vl_mode = "NEUT"
+
+	/*A sur action liste BRA */
+	CASE "BL_NAV"
+
+		/*A Capture du rang dans la liste des tunnels */
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre_TNA,"BL_NAV")
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_presignalisation",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TNA,"BP_neutralisation",False)
+
+	/*A sur reception de poke */
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vm_fenetre_TNA)
+
+		/*A si poke de fin de canal */
+		CASE COM_CANAL_FIN
+
+			/*A fermer la fenetre */
+			RETURN(COM_NOK)
+
+		ENDCASE
+
+	ENDCASE
+
+	/*A fin tant que */
+	WEND
+
+
+
+
+/*A Chargement de la fenetre & assignation des sockets 
+*   -------------------------------------------------- */
+vm_fenetre_TNA = DB_LOAD@("ITMA_TNA_matrice")
+vm_messages_acceptes[0] = COM_CANAL_FIN
+vm_messages_acceptes[1] = COM_CANAL_MTNM
+DB_ACCEPT_POKES@ (vm_fenetre_TNA, vm_messages_acceptes)
+
+/*A Abonnement a l'etat de la matrice BRA */ 
+vl_NumEqt = vm_NumBRA[vl_rang]
+vl_erreur = ITMA_TNA_Abt_Etat_Matrice_NAV(XDC_DEBUT_ABONNEMENT_EQUEXT,vl_NumEqt)
+ITMA_TNA_Nom_Machine_LT ( XDC_EQT_NAV, vl_NumEqt )
+
+
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(vm_fenetre_TNA,0)
+DB_YPOS@(vm_fenetre_TNA, 300)
+
+/*A affichage le titre de la boite 
+*   -------------------------------- */
+DB_CTRL_TITLE@(vm_fenetre_TNA,"BP_nom",vl_titre)
+
+/*A MAJ du libelle status */
+DB_CTRL_TITLE@(vm_fenetre_TNA,
+	"LI_status","Status : Attente réception état "++vl_nom_matrice)
+
+/*A affichage le titre de la boite 
+*   -------------------------------- */
+if vl_mode = "NEUT"
+{
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre1","  BAR1")
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre2","  BAR2")
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre3","  BAR3")
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre4","  BAR4")
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre5","  BAR5")
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre20"," ")
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre40"," ")
+}
+
+if vl_mode = "PRES"
+{
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre1","B14100")
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre2","  200m")
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre3","   B3a")
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre4","  400m")
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre5"," B1480")
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre20","  AK14")
+	DB_CTRL_TITLE@(vm_fenetre_TNA,"LI_titre40","  AK3b")
+}
+
+/*A Boucle de capture des événements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vm_fenetre_TNA)
+
+	/*A capture de l'evenement dans la BD TNA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vm_fenetre_TNA)
+
+	/*A si l'evenement n'est pas un poke & verrou=vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		{ vl_controle_sortie = NULL }
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+	CASE "BP_quitter"
+      	/*B Fermerture des abonnements */
+		ITMA_TNA_Abt_Etat_Matrice_NAV(XDC_FERMER_ABONNEMENT_EQUEXT,vl_NumEqt)
+		/*A la fenetre n'est plus active */
+		vl_fenetre_active = FALSE
+
+	/*A sur action executer */
+	CASE "BP_executer"
+	
+		for i = 0 to 31
+			vl_objet = "BA_"++(i+1)
+			vl_table[i] = DB_CTRL_GET_VALUE@(vm_fenetre_TNA,vl_objet)
+		next i
+
+		ITMA_TNA_Config_Matrice_Test(	vl_NumEqt,
+								vl_Mode,
+								vl_table)
+		/*A MAJ du libelle status */
+		DB_CTRL_TITLE@(vm_fenetre_TNA,
+			"LI_status","Status : Commande envoyée, attente réception état matrice.")
+
+
+	/*A sur reception de poke */
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vm_fenetre_TNA)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+	
+          /*A si poke de etat matrice */
+		CASE COM_CANAL_MTNM
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre_TNA)
+
+			/*A trace de la reception du message */
+			vl_text = "   MsgPoke MTNM : " ++ vl_message[0]
+			COM01_Trace(0,vl_text)
+			COM01_Trace(0," ")
+
+			/*A decomposition des messages en tableau */
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+			/*A si numero de NAV en cours d'edition */
+			if vl_mess[0]+0 =  vl_NumEqt and vl_Mode = vl_mess[1]
+			{				
+				/*A on boucle sur toutes les infos du message */
+				for i = 1 to ARRAY_SIZE@(vl_mess)-2
+					vl_objet = "BA_Etat_"++(i+0)
+					if vl_mess[i+1]+0 = 1
+					{
+						DB_CTRL_VALUE@(vm_fenetre_TNA,vl_objet,True)
+					}
+					else
+					{
+						DB_CTRL_VALUE@(vm_fenetre_TNA,vl_objet,False)
+					}
+				next i
+				/*A MAJ du libelle status */
+				DB_CTRL_TITLE@(vm_fenetre_TNA,
+					"LI_status","Status : Réception état "++vl_nom_matrice)
+
+			}
+	   	ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+/*B trace de la fin de traitement */
+vl_text = " Stop ITMA_TNA_Config_Matrice_NAV "
+COM01_Trace(0,vl_text)
+
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de Configurer une matrice de test d'une NAV.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Config_Matrice_Test(	va_NumEqt,
+								va_Matrice,
+								va_Table)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NumEqt		:	Numero d'equipement
+*		va_Matrice	:	Type de matrice
+*		va_Table		:	Table d'autorisation
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TMT
+*
+* FONCTION :
+*	Permet de Configurer une matrice de test d'une NAV.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_sep,i,j
+	VAR vl_table
+	VAR vl_ligne
+
+
+
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) and 
+	NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE))
+	{
+		ITMA_TNA_Acces_interdit("ITMA_TNA_Config_Matrice_Test")
+		RETURN(COM_NOK)
+	}
+
+	/*A trace de l'appel de procedure */
+	vl_text =  " --> XZEN03_Config_Matrice_Test " ++ va_NumEqt ++ "  " ++ va_Matrice ++ "  " ++ vm_Machine_LT
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEN03  
+
+	/*B parametrages des éléments à envoyer */
+	vl_sep = MTAR_CAR_SEPAR
+	j = 0
+	for i = 0 to 31
+		vl_table[i] = 0
+	next i
+	for i = 0 to 31
+		if va_Table[i] = -1 
+		{
+			vl_table[j] = i+1
+			j = j + 1
+		}
+	next i
+	vl_ligne = ARRAY_TO_STRING@(vl_table,"|")
+		
+	/*B arguments */
+	vl_cmd[3]= va_NumEqt ++vl_sep++ va_Matrice ++vl_sep++ "MAT" ++vl_sep++"0" ++vl_sep++  vm_Machine_LT++vl_sep++ vl_ligne
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des equipements disponibles
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TNA_Liste_Eqt_Dispo(va_District)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		va_District		: le numero du district
+*
+*
+* ARGUMENTS EN SORTIE : 
+*		ListeEqts		: la liste des equipements correspondants
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TNA
+*
+*
+* FONCTION
+*   	Lecture des equipements en disponibilites.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR FORMAT COM_Localisation vl_localisation
+
+	var	vl_TypeEqt		' type d'equipement
+	var	vl_Liste_select	' liste resultat du select SQL
+	var	vl_Liste		' liste formattee
+	var	i,j			' index de loop
+	var	vl_taille		' taille de la table de resultat
+	var vl_autoroutes		' listes des autoroutes
+	var	vl_taille2		' taille d'une table
+
+	vl_autoroutes = SYSTEM_VAR@(vg_les_autoroutes)
+
+	vl_parametres[0].type	= SYB#INT1_
+	vl_parametres[0].data	= XDC_EQT_NAV
+	vl_parametres[0].output	= FALSE
+	
+	vl_parametres[1].type	= SYB#INT1_
+	if va_District = XDC_CI
+	{
+		vl_parametres[1].data	= NULL
+	}
+	else
+	{
+		vl_parametres[1].data	= va_District
+	}
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT4_			' Conditions
+	vl_parametres[2].data	= XDC_EQT_MINEUR
+	vl_parametres[2].output	= FALSE
+
+	vl_parametres[3].type	= SYB#INT4_			' Conditions niees
+	vl_parametres[3].data	= XDC_EQT_MINEUR
+	vl_parametres[3].output	= FALSE
+
+	vl_parametres[4].type	= SYB#INT4_			' Exclusions
+	vl_parametres[4].data	= XDC_EQT_HS + XDC_EQT_MAJEUR + 
+							XDC_EQT_CRITIQUE + XDC_EQT_DESACTIVE 
+								+ XDC_EQT_INHIBE
+	vl_parametres[4].output	= FALSE
+
+	vl_parametres[5].type	= SYB#INT4_			' Exclusions niees
+	vl_parametres[5].data	= 0
+	vl_parametres[5].output	= FALSE
+
+	IF COM05_SQL_Procedure (XZAT01_Liste_Eqt_Dispo,
+						vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+
+	/*A recuperation du select dans la liste 'vl_Liste_select' */
+	vl_Liste_select = vl_resultats.select_results[0]
+	vl_taille = ARRAY_SIZE@(vl_Liste_select) - 1	
+
+	/*A Construction de la liste des equipements */
+	if vl_taille>=0 
+	{
+	for i = 0 to vl_taille	
+
+		/*A Format du n° d'equipement */
+          vm_NumBRA[i] = vl_Liste_select[i,1]
+		if LEN@(vl_Liste_select[i,1]) = 1
+		 { vl_Liste_select[i,1] = "00" ++ vl_Liste_select[i,1] }
+		if LEN@(vl_Liste_select[i,1]) = 2
+		 { vl_Liste_select[i,1] = "0" ++ vl_Liste_select[i,1] }
+
+		vl_localisation.NumAuto = vl_Liste_select[i,3]
+		vl_localisation.PR = vl_Liste_select[i,4]
+		vl_localisation.sens_circulation = vl_Liste_select[i,5]
+
+		vl_Liste[i] = "BRA" ++ COM10_Localisation(vl_localisation)
+
+	next i
+	}
+	else	{ vl_Liste = "" }
+
+	RETURN (vl_Liste)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture du nom de machine LT d'un equipement *
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TNA_Nom_Machine_LT(va_type,va_NumEqt)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		va_type		:	le type d'equipement
+*		va_NumEqt		:	le numero d'equipement
+*
+*
+* ARGUMENTS EN SORTIE : 
+*		NomMachineLT	: Nom de la machine LT
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_
+*
+*
+* FONCTION
+*   	Lecture Du Nom du LT de l'equipement
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_TypeEqt		' type d'equipement
+	var	vl_Liste_select	' liste resultat du select SQL
+	var	vl_Liste		' liste formattee
+	var	i,j			' index de loop
+	var	vl_taille		' taille de la table de resultat
+	var	vl_taille2		' taille d'une table
+	var vl_text
+
+	vl_parametres[0].type	= SYB#INT4_
+	vl_parametres[0].data	= va_NumEqt			' numero equipement
+	vl_parametres[0].output	= FALSE
+	
+	vl_parametres[1].type	= SYB#INT4_
+	vl_parametres[1].data	= va_type				' type equipement	
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#CHAR_			' NomMachineLT
+	vl_parametres[2].data	= 0
+	vl_parametres[2].output	= TRUE
+
+
+	IF COM05_SQL_Procedure (XZAO05_Nom_Machine_LT,
+							vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+		RETURN (COM_NOK)
+
+	/*A recuperation du nom de la machine LT */
+	vm_machine_LT = SUBSTRING@(vl_resultats.return_parameters[0],1,7)
+
+	
+	/*B trace du nom de machine LT */
+	vl_text = " Commande matrice BRA " ++ va_NumEqt ++ " - Nom machine LT " ++ vm_machine_LT 
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner a l'etat des panneaux de la base.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Abt_Etat_Matrice_Nav ( va_Abonnement, va_NumBra )
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_Abonnement	:	Type d'abonnement (debut ou fin)
+*		va_NumBra		:	Numero de l'equipement 
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   
+*
+* FONCTION :
+*	Permet de s'abonner a l'etat  matrice de la NAV.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_TypeEqt
+
+	/*A trace de l'appel de procedure */
+	vl_text =  " --> XZEA26_Abt_Etat_Mat_Nav "
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA26  
+
+	/*B arguments */
+	vl_cmd[3]= va_Abonnement ++ MTAR_CAR_SEPAR ++ va_NumBra
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'emmission */
+	vl_text = " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourne un message a l'operateur et trace l'accès interdit
+*				a une macro.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TNA_Acces_interdit(va_NomMacro)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomMacro	:	le nom de la macro interdite
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+
+* CONDITION D'UTILISATION :
+*   appel d'une macro avec les droits d'accès insuffisant.
+*
+* FONCTION :
+*	Retourne un message a l'operateur et trace l'accès interdit a une macro
+*---------------------------------------------------------------------------- */
+
+	/*A message d'info a l'operateur */
+	var		vl_tptext			' zone de text tampon
+	
+	vl_tptext = "L'utilisateur " ++vm_NomOperateur ++ " n'a pas les droits suffisants" ++ NUM_TO_STRING@(10) ++ "pour la fonction : " ++ va_NomMacro
+	info_message@(vl_tptext)
+
+	/*A trace de l'appel de procedure */
+	vl_tptext =  " Accès Macro "
+				 ++ va_NomMacro ++ " refuse pour " ++ vm_NomOperateur
+	COM01_Trace(0,vl_tptext)
+
+ENDMACRO
+
+

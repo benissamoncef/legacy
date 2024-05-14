@@ -1,0 +1,353 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_bascul_trv.am,v 1.4 2012/11/12 15:24:08 gesconf Exp $        Release : $Revision: 1.4 $        Date : $Date: 2012/11/12 15:24:08 $
+-----------------------------------------------------------------------
+*  ESCOTA  *  PROJET PASTRE
+-----------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-----------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMC_bascul_trv.am
+-----------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*
+*   Gere les donnees specifiques au type Basculement pour Travaux
+*   et les champs correspondants dans la fenetre de saisie FMC
+*
+-----------------------------------------------------------------------
+*  HISTORIQUE :
+*
+* JPL	23/05/2007 : Creation (DEM 647) 1.1
+* JPL	17/08/2010 : Macros IHM elementaires pour mecanisme general (lie a DEM 942) 1.2
+* LCL	02/12/2011 : Ajout gestion vitesse et vitesse opposee (DEM 1015) 1.3
+-----------------------------------------------------------------------
+*/
+
+/*A Declaration des fichiers a inclure */
+INCLUDE		"dbase_.am"
+
+INCLUDE		"XDMICG/inc/xdc_ax.h"
+INCLUDE		"XDMICG/inc/xzaec_ax.h"
+
+INCLUDE		"GESIHM/inc/ITMA_COM.h"
+INCLUDE		"GESIHM/inc/ITMA_TMC.h"
+
+
+/*A Definition des constantes */
+
+DEFINE	CM_MODULE		"MTMC"		' Nom du module
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche / masque dans la fenetre FMC les champs specifiques au type d'evenement
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_bascul_trv (va_fenetre, va_type_fmc, va_visible)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : id de la boite de dialogue ou afficher les champs
+*  va_type_fmc        : type de la fmc
+*  va_visible         : indicateur de visibilite demandee
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------------------- */
+
+VAR	vl_fenetre
+
+/*	INSTALL_FILE@("ITMA_TMC_trv.elo")*/
+
+	/*A
+	 * Invoquer successivement les macros equivalentes
+	 *  pour les types FMC Travaux et Basculement
+	 * -----------------------------------------------
+	 */
+
+	vl_fenetre = ITMA_TMC_trv (va_fenetre, va_type_fmc, va_visible)
+	vl_fenetre = ITMA_TMC_bascul (vl_fenetre, va_type_fmc, va_visible)
+
+	RETURN (vl_fenetre)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit en base les donnees specifiques aux Basculement pour travaux
+*  et les visualise dans la zone specifique de la fenetre FMC
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_bascul_trv_charge (va_fenetre, FORMAT COM_Identifiant_FMC ta_num_evt,
+                                     va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fenetre            : id de la boite de dialogue fiche main courante
+* ta_num_evt            : numero et cle d'evenement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*
+--------------------------------------------------------------------------------- */
+
+VAR	tl_retour, tl_retour_trv
+
+	/*A
+	 * Lire successivement les donnees des Travaux et du Basculement
+	 * -------------------------------------------------------------
+	 */
+
+	tl_retour_trv = ITMA_TMC_trv_charge (va_fenetre, ta_num_evt, va_horodate)
+	tl_retour = ITMA_TMC_bascul_charge (tl_retour_trv[0], ta_num_evt, va_horodate)
+
+	tl_retour[2] = tl_retour[1]		' tampon des donnees Basculement
+	tl_retour[1] = tl_retour_trv[1]		' tampon des donnees Travaux
+	RETURN (tl_retour)
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Ecrit en base les donnees specifiques d'un Basculement pour travaux
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_bascul_trv_sauve (FORMAT COM_Identifiant_FMC ta_num_evt,
+                                    FORMAT TMC_travaux va_tampon_trv,
+                                    va_mode, va_horodate, va_fenetre,
+                                    va_autoroute, va_pr, va_sens,
+                                    FORMAT TMC_bascul va_tampon_bascul)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_num_evt		: numero et cle d'evenement
+* va_tampon		: valeurs des champs de travaux (inutilise)
+* va_mode		: prevision, traiter, clos
+* ...			
+* ta_config_bascul	: table des configurations de voies pour basculement
+* ta_config_trv		: table des configurations de voies en travaux
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------------------- */
+
+VAR	vl_cr1, vl_cr2
+
+	/*A
+	 * Ecrire en base successivement les donnees des Travaux et du Basculement
+	 * -----------------------------------------------------------------------
+	 */
+
+vl_cr1 = ITMA_TMC_trv_sauve (ta_num_evt, va_tampon_trv,
+	                                va_mode, va_horodate, va_fenetre,
+	                                va_autoroute, va_pr, va_sens,
+	                                NULL)
+
+vl_cr2 = ITMA_TMC_bascul_sauve (ta_num_evt, va_tampon_bascul,
+	                                   va_mode, va_horodate, va_fenetre,
+	                                   va_autoroute, va_pr, va_sens,
+	                                   NULL)
+
+	IF (vl_cr1 <> XDC_OK) {
+		RETURN (vl_cr1)
+	}
+	RETURN (vl_cr2)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affiche les donnees specifiques d'un Basculement pour travaux
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_bascul_trv_affiche (va_fenetre,
+                                     FORMAT TMC_travaux va_travaux, FORMAT TMC_bascul va_bascul)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*  va_travaux         : Donnees specifiques aux Fmc Travaux
+*  va_bascul          : Donnees specifiques aux Fmc Basculement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur ouverture fiche Basculement pour travaux
+*
+* FONCTION
+*  Value les champs de saisie specifiques aux FMC de classe Basculement pour travaux
+*
+--------------------------------------------------------------------------------- */
+
+	/*A
+	 * Afficher successivement les donnees des Travaux et du Basculement
+	 * -----------------------------------------------------------------
+	 */
+
+	ITMA_TMC_trv_affiche (va_fenetre, va_travaux)
+
+	ITMA_TMC_bascul_affiche (va_fenetre, va_bascul)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Lit les donnees specifiques d'un Basculement pour travaux saisies dans la fenetre
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_bascul_trv_saisie (va_fenetre,
+                                     FORMAT TMC_travaux va_travaux, FORMAT TMC_bascul va_bascul)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : ID de la fenetre FMC
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_travaux         : Donnees specifiques aux Fmc Travaux
+*  va_bascul          : Donnees specifiques aux Fmc Basculement
+*
+*
+* CODE RETOUR         : XDC_NOK si une valeur saisie est incorrecte, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Basculement pour travaux
+*
+* FONCTION
+*  Remplit la fiche avec les donnees des champs de saisie specifiques.
+*
+--------------------------------------------------------------------------------- */
+
+VAR	vl_cr1, vl_cr2
+
+	/*B Donner au Pr de tete du basculement (invisible) */
+	/*B la meme valeur que celui des travaux */
+	DB_CTRL_VALUE@ (va_fenetre, "BS_pr_bascul",
+	                   DB_CTRL_GET_VALUE@ (va_fenetre, "BS_prtetetrv"))
+
+	/*A
+	 * Saisir successivement les donnees des Travaux et du Basculement
+	 * ---------------------------------------------------------------
+	 */
+
+	vl_cr1 = ITMA_TMC_trv_saisie (va_fenetre, va_travaux)
+	IF (vl_cr1 <> XDC_OK) {
+		RETURN (vl_cr1)
+	}
+
+	vl_cr2 = ITMA_TMC_bascul_saisie (va_fenetre, va_bascul)
+	RETURN (vl_cr2)
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Effectue les controles de validite des donnees specifiques d'un Basculement pour travaux
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_bascul_trv_controle (FORMAT TMC_fmc va_fiche, FORMAT TMC_travaux va_travaux,
+                                       va_fenetre, FORMAT TMC_bascul va_bascul)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fiche           : Donnees generiques de la Fmc ;
+*  va_travaux         : Donnees specifiques aux Fmc Travaux
+*  va_fenetre         : ID de la fenetre FMC
+*  va_bascul          : Donnees specifiques aux Fmc Basculement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_NOK si les donnees sont incorrectes, XDC_OK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TMC sur validation fiche Basculement pour travaux
+*
+* FONCTION
+*
+--------------------------------------------------------------------------------- */
+
+VAR	vl_cr1, vl_cr2
+
+	/*A
+	 * Controler successivement les donnees des Travaux et du Basculement
+	 * ------------------------------------------------------------------
+	 */
+
+	vl_cr1 = ITMA_TMC_trv_controle (va_fiche, va_travaux)
+	IF (vl_cr1 <> XDC_OK) {
+		RETURN (vl_cr1)
+	}
+
+	vl_cr2 = ITMA_TMC_bascul_controle (va_fiche, va_bascul)
+	RETURN (vl_cr2)
+ENDMACRO

@@ -1,0 +1,959 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_lire_bouchon.am,v 1.29 2019/05/13 12:03:58 devgfi Exp $        $Revision: 1.29 $        $Date: 2019/05/13 12:03:58 $
+------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------
+* MODULE MTMC * FICHIER ITMA_TMC_lire_bouchon.am
+------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Lecture fiche Bouchon en base de donnees
+*
+*
+------------------------------------------------------
+* HISTORIQUE :
+*
+* Torregrossa 15 Nov 1995 : Modif horodate courante pour Applix version 4.1 V 1.9
+* Torregrossa 15 Nov 1995 : Modif init veracite V 1.10
+* Torregrossa 23 Jan 1996 : ajout position entre parametre de sortie de XZAE40 V 1.11
+* Torregrossa 25 Sep 1996 : ajout degats_domaine entre parametre de sortie de XZAE40 (FMC10) V 1.12
+* Torregrossa 03 Oct 1996 : ajout type_anterieur entre parametre de sortie de XZAE40 (FMC3) V 1.13
+*                           et corection du format des horodates de validations
+* Torregrossa 03 Nov 1996 : ajout fausse_alerte parametre de sortie de XZAE40 (FMC18) V 1.14
+* Torregrossa 14 Nov 1996 : ajout bau etroite parametre de sortie de XZAE40 (SAD4) V 1.15
+* Torregrossa 11 Nov 1996 : ajout longueur parametre de sortie de XZAE40 (FMC7) V 1.16
+* Torregrossa 15 Dec 1997 : ajout degrade parametre de sortie de XZAE40 (1531) V 1.18
+* Torregrossa 08 jan 1998 : modif interface XZAE40 (1532) V1.19
+* Niepceron   11 jan 1999 : modfi intergestionnaire (1723) V1.21
+* ESCOTA      08 avr 1999 : gestion champ Origine (bouton option) 1.22
+* JPL         20 fev 2007 : gestion des secondes de debut/fin reels (DEM 615) 1.23
+* JPL         21 fev 2007 : bug return (fenetre); prend un id FMC en argument; 1.24
+* JPL			04/05/2009 : Lire les fiches anciennes en base historique (DEM 702) 1.25
+* JPL		16/12/2012 : Affichage origine en fin d'init. fiche et non a sa lecture (DEM 1012)  1.26
+* JMG	29/11/16	 ajout majeur lot 23 1.27
+* JPL	04/04/19 : Ajout de l'indicateur d'écoulement (DEM 1326)  1.29
+------------------------------------------------------*/
+
+include	"dbase_.am"
+
+include	"xdc_ax.h"
+include	"xzaec_ax.h"
+include	"xzic_ax.h"
+include	"xzae40sp.h"
+
+include "ITMA_COM.h"
+include "ITMA_TDO.h"
+include	"ITMA_TAR.h"
+include	"ITMA_TMC.h"
+
+
+
+/*X*/
+/*------------------------------------------------------
+* SERVICE RENDU : 
+* Lire les informations associees aux fiches tete et queue
+* Affiche ces informations dans la boite de dialogue
+*
+------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_lire_bouchon (va_fenetre,va_horodate,
+                                FORMAT COM_Identifiant_FMC va_id_queue)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_fenetre        identifiant de la fenetre de dialogue
+* va_intitule_queue intitule de la fiche queue de bouchon
+*
+* ARGUMENTS EN SORTIE :
+* aucun
+*
+* CODE RETOUR : 
+* aucun
+*
+*
+*
+------------------------------------------------------*/
+
+	VAR FORMAT SQL_Procedure_Params@	vl_parametres	
+	VAR FORMAT SQL_Procedure_Result@	vl_resultats
+	VAR i
+	VAR FORMAT TDO_Horo_Eclatee	vl_horodate
+	VAR FORMAT COM_Intitule_FMC	vl_cause, vl_Fmc_Init
+	VAR vl_date_historique
+	VAR vl_intitule
+	VAR vl_fenetre
+	VAR FORMAT TMC_fmc	vl_fiche_tete,vl_fiche_queue
+	VAR FORMAT TMC_comment	tl_comment
+	VAR tl_retour
+
+	MACRO_WINS_BUSY@()
+
+	tl_retour[0]=COM_NOK
+	vl_fenetre=va_fenetre
+
+	vl_date_historique = COM50_DateHistorique (va_horodate)
+
+	i=0
+	vl_parametres=null
+
+	/*A preparation des parametres de la requete*/
+	vl_parametres[i].type = SYB#DATETIME_     
+	vl_parametres[i].data=va_horodate
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                      
+	vl_parametres[i].data = va_id_queue.numero
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = va_id_queue.cle
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	'vl_parametres[i].data=null	'num
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'cle
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'site
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'deb prev
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'deb
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'fin prev
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'fin
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'validation
+	vl_parametres[i].type = SYB#DATETIME_                     
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'num cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'cle cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'num alerte
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'horo alerte
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type alerte
+	vl_parametres[i].type = SYB#CHAR_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'origine
+	vl_parametres[i].type = SYB#CHAR_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'confirme
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'autoroute
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'pr
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'sens
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'pt car
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'nom pt car
+	vl_parametres[i].type = SYB#CHAR_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vr
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vm2
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vm1
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vl
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'bau
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vri
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vm2i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vm1i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vli
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'baui
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'autoroute cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'pr cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'sens cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'horo cause
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'position sur aire ou echangeur
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'degats domaine non utilise pour le bouchon
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type precedent pour le bouchon
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'fausse alerte
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'bau etroite
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'bau inverse etroite
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'longueur escargot (inutilise)
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'abreviation (inutilise)
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'num point car (inutilise)
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'degrade
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'num fmc init 
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'cle fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'commentaire num fmc init
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'autoroute fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'PR fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'sens fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'Horodate fmc init
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'site alerte
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+
+	'vl_parametres[i].data=" "	'datex
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'trafic
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'gravite
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'bloquant
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'duree
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'majeur
+	vl_parametres[i].type = SYB#INT2_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'ecoulement
+	vl_parametres[i].type = SYB#INT1_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+
+	/*A execution de la requete*/
+	IF (vl_date_historique = TRUE)
+	{
+		IF COM41_SQL_Procedure_HIS (XZAE40_Lire_Fiche_MC,
+				   vl_parametres, vl_resultats, "MTMC") <> COM_OK
+		{
+			INFO_MESSAGE@("Erreur dans la lecture de la fiche en base historique")
+			RETURN (tl_retour)
+		}
+	}
+	ELSE
+	{
+		IF COM05_SQL_Procedure (XZAE40_Lire_Fiche_MC,
+				   vl_parametres, vl_resultats, "MTMC") <> COM_OK
+		{
+			INFO_MESSAGE@("Erreur dans la lecture de la fiche en base")
+			RETURN (tl_retour)
+		}
+	}
+
+	/*! on recupere les infos de la fiche queue de bouchon*/
+	vl_fiche_queue=vl_resultats.return_parameters
+	vl_fiche_queue.validation = COM18_Date_SGBD_Formatee(vl_fiche_queue.validation)
+	tl_comment=vl_resultats.select_results[0]
+
+	/*! on lit la fiche tete de bouchon*/
+	vl_fiche_tete=vl_fiche_queue
+	vl_fiche_tete.numero=vl_fiche_queue.numero_cause
+	vl_fiche_tete.cle=vl_fiche_queue.cle_cause
+
+	/*A On memorise si c'est une fmc datex */
+	SET_SYSTEM_VAR@ (vg_datex,vl_fiche_queue.datex)
+
+	/*A preparation des parametres de la requete*/
+	i=0
+	vl_parametres=null
+	vl_resultats=null
+
+	vl_parametres[i].type = SYB#DATETIME_     
+	vl_parametres[i].data=va_horodate
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                      
+	vl_parametres[i].data = vl_fiche_tete.numero
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = vl_fiche_tete.cle
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	'vl_parametres[i].data=null	'num
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'cle
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'site
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'deb prev
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'deb
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'fin prev
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'fin
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'validation
+	vl_parametres[i].type = SYB#DATETIME_                     
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'num cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'cle cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'num alerte
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'horo alerte
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type alerte
+	vl_parametres[i].type = SYB#CHAR_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'origine
+	vl_parametres[i].type = SYB#CHAR_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'confirme
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'autoroute
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'pr
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'sens
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'pt car
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'nom pt car
+	vl_parametres[i].type = SYB#CHAR_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vr
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vm2
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vm1
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vl
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'bau
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vri
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vm2i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vm1i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'vli
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'baui
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'autoroute cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'pr cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'sens cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'horo cause
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'position sur aire ou echangeur
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'degats domaine non utilise pour le bouchon
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type precedent pour le bouchon
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'fausse alerte
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'bau etroite
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'bau inverse etroite
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'longueur escargot (inutilise)
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'abreviation (inutilise)
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'num point car (inutilise)
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'degrade
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'num fmc init 
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'cle fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'commentaire num fmc init
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'type fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'autoroute fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'PR fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'sens fmc init
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'Horodate fmc init
+	vl_parametres[i].type = SYB#DATETIME_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'site alerte
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+
+	'vl_parametres[i].data=" "	'datex
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'trafic
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'gravite
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'bloquant
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'duree
+	vl_parametres[i].type = SYB#INT4_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'majeur
+	vl_parametres[i].type = SYB#INT2_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	'vl_parametres[i].data=" "	'ecoulement
+	vl_parametres[i].type = SYB#INT1_
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	/*A execution de la requete*/
+	IF (vl_date_historique = TRUE)
+	{
+		IF COM41_SQL_Procedure_HIS (XZAE40_Lire_Fiche_MC,
+				   vl_parametres, vl_resultats, "MTMC") <> COM_OK
+		{
+			INFO_MESSAGE@("Erreur dans la lecture de la fiche en base historique")
+			RETURN (tl_retour)
+		}
+	}
+	ELSE
+	{
+		IF COM05_SQL_Procedure (XZAE40_Lire_Fiche_MC,
+				   vl_parametres, vl_resultats, "MTMC") <> COM_OK
+		{
+			INFO_MESSAGE@("Erreur dans la lecture de la fiche en base")
+			RETURN (tl_retour)
+		}
+	}
+
+	/*! on recupere les infos de la fiche queue de bouchon*/
+	vl_fiche_tete=vl_resultats.return_parameters
+	vl_fiche_tete.validation = COM18_Date_SGBD_Formatee(vl_fiche_tete.validation)
+
+	/*A affiche les valeurs dans les controles associes*/
+
+	/*A horodate debut prevu*/
+	vl_horodate=COM18_Date_SGBD_Formatee(vl_fiche_queue.debut_prevu)
+	COM24_Afficher_Horodate(vl_horodate,vl_fenetre,
+								"BS_jour_debut_prevu",
+								"BS_mois_debut_prevu",
+								"BS_annee_debut_prevu",
+								"BS_heure_debut_prevu",
+								"BS_minute_debut_prevu")
+
+	/*A horodate debut*/
+	vl_horodate=COM18_Date_SGBD_Formatee(vl_fiche_queue.debut)
+	COM24_Afficher_Horodate(vl_horodate,vl_fenetre,
+								"BS_jour_debut_reel",
+								"BS_mois_debut_reel",
+								"BS_annee_debut_reel",
+								"BS_heure_debut_reel",
+								"BS_minute_debut_reel",
+								"BS_seconde_debut_reel")
+
+	/*A horodate fin prevu*/
+	vl_horodate=COM18_Date_SGBD_Formatee(vl_fiche_queue.fin_prevu)
+	COM24_Afficher_Horodate(vl_horodate,vl_fenetre,
+								"BS_jour_fin_prevue",
+								"BS_mois_fin_prevue",
+								"BS_annee_fin_prevue",
+								"BS_heure_fin_prevue",
+								"BS_minute_fin_prevue")
+
+	/*A horodate fin*/
+	vl_horodate=COM18_Date_SGBD_Formatee(vl_fiche_queue.fin)
+	COM24_Afficher_Horodate(vl_horodate,vl_fenetre,
+								"BS_jour_fin_reelle",
+								"BS_mois_fin_reelle",
+								"BS_annee_fin_reelle",
+								"BS_heure_fin_reelle",
+								"BS_minute_fin_reelle",
+								"BS_seconde_fin_reelle")
+
+	DB_CTRL_VALUE@(vl_fenetre, "BA_majeur", vl_fiche_queue.majeur)
+	/*A veracite*/
+	IF vl_fiche_queue.confirme = XZAEC_FMC_CONFIRMEE
+		DB_CTRL_VALUE@(vl_fenetre,"BO_veracite",
+				ARRAY_INDEX@(DB_CTRL_GET_STRINGS@(vl_fenetre,"BO_veracite"),
+							COM_LIB_FMC_CONFIRMEE))
+	ELSE	DB_CTRL_VALUE@(vl_fenetre,"BO_veracite",
+				ARRAY_INDEX@(DB_CTRL_GET_STRINGS@(vl_fenetre,"BO_veracite"),
+							COM_LIB_FMC_SIGNALEE))
+
+	/*A fausse alerte */
+	/*! ne jamais tester sur le cas faux cas les fmc crees avant */
+	/*! cette evol. n'ont pas fausse alerte positionner a faux */
+	IF vl_fiche_queue.fausse_alerte = XDC_VRAI
+	{
+		DB_CTRL_VALUE@(vl_fenetre,"BA_FausseAlerte",TRUE)
+		DB_CTRL_GRAYED@(vl_fenetre,"BO_veracite",TRUE)
+	}
+
+	/*si une cause existe*/
+	IF (vl_fiche_tete.numero_cause<>null)
+	{
+		/*A construit le libelle de l'evenement cause et l'affiche*/
+		vl_cause.IdFMC.numero=vl_fiche_tete.numero_cause
+		vl_cause.IdFMC.cle=vl_fiche_tete.cle_cause
+		vl_cause.NumType=vl_fiche_tete.type_cause
+		vl_cause.localisation.NumAuto=vl_fiche_tete.autoroute_cause
+		vl_cause.localisation.pr=vl_fiche_tete.pr_cause
+		vl_cause.localisation.sens_circulation=vl_fiche_tete.sens_cause
+		vl_intitule = COM11_Libelle_FMC ( vl_cause)
+		DB_CTRL_TITLE@(vl_fenetre, "LI_fmc_cause",vl_intitule)
+	}
+	
+	/*A alerte*/
+	IF (vl_fiche_queue.numero_alerte<>null)
+	{
+		/*A ne plus afficher l'origine*/
+		DB_CTRL_DISPLAY@(vl_fenetre,"BS_origine",FALSE)
+		DB_CTRL_DISPLAY@(vl_fenetre,"BO_Origine",FALSE)
+
+		/*A afficher l'alerte*/
+		DB_CTRL_DISPLAY@(vl_fenetre,"ta_alerte",TRUE)
+		DB_CTRL_DISPLAY@(vl_fenetre,"LIB_alerte",TRUE)
+		DB_CTRL_DISPLAY@(vl_fenetre,"LI_alerte",TRUE)
+		
+		vl_fiche_queue.horo_alerte=COM18_Date_SGBD_Formatee(vl_fiche_queue.horo_alerte)
+		if vl_fiche_queue.datex = XDC_VRAI
+		{
+			DB_CTRL_TITLE@(vl_fenetre,"LIB_alerte",vl_fiche_queue.numero_alerte++
+								" "++vl_fiche_queue.origine++" "++
+                                        vl_fiche_queue.horo_alerte)
+		}
+		ELSE
+		{
+                DB_CTRL_TITLE@(vl_fenetre,"LIB_alerte",vl_fiche_queue.numero_alerte ++" "++
+                                        vl_fiche_queue.type_alerte++" "++
+                                        vl_fiche_queue.horo_alerte)
+		}
+	}
+	ELSE
+	{
+		/*A afficher l'origine*/
+		DB_CTRL_DISPLAY@(vl_fenetre,"BS_origine",TRUE)
+		DB_CTRL_DISPLAY@(vl_fenetre,"BO_Origine",TRUE)
+
+		/*A ne plus afficher l'alerte*/
+		DB_CTRL_DISPLAY@(vl_fenetre,"ta_alerte",FALSE)
+		DB_CTRL_DISPLAY@(vl_fenetre,"LIB_alerte",FALSE)
+		DB_CTRL_DISPLAY@(vl_fenetre,"LI_alerte",FALSE)
+
+		/*A origine*/
+		/*! on extrait les 25 premiers caracteres*/
+		vl_fiche_queue.origine=TRIM@(SUBSTRING@(vl_fiche_queue.origine,1,25))
+		DB_CTRL_VALUE@(vl_fenetre,"BS_origine",vl_fiche_queue.origine)
+	}
+
+	/*A fmc init*/
+	IF (vl_fiche_queue.degrade = XDC_OUI )
+	{
+		DB_CTRL_VALUE@(vl_fenetre,"BS_Com_FMC_Init",vl_fiche_queue.com_fmc_init)
+		IF (vl_fiche_queue.num_fmc_init > 0)
+		{
+			vl_Fmc_Init.IdFMC.numero = vl_fiche_queue.num_fmc_init
+			vl_Fmc_Init.IdFMC.cle = vl_fiche_queue.cle_fmc_init
+			vl_Fmc_Init.NumType = vl_fiche_queue.type_fmc_init
+			vl_Fmc_Init.localisation.NumAuto = vl_fiche_queue.autoroute_fmc_init
+			vl_Fmc_Init.localisation.PR = vl_fiche_queue.PR_fmc_init
+			vl_Fmc_Init.localisation.sens_circulation = vl_fiche_queue.sens_fmc_init
+			vl_Fmc_Init.date = COM18_Date_SGBD_Formatee(vl_fiche_queue.debut_fmc_init)
+			vl_intitule = COM11_Libelle_FMC ( vl_Fmc_Init)
+			DB_CTRL_VALUE@(vl_fenetre,"LI_FMC_Initiale", vl_intitule)
+		}
+	}
+		
+	tl_retour[0]=COM_OK
+	tl_retour[1]=vl_fiche_tete
+	tl_retour[2]=vl_fiche_queue
+	tl_retour[3]=vl_fenetre
+	tl_retour[4]=tl_comment
+	RETURN (tl_retour)
+ENDMACRO

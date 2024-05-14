@@ -1,0 +1,2462 @@
+/*E*/
+/* Fichier : $Id: ITMA_TAT_Appel_Telephonique.am,v 1.45 2020/11/03 17:37:22 pc2dpdy Exp $      Release : $Revision: 1.45 $        Date : $Date: 2020/11/03 17:37:22 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TAT * FICHIER ITMA_TAT_Appel_Telephonique.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fiche appel telephonique.
+*
+*   Cf. DCG 2.4.11
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain  27 Oct 1994 : Creation
+* Guilhou    26 dec 1994 : ajout liste des causes                         V1.6
+* Lecrivain  26 dec 1994 : Redimensionnement                              V1.7
+* noel	     27 Jan 1995 : Chgt vg_poste en vg_numero_poste               V1.11
+* Lecrivain  26 Fev 1995 : Condition validation (res 450,451,452,454,457) V1.12
+* Lecrivain  05 Avr 1995 : Plus de desabonnement autotel (pour repondeur) ;
+*                          Nom du champ info bip (res 616)                V1.13
+* Lecrivain  18 Avr 1995 : Redimensionnement                              V1.14
+* Lecrivain  02 Mai 1995 : Numero du site local a rappeler par defaut     V1.15
+* Lecrivain  06 Jun 1995 : Supp. timer, selection intempestive (res. 453)
+*                          Ajout bouton "Autre Numero" si appel MTPA      V1.16
+* Torregrossa  26 Jun 1995 : Consultation d'un appel a partir liste des actions V.17
+* Torregrossa  27 Jun 1995 : Suppression mise en commentaire sur 
+*                            consultation d'un appel a partir liste des 
+*                            actions                                      V.18
+* Guilhou		31 Aug 1995 : infos fmc liee sur bip 80c			V1.20
+* Noel		12 Sep 1995 : Correction sur DB_DISPLAY_ONLY 		V1.21
+* Torregrossa	24 Jan 1996 : Ne plus afficher le libelle du num. de tel 
+*                             puisque plus de retour de communication V1.22
+* Torregrossa	25 Jan 1996 : Ajout grisage bouton valider si modif numero d'appel V1.23 
+*                             (valider est possible si le numero a ete appele)
+* Noel		26 Mar 1996 : Suppression de l'init pour trace de cle et N° FMC lorsqu'on vient du PA
+*										V1.24
+* Verdier		29 Jul 1996 : Ajout bouton "Valider avec creation intervention"
+*						(DEM76)     V1.25
+* Guilhou	17 sep 1996 : correction gestion liste des FMC causes pour Applix 4.2 V1.26
+* Guilhou	21 nov 1996 : refonte de la gestion des astreintes (DEM/1306) 		1.27
+* Guilhou	04 dec 1996 : gestion du numero d'appel (DEM/1256) 1.28
+* Guilhou	11 dec 1996 : gestion correcte du site de creation pour interv depanneur (DEM/1320) 1.30
+* Guilhou  	16 dec 1996 : plus d'association automatique 1.31
+* Guilhou 	03 oct 1997 : liste des cause a le m look que liste des FMC a traiter (ana/65) 1.32
+* Guilhou	06 fev 1998 : creation du bon type d'action intervention (dem/1553) 1.33
+* Niepceron	24 Aou 1998 : Maj date valid lors du clic sur valider pour appel radio (dem/1387)
+* Guilhou	27 jun 2000 : plus de tests sur la longueur des numerso 1.35
+*			      plus besoin d'appeler si c'est un appel bip
+* Cluchague     26 Aou 2002 : recompil pour prendre XDC_AST_POMPIER a 44 
+			       et non 22 (xdc.h) V1.36 REPERE1
+* Cluchague     28 frv 2005 : Prise en compte de XDC_AST_SIS2 et XDC_AST_SISR (xdc.h) V1.36 DEM431
+* JMG           29/09/09    : SECTO  DEM 887
+* JPL		20/07/10    : Finalisation SECTO : annuaire telephone (DEM 887) 1.39
+* JMG		12/12/10 : telephonie + radio web services 1.40
+* JMG		15/02/11: correction appel depuis main courante 1.41 1.42 DEM 1000
+* JMG   09/03/17        : REGIONALISATION - DEM1220 1.43
+* JMG		12/12/18 : Modification RMVI DEM1315 1.44
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../../XDMICG/inc/xzaec_ax.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TFA.h"
+INCLUDE	"../inc/ITMA_TFS.h"
+INCLUDE	"../inc/ITMA_TFC.h"
+INCLUDE	"../inc/ITMA_TAT.h"
+INCLUDE	"../inc/ITMA_TAN_Escota.h"
+
+INCLUDE "../inc/xzac11sp.h"
+INCLUDE "../inc/xzap18sp.h"
+INCLUDE "../inc/xzac31sp.h"
+INCLUDE "../inc/xzac15sp.h"
+INCLUDE "../inc/xzae95sp.h"
+INCLUDE "../inc/xzae96sp.h"
+INCLUDE "../inc/xzac12sp.h"
+INCLUDE "../inc/xzac16sp.h"
+
+
+DEFINE	C_MODULE	"MTAT"			' Nom du module
+
+
+DEFINE  C_RADIO_GROUPE  3
+DEFINE  C_RADIO_INDIV   2
+DEFINE  C_RADIO_INDIV_GROUPE 1
+
+VAR FORMAT TDO_Libelle_Predefini tm_groupes, tm_groupes_valides
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_VALIDITE_SAISIE		1
+
+DEFINE	C_LIB_LONG_NUM_OPERATOR		"Numéro d'appel trop long !"
+DEFINE	C_LIB_ERR_NUM_A_RAPPELER	"Numéro à rappeler invalide"
+DEFINE	C_LIB_ERR_TEXTE_BIP		"Texte à transmettre invalide"
+
+
+
+/*A
+ * Noms des champs de saisie des informations d'appel par bip,
+ * tailles maximales des zones de saisie et des valeurs saisies
+ * ------------------------------------------------------------
+ */
+
+DEFINE	C_LIB_NUM_A_RAPPELER		"Numéro à rappeler"
+DEFINE	C_LG_MAX_NUM_OPERATOR		60
+DEFINE	C_LG_MAX_NUM_A_RAPPELER		10
+
+DEFINE	C_LIB_TEXTE_BIP			"Texte bip"
+DEFINE	C_LG_MAX_CHAMP_TEXTE		80
+DEFINE	C_LG_MAX_CHAMP_NUMERO		60
+
+DEFINE 	NUM_COL_CATEG		0
+DEFINE	NUM_COL_PASSAGER	1
+DEFINE	NUM_COL_BEBE		35
+DEFINE	NUM_COL_PERS_AGEE	36
+DEFINE	NUM_COL_ANIMAUX	4
+DEFINE	NUM_COL_VEH_ESCOTA	5
+DEFINE	NUM_COL_CHARGEMENT	6
+DEFINE	NUM_COL_CODE_MAT	7
+DEFINE	NUM_COL_DEP		8
+DEFINE	NUM_COL_SITE_DEP	9
+DEFINE	NUM_COL_TEXTE		10
+DEFINE	NUM_COL_MARQUE		11
+DEFINE	NUM_COL_TYPE		12
+DEFINE	NUM_COL_COULEUR	13
+DEFINE	NUM_COL_IMMAT		14
+DEFINE	NUM_COL_CODE_PAYS	15
+DEFINE	NUM_COL_PAYS		16
+DEFINE	NUM_COL_NOM		17
+DEFINE	NUM_COL_VILLE		18
+DEFINE	NUM_COL_ADRESSE	19
+DEFINE	NUM_COL_CODE_DANGER	20
+DEFINE	NUM_COL_CODE_NATURE_PANNE	21
+DEFINE	NUM_COL_NATURE_PANNE		22
+DEFINE	NUM_COL_POSITION	23
+DEFINE	NUM_COL_VEH_ROULANT	24
+DEFINE	NUM_COL_ENLEV		25
+DEFINE 	NUM_COL_NUM_APPEL 	26
+DEFINE	NUM_COL_PRES_MAT_DANG		27
+DEFINE	NUM_COL_FAX_ENVOYE	28
+DEFINE	NUM_COL_CODE_MARQUE	29
+DEFINE	NUM_COL_CODE_COULEUR		30
+DEFINE	NUM_COL_CODE_ENLEV	31
+DEFINE	NUM_COL_NUM_VEH	32
+DEFINE	NUM_COL_SIT		33
+DEFINE	NUM_COL_SIT_CREATION		34
+
+
+/*A
+ * Format des donnees d'etat recues des equipements et de leurs intitules
+ * ----------------------------------------------------------------------
+ */
+
+FORMAT	TAT_Etat_Equip
+	numero,
+	commande,
+	num_appel,
+	cpt_rendu,
+	etat_comm
+
+
+
+VAR FORMAT COM_Identifiant_FMC vm_id_FMC	' Identifiant FMC liee a l'appel
+VAR FORMAT TFA_Interlocuteur vm_interlo		' Interlocuteur choisi
+VAR FORMAT TDO_Type_Astreinte vm_type_astreinte
+
+VAR     vm_numero_appel
+VAR     vm_chiffres_num_appel			' Chiffres extraits du numero
+VAR     vm_type_bip				' Si inconnu, appel telephonique
+VAR     vm_groupe
+
+VAR     vm_num_poste_oper			' Numero du poste operateur
+VAR     vm_date_appel				' Horodate debut appel
+VAR     vm_etat_comm				' Etat de la communication
+VAR     vm_resultat				' Resultat de l'appel
+
+VAR	vm_num_etats_tel			' Liste etats communication tel.
+VAR	vm_lib_etats_tel			' Liste de leurs libelles
+
+VAR	vm_num_etats_ope			' Liste des etats comm. operator
+VAR	vm_lib_etats_ope			' Liste de leurs libelles
+VAR  vm_valider_creation_visible
+
+VAR 	tm_liste_causes
+
+VAR	vm_sous_type_astreinte
+
+VAR vm_num_competence
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Gere le dialogue de commande d'un appel telephonique, bip compris.
+*  Affiche une proposition du SAD d'appel d'un interlocuteur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TAT_Appel_Telephonique (va_appelant,
+				    va_arg1, va_arg2, va_arg3, va_arg4, va_arg5,
+				    va_arg6)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*
+* . Si activation depuis MTFA ou MTFS ou MTEI
+*     Le numero d'appel ;
+*     Le numero de l'interlocuteur ;
+*     Le nom de l'interlocuteur ;
+*     Le type de bip (type "Bip inconnu" si appel telephonique) ;
+*     Le type d'astreinte.
+*
+* . Si activation depuis MTPA :
+*     Numero du plan d'action ;
+*     Numero d'ordre du plan d'action ;
+*     Numero de la fiche Main Courante ;
+*     Libelle de la fiche Main Courante ;
+*
+* . Si activation depuis MTMT :
+*     Le type de bip (type "Bip inconnu" si appel telephonique).
+*
+* . Si activation depuis MTAS
+*	Le nom de l'interlocuteur ;
+*	Le numero de l'interlocuteur ;
+*	Le type d'astreinte
+*	Le sous type d'astreinte
+*	Le numero de competence
+*	L'autoroute
+*	Le PR
+*	Numero de la fiche Main Courante
+*	Libelle de la fiche Main Courante
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_VALIDE si l'appel a ete effectue ;
+*			COM_QUITTE si la fenetre est quittee ;
+*			COM_REFUSE si l'appel a ete refuse ;
+*			COM_NOK en cas d'erreur.
+*
+* CONDITION D'UTILISATION
+*   MTFA, MTFS, MTPA, MTMT
+*
+* FONCTION
+*   Gere le dialogue de commande d'un appel telephonique ou bip.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_appel			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_appelant
+    VAR     vl_num_PA, vl_num_ordre
+    VAR     vl_libelle_FMC			' Libelle identifiant FMC
+
+    VAR     vl_num_auto, vl_PR			' Localisation
+    VAR     vl_texte_explic			' Texte d'explication
+    VAR     vl_num_comp				' Numero de competence
+
+    VAR     vl_message				' Message recu ou envoye
+    VAR FORMAT TAT_Etat_Equip vl_etat		' Message d'etat equipement
+
+    VAR     vl_statut, i
+    VAR     vl_chiffres
+    VAR     vl_tache, vl_liste, vl_posV
+	VAR tl_data,tl_titres
+	VAR  tl_retour
+	VAR FORMAT COM_Intitule_FMC vl_fmc
+	VAR vl_remarque
+        VAR vl_numero_groupe
+        VAR vl_type_appel,vl_index
+        VAR tl_groupes
+        VAR vl_indice
+	VAR tl_arg_rmvi
+var vl_appel_rmvi
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (COM_NOK)
+}
+
+
+/*A
+ * Charger la fenetre "Appel Telephonique"
+ * ---------------------------------------
+ */
+
+vl_fenetre_appel = DB_LOAD@ ("ITMA_TAT")
+
+DB_XPOS@ (vl_fenetre_appel, 0)
+DB_YPOS@ (vl_fenetre_appel, 93)
+COM27_Agrandir_Fenetre (vl_fenetre_appel, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre_appel, "ITMA_TAT_Appel_Telephonique")
+
+/*A
+ * Initialiser la liste des resultats et la valeur initiale du resultat ;
+ * ----------------------------------------------------------------------
+ */
+vl_liste = TAT_LIBELLES_RESULTATS
+DB_CTRL_STRINGS@ (vl_fenetre_appel, "BO_Resultat", vl_liste)
+vm_resultat = TAT_RES_NUL
+vm_valider_creation_visible = TRUE
+vm_date_appel=null
+
+COM37_Lit_Libelles_Predefinis (XDC_LIB_TYPE_GROUPE_RADIO, tm_groupes,
+                                          tm_groupes_valides)
+tl_groupes = ARRAY_COLUMN@(tm_groupes_valides, TDO_TEXTE_LIBELLE)
+DB_CTRL_STRINGS@(vl_fenetre_appel,"BO_Groupe",tl_groupes)
+
+/*A
+ * Plus d'affichage du libelle numero de tel
+ *-----------------------------------------
+ */
+DB_CTRL_DISPLAY@ (vl_fenetre_appel, "LI_Numero_Appele", FALSE)
+DB_CTRL_DISPLAY@ (vl_fenetre_appel, "LI_Titre_Numero_Appele", FALSE)
+
+/*A
+ * Plus d'affichage du bouton valider avec creation action intervention
+ *---------------------------------------------------------------------
+ */
+DB_CTRL_DISPLAY@ (vl_fenetre_appel, "BP_Valider_creation", FALSE)
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_MTAT_ETAT_TEL
+vl_les_messages_acceptes[2] = COM_CANAL_MTAT_ETAT_OPE
+vl_les_messages_acceptes[3] = COM_CANAL_MTAT
+DB_ACCEPT_POKES@ (vl_fenetre_appel, vl_les_messages_acceptes)
+
+
+/*A
+ * Determiner l'origine de l'invocation et initialiser selon cette origine
+ * -----------------------------------------------------------------------
+ */
+
+vl_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+
+tl_arg_rmvi=NULL
+vl_appel_rmvi = FALSE
+IF (vl_appelant = "MTIS") {
+ vl_appelant = "MTAS"
+ tl_arg_rmvi = va_arg1, va_arg2, va_arg3, va_arg4, va_arg5, va_arg6 
+ vl_appel_rmvi = TRUE
+}
+
+IF vl_appelant = "MTPA" {
+    vl_num_PA = va_arg1
+    vl_num_ordre = va_arg2
+    vm_id_FMC = va_arg3
+    vl_libelle_FMC = va_arg4
+
+    IF TAT_Init_MTPA (vl_fenetre_appel, vl_num_PA, vl_num_ordre,
+			 vl_num_auto, vl_PR, vm_type_astreinte,
+			 vl_texte_explic, vm_interlo, vl_num_comp) <> COM_OK
+	RETURN (COM_NOK)
+} ELSE IF vl_appelant = "MTMC" {
+	/* appel a partir de la FMC */
+	IF TAT_Consulter_Appel(vl_fenetre_appel, va_arg1) <> COM_OK {
+		INFO_MESSAGE@("Erreur dans la lecture de l'action d'appel telephonique")
+		RETURN
+	}
+} 
+/*on vient de la liste des interlocuteurs d'astreinte*/
+/*depuis le plan d'actions*/
+ELSE IF vl_appelant = "MTAS" 
+	{
+		vm_type_bip = va_arg4
+		if (vm_type_bip=XDC_APPEL_RADIO) {
+			vm_groupe = SUBSTRING@(va_arg1,1,5)
+			vm_numero_appel = SUBSTRING@(va_arg1,6)
+			vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_groupes_valides,TDO_CODE_LIBELLE),vm_groupe)
+			if (vl_index >=0)
+				DB_CTRL_VALUE@(vl_fenetre_appel,"BO_Groupe",vl_index)
+		}
+		else
+			vm_numero_appel = va_arg1
+		vm_interlo.numero = va_arg2
+		vm_interlo.nom = va_arg3
+		vm_type_astreinte = va_arg5
+		vm_num_competence=va_arg6[4]
+		vl_num_auto = va_arg6[5]
+		vl_PR = va_arg6[6]
+		vm_id_FMC = va_arg6[7]
+		vl_libelle_FMC = va_arg6[8]
+		vl_texte_explic = va_arg6[9]
+		vl_remarque = va_arg6[10]
+
+		TAT_Init_MTPA (vl_fenetre_appel,vl_num_auto, vl_PR,
+				vl_texte_explic,vl_remarque)
+	} 
+ELSE IF vl_appelant = "MLCL" 
+	{
+		vm_type_bip = va_arg4
+		vm_numero_appel = va_arg1		
+		vm_interlo.numero = va_arg2
+		vm_interlo.nom = va_arg3
+		vm_type_astreinte = va_arg5
+		vm_num_competence=va_arg6[4]
+		vl_num_auto = va_arg6[5]
+		vl_PR = va_arg6[6]
+		vm_id_FMC = va_arg6[7]
+		vl_libelle_FMC = va_arg6[8]
+		vl_texte_explic = va_arg6[9]
+		vl_remarque = va_arg6[10]
+
+		TAT_Init_MLCL (vl_fenetre_appel,vl_num_auto, vl_PR,vl_remarque)
+	} 
+	ELSE 
+	{
+		vm_type_bip = va_arg4
+		if (vm_type_bip=XDC_APPEL_RADIO) 
+		{
+			vm_groupe = SUBSTRING@(va_arg1,1,5)
+			vm_numero_appel = SUBSTRING@(va_arg1,6)
+			vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_groupes_valides,TDO_CODE_LIBELLE),vm_groupe)
+			if (vl_index >=0)
+				DB_CTRL_VALUE@(vl_fenetre_appel,"BO_Groupe",vl_index)
+		}
+		else
+			vm_numero_appel = va_arg1
+			
+		vm_interlo.numero = va_arg2
+		vm_interlo.nom = va_arg3
+		vm_type_bip = va_arg4
+		vm_type_astreinte = va_arg5
+
+		IF (vl_appelant="MTEI")
+		{
+			/*la fiche liee est la fiche poste operateur*/
+			vl_fmc.idfmc.numero=SYSTEM_VAR@(vg_num_fiche_operateur)
+			vl_fmc.idfmc.cle=SYSTEM_VAR@(vg_cle_fiche_operateur)
+			vl_fmc.numtype=XZAEC_FMC_posteOperateur
+			vl_libelle_FMC=COM11_Libelle_FMC(vl_fmc)
+			DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Evt_Lie", vl_libelle_FMC)
+			DB_CTRL_TITLE@	(vl_fenetre_appel, "LI_Evt_Lie", vl_libelle_FMC)
+		}
+
+		DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Localisation", NULL)
+	}
+IF vl_appelant <> "MTMC" {
+	DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Type_Astreinte", vm_type_astreinte.nom)
+	DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Evt_Lie", vl_libelle_FMC)
+
+	DB_CTRL_VALUE@ (vl_fenetre_appel, "BS_Numero_Appel", vm_numero_appel)
+	DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Nom_Interlocuteur", vm_interlo.nom)
+'	DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Numero_Appele", NULL) (plus affiche a conserver si etat comm de nouveau)
+}
+
+/*A
+ * Determiner le numero du poste operateur ;
+ * Initialiser la zone d'information bip selon le type de bip ;
+ * Initialiser la liste des etats communication et la valeur initiale
+ * ----------------------------------------------------------------------
+ */
+
+vm_num_poste_oper = SYSTEM_VAR@ (vg_numero_poste)
+
+IF vl_appelant <> "MTMC" {
+	TAT_Init_Info_Bip (vl_fenetre_appel, vm_type_bip)
+	TAT_Init_Etats_Communication ()
+}
+
+IF (vl_appelant="MTEI") AND (vm_type_bip=XDC_BIP_OPERATOR_80_CAR)
+	DB_CTRL_VALUE@(vl_fenetre_appel,"BS_Info_Bip",
+							TRIM@(SUBSTRING@(vl_libelle_FMC,9)))
+
+vm_etat_comm = NULL
+DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Etat_Comm", "")
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_TYPING_RETURN@ (vl_fenetre_appel, "BS_Numero_Appel", TRUE)
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_appel, "TA_Evenements", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_appel, "TA_Evenements", FALSE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_appel, "TA_Evenements", TRUE)
+DB_CTRL_DISPLAY@ (vl_fenetre_appel, "TA_Evenements", FALSE)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_appel, "BO_Resultat", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_appel, "BO_Groupe", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_appel, "BO_Type", TRUE)
+
+IF vl_appelant = "MTAS"
+    DB_CTRL_GRAYED@ (vl_fenetre_appel, "BP_Lier_Evt", TRUE)
+ELSE {
+    IF vl_appelant = "MTMT" {
+	TAT_Visibilite (vl_fenetre_appel, "Astreinte", FALSE)
+	TAT_Visibilite (vl_fenetre_appel, "FMC", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre_appel, "BP_Valider", FALSE)
+	vm_valider_creation_visible = FALSE
+	DB_CTRL_DISPLAY@ (vl_fenetre_appel, "BO_Resultat", FALSE)
+    }
+
+    IF vl_appelant = "MTMC" {
+	DB_CTRL_DISPLAY@ (vl_fenetre_appel, "BP_Garde", FALSE)
+		DB_CTRL_DISPLAY@ (vl_fenetre_appel, "BP_Reprendre", FALSE)
+			DB_CTRL_DISPLAY@ (vl_fenetre_appel, "BO_Groupe", FALSE)
+    }
+    IF vl_appelant <> "MTMC" {
+      TAT_Visibilite (vl_fenetre_appel, "Remarque", FALSE)
+
+      DB_CTRL_DISPLAY@ (vl_fenetre_appel, "BP_Autre_Numero", FALSE)
+
+      DB_CTRL_DISPLAY@ (vl_fenetre_appel, "BP_Refuser", FALSE)
+
+      vl_posV = DB_CTRL_GET_YPOS@ (vl_fenetre_appel, "LI_Remarque")
+      DB_CTRL_YPOS@ (vl_fenetre_appel, "BP_Valider", vl_posV)
+      DB_CTRL_YPOS@ (vl_fenetre_appel, "BP_Valider_creation", vl_posV)
+      DB_CTRL_YPOS@ (vl_fenetre_appel, "BP_Quitter", vl_posV)
+      DB_CTRL_YPOS@ (vl_fenetre_appel, "BP_Aide", vl_posV)
+    }
+	IF vl_appelant = "MLCL" {
+		DB_CTRL_DISPLAY@ (vl_fenetre_appel, "BP_Valider_creation", FALSE)
+		vm_valider_creation_visible = FALSE
+	}
+}
+
+
+/*A
+ * Sur appel depuis MTAS si un interlocuteur est propose ouvrir sa
+ * fiche astreinte sinon ouvrir la liste astreintes pour en choisir un
+ * -------------------------------------------------------------------
+ */
+
+IF vl_appelant = "MTAP" {
+    DB_DISPLAY_ONLY@ (vl_fenetre_appel, TRUE)
+    DB_DISPLAY@ (vl_fenetre_appel)
+
+    IF vm_interlo.numero <> NULL {
+	vl_tache = COM21_Tache_De_La_Macro ("ITMA_TFS_Fiche_Astreinte")
+	IF vl_tache = NULL {
+	    NEW_TASK@ ("ITMA_TFS_Fiche_Astreinte",
+			  "ITMA_TAT_Appel_Telephonique",
+			  vl_num_comp, COM09_Date_Courante(), vm_interlo.numero)
+	} ELSE {
+	    vl_message = vl_num_comp, COM09_Date_Courante(), vm_interlo.numero
+	    DB_SEND_POKE@ (COM_CANAL_MTFS,
+			      ARRAY_TO_STRING@ (vl_message, COM_SEPAR_CHAMPS))
+	    SELECT_WINDOW@ (COM22_Fenetre_De_La_Tache (vl_tache), TRUE)
+	}
+    } ELSE {
+	vl_tache = COM21_Tache_De_La_Macro ("ITMA_TLS_Liste_Astreintes")
+	IF vl_tache = NULL {
+	    NEW_TASK@ ("ITMA_TLS_Liste_Astreintes",
+			  "ITMA_TAT_Appel_Telephonique",
+			  vm_type_astreinte.numero, vl_num_auto, vl_PR)
+	} ELSE {
+	    vl_message = vm_type_astreinte.numero, vl_num_auto, vl_PR
+	    DB_SEND_POKE@ (COM_CANAL_MTLS,
+			      ARRAY_TO_STRING@ (vl_message, COM_SEPAR_CHAMPS))
+	    SELECT_WINDOW@ (COM22_Fenetre_De_La_Tache (vl_tache), TRUE)
+	}
+    }
+}
+
+
+/*A
+ * S'abonner aux etats automate telephonique et operator
+ * -----------------------------------------------------
+ */
+IF vl_appelant <> "MTMC" {
+	vl_message = XDC_DEBUT_ABONNEMENT_EQUEXT, SYSTEM_VAR@ (vg_nom_site)
+	TAT_Requete_Equipement (MTAR_FCT_XZEA12, vl_message)
+	TAT_Requete_Equipement (MTAR_FCT_XZEA30, vl_message)
+}
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_VALIDITE_SAISIE
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_CTRL_VALUE@ (vl_fenetre_appel, "BO_Resultat", vm_resultat)
+
+    DB_DISPLAY_ONLY@ (vl_fenetre_appel, FALSE)
+    DB_DISPLAY@ (vl_fenetre_appel)
+    DB_DISPLAY_ONLY@ (vl_fenetre_appel, TRUE)
+
+
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_appel)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "BP_Quitter"
+	vl_statut = COM_QUITTE
+	vl_la_fenetre_est_active = FALSE
+
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_appel)
+        CASE COM_CANAL_FIN
+	    vl_statut = COM_QUITTE
+            vl_la_fenetre_est_active = FALSE
+
+	/*A
+	 * Sur reception d'un message de l'equipement
+	 * rafraichir l'etat de la communication
+	 * ------------------------------------------
+	 */
+
+        CASE COM_CANAL_MTAT_ETAT_TEL
+	    vl_message = DB_GET_POKE_DATA@ (vl_fenetre_appel)
+	    vl_etat = ARRAY_FROM_STRING@ (vl_message[0], COM_SEPAR_CHAMPS)
+	    if (DB_CTRL_GET_GRAYED@(vl_fenetre_appel, "BP_Appeler") = TRUE) {
+	    IF (vm_type_bip =XDC_BIP_INCONNU OR vm_type_bip =XDC_BIP_EUROSIGNAL or vm_type_bip=XDC_APPEL_RADIO)
+		AND vl_etat.numero = vm_num_poste_oper 
+		AND vl_etat.num_appel + 0 = vm_chiffres_num_appel + 0 {
+		IF vl_etat.etat_comm = XDC_HS {
+		    vm_etat_comm = NULL
+		    DB_CTRL_TITLE@(vl_fenetre_appel, "LI_Etat_Comm",XDC_ETAT_HS)
+		} ELSE {
+		    vm_chiffres_num_appel = vl_etat.num_appel
+/*
+(plus affiche a conserver si etat comm de nouveau)
+		    DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Numero_Appele",
+					vm_chiffres_num_appel) */
+
+		    vm_etat_comm = vl_etat.cpt_rendu
+		    i = ARRAY_INDEX@ (vm_num_etats_tel, vm_etat_comm)
+		    IF i >= 0
+			DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Etat_Comm",
+					   vm_lib_etats_tel[i])
+		    ELSE DB_CTRL_TITLE@(vl_fenetre_appel, "LI_Etat_Comm", "???")
+		}
+                   CASE OF vm_etat_comm
+                   CASE XDC_OK
+                        DB_CTRL_VALUE@(vl_fenetre_appel,"BO_Resultat",TAT_RES_SUCCES)
+                    CASE XDC_NOCARRIER
+                    CASE XDC_ERROR
+                    CASE XDC_BUSY
+                    CASE XDC_NOANSWER
+                    CASE XDC_NORESPONS
+                        DB_CTRL_VALUE@(vl_fenetre_appel,"BO_Resultat",TAT_RES_ECHEC_COMPLET)
+                    ENDCASE
+		
+		IF vl_appelant <> "MTMC"
+        	{
+                vm_resultat = DB_CTRL_GET_VALUE@ (vl_fenetre_appel, "BO_Resultat")
+               DB_CTRL_GRAYED@ (vl_fenetre_appel, "BP_Valider",
+                          IS_NULL@ (vm_id_FMC)  OR  vm_interlo.numero = NULL  OR
+                          vm_numero_appel = NULL  OR  vm_resultat = TAT_RES_NUL)
+						  DB_CTRL_DISPLAY@(vl_fenetre_appel, "BP_Valider_creation",
+								vm_id_FMC<>null and vm_resultat=TAT_RES_SUCCES
+                /*      and (vm_type_astreinte.numero=XDC_AST_DEP_VL OR
+                                vm_type_astreinte.numero=XDC_AST_DEP_PL OR
+                                vm_type_astreinte.numero=XDC_AST_DEP_LEVAGE)*/
+                        and vm_valider_creation_visible=TRUE)
+
+        	}
+       		 ELSE DB_CTRL_VALUE@ (vl_fenetre_appel, "BO_Resultat",vm_resultat)
+
+
+	    }
+	  }
+
+        CASE COM_CANAL_MTAT_ETAT_OPE
+	    vl_message = DB_GET_POKE_DATA@ (vl_fenetre_appel)
+	    vl_etat = ARRAY_FROM_STRING@ (vl_message[0], COM_SEPAR_CHAMPS)
+	    IF vm_type_bip <>XDC_BIP_INCONNU AND vm_type_bip<>XDC_BIP_EUROSIGNAL
+		AND vl_etat.num_appel + 0 = vm_chiffres_num_appel + 0 {
+		IF vl_etat.etat_comm = XDC_HS {
+		    vm_etat_comm = NULL
+		    DB_CTRL_TITLE@(vl_fenetre_appel, "LI_Etat_Comm",XDC_ETAT_HS)
+		} ELSE {
+		    vm_chiffres_num_appel = vl_etat.num_appel
+/*
+(plus affiche a conserver si etat comm de nouveau)
+		    DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Numero_Appele",
+					vm_chiffres_num_appel) */
+
+		    vm_etat_comm = vl_etat.cpt_rendu
+		    i = ARRAY_INDEX@ (vm_num_etats_ope, vm_etat_comm)
+		    IF i >= 0
+			DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Etat_Comm",
+					   vm_lib_etats_ope[i])
+		    ELSE DB_CTRL_TITLE@(vl_fenetre_appel, "LI_Etat_Comm", "???")
+		}
+	    }
+
+
+	/*A
+	 * Sur reception d'un message de MTFS, reinitialiser la fiche
+	 * ----------------------------------------------------------
+	 */
+
+        CASE COM_CANAL_MTAT
+	    vl_message = DB_GET_POKE_DATA@ (vl_fenetre_appel)
+	    vl_message = ARRAY_FROM_STRING@ (vl_message, COM_SEPAR_CHAMPS)
+	    vm_numero_appel = vl_message[0]
+	    vm_interlo.numero = vl_message[1] + 0
+	    vm_interlo.nom = vl_message[2]
+	    vm_type_bip = vl_message[3] + 0
+	    vm_type_astreinte.numero = vl_message[4] + 0
+	    vm_type_astreinte.nom = vl_message[5]
+	    DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Type_Astreinte",
+				vm_type_astreinte.nom)
+	    DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Nom_Interlocuteur",
+				vm_interlo.nom)
+	    DB_CTRL_VALUE@(vl_fenetre_appel, "BS_Numero_Appel", vm_numero_appel)
+'	    DB_CTRL_TITLE@(vl_fenetre_appel, "LI_Numero_Appele", NULL) (plus affiche a conserver si etat comm de nouveau)
+	    TAT_Init_Info_Bip (vl_fenetre_appel, vm_type_bip)
+	    DB_CTRL_GRAYED@ (vl_fenetre_appel, "BP_Appeler", FALSE)
+		DB_CTRL_DISPLAY@(vl_fenetre_appel, "BP_Valider_creation", 
+			vm_id_FMC<>null and vm_resultat=TAT_RES_SUCCES
+			/*and (vm_type_astreinte.numero=XDC_AST_DEP_VL OR 
+				vm_type_astreinte.numero=XDC_AST_DEP_PL OR
+				vm_type_astreinte.numero=XDC_AST_DEP_LEVAGE)*/
+			and vm_valider_creation_visible=TRUE)
+
+        ENDCASE
+
+
+    CASE "BO_Resultat"
+	IF vl_appelant <> "MTMC" 
+	{
+		vm_resultat = DB_CTRL_GET_VALUE@ (vl_fenetre_appel, "BO_Resultat")
+		DB_CTRL_GRAYED@ (vl_fenetre_appel, "BP_Valider",
+			  IS_NULL@ (vm_id_FMC)  OR  vm_interlo.numero = NULL  OR
+			  vm_numero_appel = NULL  OR  vm_resultat = TAT_RES_NUL)
+
+		DB_CTRL_DISPLAY@(vl_fenetre_appel, "BP_Valider_creation", 
+			vm_id_FMC<>null and vm_resultat=TAT_RES_SUCCES
+		/*	and (vm_type_astreinte.numero=XDC_AST_DEP_VL OR 
+				vm_type_astreinte.numero=XDC_AST_DEP_PL OR
+				vm_type_astreinte.numero=XDC_AST_DEP_LEVAGE)*/
+			and vm_valider_creation_visible=TRUE)
+	}
+	ELSE DB_CTRL_VALUE@ (vl_fenetre_appel, "BO_Resultat",vm_resultat) 
+
+    /*A
+     * Sur modification du numero d'appel, reactiver l'appel
+     * -----------------------------------------------------
+     */
+
+    CASE "BO_Groupe"
+    CASE "BO_Type"
+    CASE "BS_Numero_Appel"
+	DB_CTRL_GRAYED@ (vl_fenetre_appel, "BP_Appeler", FALSE)
+	IF vl_appelant <> "MTMC" 
+		DB_CTRL_GRAYED@ (vl_fenetre_appel, "BP_Valider", TRUE)
+
+
+    /*A
+     * Sur choix "Appeler" si les valeurs sont correctes, noter l'heure
+     * courante et effectuer l'appel puis desactiver le bouton "Appeler"
+     * -----------------------------------------------------------------
+     */
+
+    CASE "BP_Appeler"
+	vl_chiffres = COM20_Extraire_Chiffres
+			(DB_CTRL_GET_VALUE@(vl_fenetre_appel,"BS_Numero_Appel"))
+
+		    DB_CTRL_TITLE@(vl_fenetre_appel, "LI_Etat_Comm","")
+	IF vl_chiffres <> "" {
+	    IF (vm_type_bip = XDC_BIP_OPERATOR_8_CHIFFRES  OR
+		vm_type_bip = XDC_BIP_OPERATOR_80_CAR)  AND
+	       LEN@ (vl_chiffres) > C_LG_MAX_NUM_OPERATOR
+		ERROR@ (C_ERR_VALIDITE_SAISIE, C_LIB_LONG_NUM_OPERATOR)
+
+	    CASE OF vm_type_bip
+	    CASE XDC_BIP_OPERATOR_8_CHIFFRES
+		vl_message = COM20_Extraire_Chiffres
+				(DB_CTRL_GET_VALUE@ (vl_fenetre_appel, "BS_Info_Bip"))
+		IF vl_message = "" OR LEN@(vl_message) > C_LG_MAX_NUM_A_RAPPELER
+		    ERROR@ (C_ERR_VALIDITE_SAISIE, C_LIB_ERR_NUM_A_RAPPELER)
+
+		vm_chiffres_num_appel = vl_chiffres
+		vl_message = SYSTEM_VAR@ (vg_nom_site), vl_chiffres, vl_message
+		TAT_Requete_Equipement (MTAR_FCT_XZEO01, vl_message)
+
+	    CASE XDC_BIP_OPERATOR_80_CAR
+		vl_message = DB_CTRL_GET_VALUE@(vl_fenetre_appel, "BS_Info_Bip")
+		IF vl_message = ""
+		    ERROR@ (C_ERR_VALIDITE_SAISIE, C_LIB_ERR_TEXTE_BIP)
+
+		vm_chiffres_num_appel = vl_chiffres
+		vl_message = SYSTEM_VAR@ (vg_nom_site), vl_chiffres, vl_message
+		TAT_Requete_Equipement (MTAR_FCT_XZEO02, vl_message)
+
+	    CASE XDC_APPEL_RADIO
+	                vm_chiffres_num_appel = vl_chiffres
+                /*vl_numero_groupe = COM20_Extraire_Chiffres(DB_CTRL_GET_VALUE@(vl_fenetre_appel, "BS_Groupe"))*/
+                vl_indice = DB_CTRL_GET_VALUE@(vl_fenetre_appel,"BO_Groupe")
+                if (vl_indice<>-1) {
+                        vl_numero_groupe=tm_groupes_valides[vl_indice].code
+                }
+                else
+                        vl_numero_groupe="-1"
+                vl_index = DB_CTRL_GET_VALUE@(vl_fenetre_appel,"BO_Type")
+                vl_type_appel = vl_index+1
+                vl_message = vm_num_poste_oper, SYSTEM_VAR@ (vg_nom_site), vl_chiffres, vl_numero_groupe,vl_type_appel
+                TAT_Requete_Equipement (MTAR_FCT_XZEL06, vl_message)
+
+
+	    DEFAULT
+		vm_chiffres_num_appel = NULL
+		vl_message = vm_num_poste_oper, SYSTEM_VAR@ (vg_nom_site), vl_chiffres
+		TAT_Requete_Equipement (MTAR_FCT_XZEL01, vl_message)
+	    ENDCASE
+
+	    vm_date_appel = COM09_Date_Courante (TRUE)
+	  vm_numero_appel=DB_CTRL_GET_VALUE@(vl_fenetre_appel,"BS_Numero_Appel")
+	    DB_CTRL_GRAYED@ (vl_fenetre_appel, "BP_Valider",
+				IS_NULL@ (vm_id_FMC) OR vm_interlo.numero = NULL
+				OR vm_resultat = TAT_RES_NUL)
+
+	    DB_CTRL_GRAYED@ (vl_fenetre_appel, "BP_Appeler", TRUE)
+	}
+
+        CASE "BP_Garde"
+                vl_chiffres = COM20_Extraire_Chiffres
+                        (DB_CTRL_GET_VALUE@(vl_fenetre_appel,"BS_Numero_Appel"))
+
+                vl_message = vm_num_poste_oper, SYSTEM_VAR@ (vg_nom_site),
+                TAT_Requete_Equipement (MTAR_FCT_XZEL04, vl_message)
+
+        CASE "BP_Reprendre"
+                vl_chiffres = COM20_Extraire_Chiffres
+                        (DB_CTRL_GET_VALUE@(vl_fenetre_appel,"BS_Numero_Appel"))
+
+                vl_message = vm_num_poste_oper, SYSTEM_VAR@ (vg_nom_site), vl_chiffres
+                TAT_Requete_Equipement (MTAR_FCT_XZEL05, vl_message)
+
+    /*A
+     * Sur choix "Refuser", terminer et retourner le compte-rendu adequat
+     * ------------------------------------------------------------------
+     */
+
+    CASE "BP_Refuser"
+	vl_statut = COM_REFUSE
+	tl_data=vm_interlo.numero,vl_statut
+	 DB_SEND_POKE@(COM_CANAL_MTAS, tl_data)
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur choix "Valider", enregistrer l'appel et terminer
+     * ----------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	IF IS_NULL@(vm_date_appel) AND 
+	(vm_type_bip = XDC_APPEL_RADIO OR
+	 vm_type_bip = XDC_BIP_OPERATOR_8_CHIFFRES OR
+	 vm_type_bip = XDC_BIP_OPERATOR_80_CAR)
+		vm_date_appel = COM09_Date_Courante (TRUE)
+	IF IS_NULL@(vm_date_appel)
+		INFO_MESSAGE@("D'abord effectuer l'appel.")
+	ELSE
+	{
+		MACRO_WINS_BUSY@()
+		
+		IF TAT_Enregistrer_Appel (vm_id_FMC,
+				  vm_interlo.numero,
+				  vm_type_astreinte.numero,
+				  vm_num_competence,
+				  vm_numero_appel,
+				  vm_type_bip <> XDC_BIP_INCONNU,
+				  vm_date_appel,
+				  (vm_resultat = TAT_RES_DEJA_PREVENU)  OR
+				      (vm_resultat = TAT_RES_SUCCES)) = COM_OK {
+		    vl_statut = COM_VALIDE
+			tl_data=vm_interlo.numero,vl_statut
+			DB_SEND_POKE@(COM_CANAL_MTAS, tl_data)
+		    vl_la_fenetre_est_active = FALSE
+		}
+	}
+
+    /*A
+     * Sur choix "Valider avec création intervention", enregistrer l'appel et
+	* creer l'action intervention et terminer
+     * ----------------------------------------------------
+     */
+
+    CASE "BP_Valider_creation"
+        IF IS_NULL@(vm_date_appel) AND vm_type_bip = XDC_APPEL_RADIO
+		vm_date_appel = COM09_Date_Courante (TRUE)
+	IF IS_NULL@(vm_date_appel)
+		INFO_MESSAGE@("D'abord effectuer l'appel.")
+	ELSE
+	{
+		MACRO_WINS_BUSY@()
+		IF TAT_Enregistrer_Appel (vm_id_FMC,
+				  vm_interlo.numero,
+				  vm_type_astreinte.numero,
+				  vm_num_competence,
+				  vm_numero_appel,
+				  vm_type_bip <> XDC_BIP_INCONNU,
+				  vm_date_appel,
+				  (vm_resultat = TAT_RES_DEJA_PREVENU)  OR
+				      (vm_resultat = TAT_RES_SUCCES)) = COM_OK
+		{
+			IF TAT_Creer_Intervention(vm_id_FMC,vm_interlo.nom,
+							vm_date_appel,vm_type_astreinte.numero,
+							vm_interlo.numero)	= COM_OK
+			{	
+				vl_statut = COM_VALIDE
+				tl_data=vm_interlo.numero,vl_statut
+				DB_SEND_POKE@(COM_CANAL_MTAS, tl_data)
+				vl_la_fenetre_est_active = FALSE
+			}
+		}
+	}
+
+
+	/*B appui sur le bouton lier fmc*/
+	CASE "BP_Lier_Evt"
+		MACRO_WINS_BUSY@()
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+							"ITMA_TMC_Fiche_Main_Courante")
+
+	 	tm_liste_causes=tl_data[0]	
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vl_fenetre_appel,"TA_Evenements",TRUE)
+		DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre_appel, "TA_Evenements", 25)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_appel,"TA_Evenements",TRUE)
+		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+		DB_TABLE_SET_DATA@(vl_fenetre_appel,"TA_Evenements",tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_appel, "TA_Evenements", 0, tl_data[2])
+
+
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+	    MACRO_WINS_BUSY@()
+	    tl_retour=ITMA_COM_Validite_Cause("ITMA_TAT_Appel_Telephonique",
+							vl_fenetre_appel,
+							tm_liste_causes)
+	    vm_id_FMC = tl_retour[0]
+	    vl_libelle_FMC = tl_retour[1]
+	    DB_CTRL_TITLE@ (vl_fenetre_appel, "LI_Evt_Lie", vl_libelle_FMC)
+		IF (vm_type_bip=XDC_BIP_OPERATOR_80_CAR)
+			DB_CTRL_VALUE@(vl_fenetre_appel,"BS_Info_Bip",
+							TRIM@(SUBSTRING@(vl_libelle_FMC,9)))
+
+	    DB_CTRL_GRAYED@ (vl_fenetre_appel, "BP_Valider",
+			     vm_interlo.numero = NULL  OR vm_numero_appel = NULL
+			     OR vm_resultat = TAT_RES_NUL)
+		DB_CTRL_DISPLAY@(vl_fenetre_appel, "BP_Valider_creation", 
+			vm_id_FMC<>null and vm_resultat=TAT_RES_SUCCES
+			/*and (vm_type_astreinte.numero=XDC_AST_DEP_VL OR 
+				vm_type_astreinte.numero=XDC_AST_DEP_PL OR
+				vm_type_astreinte.numero=XDC_AST_DEP_LEVAGE)*/
+			and vm_valider_creation_visible=TRUE)
+
+    /*A
+     * Sur choix "Autre Numero" transmettre le controle a MTFS,
+     * qui doit etre ouverte et visualiser les infos de l'interlocuteur
+     * ----------------------------------------------------------------
+     */
+
+    CASE "BP_Autre_Numero"
+	if (vl_appel_rmvi=FALSE) {
+	vl_tache = COM21_Tache_De_La_Macro ("ITMA_TFS_Fiche_Astreinte")
+	IF vl_tache <> NULL
+	    SELECT_WINDOW@ (COM22_Fenetre_De_La_Tache (vl_tache), TRUE)
+	}
+	else {
+		vl_la_fenetre_est_active = FALSE
+		NEW_TASK@("ITMA_TFA_Fiche_Annuaire",
+				"ITMA_RVI",
+				vm_interlo.numero,
+				vm_interlo.nom,
+				FALSE,tl_arg_rmvi)
+
+	}
+
+    /*A
+     * Sur choix "Rechercher Astreinte",
+     * invoquer MTLS pour choisir un interlocuteur
+     * -------------------------------------------
+     */
+
+    CASE "BP_Rech_Astreinte"
+	vl_tache = COM21_Tache_De_La_Macro ("ITMA_TLS_Liste_Astreintes")
+	IF vl_tache = NULL
+	    NEW_TASK@ ("ITMA_TLS_Liste_Astreintes",
+			  "ITMA_TAT_Appel_Telephonique",
+			  vm_type_astreinte.numero, vl_num_auto, vl_PR)
+	ELSE {
+	    vl_message = vm_type_astreinte.numero, vl_num_auto, vl_PR
+	    DB_SEND_POKE@ (COM_CANAL_MTLS,
+			      ARRAY_TO_STRING@ (vl_message, COM_SEPAR_CHAMPS))
+	    SELECT_WINDOW@ (COM22_Fenetre_De_La_Tache (vl_tache), TRUE)
+	}
+
+
+    /*A
+     * Sur choix "Expliquer" invoquer MTEX avec le texte d'explication
+     * ---------------------------------------------------------------
+     */
+
+    CASE "BP_Expliquer"
+	PEND_FOR_NEW_TASK@ ("ITMA_TEX_Explication_Propo",
+				"ITMA_TAT_Appel_Telephonique", vl_texte_explic)
+    ENDCASE
+WEND
+
+
+/*A
+ * Se desabonner aux etats operator (et non telephone pour le repondeur !)
+ * puis signaler la terminaison du dialogue d'appel
+ * -----------------------------------------------------------------------
+ */
+
+vl_message = XDC_FIN_ABONNEMENT_EQUEXT, SYSTEM_VAR@ (vg_nom_site)
+TAT_Requete_Equipement (MTAR_FCT_XZEA30, vl_message)
+
+DB_SEND_POKE@ (COM_CANAL_ASTREINTES)
+
+
+RETURN (vl_statut)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation dans le cas d'appel depuis MTPA.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Init_MTPA (va_fenetre,
+			va_num_auto, va_PR,
+			va_explication,
+			va_remarque)
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets a valuer ;
+*  va_num_PA          : Numero du plan d'action ;
+*  va_num_ordre       : Numero d'ordre du plan d'action.
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_num_auto        : Le numero d'autoroute ;
+*  va_PR              : Le PR ;
+*  va_type_astreinte  : Le type d'astreinte ;
+*  va_explication     : Le texte d'explication ;
+*  va_interlo         : L'interlocuteur propose ;
+*  va_num_comp        : L'identifiant de la competence.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TAT_Appel_Telephonique
+*
+* FONCTION
+*   Lit en base de donnees la proposition d'appel ;
+*   value les champs "Type d'astreinte", "Localisation" et "Remarque" a l'ecran
+*   et le nom de l'interlocuteur s'il est fourni, et retourne le texte
+*   d'explication.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TDO_Autoroute vl_l_autoroutes
+    VAR FORMAT TDO_Type_Astreinte vl_l_types_astreintes
+    VAR     i
+
+
+
+/*A
+ * Afficher et / ou retourner la remarque, le texte d'explication,
+ * le type d'astreinte, la localisation et les infos interlocuteur
+ * ---------------------------------------------------------------
+ */
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Remarque", va_remarque)
+
+vl_l_autoroutes = SYSTEM_VAR@ (vg_les_autoroutes)
+vl_l_types_astreintes = SYSTEM_VAR@ (vg_les_types_astreintes)
+i = ARRAY_INDEX@(ARRAY_COLUMN@(vl_l_autoroutes, TDO_NUMERO_AUTOROUTE),
+		    va_num_auto)
+IF i >= 0
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Localisation",
+			vl_l_autoroutes[i].nom ++ ", pr " ++ va_PR / 1000)
+ELSE DB_CTRL_TITLE@ (va_fenetre, "LI_Localisation", NULL)
+
+i = ARRAY_INDEX@(ARRAY_COLUMN@(vl_l_types_astreintes,TDO_NUMERO_TYPE_ASTREINTE),
+			vm_type_astreinte.numero)
+if i>=0
+  vm_type_astreinte.nom=vl_l_types_astreintes[i][TDO_NOM_TYPE_ASTREINTE]
+else
+  vm_type_astreinte = null
+
+DB_CTRL_TITLE@(va_fenetre,"LI_Type_Astreinte",vm_type_astreinte.nom)
+RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation dans le cas d'appel depuis MTPA.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Init_MLCL (va_fenetre,
+			va_num_auto, va_PR,
+			va_remarque)
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets a valuer ;
+*  va_num_PA          : Numero du plan d'action ;
+*  va_num_ordre       : Numero d'ordre du plan d'action.
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_num_auto        : Le numero d'autoroute ;
+*  va_PR              : Le PR ;
+*  va_type_astreinte  : Le type d'astreinte ;
+*  va_interlo         : L'interlocuteur propose ;
+*  va_num_comp        : L'identifiant de la competence.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TAT_Appel_Telephonique
+*
+* FONCTION
+*   value les champs "Type d'astreinte", "Localisation" et "Remarque" a l'ecran
+*   et le nom de l'interlocuteur s'il est fourni, et retourne le texte
+*   d'explication.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TDO_Autoroute vl_l_autoroutes
+    VAR     i
+
+/*A
+ * Afficher et / ou retourner la remarque, le texte d'explication,
+ * le type d'astreinte, la localisation et les infos interlocuteur
+ * ---------------------------------------------------------------
+ */
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Remarque", va_remarque)
+
+vl_l_autoroutes = SYSTEM_VAR@ (vg_les_autoroutes)
+
+i = ARRAY_INDEX@(ARRAY_COLUMN@(vl_l_autoroutes, TDO_NUMERO_AUTOROUTE), va_num_auto)
+IF i >= 0
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Localisation",vl_l_autoroutes[i].nom ++ ", pr " ++ va_PR / 1000)
+ELSE 
+	DB_CTRL_TITLE@ (va_fenetre, "LI_Localisation", NULL)
+
+DB_CTRL_TITLE@(va_fenetre,"LI_Type_Astreinte",vm_type_astreinte.nom)
+DB_CTRL_DISPLAY@ (va_fenetre, "BP_Valider_creation", FALSE)
+DB_CTRL_DISPLAY@ (va_fenetre, "BP_Rech_Astreinte", FALSE)
+DB_CTRL_DISPLAY@ (va_fenetre, "BP_Lier_Evt", FALSE)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les valeurs d'etats de communication et leurs libelles.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Init_Etats_Communication ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TAT_Appel_Telephonique
+*
+* FONCTION
+*   Value les listes d'etats de communication telephonique et operator
+*   et leurs libelles.
+*
+---------------------------------------------------------------------------- */
+
+vm_num_etats_tel = XDC_OK,
+		    XDC_CONNECT,
+		    XDC_RING,
+		    XDC_NOCARRIER,
+		    XDC_ERROR,
+		    XDC_BUSY,
+		    XDC_NOANSWER,
+		    XDC_LIBRE,
+		    XDC_NORESPONS,
+		    XDC_ATTENTE
+
+vm_lib_etats_tel = XDC_ETAT_OK,
+		    XDC_ETAT_CONNECT,
+		    XDC_ETAT_RING,
+		    XDC_ETAT_NOCARRIER,
+		    XDC_ETAT_ERROR,
+		    XDC_ETAT_BUSY,
+		    XDC_ETAT_NOANSWER,
+		    XDC_ETAT_LIBRE,
+		    XDC_ETAT_NORESPONS,
+		    XDC_ETAT_ATTENTE
+
+
+vm_num_etats_ope = XDC_OK,
+		    XDC_SYNTAX_NOK,
+		    XDC_OPERATOR_NOK,
+		    XDC_OPERATOR_HS,
+		    XDC_SYSTEM_HS,
+		    XDC_TIME_OUT,
+		    XDC_ATTENTE,
+		    XDC_NORESPONS,
+		    XDC_PHASE_1,
+		    XDC_PHASE_2,
+		    XDC_PHASE_3
+
+vm_lib_etats_ope = XDC_ETAT_OK,
+		    XDC_ETAT_SYNTAX_NOK,
+		    XDC_ETAT_OPERATOR_NOK,
+		    XDC_ETAT_OPERATOR_HS,
+		    XDC_ETAT_SYSTEM_HS,
+		    XDC_ETAT_TIME_OUT,
+		    XDC_ETAT_ATTENTE,
+		    XDC_ETAT_NORESPONS,
+		    XDC_ETAT_PHASE_1,
+		    XDC_ETAT_PHASE_2,
+		    XDC_ETAT_PHASE_3
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Gere l'etat de la zone d'information bip selon le type de bip.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Init_Info_Bip (va_fenetre, va_type_bip)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets a initialiser ;
+*  va_type_bip        : Type d'equipement en communication.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun.
+*
+*
+* CODE RETOUR         : COM_OK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TAT_Appel_Telephonique
+*
+* FONCTION
+*   Initialise ou met a jour les valeurs de la zone d'information bip selon
+*   le type de bip indique.
+*   Dans le cas du type operator numerique, propose le numero de telephone
+*   du site local comme numero a rappeler.
+*
+---------------------------------------------------------------------------- */
+DB_CTRL_DISPLAY@ (va_fenetre, "BO_Groupe",FALSE)
+DB_CTRL_DISPLAY@ (va_fenetre, "BO_Type",FALSE)
+
+CASE OF va_type_bip
+CASE XDC_APPEL_RADIO
+    DB_CTRL_DISPLAY@ (va_fenetre, "BO_Groupe",TRUE)
+    DB_CTRL_DISPLAY@ (va_fenetre, "BO_Type",TRUE)
+    DB_CTRL_DISPLAY@ (va_fenetre, "LI_Info_Bip", FALSE)
+    DB_CTRL_DISPLAY@ (va_fenetre, "BS_Info_Bip", FALSE)
+    DB_CTRL_DISPLAY@ (va_fenetre, "BP_Garde", FALSE)
+    DB_CTRL_DISPLAY@ (va_fenetre, "BP_Reprendre", FALSE)
+
+CASE XDC_BIP_INCONNU
+CASE XDC_BIP_EUROSIGNAL
+    DB_CTRL_DISPLAY@ (va_fenetre, "LI_Info_Bip", FALSE)
+    DB_CTRL_DISPLAY@ (va_fenetre, "BS_Info_Bip", FALSE)
+
+CASE XDC_BIP_OPERATOR_8_CHIFFRES
+    DB_CTRL_DISPLAY@ (va_fenetre, "LI_Info_Bip", TRUE)
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Info_Bip", C_LIB_NUM_A_RAPPELER)
+    DB_CTRL_DISPLAY@ (va_fenetre, "BS_Info_Bip", TRUE)
+    DB_CTRL_LENGTH@ (va_fenetre, "BS_Info_Bip", C_LG_MAX_CHAMP_NUMERO)
+    DB_CTRL_WIDTH@ (va_fenetre, "BS_Info_Bip", C_LG_MAX_CHAMP_NUMERO)
+
+    CASE OF  SYSTEM_VAR@ (vg_site)
+    CASE XDC_CI
+	DB_CTRL_VALUE@ (va_fenetre, "BS_Info_Bip", TAN_TEL_CI)
+    CASE XDC_VC
+	DB_CTRL_VALUE@ (va_fenetre, "BS_Info_Bip", TAN_TEL_CA)
+    CASE XDC_VE
+	DB_CTRL_VALUE@ (va_fenetre, "BS_Info_Bip", TAN_TEL_VE)
+    CASE XDC_DP
+	DB_CTRL_VALUE@ (va_fenetre, "BS_Info_Bip", TAN_TEL_PR)
+    CASE XDC_VD
+	DB_CTRL_VALUE@ (va_fenetre, "BS_Info_Bip", TAN_TEL_VD)
+    ENDCASE
+
+CASE XDC_BIP_OPERATOR_80_CAR
+    DB_CTRL_DISPLAY@ (va_fenetre, "LI_Info_Bip", TRUE)
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Info_Bip", C_LIB_TEXTE_BIP)
+    DB_CTRL_DISPLAY@ (va_fenetre, "BS_Info_Bip", TRUE)
+    DB_CTRL_LENGTH@ (va_fenetre, "BS_Info_Bip", C_LG_MAX_CHAMP_TEXTE)
+    DB_CTRL_WIDTH@ (va_fenetre, "BS_Info_Bip", C_LG_MAX_CHAMP_TEXTE)
+ENDCASE
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualise ou cache les objets d'une zone d'affichage.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Visibilite (va_fenetre, va_zone, va_visible)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets a visualiser ;
+*  va_zone            : Nom de la zone a cacher ou afficher ;
+*  va_visible         : Vrai ou faux selon que les objets sont ou non visibles.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun.
+*
+*
+* CODE RETOUR         : COM_OK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TAT_Appel_Telephonique
+*
+* FONCTION
+*   Affecte a chacun des objets de la fenetre relevant de la visualisation
+*   de la zone indiquee le critere de visibilite indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_liste, i
+
+
+CASE OF  va_zone
+CASE "Astreinte"
+    vl_liste = "T_Astreinte",
+	       "LI_Titre_Type_Astreinte","T_Type_Astreinte","LI_Type_Astreinte",
+	       "LI_Titre_Localisation", "T_Localisation", "LI_Localisation",
+	       "BP_Rech_Astreinte"
+
+CASE "FMC"
+    vl_liste = "T_Evenement_Lie", "LI_Titre_FMC_Liee",
+		"LI_Evt_Lie", "T_Libelle_Evt_Lie", "BP_Lier_Evt"
+
+CASE "Remarque"
+    vl_liste = "T_Zone_Remarque", "T_Remarque",
+		"LI_Titre_Remarque", "LI_Remarque", "BP_Expliquer"
+ENDCASE
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_liste) - 1
+    DB_CTRL_DISPLAY@ (va_fenetre, vl_liste[i], va_visible)
+NEXT i
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Enregistre un appel telephonique ou bip.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Enregistrer_Appel (FORMAT COM_Identifiant_FMC va_id_FMC,
+				va_num_fiche_ann,
+				va_num_type_astr,
+				va_num_competence,
+				va_numero_appel,
+				va_appel_bip,
+				va_date_appel,
+				va_succes)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_id_FMC          : L'identifiant de la fiche Main Courante ;
+*  va_num_fiche_ann   : Le numero de la fiche annuaire interlocuteur ;
+*  va_num_type_astr   : Le numero du type d'astreinte ;
+*  va_numero_appel    : Le numero d'appel ;
+*  va_appel_bip       : Indicateur d'appel par bip ;
+*  va_date_appel      : Horodate de debut de l'appel ;
+*  va_succes          : Indicateur de resultat positif.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TAT_Appel_Telephonique
+*
+* FONCTION
+*   Lit la date courante (y compris les secondes) pour valuer soit la date
+*   de succes soit la date d'echec selon la valeur de l'indicateur de succes.
+*   Execute ensuite la requete enregistrant l'action en base.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_date_echec, vl_date_succes
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+/*A
+ * Lire la date courante (avec les secondes) et valuer
+ * la date echec et la date succes selon l'indicateur
+ * ---------------------------------------------------
+ */
+
+vl_date_echec = COM09_Date_Courante (TRUE)
+IF va_succes {
+    vl_date_succes = vl_date_echec
+    vl_date_echec = NULL
+}
+
+vl_parametres[0].type = COM_Numero_Evenement
+vl_parametres[0].data = va_id_FMC.numero
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Cle_Evenement
+vl_parametres[1].data = va_id_FMC.cle
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = TFA_Numero_Fiche_Annuaire
+if va_num_type_astr = XDC_AST_CLIENT
+
+	vl_parametres[2].data = 1633
+else
+	vl_parametres[2].data = va_num_fiche_ann
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = TFS_Numero_Type_Astreinte
+vl_parametres[3].data = va_num_type_astr
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#INT2_
+vl_parametres[4].data = vm_num_competence
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = SYB#CHAR_
+vl_parametres[5].data = va_numero_appel
+vl_parametres[5].output = FALSE
+
+vl_parametres[6].type = SYB#INT1_				' Type d'appel
+IF vm_type_bip = XDC_APPEL_RADIO
+        vl_parametres[6].data = XDC_APPEL_RADIO
+ELSE IF va_appel_bip
+    vl_parametres[6].data = XDC_ACT_BIP
+ELSE vl_parametres[6].data = XDC_ACT_TEL
+vl_parametres[6].output = FALSE
+
+vl_parametres[7].type = SYB#DATETIME_				' Date lancement
+vl_parametres[7].data = va_date_appel
+vl_parametres[7].output = FALSE
+
+vl_parametres[8].type = COM_Identifiant_Operateur		' Operateur
+vl_parametres[8].data = SYSTEM_VAR@ (vg_numero_operateur)
+vl_parametres[8].output = FALSE
+
+vl_parametres[9].type = SYB#DATETIME_				' Horodate echec
+vl_parametres[9].data = vl_date_echec
+vl_parametres[9].output = FALSE
+
+vl_parametres[10].type = SYB#DATETIME_				'Horodate succes
+vl_parametres[10].data = vl_date_succes
+vl_parametres[10].output = FALSE
+
+vl_parametres[11].type = SYB#INT4_				' Numero action
+vl_parametres[11].output = TRUE
+
+vl_parametres[12].type = SYB#INT1_
+vl_parametres[12].data = 0
+vl_parametres[12].output = FALSE
+
+vl_parametres[13].type = SYB#CHAR_				' Site local
+vl_parametres[13].data = SYSTEM_VAR@(vg_nom_site)
+vl_parametres[13].output = FALSE
+
+IF COM05_SQL_Procedure (XZAC11_Ajouter_Appel_Tel_Bip,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Envoie une requete a l'equipement telephonique ou bip.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Requete_Equipement (va_requete, va_arguments)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_requete        : Commande a adresser a l'equipement ;
+*   va_arguments      : Arguments de la commande.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TAT_Appel_Telephonique
+*
+* FONCTION
+*   Envoie la demande decrite en arguments a destination de l'equipement.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_cmd					' Commande a adresser
+
+
+vl_cmd = MTAR_MSG_EXEC, 1, va_requete,
+	    ARRAY_TO_STRING@ (va_arguments, MTAR_CAR_SEPAR)
+
+DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+
+RETURN (COM_OK)
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lecture de l'action telephonique.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Consulter_Appel (va_fenetre, va_arguments)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : ID de la fenetre ;
+*   va_arguments      : contient les infos sur l'action.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TAT_Appel_Telephonique
+*
+* FONCTION
+*   Lecture de l'action en base.
+*
+---------------------------------------------------------------------------- */
+VAR i
+VAR vl_action
+VAR vl_site
+VAR vl_libelle_FMC
+VAR vl_num_appel
+VAR vl_type_appel
+VAR vl_interlocuteur
+VAR vl_operateur
+VAR vl_lancement
+VAR vl_succes
+VAR vl_echec
+VAr vl_texte
+VAr vl_taille
+VAr vl_data
+VAR vl_pos
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+      /*A recuperation des infos de l'appel */
+
+     vl_action = va_arguments[2]
+     vl_site = va_arguments[3]
+    vl_libelle_FMC = va_arguments[4]
+
+     /*A initialisation des widgets */
+	DB_CTRL_DISPLAY@ (va_fenetre, "BP_Lier_Evt", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "T_Type_Astreinte", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "LI_Type_Astreinte", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "LI_Titre_Type_Astreinte", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "T_Astreinte", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "LI_Localisation", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "T_Localisation", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "LI_Titre_Localisation", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BP_Rech_Astreinte", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "T_Etat_Communication", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "LI_Titre_Etat_Communication", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "LI_Etat_Comm", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BP_Appeler", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BP_Autre_Numero", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "LI_Titre_Numero_Appele", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BS_Numero_Appel", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BS_Info_Bip", FALSE)
+	vl_pos = DB_CTRL_GET_YPOS@ (va_fenetre, "LI_Info_Bip")
+	DB_CTRL_DISPLAY@ (va_fenetre, "LI_Info_Bip", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "T_Zone_Remarque", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "T_Info_Bip", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "LI_Titre_Remarque", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "LI_Remarque", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "T_Remarque", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BP_Expliquer", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BP_Valider", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BP_Valider_creation", FALSE)
+	DB_CTRL_DISPLAY@ (va_fenetre, "BP_Refuser", FALSE)
+
+'	DB_CTRL_YPOS@ (va_fenetre, "LI_Numero_Appele", DB_CTRL_GET_YPOS@(va_fenetre, "BS_Numero_Appel")) (plus affiche a conserver si etat comm de nouveau)
+	DB_CTRL_XPOS@ (va_fenetre, "BO_Resultat", DB_CTRL_GET_XPOS@(va_fenetre, "LI_Numero_Appel"))
+
+    DB_CTRL_YPOS@ (va_fenetre, "BP_Quitter", vl_pos)
+    DB_CTRL_YPOS@ (va_fenetre, "BP_Aide", vl_pos)
+
+     /*A preparation des parametres de la requete */
+     i=0
+     vl_parametres[i].type = SYB#INT4_
+     vl_parametres[i].data = vl_action
+     vl_parametres[i].output = FALSE
+     i=i+1
+
+     vl_parametres[i].type = SYB#INT1_
+     vl_parametres[i].data = vl_site
+     vl_parametres[i].output = FALSE
+     i=i+1
+
+     vl_parametres[i].type = SYB#CHAR_
+     vl_parametres[i].data = vl_interlocuteur
+     vl_parametres[i].output = TRUE
+     i=i+1
+
+     vl_parametres[i].type = SYB#CHAR_
+     vl_parametres[i].data = vl_num_appel
+     vl_parametres[i].output = TRUE
+     i=i+1
+
+     vl_parametres[i].type = SYB#INT1_
+     vl_parametres[i].data = vl_type_appel
+     vl_parametres[i].output = TRUE
+     i=i+1
+
+     vl_parametres[i].type = SYB#DATETIME_
+     vl_parametres[i].data = vl_lancement
+     vl_parametres[i].output = TRUE
+     i=i+1
+
+     vl_parametres[i].type = SYB#INT4_
+     vl_parametres[i].data = vl_operateur
+     vl_parametres[i].output = TRUE
+     i=i+1
+
+     vl_parametres[i].type = SYB#DATETIME_
+     vl_parametres[i].data = vl_echec
+     vl_parametres[i].output = TRUE
+     i=i+1
+
+     vl_parametres[i].type = SYB#DATETIME_
+     vl_parametres[i].data = vl_succes
+     vl_parametres[i].output = TRUE
+     i=i+1
+
+     /*A execution de la requete de lecture de fax */
+    IF COM05_SQL_PROCEDURE(XZAC31_Lire_Appel_Tel_Bip,
+                                vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+     {
+                INFO_MESSAGE@("Erreur dans la lecture de l'action appel telephonique")
+                RETURN (COM_NOK)
+     }
+
+     DB_CTRL_TITLE@ (va_fenetre, "LI_Evt_Lie", vl_libelle_FMC)
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Nom_Interlocuteur", vl_resultats.return_parameters[0])
+'     DB_CTRL_TITLE@ (va_fenetre, "LI_Numero_Appele", vl_resultats.return_parameters[1]) (plus affiche a conserver si etat comm de nouveau)
+
+	IF NOT IS_NULL@(vl_resultats.return_parameters[6])
+		vm_resultat = TAT_RES_SUCCES
+	ELSE IF NOT IS_NULL@(vl_resultats.return_parameters[5])
+		vm_resultat = TAT_RES_ECHEC_COMPLET
+
+RETURN (COM_OK)
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Crée l'action intervention
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Creer_Intervention (FORMAT COM_Identifiant_FMC va_id_FMC,va_interlo_nom,
+		va_date_appel,va_type_astreinte_numero,va_interlo_numero)
+
+/*
+* ARGUMENTS EN ENTREE :
+*       va_id_FMC               : detail des informations de la FMC
+*       va_interlo_nom  : nom de l'interlocuteur
+*       va_date_appel   : date de l'appel telephonique
+*       va_type_astreinte_numero: type d'astreinte appelee
+*       va_interlo_numero:code interlocuteur
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TAT_Appel_Telephonique
+*
+* FONCTION
+*   Cree une action intervention 
+*
+---------------------------------------------------------------------------- */
+
+/*suivant le type d'astreinte*/
+CASE OF va_type_astreinte_numero
+	CASE XDC_AST_DEP_VL
+	CASE XDC_AST_DEP_PL
+	CASE XDC_AST_DEP_LEVAGE
+		/*cree une action intervention depanneur*/
+		RETURN (TAT_Creer_Intervention_Depanneur(va_id_FMC,va_interlo_nom,
+						va_date_appel,
+						va_type_astreinte_numero,
+						va_interlo_numero))
+	CASE XDC_AST_SIS
+	CASE XDC_AST_SIS2
+	CASE XDC_AST_SISR
+		/*cree une action intervention SIS*/
+		RETURN (TAT_Creer_Intervention_SIS(va_id_FMC,va_interlo_nom,
+						va_date_appel,
+						va_type_astreinte_numero,
+						va_interlo_numero))
+	DEFAULT
+		/*cree une action intervention autre*/
+		RETURN (TAT_Creer_Intervention_Autre(va_id_FMC,va_interlo_nom,
+						va_date_appel,
+						va_type_astreinte_numero,
+						va_interlo_numero))
+ENDCASE
+RETURN 
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Crée l'action intervention d'un depanneur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Creer_Intervention_Depanneur (FORMAT COM_Identifiant_FMC va_id_FMC,va_interlo_nom,
+	va_date_appel,va_type_astreinte_numero,va_interlo_numero)
+
+/*
+* ARGUMENTS EN ENTREE :
+*	va_id_FMC		: detail des informations de la FMC
+*	va_interlo_nom	: nom de l'interlocuteur
+*	va_date_appel	: date de l'appel telephonique
+*	va_type_astreinte_numero: type d'astreinte appelee
+*	va_interlo_numero:code interlocuteur
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TAT_Appel_Telephonique
+*
+* FONCTION
+*   Cree une action intervention depanneur.
+*
+---------------------------------------------------------------------------- */
+
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_indice, vl_liste_vehicule, i, vl_veh, vl_action_out
+
+/* Création action intervention depanneur */
+
+vl_parametres[0].type = COM_Numero_Evenement
+vl_parametres[0].data = va_id_FMC.numero
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Cle_Evenement
+vl_parametres[1].data = va_id_FMC.cle
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Action
+vl_parametres[2].data = null
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Identifiant_Site_Action
+vl_parametres[3].data = null
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#CHAR_			    ' Nom patrouille
+vl_parametres[4].data = va_interlo_nom
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = SYB#CHAR_			    ' Resultat
+vl_parametres[5].data = null
+vl_parametres[5].output = FALSE
+
+vl_parametres[6].type = SYB#DATETIME_			    ' Horodate appel
+vl_parametres[6].data = va_date_appel
+vl_parametres[6].output = FALSE
+
+vl_parametres[7].type = SYB#DATETIME_			    ' Horodate arrivee
+vl_parametres[7].data = XDC_DATE_NULLE
+vl_parametres[7].output = FALSE
+
+vl_parametres[8].type = COM_Identifiant_Operateur	    ' Operateur
+vl_parametres[8].data = SYSTEM_VAR@ (vg_numero_operateur)
+vl_parametres[8].output = FALSE
+
+vl_parametres[9].type = SYB#DATETIME_			    ' Horodate depart
+vl_parametres[9].data = XDC_DATE_NULLE
+vl_parametres[9].output = FALSE
+
+vl_parametres[10].type = SYB#DATETIME_				' Horodate annulation
+vl_parametres[10].data = XDC_DATE_NULLE
+vl_parametres[10].output = FALSE
+
+vl_parametres[11].type = SYB#INT2_				' Renfort
+vl_parametres[11].data = 0
+vl_parametres[11].output = FALSE
+
+vl_parametres[12].type = SYB#INT2_				' Patrouille presente
+vl_parametres[12].data = 0
+vl_parametres[12].output = FALSE
+
+vl_parametres[13].type = SYB#INT2_				' Garagiste doit contacter PC
+vl_parametres[13].data = 0
+vl_parametres[13].output = FALSE
+
+vl_parametres[14].type = SYB#INT2_				' Annulation intervention
+vl_parametres[14].data = 0
+vl_parametres[14].output = FALSE
+
+vl_parametres[15].type = SYB#INT4_				' Code astreinte
+vl_parametres[15].data = va_type_astreinte_numero
+vl_parametres[15].output = FALSE
+
+vl_parametres[16].type = SYB#INT4_				' Code interlocuteur
+vl_parametres[16].data = va_interlo_numero
+vl_parametres[16].output = FALSE
+
+vl_parametres[17].type = COM_Identifiant_Site_Action            ' site responsable
+vl_parametres[17].data = SYSTEM_VAR@(vg_site)
+vl_parametres[17].output = FALSE
+
+vl_parametres[18].type = SYB#INT4_				' Numero action
+vl_parametres[18].output = TRUE
+
+vl_parametres[19].type = SYB#CHAR_				' Site local
+vl_parametres[19].data = SYSTEM_VAR@(vg_nom_site)
+vl_parametres[19].output = FALSE
+
+IF COM05_SQL_Procedure (XZAC15_Ecrire_Interv_Depanneur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+vl_action_out = vl_resultats.return_parameters
+vl_action_out = vl_action_out[0]
+
+return (COM_OK)
+
+
+/* Association a cette action des vehicules non encore associes a une action */
+
+	vl_liste_vehicule = null
+
+	/*A preparation de la requete*/
+	vl_indice=0
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].data=XDC_DATE_NULLE
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_id_FMC.numero
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_id_FMC.cle
+	vl_parametres[vl_indice].output = FALSE
+
+        /*A * requete SYBASE*/
+        IF (COM05_SQL_Procedure (XZAE95_Lire_Liste_Vehicule,
+                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK)
+        {
+                INFO_MESSAGE@("Impossible de lire les informations en base")
+                RETURN (COM_NOK)
+        }
+	vl_liste_vehicule = vl_resultats.select_results[0]
+
+	/* On associe toutes les fiches vehicules sans action a cette action 
+	 */
+	for i=0 to ARRAY_SIZE@(vl_liste_vehicule)-1
+			vl_veh = vl_liste_vehicule[i]
+			IF ((IS_NULL@(vl_veh[NUM_COL_DEP])) OR (vl_veh[NUM_COL_DEP]=0)
+					OR (vl_veh[NUM_COL_DEP]=null))
+			{
+				vl_veh[NUM_COL_DEP] = vl_action_out
+				vl_veh[NUM_COL_SITE_DEP] = SYSTEM_VAR@(vg_site)
+				vl_veh[NUM_COL_SIT_CREATION] = SYSTEM_VAR@(vg_site)
+			}
+			vl_veh[NUM_COL_FAX_ENVOYE] = 0
+			TAT_Ecrire_vehicule(vl_veh, vm_id_FMC)
+	next i
+
+
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Modifie une fiche vehicule.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Ecrire_vehicule (va_veh, FORMAT COM_Identifiant_FMC va_FMC)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_veh     : Detail des informations sur le vehicule a sauver.
+*	va_FMC	: Detail de la FMC
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TAT_Creer_Intervention
+*
+* FONCTION
+*   Execute la requete SGBD adequate pour archiver les donnees de la fiche vehicule 
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = COM_Numero_Evenement
+vl_parametres[0].data = va_FMC.numero
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Cle_Evenement
+vl_parametres[1].data = va_FMC.cle
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = va_veh[NUM_COL_CATEG]
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#INT2_
+vl_parametres[3].data = va_veh[NUM_COL_PASSAGER]
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#BIT_			    
+vl_parametres[4].data = 0
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = SYB#BIT_			    
+vl_parametres[5].data = 0
+vl_parametres[5].output = FALSE
+
+vl_parametres[6].type = SYB#BIT_			 
+vl_parametres[6].data = va_veh[NUM_COL_ANIMAUX]
+vl_parametres[6].output = FALSE
+
+vl_parametres[7].type = SYB#BIT_		
+vl_parametres[7].data = va_veh[NUM_COL_VEH_ESCOTA]
+vl_parametres[7].output = FALSE
+
+vl_parametres[8].type = SYB#INT2_
+vl_parametres[8].data = va_veh[NUM_COL_CHARGEMENT]
+vl_parametres[8].output = FALSE
+
+vl_parametres[9].type = SYB#CHAR_			
+vl_parametres[9].data = va_veh[NUM_COL_CODE_MAT]
+vl_parametres[9].output = FALSE
+
+vl_parametres[10].type = SYB#INT4_	
+vl_parametres[10].data = va_veh[NUM_COL_DEP]
+vl_parametres[10].output = FALSE
+
+vl_parametres[11].type = SYB#INT4_	
+vl_parametres[11].data = va_veh[NUM_COL_SITE_DEP]
+vl_parametres[11].output = FALSE
+
+vl_parametres[12].type = SYB#CHAR_			
+vl_parametres[12].data = va_veh[NUM_COL_TEXTE]
+vl_parametres[12].output = FALSE
+
+vl_parametres[13].type = SYB#INT4_			
+
+if va_veh[NUM_COL_NUM_VEH]=""
+{
+	vl_parametres[13].data = XZAEC_VEH_INCONNU
+}
+else
+{
+	vl_parametres[13].data = va_veh[NUM_COL_NUM_VEH]
+}
+
+vl_parametres[13].output = FALSE
+
+vl_parametres[14].type = SYB#INT4_			
+IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+		vl_parametres[14].data=SYSTEM_VAR@(vg_numero_poste_surcharge)
+	ELSE
+		vl_parametres[14].data=SYSTEM_VAR@(vg_numero_poste)
+vl_parametres[14].output = FALSE
+
+vl_parametres[15].type = SYB#CHAR_		
+vl_parametres[15].data = va_veh[NUM_COL_MARQUE]
+vl_parametres[15].output = FALSE
+
+vl_parametres[16].type = SYB#CHAR_		
+vl_parametres[16].data = va_veh[NUM_COL_TYPE]
+vl_parametres[16].output = FALSE
+
+vl_parametres[17].type = SYB#CHAR_			
+vl_parametres[17].data = va_veh[NUM_COL_COULEUR]
+vl_parametres[17].output = FALSE
+
+vl_parametres[18].type = SYB#CHAR_			
+vl_parametres[18].data = va_veh[NUM_COL_IMMAT]
+vl_parametres[18].output = FALSE
+
+vl_parametres[19].type = SYB#INT4_			
+vl_parametres[19].data = va_veh[NUM_COL_CODE_PAYS]
+vl_parametres[19].output = FALSE
+
+vl_parametres[20].type = SYB#CHAR_			
+vl_parametres[20].data = va_veh[NUM_COL_PAYS]
+vl_parametres[20].output = FALSE
+
+vl_parametres[21].type = SYB#CHAR_		
+vl_parametres[21].data = va_veh[NUM_COL_NOM]
+vl_parametres[21].output = FALSE
+
+vl_parametres[22].type = SYB#CHAR_		
+vl_parametres[22].data = va_veh[NUM_COL_VILLE]
+vl_parametres[22].output = FALSE
+
+vl_parametres[23].type = SYB#CHAR_			
+vl_parametres[23].data = va_veh[NUM_COL_ADRESSE]
+vl_parametres[23].output = FALSE
+
+vl_parametres[24].type = SYB#CHAR_			
+vl_parametres[24].data = va_veh[NUM_COL_CODE_DANGER]
+vl_parametres[24].output = FALSE
+
+vl_parametres[25].type = SYB#INT4_			
+vl_parametres[25].data = va_veh[NUM_COL_CODE_NATURE_PANNE]
+vl_parametres[25].output = FALSE
+
+vl_parametres[26].type = SYB#CHAR_			
+vl_parametres[26].data = va_veh[NUM_COL_NATURE_PANNE]
+vl_parametres[26].output = FALSE
+
+vl_parametres[27].type = SYB#CHAR_		
+vl_parametres[27].data = va_veh[NUM_COL_POSITION]
+vl_parametres[27].output = FALSE
+
+vl_parametres[28].type = SYB#INT2_		
+vl_parametres[28].data = va_veh[NUM_COL_VEH_ROULANT]
+vl_parametres[28].output = FALSE
+
+vl_parametres[29].type = SYB#CHAR_			
+vl_parametres[29].data = va_veh[NUM_COL_ENLEV]
+vl_parametres[29].output = FALSE
+
+vl_parametres[30].type = SYB#INT4_			
+vl_parametres[30].data = va_veh[NUM_COL_NUM_APPEL]
+vl_parametres[30].output = FALSE
+
+vl_parametres[31].type = SYB#INT2_			
+vl_parametres[31].data = va_veh[NUM_COL_PRES_MAT_DANG]
+vl_parametres[31].output = FALSE
+
+vl_parametres[32].type = SYB#INT2_			
+vl_parametres[32].data = va_veh[NUM_COL_FAX_ENVOYE]
+vl_parametres[32].output = FALSE
+
+vl_parametres[33].type = SYB#INT4_		
+vl_parametres[33].data = va_veh[NUM_COL_CODE_MARQUE]
+vl_parametres[33].output = FALSE
+
+vl_parametres[34].type = SYB#INT4_		
+vl_parametres[34].data = va_veh[NUM_COL_CODE_COULEUR]
+vl_parametres[34].output = FALSE
+
+vl_parametres[35].type = SYB#INT4_		
+vl_parametres[35].data = va_veh[NUM_COL_CODE_ENLEV]
+vl_parametres[35].output = FALSE
+
+vl_parametres[36].type = SYB#INT4_		
+vl_parametres[36].data = va_veh[NUM_COL_SIT]
+vl_parametres[36].output = FALSE
+
+vl_parametres[37].type = SYB#INT2_		
+vl_parametres[37].data = va_veh[NUM_COL_SIT_CREATION]
+vl_parametres[37].output = FALSE
+
+vl_parametres[38].type = SYB#INT4_			    
+vl_parametres[38].data = va_veh[NUM_COL_BEBE]
+vl_parametres[38].output = FALSE
+
+vl_parametres[39].type = SYB#INT4_			    
+vl_parametres[39].data = va_veh[NUM_COL_PERS_AGEE]
+vl_parametres[39].output = FALSE
+
+/*la fiche vehicule doit etre associee a l'action depanneur*/
+vl_parametres[40].type = SYB#INT2_
+vl_parametres[40].data = XDC_VRAI
+vl_parametres[40].output = FALSE
+
+IF COM05_SQL_Procedure (XZAE96_Ecrire_Fiche_Vehicule_Site,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Crée l'action intervention SIS 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Creer_Intervention_SIS (FORMAT COM_Identifiant_FMC va_id_FMC,va_interlo_nom,
+	va_date_appel,va_type_astreinte_numero,va_interlo_numero)
+
+/*
+* ARGUMENTS EN ENTREE :
+*	va_id_FMC		: detail des informations de la FMC
+*	va_interlo_nom	: nom de l'interlocuteur
+*	va_date_appel	: date de l'appel telephonique
+*	va_type_astreinte_numero: type d'astreinte appelee
+*	va_interlo_numero:code interlocuteur
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TAT_Appel_Telephonique
+*
+* FONCTION
+*   Cree une action intervention depanneur.
+*
+---------------------------------------------------------------------------- */
+
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_indice, vl_liste_vehicule, i, vl_veh, vl_action_out
+
+/* Création action intervention depanneur */
+
+vl_parametres[0].type = COM_Numero_Evenement
+vl_parametres[0].data = va_id_FMC.numero
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Cle_Evenement
+vl_parametres[1].data = va_id_FMC.cle
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Action
+vl_parametres[2].data = null
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Identifiant_Site_Action
+vl_parametres[3].data = SYSTEM_VAR@(vg_site)
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#CHAR_			    ' Nom patrouille
+vl_parametres[4].data = va_interlo_nom
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = SYB#BIT_			    ' pose balisage
+vl_parametres[5].data = XDC_FAUX
+vl_parametres[5].output = FALSE
+
+vl_parametres[6].type = SYB#DATETIME_			    ' date deb balisage
+vl_parametres[6].data = null
+vl_parametres[6].output = FALSE
+
+vl_parametres[7].type = SYB#DATETIME_			    ' date fin balisage
+vl_parametres[7].data = null
+vl_parametres[7].output = FALSE
+
+vl_parametres[8].type = SYB#DATETIME_			    ' Horodate appel
+vl_parametres[8].data = va_date_appel
+vl_parametres[8].output = FALSE
+
+vl_parametres[9].type = SYB#DATETIME_			    ' Horodate arrivee
+vl_parametres[9].data = XDC_DATE_NULLE
+vl_parametres[9].output = FALSE
+
+vl_parametres[10].type = COM_Identifiant_Operateur	    ' Operateur
+vl_parametres[10].data = SYSTEM_VAR@ (vg_numero_operateur)
+vl_parametres[10].output = FALSE
+
+vl_parametres[11].type = SYB#DATETIME_			    ' Horodate depart
+vl_parametres[11].data = XDC_DATE_NULLE
+vl_parametres[11].output = FALSE
+
+vl_parametres[12].type = COM_Identifiant_PR			' pr deb balisage
+vl_parametres[12].data = XDC_PR_INCONNU
+vl_parametres[12].output = FALSE
+
+vl_parametres[13].type = COM_Identifiant_PR			' pr fin balisage
+vl_parametres[13].data = XDC_PR_INCONNU
+vl_parametres[13].output = FALSE
+
+vl_parametres[14].type = SYB#DATETIME_				' Horodate annulation
+vl_parametres[14].data = XDC_DATE_NULLE
+vl_parametres[14].output = FALSE
+
+vl_parametres[15].type = SYB#INT1_				' Annulation intervention
+vl_parametres[15].data = XDC_FAUX
+vl_parametres[15].output = FALSE
+
+vl_parametres[16].type = SYB#INT4_				' num competence
+vl_parametres[16].data = vm_num_competence
+vl_parametres[16].output = FALSE
+
+vl_parametres[17].type = SYB#INT4_				' Numero action
+vl_parametres[17].output = TRUE
+
+vl_parametres[18].type = SYB#CHAR_				' Site local
+vl_parametres[18].data = SYSTEM_VAR@(vg_nom_site)
+vl_parametres[18].output = FALSE
+
+IF COM05_SQL_Procedure (XZAC12_Ecrire_Intervention_SIS,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Crée l'action intervention autre 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAT_Creer_Intervention_Autre (FORMAT COM_Identifiant_FMC va_id_FMC,va_interlo_nom,
+	va_date_appel,va_type_astreinte_numero,va_interlo_numero)
+
+/*
+* ARGUMENTS EN ENTREE :
+*	va_id_FMC		: detail des informations de la FMC
+*	va_interlo_nom	: nom de l'interlocuteur
+*	va_date_appel	: date de l'appel telephonique
+*	va_type_astreinte_numero: type d'astreinte appelee
+*	va_interlo_numero:code interlocuteur
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TAT_Appel_Telephonique
+*
+* FONCTION
+*   Cree une action intervention depanneur.
+*
+---------------------------------------------------------------------------- */
+
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_indice, vl_liste_vehicule, i, vl_veh, vl_action_out
+
+/* Création action intervention depanneur */
+
+vl_parametres[0].type = COM_Numero_Evenement
+vl_parametres[0].data = va_id_FMC.numero
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Cle_Evenement
+vl_parametres[1].data = va_id_FMC.cle
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Action
+vl_parametres[2].data = null
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Identifiant_Site_Action
+vl_parametres[3].data = SYSTEM_VAR@(vg_site)
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#CHAR_			    ' Nom patrouille
+vl_parametres[4].data = va_interlo_nom
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = COM_Identifiant_Type_Interv ' type intervention
+if va_type_astreinte_numero=XDC_AST_POMPIER
+  vl_parametres[5].data = XDC_ACT_INT_POM
+else if va_type_astreinte_numero=XDC_AST_GENDARM
+  vl_parametres[5].data = XDC_ACT_INT_GND
+else
+  vl_parametres[5].data = null
+vl_parametres[5].output = FALSE
+
+vl_parametres[6].type = SYB#DATETIME_			    ' Horodate appel
+vl_parametres[6].data = va_date_appel
+vl_parametres[6].output = FALSE
+
+vl_parametres[7].type = SYB#DATETIME_			    ' Horodate arrivee
+vl_parametres[7].data = XDC_DATE_NULLE
+vl_parametres[7].output = FALSE
+
+vl_parametres[8].type = COM_Identifiant_Operateur	    ' Operateur
+vl_parametres[8].data = SYSTEM_VAR@ (vg_numero_operateur)
+vl_parametres[8].output = FALSE
+
+vl_parametres[9].type = SYB#DATETIME_			    ' Horodate depart
+vl_parametres[9].data = XDC_DATE_NULLE
+vl_parametres[9].output = FALSE
+
+vl_parametres[10].type = SYB#DATETIME_				' Horodate annulation
+vl_parametres[10].data = XDC_DATE_NULLE
+vl_parametres[10].output = FALSE
+
+vl_parametres[11].type = SYB#INT1_				' Annulation intervention
+vl_parametres[11].data = XDC_FAUX
+vl_parametres[11].output = FALSE
+
+vl_parametres[12].type = SYB#INT4_				' num competence
+vl_parametres[12].data = vm_num_competence
+vl_parametres[12].output = FALSE
+
+vl_parametres[13].type = SYB#INT4_				' Numero action
+vl_parametres[13].output = TRUE
+
+vl_parametres[14].type = SYB#CHAR_				' Site local
+vl_parametres[14].data = SYSTEM_VAR@(vg_nom_site)
+vl_parametres[14].output = FALSE
+
+IF COM05_SQL_Procedure (XZAC16_Ecrire_Autre_Interv,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+

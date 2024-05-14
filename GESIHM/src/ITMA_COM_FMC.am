@@ -1,0 +1,384 @@
+/*E*/
+/* Fichier : $Id: ITMA_COM_FMC.am,v 1.4 2020/11/03 17:37:02 pc2dpdy Exp $        $Revision: 1.4 $        $Date: 2020/11/03 17:37:02 $
+----------------------------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR
+----------------------------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+----------------------------------------------------------------------------------------------------
+* MODULE MCOM - MTMC * FICHIER ITMA_COM_FMC.am
+----------------------------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fonctions communes au module relatives au traitement des Fiches Main courante.
+*   Contient essentiellement des macros permettant la creation automatique d'evenements.
+*
+----------------------------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JPL		16/03/18 : Creation  1.1
+* JPL		16/03/18 : Au chargement, installer le module des FMC Accident  1.2
+* JPL		16/03/18 : Trace; ajout cause a la creation d'une FMC generale  1.3
+* LCL   	22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+------------------------------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzaec_ax.h"
+
+INCLUDE	"GESIHM/inc/xzae57sp.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TMC.h"
+
+
+DEFINE	CM_MODULE		"MTMC"				' Nom du module
+
+
+
+/* Macro utilitaire pour chargement du module */
+MACRO ITMA_COM_FMC ()
+	INSTALL_FILE@ (XDC_PATHEXE ++ "/ITMA_TMC_acc.elo")
+ENDMACRO
+
+
+
+/*X*/
+/* -------------------------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Cree une FMC avec le type d'evenement choisi et certaines informations prerenseignees.
+*
+* --------------------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_COM_FMC_Creer_FMC (va_type_evt, va_origine, FORMAT COM_Identifiant_FMC va_cause,
+                                 va_autoroute, va_PR, va_sens, ta_voies,
+                                 FORMAT COM_Identifiant_FMC va_evt, va_date_debut)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_type_evt        : Type d'evenement a creer
+*  va_autoroute       :
+*  va_PR              :
+*  va_sens            : Localisation de l'evenement a creer.
+*  ta_voies           : Liste des etats des voies en sens normal et sens inverse.
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_evt             : Id. de l'evenement cree
+*  va_date_debut      : Date de debut de l'evenement
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   Toute macro.
+*
+* FONCTION
+*   Cree la fiche main courante ;
+*   Valide la fiche main courante en mettant toutes les voies bloquees.
+*
+---------------------------------------------------------------------------- */
+
+/*B Code de condition accidentogene indefinie */
+DEFINE	TMC_CODE_COND_AUCUNE	0
+
+
+VAR	FORMAT	TMC_fmc		vl_fiche			' Fiche main courante creee
+VAR	FORMAT	TMC_accident	vl_info_acc			' Donnees specifiques accident
+
+VAR	vl_date_valid
+VAR	tl_config						' Table des configurations des voies
+VAR	tl_cr_creation
+VAR	vl_site
+VAR	i, j
+
+va_evt = NULL
+va_date_debut = COM09_Date_Courante (TRUE)
+vl_site = SYSTEM_VAR@ (vg_site)
+
+
+/*A
+** Creer la fiche main courante
+** ----------------------------
+*/
+
+tl_cr_creation = ITMA_TMC_creer_fiche (va_type_evt, XDC_FMC_ETAT_TRAI, va_date_debut, NULL, vl_site, XDC_NON)
+
+IF tl_cr_creation[0] = COM_OK {
+	va_evt.numero	= tl_cr_creation[1][0]
+	va_evt.cle	= tl_cr_creation[1][1]
+	COM01_Trace (COM_INFO, FORMAT@ ("   Creation evenement %s/%s de type %s situe en %s-%s-%s",
+					      va_evt.numero, va_evt.cle, va_type_evt, va_autoroute, va_sens, va_PR))
+} ELSE {
+	COM01_Trace (COM_INFO, FORMAT@ ("   Creation evenement de type %s situe en %s-%s-%s : Resultat=%s",
+					      va_type_evt, va_autoroute, va_sens, va_PR, tl_cr_creation[0]))
+	'INFO_MESSAGE@ ("     ERREUR LORS DE LA CREATION DE L'EVENEMENT EN BASE     ")
+	RETURN (COM_NOK)
+}
+
+
+/*A
+** Valider la fiche creee
+** ----------------------
+*/
+
+/* S'assurer que la date de validation est posterieure a celle de creation */
+vl_date_valid = DATE_FORMAT@ (CURRENT_TIME@ () + 1, "dd/mm/yyyy hh:mi:ss")
+
+/*B En premier lieu ecrire les donnees specifiques */
+
+IF (va_type_evt = XZAEC_FMC_Accident)
+{
+	vl_info_acc.vl			= 0
+	vl_info_acc.pl			= 0
+	vl_info_acc.remorques		= 0
+	vl_info_acc.cars		= 0
+	vl_info_acc.motos		= 0
+	vl_info_acc.bl			= 0
+	vl_info_acc.bg			= 0
+	vl_info_acc.morts		= 0
+	vl_info_acc.vehescota		= XDC_FAUX
+	vl_info_acc.matdang		= XDC_FAUX
+	vl_info_acc.homescota		= XDC_FAUX
+	vl_info_acc.perso		= XDC_FAUX
+	vl_info_acc.dummy_degats_dom	= XDC_FAUX
+	vl_info_acc.cond_meteo		= TMC_CODE_COND_AUCUNE
+	vl_info_acc.cond_visibilite	= TMC_CODE_COND_AUCUNE
+	vl_info_acc.cond_etat_chaus	= TMC_CODE_COND_AUCUNE
+	vl_info_acc.cond_chantier	= TMC_CODE_COND_AUCUNE
+
+	ITMA_TMC_acc_sauve (va_evt, vl_info_acc, NULL, vl_date_valid, NULL)
+}
+
+
+/*B En second lieu ecrire les donnees de validation generiques */
+
+vl_fiche.numero		= va_evt.numero
+vl_fiche.cle		= va_evt.cle
+vl_fiche.numero_cause	= va_cause.numero
+vl_fiche.cle_cause	= va_cause.cle
+vl_fiche.type		= va_type_evt
+vl_fiche.debut		= va_date_debut
+vl_fiche.confirme	= XZAEC_FMC_CONFIRMEE
+vl_fiche.autoroute	= va_autoroute
+vl_fiche.pr		= va_PR
+vl_fiche.sens		= va_sens
+vl_fiche.point_car	= NULL
+vl_fiche.nom_point_car	= NULL
+vl_fiche.position	= NULL
+vl_fiche.degatsdom	= XDC_FAUX
+vl_fiche.fausse_alerte	= XDC_FAUX
+vl_fiche.longueur	= 0
+
+vl_fiche.bau_etroite	= NULL
+vl_fiche.bau_i_etroite	= NULL
+j = 9
+FOR i = 0  TO 9
+	tl_config[j][1] = ta_voies[i]
+	j = j - 1
+NEXT i
+
+vl_fiche.origine = va_origine
+IF (SYSTEM_VAR@ ("vg_essai") <> NULL)	vl_fiche.origine = "ESSAI " ++ vl_fiche.origine
+
+IF ITMA_TMC_valide (vl_date_valid, vl_fiche, XDC_FMC_ETAT_TRAI, tl_config, NULL, NULL, NULL) <> COM_OK {
+	'INFO_MESSAGE@ ("     ERREUR LORS DE LA VALIDATION DE LA FICHE MAIN COURANTE     ")
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* _________________________________________________________________________________________________
+* SERVICE RENDU :
+*
+*  Cree une FMC sur echangeur avec le type d'evenement choisi et la cause,
+*  la localisation et certaines autres informations prerenseignees.
+*
+____________________________________________________________________________________________________
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_COM_FMC_Creer_FMC_Echangeur (va_type_evt, va_origine, FORMAT COM_Identifiant_FMC va_cause,
+                                           FORMAT TDO_Echangeur va_echangeur, va_sens,
+                                           FORMAT COM_Identifiant_FMC va_evt, va_date_debut)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_type_evt        : Type d'evenement (deviation, fermeture echangeur)
+*  va_cause           : Identifiant de l'evenement cause
+*  va_echangeur       : Donnees de l'echangeur
+*  va_sens            : Sens de la Fmc a creer
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_evt             : Id. de l'evenement cree
+*  va_date_debut      : Date de debut de l'evenement
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   Toute macro.
+*
+* FONCTION
+*   Cree la fiche main courante et la valide avec la localisation indiquee.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	FORMAT	TMC_fmc	vl_fiche				' Fiche main courante creee
+VAR	vl_sens							' Sens de la Fmc creee
+VAR	tl_config						' Table des configurations des voies
+VAR	vl_entree1, vl_entree2, vl_sortie1, vl_sortie2		' Bretelles fermees
+
+VAR	vl_lib_fmc, vl_txt_localisation
+VAR	vl_site, vl_operateur
+VAR	i, tl_cr_creation
+
+va_evt = NULL
+va_date_debut = COM09_Date_Courante (TRUE)
+
+vl_site = SYSTEM_VAR@ (vg_site)
+vl_operateur = SYSTEM_VAR@ (vg_numero_poste)
+
+/*A Preciser le sens de la Fmc et les bretelles pour une fermeture echangeur */
+vl_sens = va_sens
+vl_entree1 = XDC_FAUX
+vl_entree2 = XDC_FAUX
+vl_sortie1 = XDC_FAUX
+vl_sortie2 = XDC_FAUX
+
+CASE OF va_type_evt
+CASE XZAEC_FMC_Deviation
+	/*A Pour une deviation, forcer le sens en sortie */
+	CASE OF va_sens
+	CASE XDC_SENS_2, XDC_SORTIE_SENS_2
+		vl_sens = XDC_SORTIE_SENS_2
+	CASE XDC_SENS_1, XDC_SORTIE_SENS_1
+		vl_sens = XDC_SORTIE_SENS_1
+	DEFAULT
+		RETURN (COM_NOK)
+	ENDCASE
+	vl_lib_fmc = "deviation"
+	vl_txt_localisation = FORMAT@ ("echangeur %s sens %s PR %s", va_echangeur.numero, vl_sens, va_echangeur.PR)
+
+CASE XZAEC_FMC_FermetureEch
+	/*A Pour une fermeture echangeur, indiquer les bretelles fermees selon le sens */
+	CASE OF va_sens
+	CASE XDC_ENTREE_SENS_1
+		vl_entree1 = XDC_VRAI
+	CASE XDC_ENTREE_SENS_2
+		vl_entree2 = XDC_VRAI
+	CASE XDC_SORTIE_SENS_1
+		vl_sortie1 = XDC_VRAI
+	CASE XDC_SORTIE_SENS_2
+		vl_sortie2 = XDC_VRAI
+	CASE XDC_SENS_INCONNU
+		vl_entree1 = XDC_VRAI
+		vl_entree2 = XDC_VRAI
+	DEFAULT
+		RETURN (COM_NOK)
+	ENDCASE
+	vl_lib_fmc = "fermeture echangeur"
+	vl_txt_localisation = FORMAT@ ("echangeur %s sens %s PR %s, acces %s/%s/%s/%s", va_echangeur.numero,
+	                                  vl_sens, va_echangeur.PR, vl_entree1, vl_entree2, vl_sortie1, vl_sortie2)
+
+DEFAULT
+	RETURN (COM_NOK)
+ENDCASE
+
+
+/*A
+** Creer la fiche main courante
+** ----------------------------
+*/
+
+tl_cr_creation = ITMA_TMC_creer_fiche (va_type_evt, XDC_FMC_ETAT_TRAI, va_date_debut, NULL, vl_site, XDC_NON)
+
+IF tl_cr_creation[0] = COM_OK {
+	va_evt.numero	= tl_cr_creation[1][0]
+	va_evt.cle	= tl_cr_creation[1][1]
+	COM01_Trace (COM_INFO, FORMAT@ ("   Creation %s %s/%s sur %s", vl_lib_fmc, va_evt.numero, va_evt.cle, vl_txt_localisation))
+} ELSE {
+	COM01_Trace (COM_INFO, FORMAT@ ("   Creation %s sur %s : Resultat=%s", vl_lib_fmc, vl_txt_localisation, tl_cr_creation[0]))
+	'INFO_MESSAGE@ ("     ERREUR LORS DE LA CREATION EN BASE DE L'OPERATION ECHANGEUR     ")
+	RETURN (COM_NOK)
+}
+
+
+/*A
+** Pour une fermeture echangeur, ecrire en base les donnees specifiques (les acces fermes)
+** ---------------------------------------------------------------------------------------
+*/
+
+IF (va_type_evt = XZAEC_FMC_FermetureEch) {
+	vl_parametres = COM15_Parametres_Requete ( {
+		{ FALSE,	SYB#INT4_,		va_evt.numero },
+		{ FALSE,	SYB#INT2_,		va_evt.cle },
+		{ FALSE,	SYB#BIT_,		vl_entree1 },
+		{ FALSE,	SYB#BIT_,		vl_entree2 },
+		{ FALSE,	SYB#BIT_,		vl_sortie1 },
+		{ FALSE,	SYB#BIT_,		vl_sortie2 },
+		{ FALSE,	SYB#INT2_,		vl_operateur },
+		{ FALSE, 	SYB#CHAR_, 		SYSTEM_VAR@(vg_nom_site) }
+	} )
+	COM05_SQL_Procedure (XZAE57_Ecrire_Fiche_Echangeur, vl_parametres, vl_resultats, CM_MODULE)
+}
+
+
+/*A
+** Valider la fiche creee avec la cause et la localisation indiquees
+** -----------------------------------------------------------------
+*/
+
+vl_fiche.numero		= va_evt.numero
+vl_fiche.cle		= va_evt.cle
+vl_fiche.numero_cause	= va_cause.numero
+vl_fiche.cle_cause	= va_cause.cle
+vl_fiche.type		= va_type_evt
+vl_fiche.debut		= va_date_debut
+vl_fiche.confirme	= XZAEC_FMC_CONFIRMEE
+vl_fiche.autoroute	= va_echangeur.autoroute
+vl_fiche.pr		= va_echangeur.PR
+vl_fiche.sens		= vl_sens
+vl_fiche.point_car	= XDC_POINT_CARACT_ECHANGEUR
+vl_fiche.nom_point_car	= va_echangeur.numero
+vl_fiche.position	= NULL
+vl_fiche.degatsdom	= XDC_FAUX
+vl_fiche.fausse_alerte	= XDC_FAUX
+vl_fiche.longueur	= 0
+
+vl_fiche.bau_etroite	= XDC_VRAI
+vl_fiche.bau_i_etroite	= XDC_FAUX
+FOR i = 0  TO 9
+	tl_config[i][1] = XDC_VOIE_INEXISTANTE
+NEXT i
+IF (va_type_evt = XZAEC_FMC_Deviation) {
+	tl_config[5][1] = XDC_VOIE_BAU_NORMALE
+	tl_config[6][1] = XDC_VOIE_SENS_NORMAL
+}
+
+vl_fiche.origine = va_origine
+IF (SYSTEM_VAR@ ("vg_essai") <> NULL)	vl_fiche.origine = "ESSAI " ++ vl_fiche.origine
+
+IF ITMA_TMC_valide (COM09_Date_Courante (TRUE), vl_fiche, XDC_FMC_ETAT_TRAI, tl_config, NULL, NULL, NULL) <> COM_OK {
+	'INFO_MESSAGE@ ("     ERREUR LORS DE LA VALIDATION DE LA FICHE ECHANGEUR     ")
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO

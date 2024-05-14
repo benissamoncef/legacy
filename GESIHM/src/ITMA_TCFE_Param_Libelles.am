@@ -1,0 +1,810 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCFE_Param_Libelles.am,v 1.1 2018/05/29 17:05:02 pc2dpdy Exp $        Release : $Revision: 1.1 $        Date : $Date: 2018/05/29 17:05:02 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TPL * FICHIER ITMA_TCFE_Param_Libelles.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Paramétrage des libellés prédéfinis.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* LCL 	13/04/18	: Creation CTRL_FEUX 1.1 DEM1284
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+INCLUDE    "../inc/xzae910sp.h"
+INCLUDE    "../inc/xzae920sp.h"
+INCLUDE    "../inc/xzae930sp.h"
+INCLUDE    "../inc/xzae940sp.h"
+INCLUDE    "../../XDMICG/inc/xzaec_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+
+
+DEFINE	C_MODULE	"MTCFE"			' Nom du module
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM			1
+
+
+
+/*A
+ * Noms des images digitalisees particularisant
+ *     les caracteristiques d'un evenement
+ * --------------------------------------------
+ */
+
+DEFINE	C_PICTO_FIGE		"pix_croix"
+DEFINE	C_PICTO_MODIFIABLE	"pix_crayon"
+DEFINE	C_PICTO_VERT		"pix_vert"
+DEFINE	C_PICTO_ROUGE		"pix_rouge"
+
+/*A
+ * Description du format des donnees provenant de la base
+ * ------------------------------------------------------
+ */
+
+FORMAT 	TCFE_CFE
+	vide,
+	NumeroCFE,			' numero du CFE
+	NomCFE				' libelle du CFE²
+
+FORMAT 	TCFE_Libelle
+	valide,
+	code,				' code de ce libelle
+	libelle,				' nom du libelle
+	cfe,					' numero du cfe
+	explication			' explication de ce libelle
+
+
+
+VAR	vm_l_picto_type			' Noms des pictogrammes des types de libelles
+VAR	vm_l_picto_lib				' Noms des pictogrammes des libelles
+
+VAR 	FORMAT	TCFE_CFE	vm_listeCFE				'liste des CFE
+VAR	FORMAT TCFE_Libelle vm_libelle				'liste des libelles
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation des différents types de libelles.
+*  Sur choix d'un type de libelle, affichage des libelles associes et mise a jour
+*  ou ajout de libelles possible.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCFE_Param_Libelles ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation par menu principal.
+*
+* FONCTION
+*   Lit en base de donnees puis affiche la liste des types de libelles.
+*   Se met en attente du choix d'un type de libelle pour afficher la liste des 
+*   libelles associes.
+*   Permet la modification ou la creation de libelles pour un type de libelles
+*   donne.
+*
+---------------------------------------------------------------------------- */
+
+	VAR     vl_fenetre_events			' Nom de la fenetre du module
+	VAR     vl_objet_selecte			' L'objet courant de la fenetre
+	VAR     vl_la_fenetre_est_active
+	VAR     vl_installer_traitement_erreur
+
+
+	VAR     vl_select				' Selection(s) dans la table
+	VAR     i
+	VAR vl_indice,vl_index
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_data
+	VAR vl_t_titres
+	VAR vl_num_param
+	VAR vl_type_select
+	VAR vl_lib_select
+	VAR vl_val
+	VAR vl_nb_meme_code
+	VAR vl_code, vl_position
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A
+ * Charger la fenetre "Parametrage des libelles"
+ * ---------------------------------------------
+ */
+
+vl_fenetre_events = DB_LOAD@ ("ITMA_TCFE_Param_Libelles")
+DB_WINDOW_REMAIN@ (vl_fenetre_events, TRUE)
+
+DB_XPOS@ (vl_fenetre_events, 100)
+DB_YPOS@ (vl_fenetre_events, 93)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_events, "TA_Type", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_events, "TA_Type", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "TA_Type", TRUE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_events, "TA_Liste_Libelle", FALSE)
+DB_CTRL_VERT_SCROLL@ (vl_fenetre_events, "TA_Liste_Libelle", TRUE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_events, "TA_Liste_Libelle", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "TA_Liste_Libelle", TRUE)
+DB_CTRL_GRAYED@(vl_fenetre_events,"BO_Val_Inval",TRUE)
+
+
+/*A
+ * Initialiser la visualisation (liste des evenements)
+ * ---------------------------------------------------
+ */
+MACRO_WINS_BUSY@()
+IF TCFE_Init_Visualisation (vl_fenetre_events) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */	
+
+DB_CTRL_GRAYED@(vl_fenetre_events, "BO_Creer", TRUE)
+
+
+vl_type_select = -1
+vl_lib_select = -1
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_DISPLAY@ (vl_fenetre_events)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_events)
+
+    CASE OF vl_objet_selecte
+   
+    /*A
+     * Sur selection d'un type de libelles,
+     * -----------------------------------
+     */
+	CASE "TA_Type"
+		MACRO_WINS_BUSY@()
+		vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_events,"TA_Type")
+		vl_type_select = vl_select[0]
+
+		TCFE_Grise_Zone_Edition(vl_fenetre_events,TRUE)
+
+		DB_CTRL_GRAYED@(vl_fenetre_events, "BO_Creer", FALSE)
+		DB_CTRL_GRAYED@(vl_fenetre_events, "BS_Code", FALSE)
+
+		vl_lib_select = -1
+		TCFE_Init_Lib_Plan(vl_fenetre_events, vl_type_select)
+	
+    /*A
+     * Sur selection d'un libelle predefini,
+     * -------------------------------------
+     */
+	CASE "TA_Liste_Libelle"
+		MACRO_WINS_BUSY@()
+		vl_select = DB_TABLE_GET_SELECTIONS@(vl_fenetre_events,"TA_Liste_Libelle")
+		vl_lib_select = vl_select[0]
+		
+		/*B mise a jour de la zone d'edition */
+	DB_CTRL_VALUE@(vl_fenetre_events,"BS_Code",vm_libelle[vl_lib_select].code)
+		DB_CTRL_VALUE@(vl_fenetre_events,"BS_Libelle",
+							vm_libelle[vl_lib_select].libelle)
+		if vm_libelle[vl_lib_select].valide = "X"
+			DB_CTRL_TEXT_AND_FONT@(vl_fenetre_events,"BO_Val_Inval","Valider")
+		else
+			DB_CTRL_TEXT_AND_FONT@(vl_fenetre_events,"BO_Val_Inval","Invalider")
+	TCFE_Grise_Zone_Edition(vl_fenetre_events,FALSE)
+	DB_CTRL_GRAYED@(vl_fenetre_events, "BS_Code", TRUE)
+	DB_CTRL_GRAYED@(vl_fenetre_events, "BO_Creer", TRUE)
+
+
+    /*A
+     * Sur selection bouton effacer,
+     * -----------------------------
+     */
+	CASE "BO_Effacer"
+		/*B  Initialisation de la zone d'edition */
+		TCFE_Init_Zone_Edition(vl_fenetre_events)		
+
+    /*A
+     * Sur selection bouton valider/invalider,
+     * ---------------------------------------
+     */
+	CASE "BO_Val_Inval"
+	   if vl_lib_select > -1
+	    {
+		/*B si un libelle a ete selectionne, execution de la commande de
+			validation/invalidation */
+
+		vl_parametres = null
+		vl_num_param = 0		
+		vl_parametres[vl_num_param].type = SYB#INT4_
+		vl_parametres[vl_num_param].data = vm_libelle[vl_lib_select].cfe
+		vl_parametres[vl_num_param].output = FALSE
+
+		vl_num_param = vl_num_param + 1
+		vl_parametres[vl_num_param].type = SYB#INT4_
+		vl_parametres[vl_num_param].data = vm_libelle[vl_lib_select].code
+		vl_parametres[vl_num_param].output = FALSE
+
+		vl_num_param = vl_num_param + 1
+		vl_parametres[vl_num_param].type = SYB#CHAR_
+		vl_parametres[vl_num_param].data = vm_libelle[vl_lib_select].libelle
+		vl_parametres[vl_num_param].output = FALSE
+
+		vl_num_param = vl_num_param + 1
+		vl_parametres[vl_num_param].type = SYB#BIT_
+		if vm_libelle[vl_lib_select].valide = "X"
+			vl_parametres[vl_num_param].data = 1
+		else
+			vl_parametres[vl_num_param].data = 0
+		vl_parametres[vl_num_param].output = FALSE
+
+		vl_resultats = null
+		
+		IF COM05_SQL_Procedure (XZAE940_MAJ_LIB_PLAN_DE_FEUX,
+		   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 		RETURN (COM_NOK)
+
+		vl_lib_select = -1
+		TCFE_Init_Lib_Plan(vl_fenetre_events, vl_type_select)
+         }
+	  else
+		INFO_MESSAGE@("D'abord selectionner un libellé prédéfini")
+
+    /*A
+     * Sur selection bouton modifier,
+     * ------------------------------
+     */
+	CASE "BO_Modifier"
+		if vl_lib_select = -1
+		{
+			/*B cas ou aucun libelle n'est choisi */
+			INFO_MESSAGE@("D'abord choisir un libellé")
+	  	}
+	  	else
+	   	{
+	    		vl_code = DB_CTRL_GET_VALUE@(vl_fenetre_events,"BS_Code")
+	   		if vl_code = null or vl_code <> INT@(vl_code)
+				/*B Cas ou pas de code saisi ou bien code non entier*/
+				INFO_MESSAGE@("Un numero (nombre sans virgule) doit être saisi")
+	   		else
+	    		{ 
+				if vm_libelle[vl_lib_select].code <> vl_code		  
+				{ 
+					/*B cas ou le code a ete modifie */
+					INFO_MESSAGE@("Le numero de plan de feux ne peut être changé")
+		  		}
+				else
+		  		{
+					/*B execution de la modification */
+		 			TCFE_Maj_Lib_Plan(vl_fenetre_events, 
+								XZAE940_MAJ_LIB_PLAN_DE_FEUX, 
+								vl_type_select, 
+								vl_lib_select)
+		    			vl_lib_select = -1
+	 	  			TCFE_Init_Lib_Plan(vl_fenetre_events, vl_type_select)
+
+					DB_CTRL_GRAYED@(vl_fenetre_events, "BO_Modifier", TRUE)
+		 		}
+	     	}
+		}
+
+
+    /*A
+     * Sur selection bouton creer,
+     * ---------------------------
+     */
+	CASE "BO_Creer"
+	  vl_code = DB_CTRL_GET_VALUE@(vl_fenetre_events,"BS_Code")
+	  if vl_type_select = -1
+	   {
+		/*B cas ou aucun type n'est choisi */
+		INFO_MESSAGE@("D'abord choisir un controleur de feux")
+	   }
+	  else
+	   {
+	   	if vl_code = null
+		/*B Cas ou pas de code saisi*/
+		INFO_MESSAGE@("Un numero de plan de feux doit être saisi")
+	   else
+	     if vl_code < 0 
+		  or vl_code <> INT@ (vl_code) 
+		    INFO_MESSAGE@("Le numero de plan de feux doit être un entier positif.")
+	    else	
+	    {
+		/*B verification que le code n'existe pas pour ce type */
+		vl_nb_meme_code = 0
+		vl_val = DB_CTRL_GET_VALUE@(vl_fenetre_events,"BS_Code")
+		for i=0 TO ARRAY_SIZE@ (vm_libelle) - 1
+			if vm_libelle[i].code = vl_val
+				vl_nb_meme_code = vl_nb_meme_code + 1
+		next i
+		if vl_nb_meme_code > 0
+		  { 
+			/*B cas ou le code existe deja pour ce type de lieblle */
+			INFO_MESSAGE@("Le numero de plan de feux saisi existe déjà pour ce controleur de feux")
+		  }
+		else
+		  {
+			/*B execution de la creation du libelle */
+		    vl_lib_select = -1
+		    TCFE_Maj_Lib_Plan(vl_fenetre_events, XZAE930_CREATION_LIB_PLAN_DE_FEUX,
+				 		vl_type_select,vl_lib_select )
+	 	     TCFE_Init_Lib_Plan(vl_fenetre_events, vl_type_select)
+
+			DB_CTRL_GRAYED@(vl_fenetre_events, "BO_Creer", TRUE)
+			DB_CTRL_GRAYED@(vl_fenetre_events, "BS_Code", TRUE)
+
+		 }
+		}
+	    }
+
+
+	/*A
+	 * Sur selection bouton Quitter
+	 * ----------------------------
+	 */
+	CASE "BO_Quitter"
+		vl_la_fenetre_est_active = FALSE
+
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCFE_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCFE_Param_Libelles
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_t_titres				' Titres colonnes de la table
+     VAR     vl_texte
+     VAR      i
+	VAR     vl_type_fmc
+	VAR     vl_index
+	VAR     tl_types_fmc
+
+  
+/*A
+ * Valuer ensuite les donnees de la table
+ * --------------------------------------
+ */
+
+IF TCFE_Init_Liste_CFE (va_fenetre) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Definir les titres des colonnes de la table des types
+ * -----------------------------------------------------
+ */
+vl_t_titres[0] = " ",			0	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Numero",			100
+vl_t_titres[2] = "Libelle",			285
+
+/*A
+ * Valuer la table a afficher
+ * --------------------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+
+DB_TABLE_SET_DATA@(va_fenetre, "TA_Type", vm_listeCFE, vl_t_titres)
+DB_TABLE_SET_MARKER_WIDTH@(va_fenetre, "TA_Type", 25)
+DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_Type", 0, vm_l_picto_type)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des types de libelles ;
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCFE_Init_Liste_CFE (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TPL_Init_Visualisation	  a l'initialisation ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des types de libelles.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TCFE_CFE	vl_liste_cfe
+	VAR vl_data
+
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j
+
+
+/*A
+ * Lire en base de donnees la nouvelle liste des types de libelles
+ * ---------------------------------------------------------------
+ */
+
+vl_parametres = null
+
+{
+	IF COM05_SQL_Procedure (XZAE910_LECT_LISTE_CFE,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+  	RETURN (COM_NOK)
+} 
+
+vl_data = vl_resultats.select_results[0]
+
+/*A
+ * Mise en place des structures de donnees 
+ * ---------------------------------------
+ */
+
+vm_listeCFE = NULL
+vm_l_picto_type = NULL
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+	vm_listeCFE[i].numeroCFE=vl_data[i][0]
+	vm_listeCFE[i].nomCFE=vl_data[i][1]
+
+    /*A
+     * attacher le pictogramme voulu au type de libelles
+     * -------------------------------------------------
+     */
+
+	vm_l_picto_type[i] = C_PICTO_MODIFIABLE, NULL
+NEXT i
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des libelles predefinis pour le type choisi;
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCFE_Init_Lib_Plan(va_fenetre, va_num_cfe)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCFE_Param_Libelles ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des plans de feux.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TCFE_Libelle	vl_libelle
+	VAR vl_data
+
+    VAR vl_t_titres
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j
+
+
+/*A
+ * Lire en base de donnees la liste des libelles predefinis
+ * --------------------------------------------------------
+ */
+vl_parametres = null		
+vl_parametres[0].type = SYB#INT4_
+vl_parametres[0].data = vm_listeCFE[va_num_cfe].numeroCFE
+vl_parametres[0].output = FALSE
+		
+vl_resultats = null
+{
+	IF COM05_SQL_Procedure (XZAE920_LECT_LIB_CFE,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+} 
+
+vl_data = vl_resultats.select_results[0]
+vm_libelle = null
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+	vm_libelle[i].cfe=vl_data[i][0]
+	vm_libelle[i].code=vl_data[i][1]
+	vm_libelle[i].libelle=vl_data[i][2]
+	IF vl_data[i][3]=0
+		vm_libelle[i].valide="X"
+	ELSE 
+		vm_libelle[i].valide=" "
+
+    /*A
+     * attacher le pictogramme voulu au type de libelles
+     * -------------------------------------------------
+     */
+
+	IF vl_data[i][3]=0
+		vm_l_picto_lib[i] = C_PICTO_ROUGE, NULL
+	ELSE 
+		vm_l_picto_lib[i] = C_PICTO_VERT, NULL
+NEXT i
+
+/*A  Affichage des libelles du type de libelles choisi */
+vl_t_titres[0] = " ",			0	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Numero",			100
+vl_t_titres[2] = "Libelle",			550
+if vm_libelle = null 
+	DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_Liste_Libelle",0,-1)
+else
+
+	{
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_Liste_Libelle", vm_libelle, vl_t_titres)
+	DB_TABLE_SET_MARKER_WIDTH@(va_fenetre, "TA_Liste_Libelle", 25)
+	DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_Liste_Libelle", 0, vm_l_picto_lib)
+	}
+
+TCFE_Init_Zone_Edition(va_fenetre)
+DB_CTRL_GRAYED@(va_fenetre,"BO_Val_Inval",TRUE)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la zone d'edition;
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCFE_Init_Zone_Edition(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCFE_Param_Libelles ;
+*
+* FONCTION
+*   initialise les valeurs de la zone d'edition.
+*
+---------------------------------------------------------------------------- */
+
+		DB_CTRL_VALUE@(va_fenetre,"BS_Code",null)
+		DB_CTRL_VALUE@(va_fenetre,"BS_Libelle",null)
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Grise ou degrise la zone d'edition;
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCFE_Grise_Zone_Edition(va_fenetre,val)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCFE_Param_Libelles ;
+*
+* FONCTION
+*   grise ou degrise les valeurs de la zone d'edition.
+*
+---------------------------------------------------------------------------- */
+
+		DB_CTRL_GRAYED@(va_fenetre,"BS_Code",val)
+		DB_CTRL_GRAYED@(va_fenetre,"BO_Creer",val)
+		DB_CTRL_GRAYED@(va_fenetre,"BO_Val_Inval",val)
+		DB_CTRL_GRAYED@(va_fenetre,"BO_Effacer",val)
+		DB_CTRL_GRAYED@(va_fenetre,"BO_Modifier",val)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Cree ou modifie un libelle predefini ;
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCFE_Maj_Lib_Plan (va_fenetre, va_proc, va_type_select, va_lib_select)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*   va_proc		: Nom de la procedure stockee a executer
+*   va_type_select    : No de la ligne de "TA_Liste_Libelle" selectionne
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCFE_Param_Libelles ;
+*
+* FONCTION
+*   creation ou modification d'un libelle predefini.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j, vl_num_param, vl_val
+
+
+vl_parametres = null
+vl_num_param = 0		
+vl_parametres[vl_num_param].type = SYB#INT4_
+vl_parametres[vl_num_param].data = vm_listeCFE[va_type_select].numeroCFE
+vl_parametres[vl_num_param].output = FALSE
+
+vl_num_param = vl_num_param + 1
+vl_parametres[vl_num_param].type = SYB#INT4_
+vl_parametres[vl_num_param].data = DB_CTRL_GET_VALUE@(va_fenetre, "BS_Code")
+vl_parametres[vl_num_param].output = FALSE
+
+vl_num_param = vl_num_param + 1
+vl_parametres[vl_num_param].type = SYB#CHAR_
+vl_val = DB_CTRL_GET_VALUE@(va_fenetre, "BS_Libelle")
+if vl_val = null 
+	vl_parametres[vl_num_param].data = XDC_CHAINE_VIDE
+else
+	vl_parametres[vl_num_param].data = substring@(vl_val,1,150)
+vl_parametres[vl_num_param].output = FALSE
+
+			
+vl_num_param = vl_num_param + 1
+vl_parametres[vl_num_param].type = SYB#BIT_
+if va_lib_select = -1
+	/* Mode création : l'enregistrement est valide */
+	vl_parametres[vl_num_param].data = 1
+else
+{
+	if vm_libelle[va_lib_select].valide = "X"
+		vl_parametres[vl_num_param].data = 0
+	else
+		vl_parametres[vl_num_param].data = 1
+}
+vl_parametres[vl_num_param].output = FALSE
+
+vl_resultats = null
+IF COM05_SQL_Procedure(va_proc,vl_parametres, vl_resultats,
+					 C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+
+ENDMACRO

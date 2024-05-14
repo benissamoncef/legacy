@@ -1,0 +1,1 @@
+define XZAS13_Courbe_TDP_6MIN	"XZAS13"

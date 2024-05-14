@@ -1,0 +1,1 @@
+DEFINE XZAO310_Lire_PointDeMesure	"XZAO310" 

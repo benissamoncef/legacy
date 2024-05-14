@@ -1,0 +1,499 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCP_Trace.am,v 1.1 2013/09/25 14:28:25 devgfi Exp $        Release : $Revision: 1.1 $        Date : $Date: 2013/09/25 14:28:25 $
+------------------------------------------------------------------------------
+*  ESCOTA  *  PROJET MIGRAZUR
+------------------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+------------------------------------------------------------------------------
+*  MODULE MTCP  *  Fichier ITMA_TCP_Trace.am
+------------------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+*
+*   Gere les fichiers de traces des messages Coup de Poing.
+*
+------------------------------------------------------------------------------
+*  HISTORIQUE :
+*
+* JPL	16/09/13 : Creation (DEM 1083)  1.1
+------------------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzaec_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TCP.h"
+
+
+
+/*A Définition des constantes */
+
+DEFINE	CM_MODULE		"MTCP"				' Nom du module
+
+
+
+/*A
+** Format des messages de trace produits par le module Coup de Poing
+** -----------------------------------------------------------------
+*/
+
+FORMAT	TCP_Message_Trace
+	horodate,					' Horodate d'ecriture du message
+	niveau,						' classe du message (niveau de gravite)
+	texte						' texte du message
+
+
+
+/*A Définition des variables globales */
+VAR	FORMAT TCP_Message_Trace	tm_Messages_Trace	' Table des messages du fichier de trace
+
+VAR	tm_titres_Trace						' Titres de la table des messages de trace
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Effectue une trace de la lecture de la configuration ainsi que de
+*  l'execution d'une action "coup de poing".
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Trace (va_niveau_trace, va_message)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_niveau_trace   : Niveau de la trace a effectuer ;
+*   va_message        : Message d'erreur a tracer.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Config_Coup_De_Poing, ITMA_TCP_Coup_De_Poing
+*
+* FONCTION
+*   Effectue la trace du message indique dans un fichier specifique.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_fich_trace, vl_fich_sauvegarde
+VAR	vl_niveau
+VAR	vl_date
+
+vl_date = COM09_Date_Courante (TRUE)
+vl_date = SUBSTRING@ (vl_date, 1, 6) ++ SUBSTRING@ (vl_date, 9, 11)
+
+CASE OF va_niveau_trace
+CASE COM_DEBUG1 	{ vl_niveau = "DEBUG1" }
+CASE COM_INFO		{ vl_niveau = "INFO" }
+CASE COM_MESSAGE	{ vl_niveau = "MESSAGE" }
+CASE COM_WARNING	{ vl_niveau = "WARNING" }
+CASE COM_FATAL		{ vl_niveau = "FATAL" }
+ENDCASE
+
+vl_fich_trace = ITMA_TCP_Fichier_Trace ()
+
+/*! Backup du fichier de trace s'il atteint sa taille limite */
+IF FILE_SIZE@ (vl_fich_trace) >= 1000000 {
+	vl_fich_sauvegarde = ITMA_TCP_Fichier_Sauvegarde ()
+	MOVE_FILE@ (vl_fich_trace, vl_fich_sauvegarde)
+}
+
+/* Ecrire le message formate en fichier */
+OPEN_ASCII_FILE@ (vl_fich_trace, "a")
+WRITE_FILE@ (vl_fich_trace, FORMAT@ ("%s -%s- %s", vl_date, vl_niveau, va_message))
+CLOSE_FILE@ (vl_fich_trace)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Visualisation et remise a zero des messages de trace de Coup de Poing.
+*
+------------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Visualiser_Trace (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*  Presente a l'operateur la liste des messages contenus dans le fichier
+*  de trace de Coup de Poing au moment de l'appel.
+*  S'il n'est pas vide, propose une action de remise a zero du fichier
+*  en sauvegardant l'etat courant, date.
+*
+--------------------------------------------------------------------------------- */
+
+	VAR	vl_fenetre
+	VAR	vl_objet_selecte			' L'objet courant de la fenetre
+	VAR	tl_les_messages_acceptes		' Pour reception de signaux
+	VAR	vl_la_fenetre_est_active
+	VAR	vl_installer_traitement_erreur
+
+	VAR	vl_appelant
+	VAR	vl_fichier_trace, vl_fichier_sauvegarde
+
+
+vl_appelant = "M" ++ SUBSTRING@ (va_appelant, 6, 3)
+
+
+/*A
+** Traitements en cas d'erreur :
+** informer l'operateur, tracer l'erreur et abandonner
+** ---------------------------------------------------
+*/
+
+ON ERROR
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN (COM_NOK)
+}
+
+
+/*A
+** Charger la fenetre de saisie
+** ----------------------------
+*/
+
+vl_fenetre = DB_LOAD@ ("ITMA_TCP_Trace")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+
+
+/*A
+** Definir les caracteristiques (initiales) des objets graphiques
+** --------------------------------------------------------------
+*/
+
+/*B Table des messages de trace */
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_Traces", TRUE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_Traces", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "TA_Traces", FALSE)
+
+
+
+/*A
+** Mettre en place la reception des messages
+** -----------------------------------------
+*/
+
+tl_les_messages_acceptes = {
+	COM_CANAL_FIN
+}
+DB_ACCEPT_POKES@ (vl_fenetre, tl_les_messages_acceptes)
+
+
+
+/*A
+** Initialiser la visualisation
+** ----------------------------
+*/
+
+IF ITMA_TCP_Init_visu_trace (vl_fenetre, vl_appelant) <> COM_OK {
+	RETURN (COM_NOK)
+}
+
+
+
+/*A
+** Tant que la fenetre n'est pas desactivee, la visualiser
+** -------------------------------------------------------
+*/
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY_ONLY@ (vl_fenetre, FALSE)
+	DB_DISPLAY@ (vl_fenetre)
+	DB_DISPLAY_ONLY@ (vl_fenetre, TRUE)
+
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+	/*B Ignorer l'action si c'est un redimensionnement de colonne */
+	IF (DB_EXIT_CODE@ (vl_fenetre) = EV_TBL_COLUMN_RESIZE_)
+	{
+		vl_objet_selecte = NULL
+	}
+
+
+	CASE OF vl_objet_selecte
+
+	/*A
+	** Sur choix "Vider", sauvegarder le fichier
+	** de trace et terminer la visualisation
+	** -----------------------------------------
+	*/
+
+	CASE "BP_Vider"
+		vl_fichier_trace = ITMA_TCP_Fichier_Trace ()
+		vl_fichier_sauvegarde = ITMA_TCP_Fichier_Sauvegarde ()
+		ITMA_TCP_Sauvegarder_Trace (vl_fichier_trace, vl_fichier_sauvegarde)
+		DELETE_FILE@ (vl_fichier_trace)
+
+		vl_la_fenetre_est_active = FALSE
+
+
+
+	/*A
+	** Sur choix "Quitter", terminer la visualisation
+	** ----------------------------------------------
+	*/
+
+	CASE "BP_Quitter"
+		vl_la_fenetre_est_active = FALSE
+
+
+
+	CASE "poke_"
+		CASE OF  DB_GET_POKE@ (vl_fenetre)
+
+		/*A
+		** Sur reception d'un message de fin,
+		** terminer la tache et fermer la fenetre
+		** --------------------------------------
+		*/
+
+		CASE COM_CANAL_FIN
+			vl_la_fenetre_est_active = FALSE
+
+		ENDCASE
+	ENDCASE
+WEND
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialise la visualisation des messages de trace de Coup de Poing.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Init_visu_trace (va_fenetre, va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* va_fenetre          : Id. de la fenetre a initialiser ;
+* va_appelant         : Nom du module appelant.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Visualiser_Trace
+*
+* FONCTION
+*
+--------------------------------------------------------------------------- */
+
+	VAR	vl_fichier_trace
+	VAR	ll_trace
+	VAR	vl_texte
+	VAR	i, vl_k
+
+tm_Messages_Trace = { }
+
+
+/*A
+** Lire le fichier de trace de Coup de Poing
+** -----------------------------------------
+*/
+
+vl_fichier_trace = ITMA_TCP_Fichier_Trace ()
+
+/* Lire le fichier de trace s'il existe */
+IF FILE_EXISTS@ (vl_fichier_trace) {
+	ll_trace = READ_ASCII_FILE@ (vl_fichier_trace)
+
+	/*A Extraire la date et la categorie de chaque message de trace */
+	FOR i = 0  TO (ARRAY_SIZE@ (ll_trace) - 1)
+		tm_Messages_Trace[i].horodate = SUBSTRING@ (ll_trace[i], 1, 17)
+		vl_texte = SUBSTRING@ (ll_trace[i], 20)
+		vl_k = STRING_INDEX@ (vl_texte, " ")
+		tm_Messages_Trace[i].niveau = SUBSTRING@ (vl_texte, 1, vl_k - 2)
+		tm_Messages_Trace[i].texte = SUBSTRING@ (vl_texte, vl_k + 1)
+	NEXT i
+} ELSE {
+	/*B S'il n'y a aucune trace, desactiver l'action "Vider" */
+	DB_CTRL_GRAYED@ (va_fenetre, "BP_Vider", TRUE)
+}
+
+
+/*A
+** Afficher la table des messages de trace de Coup de Poing
+** --------------------------------------------------------
+*/
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)
+DB_DISPLAY@ (va_fenetre)
+
+
+/*A Definir les colonnes de la table des messages de trace */
+tm_titres_Trace = {
+	{ "Horodate",		150 },
+	{ "Niveau",		100 },
+	{ "Message",		800 }
+}
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_Traces", tm_Messages_Trace, tm_titres_Trace, NULL)
+DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Traces", NULL)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Ecrit la trace de Coup de Poing actuelle dans un fichier de sauvegarde.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCP_Sauvegarder_Trace (va_fichier, va_sauvegarde)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* va_fichier          : Chemin d'acces au fichier a sauvegarder.
+* va_sauvegarde       : Chemin d'acces au fichier de sauvegarde.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCP_Visualiser_Trace
+*
+* FONCTION
+*   Sauvegarde le contenu du fichier specifie s'il existe en l'ajoutant
+*   a la fin du fichier de sauvegarde indique, le creant au besoin.
+*
+*   Le fichier a sauvegarder est suppose de type ASCII, et peu volumineux.
+*
+--------------------------------------------------------------------------- */
+
+	VAR	ll_texte
+	VAR	i
+	VAR	vl_cr
+
+/* Au cas ou l'acces en lecture ou ecriture a un fichier ou repertoire serait impossible */
+ON ERROR {
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (CM_MODULE))
+	RETURN (COM_NOK)
+}
+
+
+/* Verifier que le fichier a sauvegarder specifie existe */
+IF NOT FILE_EXISTS@ (va_fichier) {
+	RETURN (COM_NOK)
+}
+
+
+/* Si le fichier de sauvegarde n'existe pas, copier le fichier a sauvegarder */
+IF NOT FILE_EXISTS@ (va_sauvegarde) {
+	vl_cr = COPY_FILE@ (va_fichier, va_sauvegarde)
+	RETURN (vl_cr)
+}
+
+
+/*A
+** Ajouter le contenu du fichier en fin du fichier de sauvegarde
+** -------------------------------------------------------------
+*/
+
+/* Lire le contenu du fichier comme un seul objet */
+ll_texte = READ_ASCII_FILE@ (va_fichier)
+
+OPEN_ASCII_FILE@ (va_sauvegarde, "a")
+
+FOR i = 0  TO (ARRAY_SIZE@ (ll_texte) - 1)
+	vl_cr = WRITE_FILE@ (va_sauvegarde, ll_texte[i])
+NEXT i
+
+CLOSE_FILE@ (va_sauvegarde)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Utilitaires fournissant le chemin d'acces complet aux fichier de trace.
+*
+------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ITMA_TCP_Fichier_Trace ()
+	RETURN (XDC_PATH_MIGRAZURHOME ++ "/" ++ COM_SOUS_REP_TRACE ++
+	           TCP_TRACE_COUP_POING ++ SYSTEM_VAR@ (vg_numero_display) ++ ".tra")
+ENDFUNCTION
+
+
+
+FUNCTION ITMA_TCP_Fichier_Sauvegarde ()
+	VAR	vl_jour, vl_mois, vl_annee, vl_vide
+	VAR	vl_fichier_trace
+
+	vl_fichier_trace = ITMA_TCP_Fichier_Trace ()
+	COM14_Valeurs_Horodate (COM09_Date_Courante (), vl_jour, vl_mois, vl_annee, vl_vide, vl_vide, vl_vide)
+	RETURN (FORMAT@ ("%s.%s_%s_%s", vl_fichier_trace, vl_annee, vl_mois, vl_jour))
+ENDFUNCTION

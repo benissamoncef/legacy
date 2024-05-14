@@ -1,0 +1,523 @@
+/*E*/
+/* Fichier :$Id: ITMA_TRG_Historique.am,v 1.2 2013/09/12 10:47:28 pc2dpdy Exp $       Release : $Revision: 1.2 $        Date : $Date: 2013/09/12 10:47:28 $
+------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE ITMA_TRG * FICHIER ITMA_TRG_Historique.am
+-----------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Affichage spécifique des données de régulation pour une journée donnée
+*
+* ---------------------------------------------------------------------
+* HISTORIQUE :
+*
+* MGI 	16/04/12 : creation
+* JMG	12/09/13 : recherche dans HIS 1.2
+----------------------------------------------------------------------*/
+
+INCLUDE	"dbase_.am"
+INCLUDE	"datetim_.am"
+
+INCLUDE	"../inc/ITMA_TRG.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TMC.h"
+INCLUDE	"../inc/ITMA_TCV.h"
+
+INCLUDE	"../inc/xzav02sp.h"
+
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdf_ax.h"
+INCLUDE	"../../XDMICG/inc/xzaec_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTRG"			' Nom du module
+
+VAR	tg_stations
+VAR	tm_stations_select
+VAR	vm_nb_lignes_station
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM			1
+
+/*A
+ * Noms des images digitalisees particularisant
+ *     les caracteristiques d'un evenement
+ * --------------------------------------------
+ */
+
+DEFINE	C_PICTO_FIGE		"pix_croix"
+DEFINE	C_PICTO_MODIFIABLE	"pix_crayon"
+DEFINE	C_PICTO_VERT		"pix_vert"
+DEFINE	C_PICTO_ROUGE		"pix_rouge"
+
+FORMAT TRG_Trace
+	horodate,	
+	type,
+	libelle, 
+	alerte,
+	numero_fmc,
+	cle_fmc,
+	acq_alerte,
+	scenario,
+	condition,
+	simulation,
+	zone
+
+VAR FORMAT TRG_Trace vm_Trace
+
+
+VAR FORMAT TCV_Donnees_Station vl_info_station	'informations sur station
+VAR vm_l_picto_lib
+VAR vm_nom_poste_ope, vm_num_poste_ope
+
+/*A
+ * Description du format des donnees provenant de la base
+ * ------------------------------------------------------
+ */
+
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+*
+*
+------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRG_Historique ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation par menu principal.
+*
+* FONCTION
+*
+----------------------------------------------------------------------*/
+	VAR vl_fenetre_events			' Nom de la fenetre du module
+	VAR vl_objet_selecte			' L'objet courant de la fenetre
+	VAR   vl_la_fenetre_est_active
+	VAR   vl_installer_traitement_erreur
+	VAR	vl_les_messages_acceptes		'pour reception de signaux
+
+	VAR  vl_select				' Selection(s) dans la table
+	VAR   i
+	VAR   vl_indice,vl_index
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR   vl_data
+	VAR vl_date, vl_date_f
+	VAR vl_date_deb, vl_date_fin
+	VAR vl_selection
+	VAR vl_type_select
+	VAR vl_lib_select,vl_t_titres
+	VAR vl_annee, vl_mois, vl_jour, vl_heure, vl_minute
+	VAR vl_annee_fin, vl_mois_fin, vl_jour_fin, vl_heure_fin, vl_minute_fin
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A
+ * Charger la fenetre "Visualisation Simulation"
+ * ---------------------------------------------
+ */
+
+vl_fenetre_events = DB_LOAD@ ("ITMA_TRG_Historique")
+DB_WINDOW_REMAIN@ (vl_fenetre_events, TRUE)
+
+DB_XPOS@ (vl_fenetre_events, 250)
+DB_YPOS@ (vl_fenetre_events, 75)
+
+DB_WIDTH@(vl_fenetre_events, 1150)
+DB_HEIGHT@(vl_fenetre_events, 641)
+
+COM02_Attacher_Aide (vl_fenetre_events, "ITMA_TRG_Historique")
+
+/*A
+* Definir les caracteristiques (initiales) des objets graphiques
+* ---------------------------------------------------------------
+*/
+DB_TABLE_ALLOW_COLUMN_RESIZING@(vl_fenetre_events, "TA_Traces", TRUE)
+DB_CTRL_VERT_SCROLL@(vl_fenetre_events, "TA_Traces", TRUE)
+DB_CTRL_HORIZ_SCROLL@(vl_fenetre_events, "TA_Traces", TRUE)
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_events, "BA_1", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BA_2", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BA_3", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BA_4", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BA_5", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BA_6", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BA_7", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_events, "BA_8", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "BA_9", TRUE)
+
+DB_CTRL_VALUE@(vl_fenetre_events, "BS_Jour_Visu", NULL)
+DB_CTRL_VALUE@(vl_fenetre_events, "BS_Mois_Visu", NULL)
+DB_CTRL_VALUE@(vl_fenetre_events, "BS_Annee_Visu", NULL)
+DB_CTRL_VALUE@(vl_fenetre_events, "BS_Heure_Visu", NULL)
+DB_CTRL_VALUE@(vl_fenetre_events, "BS_Minute_Visu", NULL)
+
+DB_CTRL_DISPLAY@(vl_fenetre_events, "BS_Heure_Visu", FALSE)
+DB_CTRL_DISPLAY@(vl_fenetre_events, "BS_Minute_Visu", FALSE)
+DB_CTRL_DISPLAY@(vl_fenetre_events, "BS_Heure_Fin", FALSE)
+DB_CTRL_DISPLAY@(vl_fenetre_events, "BS_Minute_Fin", FALSE)
+
+DB_CTRL_VALUE@(vl_fenetre_events, "BS_Heure_Visu", "00")
+DB_CTRL_VALUE@(vl_fenetre_events, "BS_Minute_Visu", "00")
+DB_CTRL_VALUE@(vl_fenetre_events, "BS_Heure_Fin", "23")
+DB_CTRL_VALUE@(vl_fenetre_events, "BS_Minute_Fin", "59")
+
+DB_CTRL_VALUE@(vl_fenetre_events, "BA_1", TRUE)
+DB_CTRL_VALUE@(vl_fenetre_events, "BA_2", TRUE)
+DB_CTRL_VALUE@(vl_fenetre_events, "BA_3", TRUE)
+DB_CTRL_VALUE@(vl_fenetre_events, "BA_4", TRUE)
+DB_CTRL_VALUE@(vl_fenetre_events, "BA_5", TRUE)	DB_CTRL_VALUE@(vl_fenetre_events, "BA_6", TRUE)	DB_CTRL_VALUE@(vl_fenetre_events, "BA_7", TRUE)
+	DB_CTRL_VALUE@(vl_fenetre_events, "BA_8", TRUE)		DB_CTRL_VALUE@(vl_fenetre_events, "BA_9", TRUE)
+
+/*A
+ * Initialiser la visualisation (liste des evenements)
+ * ---------------------------------------------------
+ */
+MACRO_WINS_BUSY@()
+IF TRG_Init_Visualisation (vl_fenetre_events) <> COM_OK
+    RETURN
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_type_select = -1
+vl_lib_select = -1
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_DISPLAY@ (vl_fenetre_events)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_events)
+	
+    CASE OF vl_objet_selecte
+		  
+    
+	/*A
+     * Sur selection bouton lancer la recherche,
+     * -----------------------------------------
+     */
+	vl_date_deb = null
+	vl_date_fin = null
+	CASE "BP_lancerRecherche"
+		/*B Déclenchement de la recherche */
+	vl_date_deb = COM23_Horodate (vl_fenetre_events, "BS_Jour_Visu", "BS_Mois_Visu", "BS_Annee_Visu","BS_Heure_Visu", "BS_Minute_Visu")
+	
+	vl_date_fin = COM23_Horodate (vl_fenetre_events, "BS_Jour_Visu", "BS_Mois_Visu", "BS_Annee_Visu","BS_Heure_Fin", "BS_Minute_Fin")
+		
+		IF NOT IS_NULL@ (vl_date_deb)
+		{
+			/*récuperation et affichage des traces par appel a xzav02*/
+			TRG_Recup_Trace(vl_fenetre_events,XZAV02_Recup_Trace,vl_date_deb, vl_date_fin,0)
+		}
+		ELSE 		
+		{
+			INFO_MESSAGE@("veuillez rentrer une horodate")
+		}
+
+
+
+
+
+			
+	/*A
+	*	selection bouton horodate courante
+	*	------------------------------------
+	*/
+	CASE "BP_horo_Visu"
+        	COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre_events,"BS_Jour_Visu","BS_Mois_Visu","BS_Annee_Visu")
+
+	
+			vl_date_f = COM23_Horodate (vl_fenetre_events, "BS_Jour_Visu", "BS_Mois_Visu", "BS_Annee_Visu","BS_Heure_Fin", "BS_Minute_Fin")
+
+
+	
+
+	/*A
+	* Sur selection bouton Annuler
+	* ---------------------------- 
+	*/
+	CASE "BP_Annuler"
+		
+		DB_CTRL_VALUE@(vl_fenetre_events, "BS_Jour_Visu", NULL)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BS_Mois_Visu", NULL)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BS_Annee_Visu", NULL)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BS_Heure_Visu", NULL)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BS_Minute_Visu", NULL)
+		DB_TABLE_CLEAR_DATA@(vl_fenetre_events, "TA_Traces",0,-1)
+
+		
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_1", NULL)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_2", NULL)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_3", NULL)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_4", NULL)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_5", NULL)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_6", NULL)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_7", NULL)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_8", NULL)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BA_9", NULL)
+
+	/* Sur selection bouton Simulation
+	* --------------------------------- 
+	*/
+	CASE "BP_Simulation"
+		NEW_TASK@("ITMA_TRG_Simulation")
+
+
+
+
+	/* Sur selection bouton Quitter
+	* ---------------------------- 
+	*/
+	CASE "BP_Quitter"
+		vl_la_fenetre_est_active = FALSE
+		
+
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TPL_Param_Libelles
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+--------------------------------------------------------------------- */
+  VAR vl_t_titres
+
+/*A
+ * Valuer la table a afficher
+ * --------------------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                   ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)            
+DB_CTRL_VALUE@(va_fenetre, "BS_Jour_Visu", NULL)
+DB_CTRL_VALUE@(va_fenetre, "BS_Mois_Visu", NULL)
+DB_CTRL_VALUE@(va_fenetre, "BS_Annee_Visu", NULL)
+DB_CTRL_VALUE@(va_fenetre, "BS_Heure_Visu", NULL)
+DB_CTRL_VALUE@(va_fenetre, "BS_Minute_Visu", NULL)
+                  '  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :
+* ----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_Recup_Trace (va_fenetre, va_proc, va_debut, va_fin,va_simu)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*   va_proc		: Nom de la procedure stockee a executer
+*   va_type_select    : 
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_Param_Libelles ;
+*
+* FONCTION
+*   creation ou modification d'un libelle predefini.
+*
+--------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j, vl_num_param, vl_num_lib, vl_base, vl_res
+    VAR vl_data, vl_t_titres
+	VAR vm_Trace
+
+vl_base = XDC_BASE_HIS
+
+vl_parametres = null	
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#DATETIME_
+vl_parametres[1].data = va_debut
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#DATETIME_
+vl_parametres[2].data = va_fin
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#BIT_
+vl_parametres[3].data = DB_CTRL_GET_VALUE@(va_fenetre, "BA_1")
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#BIT_
+vl_parametres[4].data = DB_CTRL_GET_VALUE@(va_fenetre, "BA_2")
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = SYB#BIT_
+vl_parametres[5].data = DB_CTRL_GET_VALUE@(va_fenetre, "BA_3")
+vl_parametres[5].output = FALSE
+
+vl_parametres[6].type = SYB#BIT_
+vl_parametres[6].data = DB_CTRL_GET_VALUE@(va_fenetre, "BA_4")
+vl_parametres[6].output = FALSE
+
+vl_parametres[7].type = SYB#BIT_
+vl_parametres[7].data = DB_CTRL_GET_VALUE@(va_fenetre, "BA_5")
+vl_parametres[7].output = FALSE
+
+vl_parametres[8].type = SYB#BIT_
+vl_parametres[8].data = DB_CTRL_GET_VALUE@(va_fenetre, "BA_6")
+vl_parametres[8].output = FALSE
+
+vl_parametres[9].type = SYB#BIT_
+vl_parametres[9].data = DB_CTRL_GET_VALUE@(va_fenetre, "BA_7")
+vl_parametres[9].output = FALSE
+
+vl_parametres[10].type = SYB#BIT_
+vl_parametres[10].data = DB_CTRL_GET_VALUE@(va_fenetre, "BA_8")
+vl_parametres[10].output = FALSE
+
+vl_parametres[11].type = SYB#BIT_
+vl_parametres[11].data = DB_CTRL_GET_VALUE@(va_fenetre, "BA_9")
+vl_parametres[11].output = FALSE
+
+
+vl_parametres[12].type = SYB#INT2_
+vl_parametres[12].data = va_simu
+vl_parametres[12].output = FALSE
+
+vl_resultats = null
+
+	IF COM41_SQL_Procedure_HIS(va_proc,vl_parametres, vl_resultats,C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+
+if vl_resultats.select_results[0] = null
+{
+	INFO_MESSAGE@("Il n'y a pas de données pour cette journée")
+	return
+}
+vm_Trace = null
+vm_Trace = vl_resultats.select_results[0]
+
+/*A  Affichage des libelles du type de libelles choisi */
+
+vl_t_titres[0] = "horodate ",			80	' Titre colonne,taille en pixels
+vl_t_titres[1] = "zone",				100
+vl_t_titres[2] = "scenario",			120
+vl_t_titres[3] = "libelle",			250
+vl_t_titres[4] = "condition",			250
+vl_t_titres[5] = "num_FMC",			70
+vl_t_titres[6] = "cle_FMC",			60
+vl_t_titres[7] = "alerte",			90
+vl_t_titres[8] = "acq_alerte",		75
+vl_t_titres[9] = "station",			75
+vl_t_titres[10] = "sens_station",		75
+vl_t_titres[11] = "simulation",		30
+vl_t_titres[12] = "type",			25
+
+
+
+DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_Traces",0,-1)
+if vm_Trace <> null 
+
+for i = 0 to (array_size@(vm_trace)-1)
+	vm_trace[i][0] = SUBSTRING@(COM18_Date_SGBD_Formatee(vm_trace[i][0]),12)
+next i
+
+
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_Traces", vm_Trace, vl_t_titres)
+
+RETURN (COM_OK)
+
+ENDMACRO
+

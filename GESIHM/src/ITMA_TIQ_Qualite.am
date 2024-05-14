@@ -1,0 +1,100 @@
+/*E*/
+/* Fichier : $Id: ITMA_TIQ_Qualite.am,v 1.7 1998/09/22 13:17:57 gaborit Exp $      Release : $Revision: 1.7 $        Date : $Date: 1998/09/22 13:17:57 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTIQ * FICHIER ITMA_TIQ_Qualite.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   indice qualite
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou 04 jan 1994	: Creation                                         V1.1
+* Torregrossa 07 jul 1995	: Correction erreur de compilation         V1.2
+* Guilhou	27 Sep 1995	: reprise COMPLETE						V1.4
+* Guilhou	27 Sep 1995	: ajout appel XZAQ02					V1.5
+* Guilhou	2_ Mar 1996 	: ajout mise a jour lien externe a l'ouvertue (DEM 849) V1.6
+* Niepceron   	03 Jul 1998 	: Connexion a SQL_HIS (dem/1699) v1.7
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzaq02sp.h"
+
+DEFINE	C_MODULE	"MTIQ"			' Nom du module
+
+DEFINE	C_REP_FICHIER	"/fichiers/syn/"
+DEFINE	C_FICHIER		"INDICE_Q.as"
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TIQ_Qualite (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+ IF COM41_SQL_Procedure_HIS (XZAQ02_Arret_Superv,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+   	INFO_MESSAGE@("Problème lors de la mise à jour de l'indice de qualite")
+}
+
+ CHANGE_PREFS@("dbaseAutoQuery",TRUE)
+
+ /*lancement du tableur*/
+  SS_APPLICATION_DLG@()
+
+  /*ouverture du fichier de calcul de l'indice qualite*/
+  SS_LOAD_FILE@(SYSTEM_VAR@(vg_repertoire_migrazur)++C_REP_FICHIER++C_FICHIER)
+  SS_UPDATE_REFS@()
+
+  /*renommage de ce fichier dans /tmp*/
+  SS_SAVE_AS@("/tmp/"++C_FICHIER,1,2,2)
+
+
+ENDMACRO
+
+

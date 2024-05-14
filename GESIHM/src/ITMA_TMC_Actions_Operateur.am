@@ -1,0 +1,134 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_Actions_Operateur.am,v 1.11 2020/11/03 17:40:15 pc2dpdy Exp $  			  Release :$Revision: 1.11 $ 	   Date : $Date: 2020/11/03 17:40:15 $
+-----------------------------------------------------------------------
+*  GTIE  *  PROJET MIGRAZUR
+-----------------------------------------------------------------------
+*  SOUS-SYSTEM GESIHM
+-----------------------------------------------------------------------
+*  MODULE MTMC  *  Fichier ITMA_TMC_Actions_Operateur.am
+-----------------------------------------------------------------------
+*  DESCRIPTION DU MODULE :
+* regarde s'il y a des actions non terminees pour la fiche operateur
+* courante
+-----------------------------------------------------------------------
+*  HISTORIQUE :
+*
+*  Guilhou	19 dec 1994	1.1	: Création
+* Guilhou	04 sep 1996	1.9	: on ne fait rien au PC simplifie (RADT)
+* Guilhou       23 sep 1996	1.10	: finalement on fait qq chose au PC simplifie (RADT)
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+-----------------------------------------------------------------------
+*/
+
+/*A Déclaration des fichiers à inclure */
+INCLUDE	"dbase_.am"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/xzae16sp.h"
+include	"../../XDMICG/inc/xzaec_ax.h"
+
+
+
+DEFINE	C_MODULE		"MTMC"		' Nom du module
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* regarde s'il y a des actions non terminees pour la fiche operateur
+* courante
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Actions_Operateur ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@        vl_parametres
+VAR FORMAT SQL_Procedure_Result@        vl_resultats
+VAR vl_indice
+VAR FORMAT COM_Identifiant_FMC 		tl_num_evt	
+VAR vl_msg
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+ 	/*B teste les actions associees a la fiche operateur*/
+	vl_indice=0
+	vl_parametres[vl_indice].type = SYB#INT4_     
+	vl_parametres[vl_indice].data= SYSTEM_VAR@(vg_num_fiche_operateur)
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_     
+	vl_parametres[vl_indice].data= SYSTEM_VAR@(vg_cle_fiche_operateur)
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data=SYSTEM_VAR@(vg_numero_poste)
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_     
+	vl_parametres[vl_indice].output = TRUE
+
+/*B Site local */
+        vl_indice = vl_indice +1
+        vl_parametres[vl_indice].type = SYB#CHAR_
+        vl_parametres[vl_indice].data = SYSTEM_VAR@(vg_nom_site)
+        vl_parametres[vl_indice].output = FALSE
+
+	IF COM05_SQL_Procedure (XZAE16_Tester_Achever_FMC,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		vl_msg="Erreur dans la vérification des actions associées"
+	
+		CASE OF vl_resultats.status
+			CASE XDC_NOK
+				vl_msg="Erreur dans la vérification des actions associées"
+
+			CASE XDC_ARG_INV
+				vl_msg="Arguments invalides"
+		ENDCASE
+		INFO_MESSAGE@(vl_msg)
+		RETURN (COM_NOK)
+	}
+
+	/*suivant la valeur du resultat*/
+	CASE OF vl_resultats.return_parameters[0]
+		CASE XDC_OK
+			RETURN (COM_OK)	
+
+		CASE XZAEC_FMC_ACT_NON_FIN
+			vl_msg="Toutes les actions relatives à l'événement ne sont pas terminées"
+			INFO_MESSAGE@(vl_msg)
+			RETURN (COM_NOK)
+
+	ENDCASE
+
+ENDMACRO

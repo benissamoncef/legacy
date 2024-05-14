@@ -1,0 +1,1375 @@
+/* Fichier : $Id: ITMA_TFL_Fiche_Alerte.am,v 1.38 2020/11/03 17:38:15 pc2dpdy Exp $      Release : $Revision: 1.38 $        Date : $Date: 2020/11/03 17:38:15 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TFL * FICHIER ITMA_TFL_Fiche_Alerte.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fiche Alerte.
+*
+*   Cf. DCG 2.4.29
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 28 Nov 1994 : Creation                                        V1.1
+* Lecrivain 27 Dec 1994 : Redimensionnement de la fenetre                 V1.2
+* Guilhou   30 Dec 1994 : reprise sauvegarde en base et evt lie           V1.3
+* Lecrivain 02 Jan 1995 : Utilisation fonction d'appel du synoptique      V1.4
+* Lecrivain 02 Jan 1995 : "Vraie avec traitement" -> "avec creation FMC"  V1.10
+* Lecrivain 27 Avr 1995 : Ouverture FMC si "Vraie avec creation FMC"      V1.11
+* Lecrivain 28 Avr 1995 : Message a MTLL pour supprimer reveil ou alerte  V1.12
+* Lecrivain 02 Mai 1995 : Retablissement supp. alerte Vraie,Fausse,Expl.  V1.13
+* Torregrossa 25 Jan 1995 : modif libelle d'erreur C_LIB_FMC_OUVERTE par
+*                           COM_LIB_FMC_OUVERTE (homogeneiser)            V1.15
+* Torregrossa 01 Fev 1996 : Correction test compte rendu proc XZAA02      V1.16-1.17
+* Guilhou	17 sep 1996 : modif gestion lien cause pour applix 4.2	V1.18
+* Guilhou	03 oct 1997 : liste des FMC cause a le m look que celle des FMC a traiter (ana/65) 1.19
+* Guilhou	12 jan 1998 : la qualif "vrai avec creation FMC" est interdite sur PC niv 3 1.20
+* Mismer	29 jan 1998 : modif pour basculement RAU PC 2 (DEM/1542) 1.21
+* Torregrossa 05 Mar 1998 : Correction pb de connection au serveur en mode degrade      (1581) V1.21
+* Lecrivain	27 fev 2007 : Choix de type FMC avec arg de saisie de la cause (DEM 624) 1.24
+* JPL		31/01/2011 : Envoi message a la fenetre de pilotage rapide pour associer camera (DEM 949)  1.26
+* JMG	04/04/11 : appel PAU virtuel 1.27 DEM 980
+* SDU		10/02/12 : DEM 1015 -Communautaire 
+* JMG		14/04/12 : regulation DEM 1016
+* JMG		21/08/12 : correction clicsur bouton troncon 1.30
+* PNI		22/10/12 : Traitement des alertes méteo des autres district à VD DEM1055 1.31
+* PNI		22/10/12 : Traitement des alertes méteo des autres district à CA DEM1055 1.33
+* JMG	13/12/16 : ajout alerte SAGA conf scenario 1.34
+* LCL	08/12/17 : Ajout filtre alertes Polyvox/Waze pour ne pas renvoyer à tewsc 
+* LCL	23/03/20 : Ajout site local XZAA02 XZAA05 XZAA21 MOVIS DEM-SAE93 1.36
+* CGR	02/03/22 : Ajout cas AVA DEM-SAE367 1.37
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+INCLUDE	"GESIHM/inc/ITMA_TMC.h"
+
+
+INCLUDE	"GESIHM/inc/ITMA_TFL.h"
+INCLUDE	"GESIHM/inc/isyn_svu_applix_ax.h"
+INCLUDE	"GESIHM/inc/xzao212sp.h"
+INCLUDE	"GESIHM/inc/xzaa02sp.h"
+INCLUDE	"GESIHM/inc/xzaa21sp.h"
+INCLUDE	"GESIHM/inc/xzae567sp.h"
+INCLUDE	"GESIHM/inc/xzae569sp.h"
+
+
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzaac_ax.h"
+INCLUDE	"XDMICG/inc/xzaac.h"
+INCLUDE	"XDMICG/inc/xzaec_ax.h"
+INCLUDE	"GESIHM/inc/xzae982sp.h"
+
+INCLUDE	"XDMICG/inc/xzaa05sp.h"
+
+
+
+DEFINE	C_MODULE	"MTFL"			' Nom du module
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+DEFINE	C_LIB_FMC_OUVERTE	"Terminer d'abord la fiche main courante en cours"
+
+
+
+/*A
+ * Definition des libelles des qualificatifs d'alertes
+ * ---------------------------------------------------
+ */
+
+DEFINE	C_LIB_ALT_FAUSSE	"Fausse"
+DEFINE	C_LIB_ALT_VRAIE		"Vraie"
+DEFINE	C_LIB_ALT_VRAIE_TRAIT	"Vraie avec creation FMC"
+DEFINE	C_LIB_ALT_EXPLOITATION	"Exploitation"
+DEFINE  C_LIB_ALT_ACCEPTER_TRAIT "Accepter avec creation FMC"
+DEFINE	C_LIB_ALT_REFUSER	"Refuser"
+DEFINE	C_LIB_ALT_ACCEPTER	"Accepter"
+DEFINE	C_LIB_ALT_ACCEPTER_LIEN	"Evolution de la FMC SAE"
+
+
+
+VAR     vm_l_qualificatifs			' Liste qualificatifs d'alertes
+VAR	tm_liste_causes
+
+VAR	 FORMAT TFL_Donnees_Alerte	vm_alerte
+VAR	vm_id_commu
+VAr vm_type_fmc
+VAR FORMAT COM_Identifiant_FMC vm_evt
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation des informations d'une alerte.
+*  Sur reception d'un message, ajout d'une alerte a la liste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFL_Fiche_Alerte (va_appelant, FORMAT TFL_Donnees_Alerte va_alerte,
+				va_libelle_alerte)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_appelant       : Nom de la macro Applix ayant invoque la presente ;
+*   va_alerte         : Informations sur l'alerte ;
+*   va_libelle_alerte : Libelle de l'alerte a afficher.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTLL
+*
+* FONCTION
+*   Visualise les informations sur une alerte et permet de la qualifier.
+*   Permet d'associer une camera a la localisation de l'alerte.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_alerte			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+    VAR	    FORMAT TFL_Donnees_Alerte vl_alerte
+    VAR     vl_l_lib_qualif			' Liste libelles qualificatifs
+    VAR FORMAT COM_Localisation vl_local_alerte
+    VAR     vl_qualif				' Valeur de qualificatif choisie
+    VAR     vl_qualif_string			' Valeur de qualificatif choisie en string
+    VAR     vl_macro_visu_camera		' Nom du module a appeler
+    VAR FORMAT COM_Identifiant_FMC vl_evt	' Identifiant evenement associe
+    VAR     vl_message				' Message envoye a MTRA ou MTLL
+
+    VAR     vl_statut				' Compte-rendu retourne
+    VAR tl_retour,tl_data,tl_titres
+    VAR vl_index,vl_index2,vl_tel
+    VAR	vl_msg
+    VAR	vl_id_commu,vl_texte,vl_str,vl_type_fmc
+    VAR FORMAT TDO_Type_Astreinte vl_type_astreinte
+    VAR vl_lib_cause
+    VAR vl_buf
+
+    VAR vl_index_slash
+    VAR	vl_index_ava
+    VAR	vl_infos_ava
+    VAR	vl_id_mission
+    VAR	vl_index_colon
+    VAR	vl_infos_fmc_ava
+    VAR	vl_num_fmc_ava
+    VAR	vl_cle_fmc_ava
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+/*ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+*/
+
+/*A
+ * Charger la fenetre "Fiche alerte"
+ * ---------------------------------
+ */
+
+vl_fenetre_alerte = DB_LOAD@ ("ITMA_TFL")
+DB_WINDOW_REMAIN@ (vl_fenetre_alerte, TRUE)
+
+DB_XPOS@ (vl_fenetre_alerte, 0)
+DB_YPOS@ (vl_fenetre_alerte, 93)
+COM27_Agrandir_Fenetre (vl_fenetre_alerte, COM_LARGEUR_FMC, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre_alerte, "ITMA_TFL_Fiche_Alerte")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+/*if (va_alerte.num_type=XZAAC_ALERTe_COMMUNAUTAIRE)*/
+	vl_les_messages_acceptes[1] = COM_CANAL_COMMU
+DB_ACCEPT_POKES@ (vl_fenetre_alerte, vl_les_messages_acceptes)
+
+
+/*A
+ * Initialiser la visualisation (libelle alerte, valeurs de qualification)
+ * -----------------------------------------------------------------------
+ */
+vl_alerte=va_alerte
+
+IF (va_alerte.num_type = XZAAC_ALERTE_COMMUNAUTAIRE) {
+		tl_data=ARRAY_FROM_STRING@(va_alerte.texte, "#")
+		
+		DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Alerte", tl_data[1]++" " ++ tl_data[2] ++ " " ++ va_libelle_alerte)
+		DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Texte_Alerte", tl_data[0]++ " " ++ tl_data[3])
+}
+else if (va_alerte.num_type = XZAAC_ALERTE_REGULATION)  
+	{
+		vl_local_alerte.NumAuto = va_alerte.autoroute
+		vl_local_alerte.PR = va_alerte.PR
+		vl_local_alerte.sens_circulation = va_alerte.sens_circul
+		vl_index=STRING_INDEX@(va_alerte.texte, ":")
+		DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Alerte", 
+		SUBSTRING@(va_alerte.texte, 1, vl_index-1) ++ " " ++
+		COM10_Localisation(vl_local_alerte))
+		vl_tel  = SUBSTRING@(va_alerte.texte, vl_index+1)
+		vl_index2 = STRING_INDEX@(vl_tel, "#")
+		DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Texte_Alerte", 
+		SUBSTRING@(vl_tel, 1, vl_index2-1))
+	}
+else if (va_alerte.num_type = XZAAC_ALERTE_GABEB) {
+	vl_local_alerte.NumAuto = va_alerte.autoroute
+         vl_local_alerte.PR = va_alerte.PR
+           vl_local_alerte.sens_circulation = va_alerte.sens_circul
+	   DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Alerte", va_libelle_alerte)
+	   DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Texte_Alerte", va_alerte.texte)
+}
+else if (va_alerte.num_type = XZAAC_ALERTE_SAGA_SCENARIO)
+{
+	vl_local_alerte.NumAuto = va_alerte.autoroute
+	vl_local_alerte.PR = va_alerte.PR
+	vl_local_alerte.sens_circulation = va_alerte.sens_circul
+	DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Alerte", va_libelle_alerte)
+	tl_data = ARRAY_FROM_STRING@(va_alerte.texte, "#")
+	DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Texte_Alerte", tl_data[2])
+}
+else if (va_alerte.num_type = XZAAC_ALERTE_AVA_POTENTIEL_DOUBLON) {
+	DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Alerte", va_libelle_alerte)
+	DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Texte_Alerte", va_alerte.texte)
+}
+else 
+	{
+		DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Alerte", va_libelle_alerte)
+
+		DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Texte_Alerte", va_alerte.texte)
+	}
+
+DB_CTRL_GRAYED@ (vl_fenetre_alerte, "BP_PAU",
+		    va_alerte.num_type <> XZAAC_APPEL_PAU)
+
+IF (va_alerte.num_type = XZAAC_APPEL_IPHONE) {
+	DB_CTRL_GRAYED@ (vl_fenetre_alerte, "BP_PAU",FALSE)
+	DB_CTRL_TITLE@ (vl_fenetre_alerte, "BP_PAU","Appeler")
+
+/*	vl_local_alerte.numAuto=va_alerte.autoroute_alerte
+	vl_local_alerte.sens_circulation=va_alerte.sens_alerte
+	vl_local_alerte.Pr=va_alerte.PR_alerte
+	DB_CTRL_VALUE@ (vl_fenetre_alerte, "BS_Alerte", COM10_Localisation(vl_local_alerte))*/
+}
+
+IF va_alerte.autoroute = NULL
+    DB_CTRL_GRAYED@ (vl_fenetre_alerte, "BP_Troncon", TRUE)
+if (va_alerte.num_type = XZAAC_ALERTE_REGULATION) {
+	TFL_check_fmc(va_alerte, vl_fenetre_alerte)
+
+}
+else if (va_alerte.num_type = XZAAC_ALERTE_SAGA_SCENARIO) {
+	TFL_check_fmc_saga(va_alerte, vl_fenetre_alerte)
+}
+else {
+
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPE_PCNIVEAU3) {
+/*pas de "vrai avec creation evt*/
+vm_l_qualificatifs = XDC_ALT_VRAIE,
+			XDC_ALT_FAUSSE,
+			XDC_ALT_EXPLOITATION
+vl_l_lib_qualif = C_LIB_ALT_VRAIE,
+		     C_LIB_ALT_FAUSSE,
+		     C_LIB_ALT_EXPLOITATION
+} else {
+		if (va_alerte.num_type = XZAAC_ALERTE_AVA_POTENTIEL_DOUBLON)
+		{
+			vm_l_qualificatifs = XDC_ALT_VRAIE_AVA,
+						XDC_ALT_VRAIE_AVA
+			vl_l_lib_qualif = C_LIB_ALT_ACCEPTER,
+						C_LIB_ALT_ACCEPTER_LIEN
+		}
+		else if (va_alerte.num_type <> XZAAC_ALERTE_REGULATION)  AND
+			(va_alerte.num_type <> XZAAC_ALERTE_GABEB)
+		{
+			vm_l_qualificatifs = XDC_ALT_VRAIE_EVT,
+			                        XDC_ALT_VRAIE,
+			                        XDC_ALT_FAUSSE,
+			                        XDC_ALT_EXPLOITATION
+			vl_l_lib_qualif = C_LIB_ALT_VRAIE_TRAIT,
+			                     C_LIB_ALT_VRAIE,
+			                     C_LIB_ALT_FAUSSE,
+			                     C_LIB_ALT_EXPLOITATION
+		}
+		else if (va_alerte.num_type = XZAAC_ALERTE_GABEB) 
+		{
+			vm_l_qualificatifs = XDC_ALT_VRAIE, XDC_ALT_FAUSSE
+			vl_l_lib_qualif = C_LIB_ALT_ACCEPTER, C_LIB_ALT_REFUSER
+		}
+		else
+		{
+			vm_l_qualificatifs = XDC_ALT_VRAIE,
+			                        XDC_ALT_VRAIE,
+			                        XDC_ALT_FAUSSE,
+			                        XDC_ALT_EXPLOITATION
+			vl_l_lib_qualif = C_LIB_ALT_ACCEPTER_TRAIT,
+			                     C_LIB_ALT_ACCEPTER,
+			                     C_LIB_ALT_REFUSER,
+			                     C_LIB_ALT_EXPLOITATION
+		}
+}
+DB_CTRL_STRINGS@ (vl_fenetre_alerte, "BO_Qualification", vl_l_lib_qualif)
+}
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_alerte, "BO_Qualification",TRUE)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_VALUE@ (vl_fenetre_alerte, "BO_Qualification", 0)
+
+DB_CTRL_DISPLAY@ (vl_fenetre_alerte, "TA_Evenements", FALSE)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+/*    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }*/
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_alerte)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_alerte)
+
+
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+    CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre_alerte)
+	CASE COM_CANAL_COMMU
+		vl_message = DB_GET_POKE_DATA@ (vl_fenetre_alerte)
+
+		if (vm_alerte.num_type=XZAAC_ALERTE_COMMUNAUTAIRE) {
+
+			IF (vl_message[0]=COM_NOK)
+				relancer_alerte(vm_alerte.numero, vm_alerte.sit)
+			else  {
+				TFL_Cree_Commu (vm_alerte,vl_message[1],
+					vl_message[2])
+
+ 				/*Ajouter rapprochement Communautaire*/
+            			vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEl10, vm_id_commu 
+	          		DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+         			vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEl11, vm_id_commu  
+							++ MTAR_CAR_SEPAR ++ vl_message[1] ++
+								MTAR_CAR_SEPAR ++ vl_message[2] ++
+								MTAR_CAR_SEPAR ++ "NonDefini"
+         			DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+				vl_la_fenetre_est_active=FALSE		
+			}	
+		}
+
+		IF (vl_message[0]=COM_OK) {
+			vl_evt.numero=vl_message[1]
+			vl_evt.cle=vl_message[2]
+
+	   		vl_statut=TFL_Archiver_Alerte (vm_alerte.numero, XDC_ALT_VRAIE_EVT,
+				 vm_alerte.sit, 
+				vl_evt,vm_alerte.num_type,vm_alerte.texte,vm_alerte.num_equip)
+
+			IF vl_statut = TFL_RET_DIFFERE {
+				vl_message = va_alerte.numero, "REVEIL_OFF"
+				DB_SEND_POKE@ (COM_CANAL_MTLL_MODIF, vl_message)
+			} ELSE {
+				/*B sinon supprimer l'alerte de la liste */
+				vl_message = va_alerte.numero, "SUPPRIMER"
+				DB_SEND_POKE@ (COM_CANAL_MTLL_MODIF, vl_message)
+			}
+
+		}
+		vl_la_fenetre_est_active=FALSE		
+
+	CASE COM_CANAL_FIN
+	    vl_message = va_alerte.numero, "REVEIL_OFF"
+	    DB_SEND_POKE@ (COM_CANAL_MTLL_MODIF, vl_message)
+	    vl_la_fenetre_est_active = FALSE
+	ENDCASE
+
+
+    /*A
+     * Sur choix "Quitter" informer la liste alertes
+     * que le traitement de cette alerte est differe
+     * ---------------------------------------------
+     */
+    CASE "BP_Quitter"
+	vl_message = va_alerte.numero, "REVEIL_OFF"
+	DB_SEND_POKE@ (COM_CANAL_MTLL_MODIF, vl_message)
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur choix "PAU", activer le module MTRA
+     * ---------------------------------------
+     */
+
+    CASE "BP_PAU"
+	IF (va_alerte.num_type = XZAAC_APPEL_PAU) {
+	IF COM21_Tache_De_La_Macro ("ITMA_TRA_Commander_RAU") = NULL {
+	    NEW_TASK@ ("ITMA_TRA_Commander_RAU", "ITMA_TFL_Fiche_Alerte",
+			va_alerte.num_equip, va_alerte.num_type, va_alerte.sit)
+	} ELSE {
+	    vl_message = va_alerte.num_equip, va_alerte.num_type
+	    DB_SEND_POKE@ (COM_CANAL_MTRA,
+				ARRAY_TO_STRING@ (vl_message, COM_SEPAR_CHAMPS))
+	}
+	}
+        ELSE IF (va_alerte.num_type = XZAAC_APPEL_IPHONE) {
+           vl_type_astreinte.numero=0
+           vl_type_astreinte.nom=""
+           vl_index = STRING_INDEX@(va_alerte.texte,"TEL");
+		vl_index2= STRING_INDEX@(va_alerte.texte,"ABOUTI");
+		IF (vl_index2<>0)
+			vl_tel="0"++SUBSTRING@(va_alerte.texte,vl_index+4)
+		ELSE
+			vl_tel=SUBSTRING@(va_alerte.texte,vl_index+4)
+           NEW_TASK@ ("ITMA_TAT_Appel_Telephonique",
+                                "ITMA_TFA_Fiche_Annuaire",
+                                vl_tel, 1584,"",XDC_BIP_INCONNU,vl_type_astreinte)
+	}
+
+
+	/*A choix d'une qualification*/
+	CASE "BO_Qualification"
+	    vl_qualif = DB_CTRL_GET_VALUE@(vl_fenetre_alerte,"BO_Qualification")
+	    vl_qualif = vm_l_qualificatifs[vl_qualif]
+	
+	    IF (vl_qualif = XDC_ALT_VRAIE_AVA)
+	    {
+		DB_CTRL_GRAYED@(vl_fenetre_alerte,"BP_lier_fmc",TRUE)
+		vl_evt=null
+		DB_CTRL_TITLE@(vl_fenetre_alerte,"LI_evt_lie",null)
+	    }
+	    ELSE IF (vl_qualif=XDC_ALT_VRAIE)
+	    {
+		if (va_alerte.num_type <> XZAAC_ALERTE_REGULATION)  AND
+			(va_alerte.num_type <> XZAAC_ALERTE_SAGA_SCENARIO)
+			DB_CTRL_GRAYED@(vl_fenetre_alerte,"BP_lier_fmc",FALSE)
+		else if (va_alerte.num_type = XZAAC_ALERTE_REGULATION) {
+	    		vl_evt = vm_evt
+			vl_type_fmc = vm_type_fmc
+			vl_lib_cause = FORMAT@ ("N%s %2s %10s",
+						vm_evt.numero,
+						vm_evt.cle,
+						"Regulation")
+	    		DB_CTRL_TITLE@ (vl_fenetre_alerte, "LI_evt_lie", vl_lib_cause)
+		}
+	    }
+	    ELSE if (va_alerte.num_type <> XZAAC_ALERTE_SAGA_SCENARIO)
+	    {
+		DB_CTRL_GRAYED@(vl_fenetre_alerte,"BP_lier_fmc",TRUE)
+		vl_evt=null
+		DB_CTRL_TITLE@(vl_fenetre_alerte,"LI_evt_lie",null)
+	    }
+	
+		
+ 	/*B appui sur le bouton lier fmc*/
+	CASE "BP_lier_fmc"
+	    MACRO_WINS_BUSY@()
+
+	    /*B on lance la tache de recherche d'evt cause*/
+	    tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+					"ITMA_TFL_Fiche_Alerte")
+
+	    tm_liste_causes=tl_data[0]
+	    /*B affiche la liste des evts a traiter*/
+	    DB_CTRL_DISPLAY@(vl_fenetre_alerte,"TA_Evenements",TRUE)
+	    DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_alerte,"TA_Evenements",TRUE)
+		DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre_alerte, "TA_Evenements", 25)
+	    tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+	    tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+	    tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+	    tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+	    tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+	    DB_TABLE_SET_DATA@(vl_fenetre_alerte,"TA_Evenements",tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_alerte, "TA_Evenements", 0, tl_data[2])
+		
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+	    MACRO_WINS_BUSY@()
+	    tl_retour=ITMA_COM_Validite_Cause("ITMA_TFL_Fiche_Alerte",
+						vl_fenetre_alerte,
+						tm_liste_causes)
+	    vl_evt = tl_retour[0]
+		vl_type_fmc = tl_retour[3]
+	    DB_CTRL_TITLE@ (vl_fenetre_alerte, "LI_evt_lie",  tl_retour[1])
+		
+
+    /*A
+     * Sur choix "Troncon", rechercher le(s) troncon(s) d'appartenance
+     * du PR et en demander l'affichage sur le synoptique
+     * ---------------------------------------------------------------
+     */
+
+    CASE "BP_Troncon"
+	TFL_Visualiser_Troncon_Alerte (va_alerte.autoroute, va_alerte.PR, va_alerte.sit)
+
+
+    /*A
+     * Sur choix "Associer Camera", activer le module MTCA
+     * ---------------------------------------------------
+     */
+
+    CASE "BP_Associer_Camera"
+	DB_SEND_POKE@ (COM_CANAL_MTCA_RAPIDE, { "ITMA_TFL_Fiche_Alerte",
+	                                        va_alerte.autoroute,
+	                                        va_alerte.PR,
+	                                        va_alerte.PR,
+	                                        va_alerte.sens_circul })
+
+
+    /*A
+     * Sur choix "Valider", si l'alerte est qualifiee "Vraie avec traitement",
+     * verifier qu'aucune fiche main courante n'est ouverte et si c'est le cas
+     * archiver l'alerte et terminer en retournant le compte-rendu adequat
+     * -----------------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	vl_qualif = DB_CTRL_GET_VALUE@ (vl_fenetre_alerte, "BO_Qualification")
+	vl_qualif_string = vl_l_lib_qualif[vl_qualif]
+	vl_qualif = vm_l_qualificatifs[vl_qualif]
+
+	if (va_alerte.num_type=XZAAC_ALERTE_COMMUNAUTAIRE)
+	{
+		vl_texte = va_alerte.texte
+		vl_index = STRING_INDEX@(vl_texte, "#")
+		if (vl_index>=0)
+		{
+			vl_buf = SUBSTRING@(vl_texte, 1, vl_index -1)
+			if (STRING_INDEX@(vl_buf, XDC_PREFIXE_ALERTE_POLYVOX)>=0)
+			{
+				vl_id_commu = SUBSTRING@(vl_buf, LEN@(XDC_PREFIXE_ALERTE_POLYVOX)+2, LEN@(vl_buf)-LEN@(XDC_PREFIXE_ALERTE_POLYVOX)-1)
+				vl_id_commu = -vl_id_commu
+				/* On met a jour le texte de l'alerte sans le prefixe */
+				vl_texte=SUBSTRING@(vl_texte,    LEN@(XDC_PREFIXE_ALERTE_POLYVOX)+2,  LEN@(vl_texte)-LEN@(XDC_PREFIXE_ALERTE_POLYVOX)-1)
+				vl_alerte.texte=vl_texte
+			}
+			else
+				vl_id_commu = vl_buf
+		}
+	}
+	ELSE IF (va_alerte.num_type = XZAAC_ALERTE_AVA_POTENTIEL_DOUBLON)
+	{
+		vl_str = NULL
+		vl_texte = va_alerte.texte
+
+		vl_index_slash = STRING_INDEX@(vl_texte, "/")
+		vl_index_ava = STRING_INDEX@(vl_texte, "AVA")
+		vl_infos_ava = ARRAY_FROM_STRING@( SUBSTRING@(vl_texte, vl_index_ava + 4), " ")
+		vl_id_mission = vl_infos_ava[0]
+
+		vl_index_colon = STRING_INDEX@(vl_texte, ":")
+		vl_infos_fmc_ava = ARRAY_FROM_STRING@( SUBSTRING@(vl_texte, vl_index_colon + 6), "/")
+		vl_num_fmc_ava = vl_infos_fmc_ava[0]
+
+		vl_cle_fmc_ava = SUBSTRING@(vl_texte, vl_index_slash + 1, 2)
+		IF (vl_qualif_string = C_LIB_ALT_ACCEPTER)
+		{
+			vl_str = vl_id_mission ++ " " ++ vl_num_fmc_ava ++ " " ++ vl_cle_fmc_ava ++ " 0 " ++ va_alerte.numero ++ " " ++ va_alerte.sit
+		}
+		ELSE IF (vl_qualif_string = C_LIB_ALT_ACCEPTER_LIEN)
+		{
+			vl_str = vl_id_mission ++ " " ++ vl_num_fmc_ava ++ " " ++ vl_cle_fmc_ava ++ " 1 " ++ va_alerte.numero ++ " " ++ va_alerte.sit
+		}
+
+		vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_AVA_RETOUR_ALERTE, vl_str
+      		DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+	}
+
+	IF (vl_qualif = XDC_ALT_VRAIE_EVT OR vl_qualif = XDC_ALT_VRAIE_AVA)
+	{
+	    IF SYSTEM_VAR@ (vg_fmc_ouverte)
+	     	ERROR@ (C_ERR_IHM, COM_LIB_FMC_OUVERTE)
+	    ELSE
+	    {
+	       vl_la_fenetre_est_active = FALSE
+	    }
+	}
+	ELSE IF vl_qualif = XDC_ALT_VRAIE 
+	{
+
+	    /*A
+	     * sinon si l'alerte est qualifiee "Vraie", 
+	     * verifier qu'un evenement lui est associee
+	     * si oui archiver l'alerte et terminer
+	     * -----------------------------------------
+	     */
+	    IF (vl_evt=null) and (vm_evt=null) and (va_alerte.num_type <> XZAAC_ALERTE_GABEB)
+	    {
+		vl_la_fenetre_est_active=TRUE	
+	    }
+	    ELSE
+	    {
+		if (va_alerte.num_type=XZAAC_ALERTE_COMMUNAUTAIRE){
+				TFL_Cree_Commu (vl_alerte,vl_evt.numero,
+					vl_evt.cle)
+			if (vl_id_commu>0) {
+            		vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEl10, vl_id_commu           
+				DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+
+				if vl_type_fmc = XZAEC_FMC_QueueBouchon
+					vl_str="Bouchon"
+				else if vl_type_fmc = XZAEC_FMC_Accident
+					vl_str="Accident"
+				else if vl_type_fmc = XZAEC_FMC_Obstacle
+					vl_str="PresenceObstacleSurChaussee"
+				else if vl_type_fmc = XZAEC_FMC_VehArrete
+					vl_str="VehiculeArrete"
+				else if vl_type_fmc = XZAEC_FMC_ChausseeGliss
+					vl_str="ChausseeGlissante"
+				else if vl_type_fmc = XZAEC_FMC_Meteo
+					vl_str="VisibiliteReduite"
+				else
+				vl_str = "Autre"
+				vl_str = "NonDefini"	
+
+		            vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEl11, vl_id_commu ++ MTAR_CAR_SEPAR++ vl_evt.numero ++  MTAR_CAR_SEPAR ++ vl_evt.cle ++
+			MTAR_CAR_SEPAR++	vl_str
+      			DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+			}
+		vl_la_fenetre_est_active = FALSE
+	    }
+		vl_la_fenetre_est_active = FALSE
+	    }
+	} 
+	ELSE IF vl_qualif = XDC_ALT_FAUSSE
+	{
+	    vl_la_fenetre_est_active = FALSE
+		if (va_alerte.num_type=XZAAC_ALERTE_COMMUNAUTAIRE){
+
+	   if (vl_id_commu > 0) {
+           vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEl12, vl_id_commu ++ MTAR_CAR_SEPAR++ XDC_COMMU_FAUSSE_ALERTE 
+           DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+	  }
+	}
+	}
+	ELSE IF vl_qualif = XDC_ALT_EXPLOITATION
+	{
+	    vl_la_fenetre_est_active = FALSE
+ 		if (va_alerte.num_type=XZAAC_ALERTE_COMMUNAUTAIRE){
+	  if (vl_id_commu > 0) {
+          vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEl12, vl_id_commu ++
+			MTAR_CAR_SEPAR ++ XDC_COMMU_ESSAI 
+           DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+	   }
+	}
+	}
+	ELSE
+	{
+
+	    /*A
+	     * sinon archiver l'alerte "Fausse" ou "Exploitation" et terminer
+	     * --------------------------------------------------------------
+	     */
+
+	    vl_la_fenetre_est_active = FALSE
+	}
+
+	IF NOT vl_la_fenetre_est_active
+	{
+		vl_statut=COM_OK
+	    /*B archive l'alerte*/
+	/*	if (va_alerte.num_type=XZAAC_ALERTE_COMMUNAUTAIRE){*/
+			if (vl_qualif<> XDC_ALT_VRAIE_EVT) {
+	    		vl_statut=TFL_Archiver_Alerte (vl_alerte.numero, vl_qualif, 		
+						va_alerte.sit, vl_evt,va_alerte.num_type,vl_alerte.texte,va_alerte.num_equip)
+			}
+/*		}*/
+
+	    /*B si ca s'est mal passe laisser l'alerte, sans reveil */
+	    IF (vl_qualif<> XDC_ALT_VRAIE_EVT) {
+			IF vl_statut = TFL_RET_DIFFERE {
+				vl_message = va_alerte.numero, "REVEIL_OFF"
+				DB_SEND_POKE@ (COM_CANAL_MTLL_MODIF, vl_message)
+			} ELSE {
+				/*B sinon supprimer l'alerte de la liste */
+				vl_message = va_alerte.numero, "SUPPRIMER"
+				DB_SEND_POKE@ (COM_CANAL_MTLL_MODIF, vl_message)
+			}
+		}
+			
+	    /*B et si l'alerte est a traiter ouvrir une FMC */
+  	    IF va_alerte.num_type <> XZAAC_ALERTE_AVA_POTENTIEL_DOUBLON AND vl_qualif = XDC_ALT_VRAIE_EVT/* AND vl_statut <> TFL_RET_DEJA_TRAITER */{
+			NEW_TASK@("TFL_cree_fmc",va_alerte.numero, va_alerte.sit, vl_alerte,vl_id_commu)
+			vm_alerte=vl_alerte
+			vm_id_commu=vl_id_commu
+			vl_la_fenetre_est_active=true
+		}
+		
+ 	}
+	if (va_alerte.num_type=XZAAC_ALERTE_COMMUNAUTAIRE) and vl_qualif = XDC_ALT_VRAIE_EVT AND vl_statut <> TFL_RET_DEJA_TRAITER and
+				vl_objet_selecte = "BP_valider" {
+				vl_la_fenetre_est_active=true
+	}
+
+	
+   ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Demande de visualisation du troncon alerte sur le synoptique.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFL_Visualiser_Troncon_Alerte (va_num_autoroute, va_PR, va_site)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_num_autoroute   : Numero de l'autoroute ;
+*  va_PR              : PR localisant l'alerte.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFL_Fiche_Alerte
+*
+* FONCTION
+*   Recherche en base de donnees le(s) troncon(s) d'appartenance du PR de
+*   l'alerte, puis demande l'affichage du premier troncon trouve sur le
+*   synoptique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_index
+	VAR vl_site
+	VAR tl_sites
+
+	tl_sites = SYSTEM_VAR@(vg_les_districts)
+  vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tl_sites,0),va_site)
+  vl_site = tl_sites[vl_index][1]
+
+NEW_TASK@("COM54_ExecSynoptiqueFlash", CM_AFFICH_VUE, "|"++vl_site ++
+					"|"++va_num_autoroute++"|"++va_PR)
+IF NEW_TASK@ ("COM28_Exec_Synoptique",
+		 CM_AFFICH_VUE, vl_site) <> COM_OK
+    RETURN (COM_NOK)
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Archive une alerte.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFL_Archiver_Alerte (va_num_alerte, va_qualif_alerte, va_site_alerte,
+				FORMAT COM_Identifiant_FMC va_evt,va_type,va_texte,va_equipement)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_alerte     : Numero de l'alerte ;
+*   va_qualif_alerte  : Identifiant du qualificatif de l'alerte ;
+*   va_site_alerte    : site de l'alerte ;
+*   va_evt            : Identifiant de l'evenement associe.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFL_Fiche_Alerte
+*
+* FONCTION
+*   Archive l'alerte d'identifiant indique et son evenement associe.
+*
+---------------------------------------------------------------------------- */
+
+    VAR vl_site, vl_les_districts, vl_nom_site_alerte,vl_numero_site_alerte 
+    VAR vl_canal
+    VAR vl_indice
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR vl_nom_proc
+	VAR vl_msg
+
+vl_site = SYSTEM_VAR@(vg_site)
+vl_les_districts = SYSTEM_VAR@(vg_les_districts)
+
+/* si on est au CI alors se connecter sur le site de l'alerte */
+/* rechercher le nom du site de l'alerte */
+vl_indice = ARRAY_INDEX@(ARRAY_COLUMN@(vl_les_districts, TDO_NUMERO_DISTRICT), va_site_alerte)
+vl_nom_site_alerte = vl_les_districts[vl_indice][TDO_CODE_DISTRICT]
+vl_numero_site_alerte = vl_les_districts[vl_indice][TDO_NUMERO_DISTRICT]
+
+COM01_Trace(COM_DEBUG1,"Acq vl_site = "++vl_site++" vl_nomsite_alerte :"++vl_nom_site_alerte)
+IF (vl_site = XDC_CI  and vl_nom_site_alerte <> XDC_NOM_SITE_CI) 
+{
+    /*on se connecte a la base du PC et on acheve la fiche*/
+    vl_canal = COM43_SQL_CONNECT (vl_nom_site_alerte)
+	if IS_NULL@(vl_canal)
+		RETURN (TFL_RET_DIFFERE)
+
+    SQL_CHANNEL_MASTER@ (vl_canal, 0)
+    SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,vl_canal)
+}
+
+vl_parametres[0].type = TFL_Identifiant_Alerte
+vl_parametres[0].data = va_num_alerte
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFL_Identifiant_Qualif_Alerte
+vl_parametres[1].data = va_qualif_alerte
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Numero_Evenement
+vl_parametres[2].data = va_evt.numero
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Cle_Evenement
+vl_parametres[3].data = va_evt.cle
+vl_parametres[3].output = FALSE
+
+/* MOVIS ajout site local */
+vl_parametres[4].type = SYB#CHAR_
+vl_parametres[4].data = vl_nom_site_alerte
+vl_parametres[4].output = FALSE
+
+IF va_type<>XZAAC_APPEL_IPHONE and va_type<>XZAAC_ALERTE_COMMUNAUTAIRE
+vl_nom_proc = XZAA02_Archiver_Alerte
+else
+vl_nom_proc =XZAA21_Archiver_Alerte_Localisee
+
+IF (vl_site = XDC_CI  and vl_nom_site_alerte <> XDC_NOM_SITE_CI) 
+{
+COM01_Trace(COM_DEBUG1,"Acq COM39 vl_site = "++vl_site++" vl_nomsite_alerte :"++vl_nom_site_alerte)
+IF COM39_SQL_Procedure_PCS (vl_nom_proc,
+		   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+	SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+	SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+	RETURN (TFL_RET_DIFFERE)
+}
+}
+ELSE 
+IF  (vl_site = XDC_VD and vl_nom_site_alerte <> XDC_NOM_SITE_VD) or (vl_site = XDC_VC and vl_nom_site_alerte <> XDC_NOM_SITE_VC) /*DEM1055+DEM1079*/
+{
+COM01_Trace(COM_DEBUG1,"Execution de "++vl_nom_proc++" sur :"++vl_numero_site_alerte)
+IF COM41_SQL_Procedure_Distante_New (vl_numero_site_alerte,vl_nom_proc,
+		   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+	RETURN (TFL_RET_DIFFERE)
+}
+}
+ELSE 
+{
+COM01_Trace(COM_DEBUG1,"Acq COM05 vl_site = "++vl_site++" vl_nomsite_alerte :"++vl_nom_site_alerte)
+IF COM05_SQL_Procedure (vl_nom_proc,
+		   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+	RETURN (TFL_RET_DIFFERE)
+}
+}
+/*si alerte regulation*/
+if va_type=XZAAC_ALERTE_REGULATION {
+vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEL13, vl_nom_site_alerte ++
+		MTAR_CAR_SEPAR ++ va_equipement ++ MTAR_CAR_SEPAR ++ va_qualif_alerte ++ MTAR_CAR_SEPAR ++ va_num_alerte ++ 
+	MTAR_CAR_SEPAR ++ va_texte
+DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+}
+else if va_type = XZAAC_ALERTE_SAGA_SCENARIO {
+vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_XZEL14, 
+		MTAR_CAR_SEPAR ++ va_qualif_alerte ++ MTAR_CAR_SEPAR ++ va_texte
+DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+}
+else if (va_type=XZAAC_ALERTE_GABEB) {
+vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_GABEB, vl_nom_site_alerte ++
+		MTAR_CAR_SEPAR ++ va_equipement ++ MTAR_CAR_SEPAR ++ va_qualif_alerte ++ MTAR_CAR_SEPAR ++ va_num_alerte ++
+				MTAR_CAR_SEPAR ++ va_texte
+				DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+}
+
+/*A si l'alerte est deja traitee*/
+IF (vl_resultats.status=XZAAC_DEJA_TRT)
+{
+'	INFO_MESSAGE@("Alerte deja traitee")	
+RETURN (TFL_RET_DEJA_TRAITER)
+}
+
+/* se deconnecter du serveur distant */
+IF (vl_site = XDC_CI  and vl_nom_site_alerte <> XDC_NOM_SITE_CI) 
+{
+SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+}
+
+RETURN (TFL_RET_VALIDE)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  procedure de creation de fiche main courante
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFL_cree_fmc (va_numeroAlerte, va_site_alerte, FORMAT TFL_Donnees_Alerte  va_args_msg,va_id_commu)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLL_Liste_Alertes
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+'   VAR vl_typeEvt
+VAR vl_ficheCreee
+VAR vl_site, vl_les_districts, vl_nom_site_alerte
+VAR vl_canal
+VAR vl_indice
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR vl_message
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAr vl_msg
+var vl_texte, vl_texte2, vl_index, vl_id_commu
+VAR FORMAT TMC_fmc_a_creer vl_typeEvt
+VAR FORMAT COM_Identifiant_FMC vl_evt	' Identifiant evenement associe
+
+if (va_args_msg.num_type=XZAAC_ALERTE_REGULATION)
+	vl_typeEvt.type=XZAEC_FMC_Regulation 
+else if (va_args_msg.num_type<>XZAAC_ALERTe_COMMUNAUTAIRE)
+	vl_typeEvt=PEND_FOR_NEW_TASK@("ITMA_TMC_choix_type_fmc",
+				 "ITMA_TLL_Liste_Alertes", TRUE)
+else {
+vl_index = STRING_INDEX@(va_args_msg.texte, "#")
+if (vl_index>=0)
+	vl_id_commu = SUBSTRING@(va_args_msg.texte, vl_index+1)
+vl_index = STRING_INDEX@(vl_id_commu, "#")
+	vl_texte = SUBSTRING@(vl_id_commu, 1, vl_index-1)
+
+	vl_texte2 = vl_texte
+	if (vl_texte="Bouchon")
+		vl_typeEvt.type = XZAEC_FMC_QueueBouchon
+	else if (vl_texte="Accident")
+		vl_typeEvt.type = XZAEC_FMC_Accident
+	else if (vl_texte="Obstacle")
+		vl_typeEvt.type = XZAEC_FMC_Obstacle
+	else if (vl_texte="VehiculeArrete")
+		vl_typeEvt.type = XZAEC_FMC_VehArrete
+	else if (vl_texte="ChausseeGlissante")
+		vl_typeEvt.type = XZAEC_FMC_ChausseeGliss
+	else if (vl_texte="VisibiliteReduite")
+		vl_typeEvt.type= XZAEC_FMC_Meteo
+	else{
+		vl_typeEvt.type = XZAEC_FMC_VehArrete
+		vl_texte2 = "VehiculeArrete"
+	}
+}
+	
+
+
+	IF (vl_typeEvt<>null)
+{
+	  /*! ATTENTION : l'appelant est sense etre MTLL et non MTFL !!! */
+	if (va_args_msg.num_type<>XZAAC_ALERTe_COMMUNAUTAIRE) {
+	      vl_ficheCreee=PEND_FOR_NEW_TASK@ ("ITMA_TMC_Fiche_Main_Courante",
+			   "ITMA_TLL_Liste_Alertes",
+				vl_typeEvt,
+				 3,
+				XDC_FMC_ETAT_TRAI,
+				va_args_msg)
+		IF (vl_typeEvt=null) OR (vl_ficheCreee=COM_NOK)
+			relancer_alerte(va_numeroAlerte, va_site_alerte)
+	}
+	else
+	      vl_ficheCreee=NEW_TASK@ ("ITMA_TMC_Fiche_Main_Courante",
+			   "ITMA_TLL_Liste_Alertes",
+				vl_typeEvt,
+				 3,
+				XDC_FMC_ETAT_TRAI,
+				va_args_msg)
+			
+}
+
+endmacro
+
+MACRO relancer_alerte(va_numeroAlerte, va_site_alerte)
+VAR vl_canal
+VAR vl_indice
+VAR vl_site, vl_nom_site_alerte
+VAr vl_les_districts
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR vl_message
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+/*sinon je relance l'alerte si vl_typeEvt ou ficheCreee nul*/
+	vl_site = SYSTEM_VAR@(vg_site)
+	vl_les_districts = SYSTEM_VAR@(vg_les_districts)
+	
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = va_numeroAlerte
+	vl_parametres[0].output = FALSE
+
+	/* rechercher le nom du site de l'alerte */
+	vl_indice = ARRAY_INDEX@(ARRAY_COLUMN@(vl_les_districts, TDO_NUMERO_DISTRICT), va_site_alerte)
+	vl_nom_site_alerte = vl_les_districts[vl_indice][TDO_CODE_DISTRICT]
+
+	/* MOVIS ajout site local */
+	vl_parametres[1].type = SYB#CHAR_
+	vl_parametres[1].data = vl_nom_site_alerte
+	vl_parametres[1].output = FALSE
+
+	/* si on est au CI alors se connecter sur le site de l'alerte */
+	IF vl_site = XDC_CI and vl_nom_site_alerte<>XDC_NOM_SITE_CI
+	{
+		/*on se connecte a la base du PC et on acheve la fiche*/
+		vl_canal = COM43_SQL_CONNECT (vl_nom_site_alerte)
+		IF NOT IS_NULL@ (vl_canal)
+		{
+			SQL_CHANNEL_MASTER@ (vl_canal, 0)
+			SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,vl_canal)
+
+			COM39_SQL_Procedure_PCS(XZAA05_Relancer_Alerte,
+					vl_parametres, vl_resultats, C_MODULE)	
+
+				SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+				SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+			}
+		}
+		ELSE
+		{
+			COM05_SQL_Procedure(XZAA05_Relancer_Alerte,
+					vl_parametres, vl_resultats, C_MODULE)	
+		}
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  creation d un evt communautaire.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFL_Cree_Commu (FORMAT TFL_Donnees_Alerte  va_alerte,va_numero,va_cle)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFL_Fiche_Alerte
+*
+* FONCTION
+*   Recherche en base de donnees le(s) troncon(s) d'appartenance du PR de
+*   l'alerte, puis demande l'affichage du premier troncon trouve sur le
+*   synoptique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var tl_data
+
+/*A
+ * Lire en base de donnees le(s) troncon(s) d'appartenance du PR
+ * -------------------------------------------------------------
+ */
+tl_data=ARRAY_FROM_STRING@(va_alerte.texte, "#")
+
+
+vl_parametres[0].type = SYB#INT4_
+vl_parametres[0].data = va_numero
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_cle
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT4_
+vl_parametres[2].data = tl_data[0]
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#INT4_
+vl_parametres[3].data = tl_data[4]
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#INT4_
+vl_parametres[4].data = tl_data[5]
+vl_parametres[4].output = FALSE
+
+IF COM05_SQL_Procedure (XZAE982_Insert_Commu,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  creation d un evt communautaire.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFL_check_FMC (FORMAT TFL_Donnees_Alerte  va_alerte, va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFL_Fiche_Alerte
+*
+* FONCTION
+*   Recherche en base de donnees le(s) troncon(s) d'appartenance du PR de
+*   l'alerte, puis demande l'affichage du premier troncon trouve sur le
+*   synoptique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	var vl_num,vl_cle
+	var tl_data
+	var vl_l_lib_qualif	
+	var vl_lib_cause
+
+vl_parametres[0].type = SYB#INT4_
+vl_parametres[0].data = va_alerte.num_equip
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT4_
+vl_parametres[1].output = TRUE
+
+vl_parametres[2].type = SYB#INT4_
+vl_parametres[2].output = TRUE
+
+IF COM05_SQL_Procedure (XZAE567_FMC_regul_Sur_Zone,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+vl_num= vl_resultats.select_results[0][0][0]
+vl_cle= vl_resultats.select_results[0][0][1]
+
+if (vl_num >0) {
+vm_l_qualificatifs = XDC_ALT_VRAIE,
+                        XDC_ALT_FAUSSE
+                        
+vl_l_lib_qualif = C_LIB_ALT_ACCEPTER,
+                     C_LIB_ALT_REFUSER
+                    
+vm_evt.numero=vl_num
+vm_evt.cle=vl_cle
+vm_type_fmc=XZAEC_FMC_Regulation
+
+			vl_lib_cause = FORMAT@ ("N%s %2s %10s",
+						vm_evt.numero,
+						vm_evt.cle,
+						"Regulation")
+	    		DB_CTRL_TITLE@ (va_fenetre, "LI_evt_lie", vl_lib_cause)
+
+}
+else if (STRING_INDEX@(va_alerte.texte,"Panne de PRV critique") > 0) {
+	vm_l_qualificatifs[0] =XDC_ALT_FAUSSE
+	vl_l_lib_qualif[0] = C_LIB_ALT_REFUSER
+}
+else {
+vm_l_qualificatifs = XDC_ALT_VRAIE_EVT,
+                        XDC_ALT_FAUSSE
+vl_l_lib_qualif = C_LIB_ALT_ACCEPTER_TRAIT,
+                     C_LIB_ALT_REFUSER
+                     
+}
+DB_CTRL_STRINGS@ (va_fenetre, "BO_Qualification", vl_l_lib_qualif)
+
+DB_CTRL_DISPLAY@(va_fenetre, "BP_Troncon", true)
+DB_CTRL_DISPLAY@(va_fenetre, "BP_Associer_Camera", true)
+DB_CTRL_DISPLAY@(va_fenetre, "BP_PAU", true)
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFL_check_FMC_saga (FORMAT TFL_Donnees_Alerte  va_alerte, va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFL_Fiche_Alerte
+*
+* FONCTION
+*   Recherche en base de donnees le(s) troncon(s) d'appartenance du PR de
+*   l'alerte, puis demande l'affichage du premier troncon trouve sur le
+*   synoptique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	var vl_num,vl_cle
+	var tl_data
+	var vl_l_lib_qualif	
+	var vl_lib_cause
+
+	tl_data = ARRAY_FROM_STRING@(va_alerte.texte, "#")
+
+vl_parametres[0].type = SYB#INT4_
+vl_parametres[0].data = tl_data[0] /*numero action*/ 
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = va_alerte.sit
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT4_
+vl_parametres[2].output = TRUE
+
+vl_parametres[3].type = SYB#INT4_
+vl_parametres[3].output = TRUE
+
+vl_parametres[4].type = SYB#CHAR_
+vl_parametres[4].output = TRUE
+
+IF COM05_SQL_Procedure (XZAE569_FMC_scenario_SAGA,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+vl_num= vl_resultats.select_results[0][0][0]
+vl_cle= vl_resultats.select_results[0][0][1]
+
+vm_l_qualificatifs = XDC_ALT_VRAIE,
+                        XDC_ALT_FAUSSE
+                        
+vl_l_lib_qualif = C_LIB_ALT_ACCEPTER,
+                     C_LIB_ALT_REFUSER
+                    
+vm_evt.numero=vl_num
+vm_evt.cle=vl_cle
+/*vm_type_fmc=XZAEC_FMC_Regulation*/
+
+			vl_lib_cause = FORMAT@ ("N%s %2s %10s",
+						vm_evt.numero,
+						vm_evt.cle,
+						vl_resultats.select_results[0][0][2])
+	    		DB_CTRL_TITLE@ (va_fenetre, "LI_evt_lie", vl_lib_cause)
+
+DB_CTRL_STRINGS@ (va_fenetre, "BO_Qualification", vl_l_lib_qualif)
+
+DB_CTRL_DISPLAY@(va_fenetre, "BP_Troncon", false)
+DB_CTRL_DISPLAY@(va_fenetre, "BP_Associer_Camera", false)
+DB_CTRL_DISPLAY@(va_fenetre, "BP_PAU", false)
+RETURN (COM_OK)
+
+ENDMACRO

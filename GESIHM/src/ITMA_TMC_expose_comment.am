@@ -1,0 +1,133 @@
+/*E*/
+/*Fichier : $Id: ITMA_TMC_expose_comment.am,v 1.14 1996/01/30 12:49:32 gaborit Exp $      Release : $Revision: 1.14 $        Date : $Date: 1996/01/30 12:49:32 $
+------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------
+* MODULE MTMC * FICHIER ITMA_TMC_Fiche_Main_Courante.am
+------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Fiche de consultation et de mise a jour des operations
+* et evenements.
+*
+*  Cf. DCG §2.4.52
+*
+------------------------------------------------------
+* HISTORIQUE :
+*
+* Torregrossa	15 Nov  1995  : Modif horodate pour version Applix 4.1 (1.13)
+* Torregrossa 30 Jan 1996 : ajout des secondes aux commentaires V1.14
+------------------------------------------------------*/
+include	"dbase_.am"
+include 	"../inc/ITMA_COM.h"
+include 	"../inc/ITMA_TDO.h"
+include	"../../XDMICG/inc/xdc_ax.h"
+include	"../inc/ITMA_TAR.h"
+include	"../../XDMICG/inc/xzic_ax.h"
+include	"../inc/ITMA_TMC.h"
+
+
+define MODE_CREATION 	0
+define MODE_MODIF	1
+define MODE_CLOS	2
+
+
+
+/*X*/
+/*------------------------------------------------------
+* SERVICE RENDU : 
+* affiche le texte du commentaire
+*
+------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_expose_comment(FORMAT TMC_comment ta_comment,va_indice,
+					FORMAT COM_Identifiant_FMC ta_num_evt,va_mode)
+
+/*
+* ARGUMENTS EN ENTREE :
+* ta_comment: liste des commentaires
+* va_indice: position de l'element a visualiser
+*
+* ARGUMENTS EN SORTIE :
+* nouveau commentaire
+*
+* CODE RETOUR : 
+* aucun
+*
+*
+*
+---------------------------------------------------------*/
+VAR vl_fenetre
+VAR vl_evt
+VAR vl_horodate
+VAR FORMAT TMC_comment vl_comment
+VAR FORMAT TMC_comment tl_comment
+VAR tl_texte
+VAR vl_site
+
+	IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+		vl_site=SYSTEM_VAR@(vg_site_surcharge)
+	ELSe
+		vl_site=SYSTEM_VAR@(vg_site)
+
+	/*A affichage de la fenetre*/
+	vl_fenetre=DB_LOAD@("ITMA_TMC_comment")
+	DB_XPOS@(vl_fenetre,517)
+	DB_YPOS@(vl_fenetre,677)
+
+	/*A recupere le commentaire a visualiser*/
+	tl_comment=ta_comment
+	vl_comment=tl_comment[va_indice]
+
+	/*A affichage du texte du commentaire*/
+	DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+	DB_DISPLAY@(vl_fenetre)
+	tl_texte=ARRAY_FROM_STRING@(vl_comment.texte,MTAR_CAR_SEPAR)
+	DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_comment",tl_texte)
+
+	IF ((vl_comment.fin<>null) AND (vl_comment.fin<>XDC_DATE_NULLE) AND
+	   (vl_comment.fin<>"")) OR (va_mode=MODE_CLOS) OR
+	   (vl_comment.site<>vl_site)
+		DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",TRUE)
+	DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+	WHILE 1
+		DB_DISPLAY@(vl_fenetre)
+
+		/*A attente d'un evenement*/
+		vl_evt=DB_EXIT_CTRL@(vl_fenetre)
+
+		/*A suivant l'evenement*/
+		CASE OF vl_evt
+			/*A bouton quitter*/
+			CASE "BP_quitter"
+				RETURN (ta_comment)
+
+			/*A bouton valider*/
+			CASE "BP_valider"
+				/*A recupere l'heure courante et la formate*/
+				vl_horodate=COM09_Date_Courante(TRUE)
+
+				vl_comment.fin=vl_horodate
+
+				/*A sauvegarde en base*/
+				IF (va_mode<>MODE_CREATION)
+					IF (ITMA_TMC_valide_comment(vl_comment,
+									vl_horodate,
+									ta_num_evt)<>COM_OK)
+						RETURN (ta_comment)
+
+				/*A ajout du commentaire a la liste existante*/
+				tl_comment[va_indice]=vl_comment
+
+				RETURN(tl_comment)
+		ENDCASE
+	WEND
+ENDFUNCTION
+
+
+

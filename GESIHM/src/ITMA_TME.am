@@ -1,0 +1,362 @@
+/*E*/
+/* Fichier : $Id: ITMA_TME.am,v 1.3 1996/11/29 11:21:40 gaborit Exp $      Release : $Revision: 1.3 $        Date : $Date: 1996/11/29 11:21:40 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TCV * FICHIER ITMA_TME.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Boite de dialogue pour l'ihm distant du système meteo.
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Niepceron 07 Oct 1996	: Creation   (dem/1229)                           V1.1
+* Niepceron 12 Nov 1996	: Creation   (dem/1229)                           V1.3
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTME"				' Nom du module
+DEFINE	C_FICH_IHM_DIST	"../fichiers/util/IHMdistantes.param"	'fichier de param des commandes 
+
+DEFINE	C_LANCE_CMDE		"../fichiers/util/lance_cmde.sh"
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+DEFINE	POS_LIB		0
+DEFINE	POS_FAM		1
+DEFINE	POS_CMD		2
+DEFINE	POS_SIT		3
+
+
+FORMAT	FORM_Commande
+		Libelle,						' Nom station
+		Commande
+
+VAR  FORMAT FORM_Commande   tm_commandes				' Liste des commandes
+VAR  vm_poste	'machine
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  IHM distante du systeme meteo.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TME (va_appelant, va_arg1)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+**
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option Application -> IHM distante
+*
+* FONCTION
+*   Permet d'executer les commandes contenues dans le fichier ../fichiers/util/IHMdistantes.param
+*
+---------------------------------------------------------------------------- */
+
+	VAR   vl_fenetre				' Nom de la fenetre du module
+	VAR   vl_objet_selecte			' L'objet courant de la fenetre
+    VAR   vl_les_messages_acceptes		' Pour reception de signaux
+	VAR    vl_la_fenetre_est_active
+	VAR    vl_installer_traitement_erreur
+	VAR    vl_status
+	VAR    vl_liste
+	VAR    vl_commande
+	VAR   vl_les_objets				' Noms des objets de la fenetre
+	VAR    vl_indice_commande
+	VAR    vl_sortie
+
+
+
+vm_poste = SYSTEM_VAR@ (vg_poste)
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A si on est pas sur le site du CI, on sort */
+/*vl_site = SYSTEM_VAR@(vg_site)
+if vl_site <> XDC_CI
+	RETURN(COM_OK)
+*/
+/*A
+ * Determiner l'origine de l'invocation et le type de courbe a visualiser
+ * ----------------------------------------------------------------------
+ */
+
+
+/*A
+ * Charger la fenetre "Configuration des sorties des commandes"
+ * -------------------------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TME")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TME")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BP_Quitter", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BP_Executer", TRUE)
+
+/*A
+ * Lire et afficher  la liste des commandes
+ * --------------------------------------------------------
+ */
+ 
+vl_status = TME_Lire_Commandes(vl_fenetre, vl_indice_commande)
+IF vl_status = COM_NOK
+	info_message@("Impossible de lire le fichier des Commandes ")
+
+
+
+vl_liste = ARRAY_COLUMN@ (tm_commandes, 0)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "BL_Commandes", TRUE)
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_Commandes", vl_liste)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Commandes", -1)
+DB_CTRL_GRAYED@(vl_fenetre,"BP_Executer", TRUE)
+vl_commande = NULL
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> C_ERR_IHM
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY_ONLY@ (vl_fenetre,FALSE)
+    DB_DISPLAY@ (vl_fenetre)
+    DB_DISPLAY_ONLY@ (vl_fenetre,TRUE)
+
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "timer_"  AND vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+   CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+    /*A
+    * Sur choix dans "BL_Commandes", rechercher le numero de commande,
+    * la lancer, et quitter 
+     * ----------------------------------------------------------------
+     */
+
+    CASE "BL_Commandes"
+	vl_indice_commande = DB_CTRL_GET_VALUE@ (vl_fenetre, vl_objet_selecte)
+	DB_CTRL_GRAYED@(vl_fenetre,"BP_Executer", FALSE)
+
+
+    /*A
+    * Sur choix dans "BL_Commandes", lancer la commande selectionee et quitter 
+     * ----------------------------------------------------------------
+     */
+
+	CASE "BP_Executer"
+
+		/* remplacement de XHOSTNAMEX par le nom du poste dans a cmde */
+		vl_commande =REPLACE_SUBSTR@(tm_commandes[vl_indice_commande].Commande, 
+				"XHOSTNAMEX",vm_poste)
+
+		/* lancement de la commande */
+       	RUN_PROGRAM@(C_LANCE_CMDE ++ " " ++ vl_commande , 			 
+					"/tmp/trace_ITMA_TME.log" , "/tmp/erreurs_ITMA_TME.log" )
+		vl_la_fenetre_est_active = FALSE
+
+		vl_objet_selecte = NULL
+
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit et memorise le fichier des commande 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TME_Lire_Commandes (va_fenetre, va_indice_commande)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre        : Id. de la fenetre contenant les valeurs saisies ;
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TME
+*
+* FONCTION
+*   Recuperer les lib et commandes diu fichiers IHM_distantes.param
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_indice
+    VAR     vl_taille
+    VAR     vl_site
+    VAR     vl_filtre
+    VAR     vl_insere
+
+    VAR     tl_menu_array
+    VAR     tl_familles
+    VAR     tl_items
+    
+    
+	tm_commandes=NULL
+	tl_menu_array=null
+	/*A lecture du fichier des commandes */
+	tl_menu_array = READ_ASCII_FILE@ (C_FICH_IHM_DIST)
+
+
+	vl_site = SYSTEM_VAR@(vg_nom_site)
+	tl_familles = SYSTEM_VAR@ (vg_familles)
+
+        /* on commence par filtrer les elements de menu*/
+	/* (la premiere ligne du fichier est ignoree) */
+	FOR  vl_indice=0 TO (ARRAY_SIZE@(tl_menu_array)-1)
+	   /*A je transforme chaque ligne en un tableau*/
+	   IF ( SUBSTRING@( tl_menu_array[vl_indice] , 1, 1) <> "#" )  {
+		tl_items=ARRAY_FROM_STRING@(tl_menu_array[vl_indice],"|")
+
+		/*A je commence par regarder la presence d'un filtre*/
+		IF (tl_items[POS_SIT]<>NULL)
+			vl_filtre=ARRAY_FROM_STRING@(tl_items[POS_SIT],";")
+		ELSE
+			vl_filtre=NULL
+
+		IF (vl_filtre<>NULL) {
+			/*mon site est-il dans le filtre*/
+			IF (ARRAY_INDEX@(vl_filtre,vl_site)<>-1)
+				vl_insere=TRUE
+			ELSE
+			IF (ARRAY_INDEX@(vl_filtre,vm_poste)<>-1)
+				vl_insere=TRUE
+			ELSE
+				vl_insere=FALSE
+		}
+		ELSE
+			vl_insere=TRUE
+			
+			
+		IF (vl_insere=TRUE) {
+		/*A
+		* je regarde si sa famille correspond au profil,
+		*/
+		IF  (tl_familles[tl_items[POS_FAM]])
+			vl_insere=TRUE
+	        ELSE
+			vl_insere=FALSE
+		 }
+	        	
+		IF (vl_insere=TRUE) {
+			IF (tm_commandes=NULL) {
+				tm_commandes[0].Libelle=tl_items[POS_LIB]
+				tm_commandes[0].Commande=tl_items[POS_CMD]
+			}
+			ELSE {
+				vl_taille=ARRAY_SIZE@(tm_commandes)		
+				tm_commandes[vl_taille].Libelle=tl_items[POS_LIB]
+				tm_commandes[vl_taille].Commande=tl_items[POS_CMD]
+		 	}
+		}
+	   }
+	NEXT vl_indice
+
+
+RETURN (COM_OK)
+
+ENDFUNCTION
+

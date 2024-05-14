@@ -1,0 +1,525 @@
+/*E*/
+/* Fichier : $Id: ITMA_TEP_Etat_De_Poste.am,v 1.22 2012/10/16 11:43:35 gesconf Exp $	Release : $Revision: 1.22 $        Date : $Date: 2012/10/16 11:43:35 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TEP * FICHIER ITMA_TEP_Etat_De_Poste.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Saisie et consultation des motifs d'appel.
+*
+*   Cf. DCG 2.4.25
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	30 Aug 1994	: Creation					V1.1
+* Guilhou		14 oct 1994	: inclusion fichiers _ax.h		V1.5
+* Lecrivain	17 Oct 1994	: Decomposition horodate par fonction   V1.6
+* Lecrivain	17 Oct 1994	: Traiter un "poke_" en verrouillage IHM   V1.7
+* Guilhou	23 dec 1994	: ajout aide composition de l'heure        V1.10
+* Lecrivain	27 Dec 1994	: Redimensionnement de la fenetre          V1.11
+* Fournel		02 Jan 1995	: Ajout de la macro MTEP01_Etat_De_Poste V1.12
+* Noel		16 Jan 1995	: Recreation car un destroy a eu lieu + modifs integration ANALYSE et CREATION
+* Gaborit		06 Sep 1995	: modif largeur colonnes
+* Torregrossa	13 Nov 1995	: Modif horohelp pour version 4.1 Applix	V1.15
+* Torregrossa	12 Fev 1996	: Ajout impression	V1.16
+* Niepceron	11 Oct 1996	: IHM10:fenetre de saisie permanente (dem/1235) 	V1.17
+* Guilhou	16 dec 1996 	: afficher horodate courante sur selection motif appel (dem/1351) 1.18
+* Niepceron   03 Jul 1998 : Connexion a SQL_HIS (dem/1699) v1.6
+* Niepceron	21 Jan 1999	: decalage vers le bas de la fenetre pour demasquer  les icones (1727) 1.48
+* PNI 	16/10/12        : recalage de la position de la fenetre pour ecran 16/9 Linux 1.22
+
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE "../inc/ITMA_TEP_Etat_De_Poste.h"
+
+INCLUDE	"../inc/xzal02sp.h"			' Pour enregistr. motif d'appel
+INCLUDE	"../../XDMICG/inc/xzal04sp.h"			' Pour lire les motifs d'appels
+
+
+
+DEFINE	C_MODULE		"MTEP"			' Nom du module
+DEFINE	C_MODELE_TEP	"ITMA_TEP_motifs"	' Nom du modele d'impression
+
+
+
+VAR FORMAT TDO_Motif_Appel vm_t_motifs_appel	' Table des motifs d'appel
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Affichage de la liste des motifs d'appel.
+*  Saisie et enregistrement d'un motif d'appel.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TEP_Etat_De_Poste (va_appelant, va_mode)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*	mode 		: Mode de fonctionnement : analyse ou création
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*   Lit en base de donnees et affiche la liste des motifs d'appel d'un usager.
+*   Permet a l'operateur de saisir une date et heure d'appel puis
+*    - d'enregistrer un motif d'appel avec le motif selectionne et la date ;
+*    - de rechercher un motif d'appel avec la date et l'heure saisies.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_etat_poste		' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_motif				' Rang du motif d'appel selecte
+    VAR     vl_date				' Date sous forme de chaine
+	VAR		vl_date2					'date sous forme de tableau
+	VAR		vl_fichier		
+    VAR 	 vl_string
+	VAR tl_titres,tl_data
+	VAR		vl_indice				'indice de boucle
+	VAR		vl_nombre				
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Etat de Poste"
+ * ----------------------------------
+ */
+
+IF (va_mode = CM_ANALYSE)
+{
+vl_fenetre_etat_poste = DB_LOAD@ ("ITMA_TEP")
+} ELSE
+IF (va_mode = CM_CREATION)
+{
+vl_fenetre_etat_poste = DB_LOAD@ ("ITMA_TEP_Saisie")
+}
+
+DB_WINDOW_REMAIN@ (vl_fenetre_etat_poste, TRUE)
+
+IF (va_mode = CM_ANALYSE)
+{
+DB_XPOS@ (vl_fenetre_etat_poste, 0)
+DB_YPOS@ (vl_fenetre_etat_poste, 105)
+COM27_Agrandir_Fenetre (vl_fenetre_etat_poste, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+} ELSE
+IF (va_mode = CM_CREATION)
+{
+DB_XPOS@ (vl_fenetre_etat_poste, 514)
+DB_YPOS@ (vl_fenetre_etat_poste, 398)
+}
+IF (GET_ENV_VAR@("RTARCH")<>"hp700_hpux")
+BEGIN
+DB_XPOS@ (vl_fenetre_etat_poste, 572)
+DB_YPOS@ (vl_fenetre_etat_poste, 390)
+END
+
+COM02_Attacher_Aide (vl_fenetre_etat_poste, "ITMA_TEP_Etat_De_Poste")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_etat_poste, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre_etat_poste, "BS_Jour_Appel", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_etat_poste, "BS_Mois_Appel", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_etat_poste, "BS_Annee_Appel", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_etat_poste, "BS_Heure_Appel", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_etat_poste, "BS_Minute_Appel", COM_CHIFFRES)
+
+Db_DISPLAY_ONLY@ (vl_fenetre_etat_poste,TRUE)
+Db_DISPLAY@ (vl_fenetre_etat_poste)
+/*B Si mode analyse afficher la liste des resultats */
+IF (va_mode = CM_ANALYSE)
+{
+	tl_titres[0]="Heure",70
+	tl_titres[1]="Motif",250
+	tl_titres[2]="Nombre",70
+	DB_CTRL_DISPLAY@ (vl_fenetre_etat_poste, "BL_Motifs_Appel", FALSE)
+	DB_CTRL_DISPLAY@ (vl_fenetre_etat_poste, "TA_appels", TRUE)
+	DB_CTRL_DISPLAY@ (vl_fenetre_etat_poste, "BP_Rechercher", TRUE)
+	DB_CTRL_DISPLAY@ (vl_fenetre_etat_poste, "BP_Enregistrer", FALSE)
+	DB_TABLE_SET_DATA@ (vl_fenetre_etat_poste, "TA_appels",null,tl_titres,null)
+	DB_CTRL_TITLE@(vl_fenetre_etat_poste, "LI_Horodate_Appel", "Jour analysé")
+	DB_CTRL_DISPLAY@(vl_fenetre_etat_poste, "BS_Heure_Appel", FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre_etat_poste, "BS_Minute_Appel", FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre_etat_poste, "LI_Deux_Points", FALSE)
+} ELSE
+IF (va_mode = CM_CREATION)
+{
+	DB_CTRL_VALUE@ (vl_fenetre_etat_poste, "BL_Motifs_Appel", -1)
+	DB_CTRL_DISPLAY@ (vl_fenetre_etat_poste, "BL_Motifs_Appel", TRUE)
+	DB_CTRL_DISPLAY@ (vl_fenetre_etat_poste, "BP_Enregistrer", TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre_etat_poste, "BS_Heure_Appel", TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre_etat_poste, "BS_Minute_Appel", TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre_etat_poste, "LI_Deux_Points", TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre_etat_poste, "BS_Nombre", TRUE)
+	DB_CTRL_VALUE@ (vl_fenetre_etat_poste, "BS_Nombre", 1)
+	DB_CTRL_TITLE@(vl_fenetre_etat_poste, "LI_Horodate_Appel", "Horodate d'appel")
+     DB_CTRL_VALID_CHARS@(vl_fenetre_etat_poste, "BS_Nombre", COM_CHIFFRES)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_etat_poste, "BL_Motifs_Appel", TRUE)
+}
+Db_DISPLAY_ONLY@ (vl_fenetre_etat_poste,FALSE)
+
+
+/*A
+ * Initialiser les donnees a visualiser (date et liste des motifs d'appel)
+ * -----------------------------------------------------------------------
+ */
+/*B Si mode creation */
+IF (va_mode = CM_CREATION)
+{
+	IF TEP_Init_Motifs_Appel (vl_fenetre_etat_poste) <> COM_OK
+    	RETURN
+}
+
+	
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_NON_SAISI AND
+	   ERROR_NUMBER@() <> COM_ERR_DATE_INVAL
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_etat_poste)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_etat_poste)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_etat_poste)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+    CASE "BL_Motifs_Appel"
+	 /*A recupere l'heure courante et la formate*/
+	 COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre_etat_poste,"BS_Jour_Appel",
+				"BS_Mois_Appel","BS_Annee_Appel",
+				"BS_Heure_Appel","BS_Minute_Appel")
+
+    /*A bouton aide a la composition de l'horodate*/
+    CASE "BP_horohelp"
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(),vl_fenetre_etat_poste,"BS_Jour_Appel",
+				"BS_Mois_Appel","BS_Annee_Appel",
+				"BS_Heure_Appel","BS_Minute_Appel")
+
+    /*A
+     * Sur choix "Imprimer", Impression des donnees affichees
+     * ------------------------------------------------------
+     */
+
+    CASE "BP_Imprimer"
+	tl_data = DB_TABLE_GET_DATA@(vl_fenetre_etat_poste,"TA_appels") 
+	IF (tl_data = null)
+		INFO_MESSAGE@("Pas de motifs d'appels à imprimer")
+	ELSE {
+		/*A ecrire le texte dans un fichier*/
+		WP_APPLICATION_DLG@(NULL, TRUE)
+		WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+					COM_SOUS_REP_IHM ++ C_MODELE_TEP ++ ".aw")
+
+		vl_date = COM23_Horodate (vl_fenetre_etat_poste, "BS_Jour_Appel",
+				     "BS_Mois_Appel", "BS_Annee_Appel",
+				     "BS_Heure_Appel", "BS_Minute_Appel")
+		WP_SET_DOC_VAR@("horodate",vl_date)
+		WP_SET_DOC_VAR@("motifs", tl_data)
+
+		vl_fichier = C_MODELE_TEP  ++ "_" ++ SYSTEM_VAR@(vg_numero_poste)
+		COM36_Imprimer_Texte(vl_fichier)
+	}
+
+   /*A
+     * Sur choix "Enregistrer", lire le motif selectionne
+     * et l'horodate d'appel, puis enregistrer un appel
+     * --------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	vl_motif = DB_CTRL_GET_VALUE@ (vl_fenetre_etat_poste, "BL_Motifs_Appel")
+	IF vl_motif < 0
+	    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "Motif d'appel")
+
+	vl_date=COM23_Horodate(vl_fenetre_etat_poste,
+							"BS_Jour_Appel", "BS_Mois_Appel", "BS_Annee_Appel",
+							"BS_Heure_Appel", "BS_Minute_Appel")
+
+	vl_nombre=DB_CTRL_GET_VALUE@ (vl_fenetre_etat_poste, "BS_Nombre")
+	IF vl_nombre > 0 {
+		TEP_Enregistrer_Appel (vl_date, vm_t_motifs_appel[vl_motif].numero, vl_nombre)
+		
+	DB_CTRL_VALUE@ (vl_fenetre_etat_poste, "BL_Motifs_Appel", -1)
+	DB_CTRL_VALUE@ (vl_fenetre_etat_poste, "BS_Nombre", 1)
+	
+	DB_CTRL_VALUE@ (vl_fenetre_etat_poste, "BS_Jour_Appel","")
+	DB_CTRL_VALUE@ (vl_fenetre_etat_poste, "BS_Mois_Appel","")
+	DB_CTRL_VALUE@ (vl_fenetre_etat_poste, "BS_Annee_Appel","")
+	DB_CTRL_VALUE@ (vl_fenetre_etat_poste, "BS_Heure_Appel","")
+	DB_CTRL_VALUE@ (vl_fenetre_etat_poste, "BS_Minute_Appel","")
+	
+	} 
+	ELSE
+	    ERROR@ (COM_ERR_NON_SAISI, "Nombre Invalide", "Motif d'appel")
+
+
+    /*A
+     * Sur choix "Rechercher", lire l'horodate de recherche,
+     * lancer la macro de consultation d'etat de poste et terminer
+     * -----------------------------------------------------------
+     */
+
+    CASE "BP_Rechercher"
+	vl_date = COM23_Horodate (vl_fenetre_etat_poste, "BS_Jour_Appel",
+				     "BS_Mois_Appel", "BS_Annee_Appel",
+				     "BS_Heure_Appel", "BS_Minute_Appel")
+	tl_data = null
+	DB_TABLE_CLEAR_DATA@(vl_fenetre_etat_poste,"TA_appels", 0, -1) 
+	tl_data=MTEP01_Etat_De_Poste (vl_fenetre_etat_poste,vl_date)
+	FOR vl_indice=0 TO ARRAY_SIZE@(tl_data)-1
+		vl_date2 = COM19_Date_SGBD_Eclatee(tl_data[vl_indice][0])
+		tl_data[vl_indice][0] = vl_date2[3] ++ " : " ++ vl_date2[4]
+	NEXT vl_indice
+	IF (tl_data<>null)
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre_etat_poste,"TA_appels",tl_data,0) 
+    ENDCASE
+WEND
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recherche la liste des appels classes par type.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO MTEP01_Etat_De_Poste (va_fenetre,va_date)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_date       : date de recherche.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TEP_Etat_De_Poste
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = SYB#DATETIME_
+vl_parametres[0].data = va_date
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#DATETIME_
+vl_parametres[1].output = TRUE
+
+vl_parametres[1].type = SYB#CHAR_
+vl_parametres[1].output = TRUE
+
+vl_parametres[1].type = SYB#INT4_
+vl_parametres[1].output = TRUE
+
+IF COM41_SQL_Procedure_HIS (	XZAL04_Lire_Motif_Appel,vl_parametres, vl_resultats, C_MODULE) <> COM_OK {
+
+    RETURN (COM_NOK)
+}
+RETURN (vl_resultats[0][0])
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des motifs d'appel a partir des informations contenues
+*  en base de donnees.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TEP_Init_Motifs_Appel (va_fenetre)
+
+
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TEP_Etat_De_Poste
+*
+* FONCTION
+*   Determine la date et l'heure courantes et les affiche ;
+*   Initialise les valeurs de la liste des motifs d'appel a partir des donnees
+*   figurant dans le module global.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_l_motifs				' Liste motifs d'appel affichee
+
+
+/*A
+ * Valuer la liste des motifs d'appel a afficher
+ * ---------------------------------------------
+ */
+
+vm_t_motifs_appel = SYSTEM_VAR@(vg_les_motifs_appel)
+
+vl_l_motifs = ARRAY_COLUMN@ (vm_t_motifs_appel, TDO_NOM_MOTIF_APPEL)
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Motifs_Appel", vl_l_motifs)
+
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Enregistre l'appel avec la date et le motif donnes en parametres
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TEP_Enregistrer_Appel (va_horodate_appel, va_numero_motif,va_nombre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_horodate_appel : Horodate de l'appel ;
+*   va_numero_motif   : Identifiant du motif d'appel.
+*   va_nombre		  : nombre d'appel.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TEP_Etat_De_Poste
+*
+* FONCTION
+*   Execute simplement la requete SGBD adequate pour enregistrer l'appel.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+vl_parametres[0].type = SYB#DATETIME_
+vl_parametres[0].data = va_horodate_appel
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Motif_Appel
+vl_parametres[1].data = va_numero_motif
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = va_nombre
+vl_parametres[2].output = FALSE
+
+IF COM41_SQL_Procedure_HIS (XZAL02_Enregistrer_Motif_Appel,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK {
+    RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO

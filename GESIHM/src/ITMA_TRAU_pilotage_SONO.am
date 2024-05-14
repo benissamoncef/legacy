@@ -1,0 +1,2106 @@
+/*E*/
+/* Fichier : $Id: ITMA_TRAU_pilotage_SONO.am,v 1.12 2021/06/29 07:43:48 pc2dpdy Exp $      Release : $Revision: 1.12 $        Date : $Date: 2021/06/29 07:43:48 $
+------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE MTPM * FICHIER  ITMA_TRAU_pilotage_SONO.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de pilotage de la sonorisation des PAU
+*
+*
+------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* CGR	02/04/21	: Creation SONO PAU 1.1 DEM-SAE244
+* LCL	03/06/21	: Correction appel depuis le PA 
+* PNI	08/06/21	: correction sens dans appel XZAC905
+* LCL	09/06/21	: Correct PR km 
+* LCL 	10/06/21	: Fix retour sur appel TPA 1.5
+* LCL	10/06/21	: Mise a jour des PAU pilotes et PAU erreur 1.6
+* LCL 	29/06/21	: Correction erreur index tableau incorrect dans Commande de fin 1.7
+-------------------------------------------------------------------- */
+
+
+/*A Description des modules a inclures 
+* ------------------------------------ */
+INCLUDE	"dbase_.am"
+
+INCLUDE	"XDMICG/inc/xdc_ax.h"
+INCLUDE	"XDMICG/inc/xzic_ax.h"
+INCLUDE "XDMICG/inc/xzaec.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+INCLUDE	"GESIHM/inc/ITMA_TRA.h"
+INCLUDE "../inc/xzat067sp.h"
+INCLUDE "../inc/xzap86sp.h"
+INCLUDE "../inc/xzac892sp.h"
+INCLUDE "../inc/xzac905sp.h"
+INCLUDE "../inc/xzac906sp.h"
+INCLUDE "../inc/xzae66sp.h"
+INCLUDE "../inc/xzao907sp.h"
+INCLUDE "../inc/xzao223sp.h"
+
+FORMAT TM_Localisation_FMC
+	autoroute,		' numero autoroute
+	sens,
+	pr
+
+ /*A Description des procedures stockees a appeler
+* ------------------------------------------------ */
+
+
+/*A Declaration des variables globales 
+* ------------------------------------ */
+/*A Item de la fenetre du module
+*/
+var 	vl_fenetre_TRAU
+
+VAR     FORMAT TDO_Autoroute            tm_autoroutes
+VAR     FORMAT TDO_Sens_Circulation     tm_sens
+VAR					tm_messages
+VAR					tm_messages_valides
+
+DEFINE COL_LIB_MESSAGE		3
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Commande le pilotage de la sonorisation des PAU
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRAU_pilotage_SONO(va_appelant, va_1, va_2, va_3, va_4, va_5)
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 a va_4		: Suivant la procedure d'appel
+*
+*	Trois appels possibles:
+*
+*		ITMA_TPA	<Numero plan d'action>	<Numero d'ordre>
+*
+*			^			^				^
+*			|			|				|
+*			|		Numero FMC		Numero cle FMC	
+*			|
+*			|
+*		Appel depuis le plan d'action
+*
+*
+*
+*		ITMA_TMT
+*
+*			^
+*			|
+*		Appel depuis le menu textuel --> Menu Piloter --> Sonorisation
+*
+*
+*		ITMA_TMC
+*
+*			^
+*			|
+*		Appel depuis la liste des actions d une FMC
+*
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant resultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> Sonoristaion dans MTMT
+*
+* FONCTION
+*    Pilote la sonorisation des PAU
+*
+--------------------------------------------------------------------- */
+
+/*A Declaration des variables */
+/*A ------------------------- */
+
+/*A Variables secondaires ou de travail */
+/*A ----------------------------------- */
+
+var FORMAT	TMC_actionFiche		vl_FicheAction
+var FORMAT	TM_Localisation_FMC	vl_localisation
+
+var	vl_Poste		' Le nom de la machine
+var	vl_fenetre_active	' flag de fenetre active
+var	vl_controle_sortie	' flag de sortie
+var	vl_erreur		' flag d'erreur
+var	i,j,vl_mess		' index de loop
+var	vl_rang			' rang de la selection dans la liste
+var	vl_abt_panneau		' flag d'abonnement des panneaux
+var	vl_fmc			' libelle fmc a construire
+var	vl_lib_fmc		' tableau du libelle fmc a construire
+var	vl_cpt			' compte-rendu
+var	tl_data,tl_retour	' param. table evenements
+var	tl_titres		' titre evenements
+var	vl_appel		' appelant
+var	vl_Nummachine		' n° de la machine
+var	vl_NumAction		' Numero d'action
+var	vl_mode_formation	' Mode Formation
+var	tl_liste_causes
+var	vl_text			' text en edition
+var	vl_index
+
+var	vl_choix_district
+var	vl_current_district	' district selectionne
+var	vl_liste_districts	' liste des districts
+var	vl_numeros_autoroutes	' liste des numeros d autoroutes
+var	vl_rang_autoroute	' rang autoroute selectionnee
+var	vl_autoroute		' numero d autoroute
+var	vl_nom_autoroute	' nom de l autoroute
+var	vl_rang_sens		' rang sens selectionne
+var	vl_sens			' sens
+var	vl_noms_sens		' liste des noms des sens
+var	vl_pr_debut		' pr debut
+var	vl_pr_fin		' pr fin
+var	vl_rang_message		' rang message selectionne
+var	vl_message		' libelle message selectionne
+var	vl_verif_debut		' boolean
+var	vl_verif_fin		' boolean
+
+/*A Variables principales */
+/*A --------------------- */
+
+/*A Numero du district
+*/
+var	vl_district
+
+/*A Messages acceptes dans la boucle principale
+*/
+var	vl_messages_acceptes
+
+/*A Nom du site en cours
+*/
+var	vl_NomSite
+
+/*A Nom de l'operateur
+*/
+var	vl_NomOperateur
+
+/*A Mode de retour du plan d'action
+*/
+var	vl_mode_PA
+
+/*A Mode automatique
+*/
+var 	vm_auto
+
+/*A Structure infos SONO
+*/
+var	FORMAT TRA_Etat_SONO_RAU	 vl_SONO
+var tl_data2
+VAR vl_select
+
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+VAR 	vl_data
+
+/*A MAJ des variables statiques */
+
+vl_district 	= SYSTEM_VAR@(vg_site)
+vl_liste_districts = SYSTEM_VAR@(vg_les_districts)
+vl_NomSite 	= SYSTEM_VAR@(vg_nom_site)
+vl_mode_formation = (SYSTEM_VAR@ (vg_formation) <> NULL)
+vl_poste 	= SYSTEM_VAR@(vg_numero_operateur)
+vl_abt_panneau	= FALSE
+vl_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vl_Nummachine 	= SYSTEM_VAR@(vg_numero_poste)
+vl_NomOperateur = SUBSTRING@(vl_NomOperateur, 1, 25)
+vl_mode_PA 	= COM_QUITTE
+vl_appel	= SUBSTRING@(va_appelant,1,8)
+
+
+/*B trace du debut du traitement */
+vl_text = "------------------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = " Start ITMA_TRAU_pilotage_SONO   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+vl_text = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_text)
+
+if NOT(IS_ARRAY@(va_1))
+{	vl_text = "va_1 : " ++ va_1
+	COM01_Trace(0,vl_text)}
+else 
+{	vl_text = "va_1  est un tableau"
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_2))
+{	vl_text = "va_2 : " ++ va_2
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_3))
+{	vl_text = "va_3 : " ++ va_3
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_4))
+{	vl_text = "va_4 : " ++ va_4
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_5))
+{	vl_text = "va_5 : " ++ va_5
+	COM01_Trace(0,vl_text)
+}
+
+
+/*A Pour initialiser les procedures communes */
+/*  ---------------------------------------- */
+
+ITMA_TRAU_init_boite_dialogue_pilotage(vl_fenetre_TRAU,vl_messages_acceptes)
+
+/* Initialisation du bouton radio en fonction du district */
+
+vl_index = ARRAY_INDEX@(ARRAY_COLUMN@(vl_liste_districts, TDO_NUMERO_DISTRICT), XDC_CI)
+vl_liste_districts = ARRAY_DELETE@(vl_liste_districts, vl_index)
+
+IF vl_district = XDC_CI {
+	DB_CTRL_DISPLAY@(vl_fenetre_TRAU, "BR_district", TRUE)
+	DB_CTRL_STRINGS@(vl_fenetre_TRAU, "BR_district", ARRAY_COLUMN@(vl_liste_districts, TDO_NOM_DISTRICT))
+	DB_CTRL_VALUE@(vl_fenetre_TRAU, "BR_district", -1)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TRAU, "BR_district", TRUE)
+}
+ELSE {
+	DB_CTRL_DISPLAY@(vl_fenetre_TRAU, "BR_district", FALSE)
+	vl_current_district = vl_district
+}
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TRAU, "BO_autoroute", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TRAU, "BO_sens", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TRAU, "BO_message", TRUE)
+
+DB_CTRL_TYPING_RETURN@(vl_fenetre_TRAU, "BS_pr_debut", TRUE)
+DB_CTRL_TYPING_RETURN@(vl_fenetre_TRAU, "BS_pr_fin", TRUE)
+
+DB_CTRL_DISPLAY@(vl_fenetre_TRAU, "BP_terminer", true)
+
+vl_SONO.Priorite	= 0
+vl_SONO.DistanceEvt 	= XDC_DISTANCE_INCONNUE
+
+
+/* Initialisation des boites a options */
+
+tm_autoroutes   = SYSTEM_VAR@ (vg_autoroutes_district)
+
+DB_CTRL_STRINGS@ (vl_fenetre_TRAU, "BO_autoroute", ARRAY_COLUMN@ (tm_autoroutes, TDO_NOM_AUTOROUTE))
+DB_CTRL_VALUE@(vl_fenetre_TRAU, "BO_autoroute", 1)
+
+tm_sens[0] = { XDC_SENS_INCONNU, XDC_LIB_SENS_NON_PREC }
+tm_sens[1] = { XDC_SENS_NORD, XDC_LIB_SENS_NORD }
+tm_sens[2] = { XDC_SENS_SUD, XDC_LIB_SENS_SUD }
+
+DB_CTRL_STRINGS@(vl_fenetre_TRAU, "BO_sens", ARRAY_COLUMN@ (tm_sens, TDO_NOM_SENS))
+DB_CTRL_VALUE@(vl_fenetre_TRAU, "BO_sens", 0)
+
+COM37_Lit_Libelles_Predefinis(XDC_LIB_TYPE_MESSAGE_SONO, tm_messages, tm_messages_valides)
+
+DB_CTRL_STRINGS@(vl_fenetre_TRAU, "BO_message", ARRAY_COLUMN@ (tm_messages_valides, COL_LIB_MESSAGE))
+DB_CTRL_VALUE@(vl_fenetre_TRAU, "BO_message", 0)
+
+
+/*A si l'appelant est le menu textuel */
+
+/*A Abonnement a l'etat des equipements */ 
+
+if vl_district = XDC_CI
+{
+	vl_erreur = ITMA_TRAU_Abt_Etat_SONO(XDC_DEBUT_ABONNEMENT_EQUEXT,
+					COM51_NomSite(XDC_DP))
+	vl_erreur = ITMA_TRAU_Abt_Etat_SONO(XDC_DEBUT_ABONNEMENT_EQUEXT,
+					COM51_NomSite(XDC_VC))
+}
+ELSE
+{
+	vl_erreur = ITMA_TRAU_Abt_Etat_SONO(XDC_DEBUT_ABONNEMENT_EQUEXT,
+					COM51_NomSite(vl_district))
+}
+
+
+if (vl_erreur <> COM_NOK)
+	{ vl_abt_panneau = TRUE }
+
+
+if (vl_appel = "ITMA_TMC") {
+	vl_FicheAction = va_1
+
+	ITMA_TRAU_Lecture_Action_SONO(
+                   vl_FicheAction.numero_action,
+                   vl_FicheAction.cle_action,
+                   vl_FicheAction.numero_fiche,
+                   vl_FicheAction.cle_fiche,
+                   vl_FicheAction.libelle_fiche,
+		   vl_fenetre_TRAU,
+		   vl_SONO)
+
+  /*A lecture de l'etat actuel de la sonorisation sur le RAU */
+  ITMA_TRAU_Lecture_SONO(vl_district, vl_SONO)
+
+  DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_FMC_actuel", vl_SONO.fmc_liee)
+
+}
+
+else {
+	DB_CTRL_DISPLAY@(vl_fenetre_TRAU, "LI_lancement", false)
+	DB_CTRL_DISPLAY@(vl_fenetre_TRAU, "LI_succes", false)
+	DB_CTRL_DISPLAY@(vl_fenetre_TRAU, "LI_fin", false)
+	DB_CTRL_DISPLAY@(vl_fenetre_TRAU, "LI_echec", false)
+}
+
+vm_auto=0
+if (vl_appel = "ITMA_TPA") {
+  /*lecture proposition en base */
+  /*XZAP86 avec va_1 = numero_plan et va_2 = ordre*/
+  /*pour recuperer le num d eqt vl_SONO.NumEqt*/
+
+  vl_parametres[0].type   = SYB#INT4_
+  vl_parametres[0].data   = va_1+0
+  vl_parametres[0].output = FALSE
+
+  vl_parametres[1].type   = SYB#INT2_
+  vl_parametres[1].data   = va_2+0
+  vl_parametres[1].output = FALSE
+
+  IF COM05_SQL_Procedure(XZAP86_Lire_Prop_SONO,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+   	{ RETURN (COM_NOK) }
+
+  vl_select = vl_resultats.select_results[0,0]
+  
+  /* Recuperer le numero et la cle de la FMC */
+  vl_SONO.NumEvt = va_3
+  vl_SONO.CleEvt = va_4
+  vm_auto=va_5
+
+  ITMA_COM_Lire_Evenement( vl_SONO.NumEvt, vl_SONO.CleEvt, vl_lib_fmc, "TRAU" )  
+  vl_fmc = COM11_Libelle_FMC(vl_lib_fmc)
+  DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_FMC_nouveau", SUBSTRING@(vl_fmc,1,46))
+
+  IF (vl_select[8]=TRA_MESSAGE_REPOS)
+  {
+  	DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_lier_FMC",TRUE)
+  	DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_executer",TRUE)
+  	DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_terminer",FALSE)
+  }
+  ELSE
+  {
+  	DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_lier_FMC",TRUE)
+  	DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_executer",FALSE)
+  	DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_terminer",TRUE)
+  }
+
+  /*A lecture de l'etat actuel de la sonorisation sur le RAU */
+  ITMA_TRAU_Lecture_SONO(vl_district, vl_SONO)
+
+  DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_FMC_actuel", vl_SONO.fmc_liee)
+
+  /* Remettre le numero et la cle de la FMC */
+  vl_SONO.NumEvt = va_3
+  vl_SONO.CleEvt = va_4
+
+  if (vl_select[8]=TRA_MESSAGE_REPOS)
+  {
+  	DB_CTRL_VALUE@(vl_fenetre_TRAU, "BO_message", 0)
+  }
+  else
+  {
+  	/* Ne pre-remplir l etat courant que si le message recupere en base est different de "REPOS" */
+	vl_rang_message = ARRAY_INDEX@(ARRAY_COLUMN@(tm_messages_valides, COL_LIB_MESSAGE), vl_select[8])
+  	DB_CTRL_VALUE@(vl_fenetre_TRAU, "BO_message", vl_rang_message)
+  }
+  vl_numeros_autoroutes = ARRAY_COLUMN@(tm_autoroutes, TDO_NUMERO_AUTOROUTE)
+  vl_rang_autoroute = ARRAY_INDEX@(vl_numeros_autoroutes, vl_select[9])
+  DB_CTRL_VALUE@(vl_fenetre_TRAU, "BO_autoroute", vl_rang_autoroute)
+
+  vl_noms_sens = DB_CTRL_GET_STRINGS@(vl_fenetre_TRAU, "BO_sens")
+  vl_rang_sens = ARRAY_INDEX@(vl_noms_sens, vl_select[10])
+  DB_CTRL_VALUE@(vl_fenetre_TRAU, "BO_sens", vl_rang_sens) 
+
+  DB_CTRL_VALUE@(vl_fenetre_TRAU, "BS_pr_debut", vl_select[11]/1000)
+  DB_CTRL_VALUE@(vl_fenetre_TRAU, "BS_pr_fin", vl_select[12]/1000)
+
+
+  /*A Mise a jour structure vl_SONO pour appel automatique */
+  vl_SONO.message = vl_select[8]
+  vl_SONO.autoroute = vl_select[9]
+  vl_SONO.sens = vl_select[10]
+  vl_SONO.pr_debut = vl_select[11]
+  vl_SONO.pr_fin = vl_select[12]
+}
+
+/*A Boucle de capture des evenements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+IF (vm_auto=1) 
+{
+	IF (vl_SONO.message = TRA_MESSAGE_REPOS )
+	{
+		vl_NumAction = 0
+		vl_cpt=ITMA_TRAU_Commande_Fin_SONO(vl_poste, 
+						FALSE,
+						vl_mode_formation,
+						vl_SONO.NumEvt,
+						vl_SONO.CleEvt,
+						vl_SONO,
+						vl_NumAction,
+						vl_current_district)
+
+		
+	}
+	else
+	{
+		vl_NumAction=0
+		vl_cpt=ITMA_TRAU_Commande_SONO(vl_poste, 
+						FALSE,
+						vl_mode_formation,
+						vl_SONO.NumEvt,
+						vl_SONO.CleEvt,
+						vl_SONO,
+						vl_NumAction,
+						vl_current_district)
+		
+	}
+
+	vl_fenetre_active = FALSE
+
+	vl_mode_PA = COM_VALIDE
+}
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_TRAU)
+
+	/*A capture de l'evenement dans la BD TRAU */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_TRAU)
+	
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL
+ 
+
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+
+	CASE "BP_quitter"
+
+		vl_fenetre_active = FALSE
+
+	CASE "BR_district"
+                vl_choix_district = DB_CTRL_GET_VALUE@(vl_fenetre_TRAU, "BR_district")
+		vl_current_district = vl_liste_districts[vl_choix_district][TDO_NUMERO_DISTRICT]
+
+		/* Mise a jour de la liste des autoroutes en fonction du district choisi */
+		
+		vl_parametres = NULL
+		vl_resultats = NULL
+
+		vl_parametres[0].type = SYB#INT1_
+		vl_parametres[0].data = vl_current_district
+		vl_parametres[0].output = FALSE
+
+		IF COM05_SQL_Procedure (XZAO223_Autoroutes_District,
+					vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+			RETURN (COM_NOK)
+
+		tm_autoroutes = vl_resultats.select_results[0]
+		DB_CTRL_STRINGS@ (vl_fenetre_TRAU, "BO_autoroute", ARRAY_COLUMN@ (tm_autoroutes, TDO_NOM_AUTOROUTE))
+		DB_CTRL_VALUE@(vl_fenetre_TRAU, "BO_autoroute", 1)
+		
+		/* Lecture de l etat actuel de l equipement */
+		ITMA_TRAU_Lecture_SONO(vl_current_district, vl_SONO)
+
+		vl_index = ARRAY_INDEX@(ARRAY_COLUMN@(tm_messages_valides, COL_LIB_MESSAGE), TRIM@(vl_SONO.message))
+
+		IF vl_index > -1
+		{
+			vl_rang_autoroute = ARRAY_INDEX@(ARRAY_COLUMN@ (tm_autoroutes, TDO_NUMERO_AUTOROUTE), vl_SONO.autoroute)
+			IF vl_rang_autoroute = -1
+				{ vl_nom_autoroute = "" }
+			ELSE
+				{ vl_nom_autoroute = tm_autoroutes[vl_rang_autoroute][TDO_NOM_AUTOROUTE] }
+
+			DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_autoroute_actuelle", vl_nom_autoroute)
+			DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_sens_actuel", vl_SONO.sens)
+			DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_pr_debut_actuel", vl_SONO.pr_debut/1000)
+			DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_pr_fin_actuel", vl_SONO.pr_fin/1000)
+			DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_message_actuel", vl_SONO.message)
+			DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_FMC_actuel", vl_SONO.fmc_liee)
+			DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_nb_PAU_pilotes_actuel", vl_SONO.Nb_PAUPilotes)
+			DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_nb_PAU_erreur_actuel", vl_SONO.Nb_PAUErreur)
+		}
+
+		DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_lier_FMC",FALSE)
+
+
+	/*A sur action lier FMC */
+	CASE "BP_lier_FMC"
+ 		DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status","Status : appel lien FMC")
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes","ITMA_TRAU_pilotage_SONO")
+
+		tl_liste_causes=tl_data[0]
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vl_fenetre_TRAU,"TA_Evenements",TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TRAU,"TA_Evenements",TRUE)
+		DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre_TRAU, "TA_Evenements", 25)
+		DB_TABLE_ALLOW_COLUMN_RESIZING@(vl_fenetre_TRAU,"TA_Evenements",True)
+		
+		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+
+		DB_TABLE_SET_DATA@(vl_fenetre_TRAU,"TA_Evenements",tl_data[1],tl_titres)
+		
+		DB_TABLE_MARKER_PIXMAPS@(vl_fenetre_TRAU, "TA_Evenements", 0, tl_data[2])
+				DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_executer",FALSE)
+
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+ 		DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status","Status : selection evenement")
+
+		tl_retour=ITMA_COM_Validite_Cause("ITMA_TRAU_pilotage_SONO",vl_fenetre_TRAU,tl_liste_causes)
+		
+		vl_SONO.NumEvt = tl_retour[0][0]
+		vl_SONO.CleEvt = tl_retour[0][1]
+		vl_fmc = tl_retour[1]
+		DB_CTRL_DISPLAY@(vl_fenetre_TRAU,"TA_Evenements",FALSE)
+		DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_FMC_nouveau",vl_fmc)
+		vl_SONO.fmc_liee = vl_fmc
+
+		/* Ecraser les champs de saisi avec infos de la fmc selectionnee */
+		ITMA_TRAU_Lecture_Localisation_FMC_SONO(vl_SONO.NumEvt, vl_SONO.CleEvt, vl_localisation)
+		
+		/* La FMC operateur ne retourne pas de localisation */
+		if ((vl_localisation.autoroute+0) > 0 )
+		{
+			/* On ecrase la localisation si pas deja renseignee */
+			IF ( LEN@(DB_CTRL_GET_VALUE@(vl_fenetre_TRAU, "BS_pr_debut"))=0 OR LEN@(DB_CTRL_GET_VALUE@(vl_fenetre_TRAU, "BS_pr_fin"))=0 )
+			{
+				vl_numeros_autoroutes = ARRAY_COLUMN@(tm_autoroutes, TDO_NUMERO_AUTOROUTE)
+				vl_rang_autoroute = ARRAY_INDEX@(vl_numeros_autoroutes, vl_localisation.autoroute)
+				DB_CTRL_VALUE@(vl_fenetre_TRAU, "BO_autoroute", vl_rang_autoroute)
+
+				vl_noms_sens = DB_CTRL_GET_STRINGS@(vl_fenetre_TRAU, "BO_sens")
+				vl_rang_sens = ARRAY_INDEX@(vl_noms_sens, vl_localisation.sens)
+				DB_CTRL_VALUE@(vl_fenetre_TRAU, "BO_sens", vl_rang_sens)
+
+				DB_CTRL_VALUE@(vl_fenetre_TRAU, "BS_pr_debut", vl_localisation.pr/1000)
+				DB_CTRL_VALUE@(vl_fenetre_TRAU, "BS_pr_fin", vl_localisation.pr/1000)
+ 	if ( vl_localisation.autoroute=3 )
+ 	{
+ 		DB_CTRL_VALUE@(vl_fenetre_TRAU, "BS_pr_debut", 69,000)
+  		DB_CTRL_VALUE@(vl_fenetre_TRAU, "BS_pr_fin", 72,200)
+	}
+  			}
+		}
+
+
+	CASE "BP_terminer"
+		/*A Recherche du champ fin d'action */
+
+		if  vl_SONO.NumEvt=0 and vl_SONO.CleEvt=0
+		{
+			info_message@(
+				"Veuillez d'abord lier cette action a une F.M.C")
+		}
+		else
+		{
+			ITMA_TRAU_Lecture_SONO(vl_current_district, vl_SONO)
+
+			/* recuperation du n° d'action dans la base */			
+			vl_NumAction = 0 	
+
+			vl_SONO.message = TRA_MESSAGE_REPOS
+			
+			vl_cpt=ITMA_TRAU_Commande_Fin_SONO(vl_poste, 
+						FALSE,
+						vl_mode_formation,
+						vl_SONO.NumEvt,
+						vl_SONO.CleEvt,
+						vl_SONO,
+						vl_NumAction,
+						vl_current_district)
+
+			if vl_cpt = COM_OK
+			{
+		    		DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status",
+								"Status : Commande liberation envoyee")
+	
+				/*A Griser le bouton Executer et Liberer */
+				/*DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_executer",TRUE)
+				DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_terminer",TRUE)*/
+				/*DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_lier_FMC",TRUE)*/
+				DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_FMC_actuel",vl_fmc)
+				DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_FMC_nouveau","")
+
+				/* Mise a jour de l affichage de l etat courant */
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_autoroute_actuelle", "")
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_sens_actuel", "")
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_pr_debut_actuel", "")
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_pr_fin_actuel", "")
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_message_actuel", "")
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_nb_PAU_pilotes_actuel", "")
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_nb_PAU_erreur_actuel", "")
+
+				/* Mise a jour des donnees enregistrees */
+				vl_SONO.autoroute = null
+				vl_SONO.sens = null
+				vl_SONO.pr_debut = null
+				vl_SONO.pr_fin = null
+				vl_SONO.message = null
+				vl_SONO.Nb_paupilotes = null
+				vl_SONO.Nb_PAUErreur = null
+
+				if vl_appel="ITMA_TPA"				
+				{
+					vl_mode_PA=COM_VALIDE
+					vl_fenetre_active = FALSE
+
+		    			DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status",
+								"Status : Validation du PA")	
+				}
+				else
+				{
+					vl_mode_PA=COM_QUITTE
+					if vl_erreur <> COM_NOK
+					{
+						DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status",
+								"Status : Pilotage SONO PAU !!!")
+					}
+					else
+					{
+						DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status",
+							"Status : Problème Pilotage SONO PAU !!!")
+					}
+				}
+			}
+			else
+			{	
+				DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status",
+					"Status : Commande refusee (manque lien FMC)") 
+			}
+		 }
+	   	 vl_SONO.NumEvt = 0
+		 vl_SONO.CleEvt = 0
+
+
+	/*A sur action executer */
+	CASE "BP_executer"
+
+		vl_rang_autoroute = DB_CTRL_GET_VALUE@(vl_fenetre_TRAU, "BO_autoroute")
+		vl_autoroute = tm_autoroutes[vl_rang_autoroute][TDO_NUMERO_AUTOROUTE]
+		vl_nom_autoroute = tm_autoroutes[vl_rang_autoroute][TDO_NOM_AUTOROUTE]
+		vl_rang_sens = DB_CTRL_GET_VALUE@(vl_fenetre_TRAU, "BO_sens")
+		
+		if vl_rang_sens < 1
+		{
+                        INFO_MESSAGE@("Le sens est incorrect")
+                }
+
+		IF vl_rang_sens = -1
+			{ vl_sens = tm_sens[0][TDO_NUMERO_SENS] }
+		ELSE
+			{ vl_sens = tm_sens[vl_rang_sens][TDO_NUMERO_SENS] }
+		
+		vl_pr_debut = DB_CTRL_GET_VALUE@(vl_fenetre_TRAU, "BS_pr_debut")*1000
+		vl_pr_fin = DB_CTRL_GET_VALUE@(vl_fenetre_TRAU, "BS_pr_fin")*1000
+
+		vl_verif_debut = ITMA_TRAU_Verification_Localisation_SONO(vl_autoroute, vl_sens, vl_pr_debut, vl_current_district)
+		vl_verif_fin = ITMA_TRAU_Verification_Localisation_SONO(vl_autoroute, vl_sens, vl_pr_fin, vl_current_district)
+
+		IF (vl_verif_debut=COM_NOK)
+		{
+			INFO_MESSAGE@("Le PR de début est incorrect")
+		}
+		ELSE IF (vl_verif_fin=COM_NOK)
+		{
+			INFO_MESSAGE@("Le PR de fin est incorrect")
+		}
+		ELSE IF (vl_SONO.NumEvt=0 and vl_SONO.CleEvt=0)
+		{
+			info_message@("Veuillez d'abord lier cette action a une F.M.C")
+		}
+		ELSE
+		{
+			vl_rang_message = DB_CTRL_GET_VALUE@(vl_fenetre_TRAU, "BO_message")
+			vl_message = tm_messages_valides[vl_rang_message][COL_LIB_MESSAGE]
+			
+			/* Enregistrer les parametres selectionnes */
+
+			vl_SONO.autoroute = vl_autoroute
+			vl_SONO.sens = vl_sens
+			vl_SONO.pr_debut = vl_pr_debut
+			vl_SONO.pr_fin = vl_pr_fin
+			vl_SONO.message = vl_message
+			
+			vl_SONO.Nb_PAUErreur = 0
+			vl_SONO.Nb_PAUPilotes = 0
+
+			/* Envoi de la commande */
+			
+			/* recuperation du n° d'action dans la base */
+			vl_NumAction = 0
+
+			vl_cpt=ITMA_TRAU_Commande_SONO(vl_poste,
+							FALSE,
+							vl_mode_formation,
+							vl_SONO.NumEvt,
+							vl_SONO.CleEvt,
+							vl_SONO,
+							vl_NumAction,
+							vl_current_district)
+
+			if vl_cpt = COM_OK
+			{
+				DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status","Status : Commande envoyee")
+
+				/*A Griser le bouton Executer */
+				/*DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_executer",TRUE)*/
+				DB_CTRL_GRAYED@(vl_fenetre_TRAU,"BP_lier_FMC",FALSE)
+
+				/* Mise a jour affichages */
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_autoroute_actuelle", vl_nom_autoroute)
+				/*DB_CTRL_VALUE@(vl_fenetre_TRAU, "BO_autoroute", 1)*/
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_sens_actuel", vl_sens)
+				/*DB_CTRL_VALUE@(vl_fenetre_TRAU, "BO_sens", 1)*/
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_pr_debut_actuel", vl_pr_debut)
+				/*DB_CTRL_VALUE@(vl_fenetre_TRAU, "BS_pr_debut", "")*/
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_pr_fin_actuel", vl_pr_fin)
+				/*DB_CTRL_VALUE@(vl_fenetre_TRAU, "BS_pr_fin", "")*/
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_message_actuel", vl_message)
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_FMC_actuel", vl_fmc)
+				/*DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_FMC_nouveau", "")*/
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_nb_PAU_pilotes_actuel", vl_SONO.Nb_PAUPilotes)
+				DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_nb_PAU_erreur_actuel", vl_SONO.Nb_PAUErreur)
+
+				if vl_appel="ITMA_TPA"
+				{
+					vl_mode_PA=COM_VALIDE
+					DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status","Status : Validation du PA")
+				}
+				else
+				{
+					vl_mode_PA=COM_QUITTE
+					if vl_erreur <> COM_NOK
+					{
+						DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status","Status : Pilotage SONO PAU")
+					}
+					else
+					{
+						DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status","Status : Problème Pilotage SONO PAU !!!")
+					}
+				}
+
+			}
+			else
+			{
+				DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status","Status : Commande refusee (manque lien FMC)")
+			}
+
+		}
+
+	   	 /* On garde la FMC lier
+		 vl_SONO.NumEvt = 0
+		 vl_SONO.CleEvt = 0*/
+
+
+	/*A sur reception de poke */		
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vl_fenetre_TRAU)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+
+		/*A si poke etat equipement : on decode la chaine pour mettre a jour la partie superieure de la fenetre/etat terrain */
+		CASE COM_CANAL_MTRA_ETAT_SONO
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vl_fenetre_TRAU)
+
+			/*A trace de la reception du message */
+			vl_text = "   MsgPoke MTRAU : " ++ vl_message[0]
+			COM01_Trace(0,vl_text)
+			COM01_Trace(0," ")
+
+			/* Commande recue (ETAT) : message, autoroute, sens, prdeb, prfin, pau erreur,pau pilotes numero de commande */
+			/* Par exemple : vl_message[0]= "ATTENTE,0,5" */
+
+			/*A decomposition des messages en tableau */
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+			/* Mise a jour affichage de l etat terrain */
+			vl_SONO.message = vl_mess[0]
+			vl_SONO.Nb_PAUErreur = vl_mess[1]
+			vl_SONO.Nb_PAUPilotes = vl_mess[2]
+
+			DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_message_actuel",  vl_SONO.message)
+			DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_nb_PAU_pilotes_actuel", vl_SONO.Nb_PAUPilotes)
+			DB_CTRL_TITLE@(vl_fenetre_TRAU, "LI_nb_PAU_erreur_actuel", vl_SONO.Nb_PAUErreur)
+		        DB_CTRL_TITLE@(vl_fenetre_TRAU,"LI_status", "Status : Retour Commande SONO PAU")
+
+			ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+if vl_district = XDC_CI
+{
+	vl_erreur = ITMA_TRAU_Abt_Etat_SONO(XDC_FERMER_ABONNEMENT_EQUEXT,
+					COM51_NomSite(XDC_DP))
+	vl_erreur = ITMA_TRAU_Abt_Etat_SONO(XDC_FERMER_ABONNEMENT_EQUEXT,
+					COM51_NomSite(XDC_VC))
+}
+ELSE
+{
+	vl_erreur = ITMA_TRAU_Abt_Etat_SONO(XDC_FERMER_ABONNEMENT_EQUEXT,
+					COM51_NomSite(vl_current_district))
+}
+
+
+
+/*B trace de la fin de traitement */
+vl_text = " Stop ITMA_TRAU_pilotage_SONO   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+RETURN(vl_mode_PA)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Initialisation generale de la boite de dialogue
+*												Pilotage
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRAU_init_boite_dialogue_pilotage(va_fenetre_TRAU, va_messages_acceptes)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_fenetre_TRAU		:	Item de la boite de dialogue Pilotage
+*	va_messages_acceptes	:	Liste des messages acceptes par la boite de dialogue
+*
+*
+* ARGUMENTS EN SORTIE :
+*
+*  	va_fenetre_TRAU		:	Item de la boite de dialogue Pilotage
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*    Initialisation generale de la boite de dialogue Pilotage
+*
+--------------------------------------------------------------------- */
+
+
+/*A Ouverture de la fiche de pilotage SONO */
+
+va_fenetre_TRAU = DB_LOAD@("ITMA_TRAU_pilotage_SONO")
+
+va_messages_acceptes[0] = COM_CANAL_FIN
+va_messages_acceptes[1] = COM_CANAL_MTRA_ETAT_SONO
+DB_ACCEPT_POKES@ (va_fenetre_TRAU, va_messages_acceptes)
+
+DB_CTRL_GRAYED@(va_fenetre_TRAU,"BP_lier_FMC",False)
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(va_fenetre_TRAU,0)
+ if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+DB_YPOS@(va_fenetre_TRAU, 1000)
+ELSE
+DB_YPOS@(va_fenetre_TRAU, 104)
+DB_HEIGHT@(va_fenetre_TRAU, 370)
+
+/*A Griser le bouton 'Executer' */
+DB_CTRL_GRAYED@(va_fenetre_TRAU,"BP_executer",FALSE)
+
+DB_DISPLAY_ONLY@(va_fenetre_TRAU,TRUE)
+DB_DISPLAY@(va_fenetre_TRAU)
+DB_DISPLAY_ONLY@(va_fenetre_TRAU,FALSE)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Commander le sequence d'une voie vers SYBASE
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TRAU_Commande_SONO(va_PosteOperateur,
+				va_Manuelle,
+				va_mode_formation,
+				va_NumEvt,
+				va_CleEvt,
+				FORMAT TRA_Etat_SONO_RAU va_SONO,
+				va_NumAction,
+				va_Site)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+* 
+*	va_PosteOperateur		:	le nom du poste operateur
+*	va_Manuelle			:	le type manuel ou auto
+*	va_mode_formation		:	Indicateur du mode formation
+*	va_NumEvt			:	Numero de l'evenement
+*	va_CleEvt			:	Cle de l'evenement
+*	va_SONO				: 	La structure SONO
+*	va_NumAction			:	Numero d'action
+*	va_Site				:	Numero du site
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TRAU_pilotage_SONO
+*
+* FONCTION
+*   		Commander le sequence d'une voie vers SYBASE.
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_Heure			' heure courante base
+	var	vl_text
+	var	vl_rang_autoroute
+	var	vl_nom_autoroute
+
+	/* On lance la commande s il y a des PAU dans la zone demandee */
+	IF ITMA_TRAU_Recherche_PAU_SONO(va_SONO, va_Site) = COM_OK
+	{
+
+		vl_Heure = COM09_Date_Courante()
+
+		if NOT va_mode_formation
+		{
+			/*A trace de l'appel de la procedure */
+			vl_text = " ---> Appel de la procedure 'XZAC905_Commande_SONO("
+								++va_SONO.message++","++va_Site++","
+								++va_PosteOperateur++","++va_Manuelle++")'"
+			COM01_Trace(0,vl_text)
+
+			/* Recuperer le nom de l autoroute a partir du numero */
+			vl_rang_autoroute = ARRAY_INDEX@(ARRAY_COLUMN@ (tm_autoroutes, TDO_NUMERO_AUTOROUTE), va_SONO.autoroute)
+			vl_nom_autoroute = tm_autoroutes[vl_rang_autoroute][TDO_NOM_AUTOROUTE]
+			
+			/*A parametrage de vl_parametres */
+			vl_parametres[0].type = SYB#DATETIME_
+			vl_parametres[0].data = vl_heure		        ' Heure de lancement
+			vl_parametres[0].output = FALSE
+	
+			vl_parametres[1].type = SYB#INT4_
+			vl_parametres[1].data = va_NumEvt			' NumEvt
+			vl_parametres[1].output = FALSE
+	
+			vl_parametres[2].type = SYB#INT1_
+			vl_parametres[2].data = va_CleEvt			' CleEvt
+			vl_parametres[2].output = FALSE
+	
+			vl_parametres[3].type = SYB#INT4_
+			vl_parametres[3].data = va_PosteOperateur	        ' Poste Operateur
+			vl_parametres[3].output = FALSE
+
+			vl_parametres[4].type = SYB#INT1_
+			vl_parametres[4].data = va_Site				' Numero du site
+			vl_parametres[4].output = FALSE
+
+			vl_parametres[5].type = SYB#CHAR_
+        	        vl_parametres[5].data = va_SONO.message                 ' Message
+                	vl_parametres[5].output = FALSE
+
+			vl_parametres[6].type = SYB#CHAR_
+			vl_parametres[6].data = vl_nom_autoroute               ' nom autoroute
+			vl_parametres[6].output = FALSE
+
+			vl_parametres[7].type = SYB#INT1_
+			vl_parametres[7].data = va_SONO.sens                   ' sens
+			vl_parametres[7].output = FALSE
+		
+			vl_parametres[8].type = SYB#INT4_
+			vl_parametres[8].data = va_SONO.pr_debut                  ' PR debut
+			vl_parametres[8].output = FALSE
+		
+			vl_parametres[9].type = SYB#INT4_
+			vl_parametres[9].data = va_SONO.pr_fin                    ' PR fin
+			vl_parametres[9].output = FALSE
+
+			vl_parametres[10].type = SYB#INT4_
+			vl_parametres[10].data = va_SONO.Nb_PAUErreur             ' PAU en erreur
+			vl_parametres[10].output = FALSE
+
+			vl_parametres[11].type = SYB#INT4_
+			vl_parametres[11].data = va_SONO.Nb_PAUPilotes           ' PAU pilotes
+			vl_parametres[11].output = FALSE
+
+			vl_parametres[12].type = SYB#INT1_
+			vl_parametres[12].data = va_SONO.Priorite		' Priorite
+			vl_parametres[12].output = FALSE
+
+			vl_parametres[13].type = SYB#INT4_
+			vl_parametres[13].data = SYSTEM_VAR@(vg_site)		'site local
+			vl_parametres[13].output = FALSE
+
+			vl_parametres[14].type = SYB#INT4_
+			vl_parametres[14].data = 0				' distance evt
+			vl_parametres[14].output = FALSE
+
+			vl_parametres[15].type = SYB#INT4_
+			vl_parametres[15].data = NULL				' NumAction
+			vl_parametres[15].output = TRUE
+
+			IF COM05_SQL_Procedure (XZAC905_Commande_SONO,
+						vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+			{
+				RETURN (COM_NOK)
+			}												
+			va_NumAction = vl_resultats.return_parameters[0]
+			COM01_Trace(0," ")
+		}
+
+		/*A retour du N° d'action */
+		RETURN (COM_OK)
+	}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :       Retour a l etat normal du RAU
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TRAU_Commande_Fin_SONO(va_PosteOperateur,
+                                va_Manuelle,
+				va_mode_formation,
+				va_NumEvt,
+				va_CleEvt,
+				FORMAT TRA_Etat_SONO_RAU va_SONO,
+				va_NumAction,
+				va_Site)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*       va_PosteOperateur               :       le nom du poste operateur
+*       va_Manuelle                     :       le type manuel ou auto
+*       va_mode_formation               :       Indicateur du mode formation
+*       va_NumEvt                       :       Numero de l'evenement
+*       va_CleEvt                       :       Cle de l'evenement
+*       va_SONO                         :       La structure SONO
+*       va_NumAction                    :       Numero d'action
+*       va_Site                         :       Numero du site
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR           : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*               ITMA_TRAU_pilotage_SONO
+*
+* FONCTION
+*               Retour a l etat normal du RAU
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var     vl_Heure                        ' heure courante base
+	var     vl_text
+	var     vl_rang_autoroute
+
+	if NOT(COM04_Operateur_A_Le_Droit_De( XDC_FAM_EXPLOITATION_DISTRICT)) and
+                NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_PC_SIMPLIFIE)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_PC2)) and
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_CI))
+	{
+		/*ITMA_TRAU_Acces_interdit("ITMA_TRAU_Commande_Fin_SONO",
+							va_PosteOperateur)*/
+		RETURN(COM_NOK)
+	}
+
+	if NOT va_mode_formation
+	{
+		vl_Heure = COM09_Date_Courante()
+
+		/*A trace de l'appel de la procedure */
+		vl_text = " ---> Appel de la procedure 'XZAC906_Commande_Fin_SONO("
+				++va_SONO.message++","++va_Site++","
+				++va_PosteOperateur++","++va_Manuelle++")'"
+		COM01_Trace(0,vl_text)
+
+
+		/*A parametrage de vl_parametres */
+		vl_parametres[0].type = SYB#DATETIME_
+		vl_parametres[0].data = vl_heure                        ' Heure de lancement
+		vl_parametres[0].output = FALSE
+
+		vl_parametres[1].type = SYB#INT4_
+		vl_parametres[1].data = va_NumEvt                       ' NumEvt
+		vl_parametres[1].output = FALSE
+
+		vl_parametres[2].type = SYB#INT1_
+		vl_parametres[2].data = va_CleEvt                       ' CleEvt
+		vl_parametres[2].output = FALSE
+
+		vl_parametres[3].type = SYB#INT1_
+		vl_parametres[3].data = va_Site                         ' Numero du site
+		vl_parametres[3].output = FALSE
+
+		vl_parametres[4].type = SYB#INT4_
+		vl_parametres[4].data = va_SONO.Nb_PAUErreur             ' PAU en erreur
+		vl_parametres[4].output = TRUE
+
+		vl_parametres[5].type = SYB#INT4_
+		vl_parametres[5].data = va_SONO.Nb_PAUPilotes           ' PAU pilotes
+		vl_parametres[5].output = TRUE
+
+		vl_parametres[6].type = SYB#INT1_
+		vl_parametres[6].data = va_SONO.Priorite               ' Priorite
+		vl_parametres[6].output = FALSE
+
+		vl_parametres[7].type = SYB#INT4_
+		vl_parametres[7].data = SYSTEM_VAR@(vg_site)           'site local
+		vl_parametres[7].output = FALSE
+
+		IF COM05_SQL_Procedure (XZAC906_Commande_Fin_SONO,
+					vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+		{
+			RETURN (COM_NOK)
+		}
+
+		va_NumAction = vl_resultats.return_parameters[0]
+		COM01_Trace(0," ")
+	}
+
+	/*A retour du N° d'action */
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :       Rechercher s il y a des PAU dans la zone demandee
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TRAU_Recherche_PAU_SONO(FORMAT TRA_Etat_SONO_RAU va_SONO, va_Site)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*       va_SONO                         :       La structure SONO
+*       va_Site                         :       Numero du site
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR           : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*               ITMA_TRAU_pilotage_SONO
+*
+* FONCTION
+*               Recherche s il y a des PAU dans la zone demandee avant envoi de commande
+*
+--------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var     vl_Heure                        ' heure courante base
+	var     vl_text
+	var	vl_rang_autoroute
+	var	vl_nom_autoroute
+
+	/*A trace de l'appel de la procedure */
+	vl_text = " ---> Appel de la procedure 'XZAO907_Recherche_PAU_SONO("
+						++va_Site++")'"
+	COM01_Trace(0,vl_text)
+
+	/* Recuperer le nom de l autoroute a partir du numero */
+	vl_rang_autoroute = ARRAY_INDEX@(ARRAY_COLUMN@ (tm_autoroutes, TDO_NUMERO_AUTOROUTE), va_SONO.autoroute)
+	vl_nom_autoroute = tm_autoroutes[vl_rang_autoroute][TDO_NOM_AUTOROUTE]
+
+	/*A parametrage de vl_parametres */
+	vl_parametres[0].type = SYB#INT1_
+	vl_parametres[0].data = va_Site                       ' Numero du site
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#CHAR_
+	vl_parametres[1].data = vl_nom_autoroute               ' nom autoroute
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type = SYB#INT4_
+	vl_parametres[2].data = va_SONO.sens                       ' sens
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type = SYB#INT4_
+	vl_parametres[3].data = va_SONO.pr_debut               ' PR debut
+	vl_parametres[3].output = FALSE
+
+	vl_parametres[4].type = SYB#INT4_
+	vl_parametres[4].data = va_SONO.pr_fin                 ' PR fin
+	vl_parametres[4].output = FALSE
+
+	vl_parametres[5].type = SYB#INT4_
+	vl_parametres[5].data = SYSTEM_VAR@(vg_site)            ' site local
+	vl_parametres[5].output = FALSE
+
+	vl_parametres[6].type = SYB#INT4_
+	vl_parametres[6].data = null   		               ' num eqt
+	vl_parametres[6].output = TRUE
+
+	IF COM05_SQL_Procedure (XZAO907_Recherche_PAU_SONO,
+				vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+	{
+		INFO_MESSAGE@("Aucun PAU trouvé dans la zone spécifiée.")
+
+		RETURN (COM_NOK)
+	}
+
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner a l'etat de la sonorisation des RAU
+*
+* --------------------------------------------------------------------*/
+
+MACRO ITMA_TRAU_Abt_Etat_SONO(va_Abonnement,va_NomSite)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*
+*		va_Abonnement	:	Type d'abonnement (debut ou fin)
+*		va_NomSite	:	Nom du site
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TRAU_pilotage_SONO
+*
+* FONCTION :
+*	Permet de s'abonner a l'etat de la sonorisation des RAU.
+* ------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+
+	/*A trace de l'appel de procedure */
+	vl_text = " --> XZEA085_Abt_Etat_SONO "
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA085
+
+	/*B arguments */
+	vl_cmd[3]= va_Abonnement ++ MTAR_CAR_SEPAR ++ va_NomSite
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'emmission */
+	vl_text = " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Lecture de l'etat de sonorisation du RAU a une horodate donnee
+*
+*  ---------------------------------------------------------------------
+*/
+
+MACRO ITMA_TRAU_Lecture_SONO(va_district, FORMAT TRA_Etat_SONO_RAU va_SONO)
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*
+*	va_district : numero du district
+*       va_SONO : La structure SONO
+*
+* ARGUMENTS EN SORTIE	: 
+*
+*	va_SONO : La structure SONO
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRAU
+*
+*
+* FONCTION
+*	Lecture de l'etat de sonorisation du RAU a une horodate donnee
+*
+--------------------------------------------------------------------- */
+
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR	vl_lib_fmc						' libelle fmc
+	var	vl_tptext						' zone de text tampon
+
+	
+	/*A trace de l'appel de procedure */
+	vl_tptext = "--> XZAT067_Utilisation_SONO"
+	COM01_Trace(0,vl_tptext)
+
+	/*A Definition de vl_parametres */
+	vl_parametres[0].type	= SYB#DATETIME_
+	vl_parametres[0].data	= XDC_DATE_NULLE
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type   = SYB#INT1_
+	vl_parametres[1].data   = va_district            ' N° Site
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type	= SYB#INT2_
+	vl_parametres[2].data	= null			' Dispo PAU
+	vl_parametres[2].output	= TRUE
+
+	vl_parametres[3].type	= SYB#INT4_
+	vl_parametres[3].data	= null			' N° Evt
+	vl_parametres[3].output	= TRUE
+
+	vl_parametres[4].type	= SYB#INT2_
+	vl_parametres[4].data	= null			' Cle Evt
+	vl_parametres[4].output	= TRUE
+
+	vl_parametres[5].type	= SYB#INT2_
+	vl_parametres[5].data	= null			' Priorite
+	vl_parametres[5].output	= TRUE
+
+	vl_parametres[6].type	= SYB#INT4_
+	vl_parametres[6].data	= null			' Distance Evt
+	vl_parametres[6].output	= TRUE
+
+	vl_parametres[7].type	= SYB#INT4_
+	vl_parametres[7].data	= null			' N° Action
+	vl_parametres[7].output	= TRUE
+
+	vl_parametres[8].type	= SYB#INT1_
+	vl_parametres[8].data	= null			' N° Site Action
+	vl_parametres[8].output	= TRUE
+
+	vl_parametres[9].type   = SYB#CHAR_
+	vl_parametres[9].data   = ""	                     ' Message
+	vl_parametres[9].output = TRUE
+
+	vl_parametres[10].type   = SYB#INT2_
+	vl_parametres[10].data   = null                     ' Autoroute
+	vl_parametres[10].output = TRUE
+
+	vl_parametres[11].type   = SYB#INT2_
+	vl_parametres[11].data   = null                     ' Sens
+	vl_parametres[11].output = TRUE
+
+	vl_parametres[12].type   = SYB#INT4_
+	vl_parametres[12].data   = null                     ' PR debut
+	vl_parametres[12].output = TRUE
+
+	vl_parametres[13].type   = SYB#INT4_
+	vl_parametres[13].data   = null                     ' PR fin
+	vl_parametres[13].output = TRUE
+
+
+	/*A Execution de la procedure XZAT067_Utilisation_SONO */
+	
+	IF COM05_SQL_Procedure(XZAT067_Utilisation_SONO,vl_parametres,
+							vl_resultats,C_MODULE) <> COM_OK
+	{
+    			RETURN (COM_NOK)
+	}
+	
+	/*A MAJ de la table SONO avec les arguments de sortie */
+	va_SONO.Dispo	 		=	vl_resultats.return_parameters[0]
+	va_SONO.NumEvt			=	vl_resultats.return_parameters[1]+0
+	va_SONO.CleEvt			=	vl_resultats.return_parameters[2]+0
+	va_SONO.Priorite		=	vl_resultats.return_parameters[3]
+	va_SONO.DistanceEvt		=	vl_resultats.return_parameters[4]
+	va_SONO.NumeroAction		=	vl_resultats.return_parameters[5]
+	va_SONO.NomSiteAction		=	vl_resultats.return_parameters[6]
+	va_SONO.message			=	vl_resultats.return_parameters[7]
+	va_SONO.autoroute		=	vl_resultats.return_parameters[8]
+	va_SONO.sens			=	vl_resultats.return_parameters[9]
+	va_SONO.pr_debut                =       vl_resultats.return_parameters[10]
+	va_SONO.pr_fin                  =       vl_resultats.return_parameters[11]
+
+	if va_SONO.NumEvt<>0 and  va_SONO.CleEvt<>0
+	{
+		/*A MAJ du libelle fmc */
+		ITMA_COM_Lire_Evenement(va_SONO.NumEvt,
+						va_SONO.CleEvt,vl_lib_fmc,C_MODULE)
+		va_SONO.fmc_liee = COM11_Libelle_FMC(vl_lib_fmc)
+	}
+	else
+	{
+		va_SONO.fmc_liee = "Pas de libelle FMC."
+	}
+
+	/* Maj Nb PAU pilotes/erreur */
+	if va_SONO.NumeroAction>0
+	{
+		ITMA_TRAU_Lecture_Action_SONO_PAU(va_SONO.NumeroAction, va_SONO.NomSiteAction, vl_fenetre_TRAU, va_SONO)
+	}
+
+	
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :       Lecture d'une action SONO a partir du num de PA
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TRAU_Lecture_Action_SONO(va_NumAction, va_CleAction, va_evt, va_cle, va_libelle, va_fenetre, FORMAT TRA_Etat_SONO_RAU va_SONO)
+
+/*
+* ARGUMENTS EN ENTREE   :
+*    va_NumAction       : Num d'action
+*    va_CleAction       : Cle action (site)
+*       va_evt          : le num de l'evenement
+*       va_cle          : le num de la cle
+*
+*
+* ARGUMENTS EN SORTIE   :
+*      
+*
+*
+* CODE RETOUR           : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRAU_Lecture_Action_SONO
+*
+*
+---------------------------------------------------------------------------- */
+        VAR     vl_lib_fmc              ' libelle fmc
+        var     vl_tptext               ' zone de text tampon
+
+        VAR FORMAT SQL_Procedure_Params@ vl_parametres
+        VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR	i
+	VAR	vl_index
+	VAR	vl_rang_autoroute
+	VAR	vl_nom_autoroute
+
+        /*A trace de l'appel de procedure */
+        vl_tptext = COM09_Date_Courante()
+        vl_tptext =  vl_tptext ++ "--> XZAC892_Lire_Commande_PAU_SONO"
+        COM01_Trace(0,vl_tptext)
+
+
+        /*A Definition de vl_parametres */
+        vl_parametres[0].type   = SYB#INT4_
+        vl_parametres[0].data   = va_NumAction		' numero de l action
+        vl_parametres[0].output = FALSE
+
+        vl_parametres[1].type   = SYB#INT1_
+        vl_parametres[1].data   = va_CleAction		' nom du site
+        vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type   = SYB#INT4_
+	vl_parametres[2].data   = null		        ' numero de l equipement
+	vl_parametres[2].output = TRUE
+
+        vl_parametres[3].type   = SYB#DATETIME_
+        vl_parametres[3].data   = null                     ' heure lancement
+        vl_parametres[3].output = TRUE
+
+        vl_parametres[4].type   = SYB#DATETIME_
+        vl_parametres[4].data   = null                     ' heure fin lancement
+        vl_parametres[4].output = TRUE
+
+        vl_parametres[5].type   = SYB#DATETIME_
+        vl_parametres[5].data   = null                     ' heure succes
+        vl_parametres[5].output = TRUE
+
+        vl_parametres[6].type   = SYB#DATETIME_
+        vl_parametres[6].data   = null                     ' heure echec
+        vl_parametres[6].output = TRUE
+
+        vl_parametres[7].type   = SYB#DATETIME_
+        vl_parametres[7].data   = null                     ' heure fin
+        vl_parametres[7].output = TRUE
+
+	vl_parametres[8].type   = SYB#CHAR_
+	vl_parametres[8].data   = null			' message
+	vl_parametres[8].output = TRUE
+
+	vl_parametres[9].type   = SYB#INT4_
+	vl_parametres[9].data   = null		     	' autoroute
+	vl_parametres[9].output = TRUE
+
+	vl_parametres[10].type   = SYB#INT4_
+        vl_parametres[10].data   = null         	' sens
+	vl_parametres[10].output = TRUE
+
+	vl_parametres[11].type   = SYB#INT4_
+        vl_parametres[11].data   = null          	' PR debut
+	vl_parametres[11].output = TRUE
+
+	vl_parametres[12].type   = SYB#INT4_
+	vl_parametres[12].data   = null                 ' PR fin
+	vl_parametres[12].output = TRUE
+
+	vl_parametres[13].type   = SYB#INT4_
+	vl_parametres[13].data   = null                ' PAU en erreur
+	vl_parametres[13].output = TRUE
+
+	vl_parametres[14].type   = SYB#INT4_
+	vl_parametres[14].data   = null                ' PAU pilotes
+	vl_parametres[14].output = TRUE
+
+
+	/*A Execution de la procedure XZAC892_Lire_Commande_PAU_SONO */
+        
+	IF COM05_SQL_Procedure
+                (XZAC892_Lire_Commande_PAU_SONO,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+                RETURN (COM_NOK)
+
+	va_SONO.NumEvt = va_evt
+	va_SONO.CleEvt = va_cle
+	va_SONO.message = vl_resultats.return_parameters[6]
+	va_SONO.autoroute = vl_resultats.return_parameters[7]
+	va_SONO.sens = vl_resultats.return_parameters[8]
+	va_SONO.pr_debut = vl_resultats.return_parameters[9]
+	va_SONO.pr_fin = vl_resultats.return_parameters[10]
+	va_SONO.Nb_PAUErreur = vl_resultats.return_parameters[11]
+	va_SONO.Nb_PAUPilotes = vl_resultats.return_parameters[12]
+
+	DB_CTRL_TITLE@(va_fenetre, "LI_lancement", "Lancement : " ++
+			COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[1]))
+	DB_CTRL_TITLE@(va_fenetre, "LI_succes", "Succes : " ++
+			COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[3]))
+	DB_CTRL_TITLE@(va_fenetre, "LI_echec", "Echec : " ++
+			COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[4]))
+	DB_CTRL_TITLE@(va_fenetre, "LI_fin", "Fin : " ++
+			COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[5])	)
+	DB_CTRL_TITLE@(va_fenetre, "LI_FMC_actuel", va_libelle)
+	
+	DB_CTRL_GRAYED@(va_fenetre, "BP_lier_FMC", true)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_executer", true)
+	
+	/*afficher BP_terminer que si succes et non echec ou fin*/
+	IF (COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[3])<>NULL AND
+	    (COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[4])=NULL OR
+	    COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[5])=NULL))
+		DB_CTRL_GRAYED@(va_fenetre, "BP_terminer", true)
+	ELSE
+		DB_CTRL_GRAYED@(va_fenetre, "BP_terminer", false)
+
+	/* Mise a jour affichage de l etat terrain */
+
+	vl_index = ARRAY_INDEX@(ARRAY_COLUMN@(tm_messages_valides, COL_LIB_MESSAGE), TRIM@(va_SONO.message))
+	
+	IF vl_index > -1
+	{
+		vl_rang_autoroute = ARRAY_INDEX@(ARRAY_COLUMN@ (tm_autoroutes, TDO_NUMERO_AUTOROUTE), va_SONO.autoroute)
+		IF vl_rang_autoroute = -1
+			{ vl_nom_autoroute = "" }
+		ELSE
+			{ vl_nom_autoroute = tm_autoroutes[vl_rang_autoroute][TDO_NOM_AUTOROUTE] }
+
+		DB_CTRL_TITLE@(va_fenetre, "LI_autoroute_actuelle", vl_nom_autoroute)
+		DB_CTRL_TITLE@(va_fenetre, "LI_sens_actuel", va_SONO.sens)
+		DB_CTRL_TITLE@(va_fenetre, "LI_pr_debut_actuel", va_SONO.pr_debut)
+		DB_CTRL_TITLE@(va_fenetre, "LI_pr_fin_actuel", va_SONO.pr_fin)
+		DB_CTRL_TITLE@(va_fenetre, "LI_message_actuel", va_SONO.message)
+		DB_CTRL_TITLE@(va_fenetre, "LI_nb_PAU_pilotes_actuel", va_SONO.Nb_PAUPilotes)
+		DB_CTRL_TITLE@(va_fenetre, "LI_nb_PAU_erreur_actuel", va_SONO.Nb_PAUErreur)
+	}
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :       Lecture d'une action SONO a partir du num de PA pour PAU pilotes/erreur
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TRAU_Lecture_Action_SONO_PAU(va_NumAction, va_CleAction, va_fenetre, FORMAT TRA_Etat_SONO_RAU va_SONO)
+
+/*
+* ARGUMENTS EN ENTREE   :
+*    va_NumAction       : Num d'action
+*    va_CleAction       : Cle action (site)
+*       va_evt          : le num de l'evenement
+*       va_cle          : le num de la cle
+*
+*
+* ARGUMENTS EN SORTIE   :
+*      
+*
+*
+* CODE RETOUR           : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRAU_Lecture_Action_SONO
+*
+*
+---------------------------------------------------------------------------- */
+        VAR     vl_lib_fmc              ' libelle fmc
+        var     vl_tptext               ' zone de text tampon
+
+        VAR FORMAT SQL_Procedure_Params@ vl_parametres
+        VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR	i
+	VAR	vl_index
+	VAR	vl_rang_autoroute
+	VAR	vl_nom_autoroute
+
+        /*A trace de l'appel de procedure */
+        vl_tptext = COM09_Date_Courante()
+        vl_tptext =  vl_tptext ++ "--> XZAC892_Lire_Commande_PAU_SONO"
+        COM01_Trace(0,vl_tptext)
+
+
+        /*A Definition de vl_parametres */
+        vl_parametres[0].type   = SYB#INT4_
+        vl_parametres[0].data   = va_NumAction		' numero de l action
+        vl_parametres[0].output = FALSE
+
+        vl_parametres[1].type   = SYB#INT1_
+        vl_parametres[1].data   = va_CleAction		' nom du site
+        vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type   = SYB#INT4_
+	vl_parametres[2].data   = null		        ' numero de l equipement
+	vl_parametres[2].output = TRUE
+
+        vl_parametres[3].type   = SYB#DATETIME_
+        vl_parametres[3].data   = null                     ' heure lancement
+        vl_parametres[3].output = TRUE
+
+        vl_parametres[4].type   = SYB#DATETIME_
+        vl_parametres[4].data   = null                     ' heure fin lancement
+        vl_parametres[4].output = TRUE
+
+        vl_parametres[5].type   = SYB#DATETIME_
+        vl_parametres[5].data   = null                     ' heure succes
+        vl_parametres[5].output = TRUE
+
+        vl_parametres[6].type   = SYB#DATETIME_
+        vl_parametres[6].data   = null                     ' heure echec
+        vl_parametres[6].output = TRUE
+
+        vl_parametres[7].type   = SYB#DATETIME_
+        vl_parametres[7].data   = null                     ' heure fin
+        vl_parametres[7].output = TRUE
+
+	vl_parametres[8].type   = SYB#CHAR_
+	vl_parametres[8].data   = null			' message
+	vl_parametres[8].output = TRUE
+
+	vl_parametres[9].type   = SYB#INT4_
+	vl_parametres[9].data   = null		     	' autoroute
+	vl_parametres[9].output = TRUE
+
+	vl_parametres[10].type   = SYB#INT4_
+        vl_parametres[10].data   = null         	' sens
+	vl_parametres[10].output = TRUE
+
+	vl_parametres[11].type   = SYB#INT4_
+        vl_parametres[11].data   = null          	' PR debut
+	vl_parametres[11].output = TRUE
+
+	vl_parametres[12].type   = SYB#INT4_
+	vl_parametres[12].data   = null                 ' PR fin
+	vl_parametres[12].output = TRUE
+
+	vl_parametres[13].type   = SYB#INT4_
+	vl_parametres[13].data   = null                ' PAU en erreur
+	vl_parametres[13].output = TRUE
+
+	vl_parametres[14].type   = SYB#INT4_
+	vl_parametres[14].data   = null                ' PAU pilotes
+	vl_parametres[14].output = TRUE
+
+
+	/*A Execution de la procedure XZAC892_Lire_Commande_PAU_SONO */
+        
+	IF COM05_SQL_Procedure
+                (XZAC892_Lire_Commande_PAU_SONO,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+                RETURN (COM_NOK)
+
+	va_SONO.message = vl_resultats.return_parameters[6]
+	va_SONO.autoroute = vl_resultats.return_parameters[7]
+	va_SONO.sens = vl_resultats.return_parameters[8]
+	va_SONO.pr_debut = vl_resultats.return_parameters[9]
+	va_SONO.pr_fin = vl_resultats.return_parameters[10]
+	va_SONO.Nb_PAUErreur = vl_resultats.return_parameters[11]
+	va_SONO.Nb_PAUPilotes = vl_resultats.return_parameters[12]
+
+	/* Mise a jour affichage de l etat terrain */
+
+	DB_CTRL_TITLE@(va_fenetre, "LI_nb_PAU_pilotes_actuel", va_SONO.Nb_PAUPilotes)
+	DB_CTRL_TITLE@(va_fenetre, "LI_nb_PAU_erreur_actuel", va_SONO.Nb_PAUErreur)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :      Verifie la validite des parametres saisi dans l IHM
+*                       
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TRAU_Verification_Localisation_SONO(va_autoroute, va_sens, va_pr, va_site)
+
+/*
+* ARGUMENTS EN ENTREE   :
+*       va_Fenetre      : fenetre de pilotage
+*
+* ARGUMENTS EN SORTIE   :
+*
+* CODE RETOUR           : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+---------------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR i
+VAR vl_msg
+
+/*A Definition des parametres */
+
+vl_parametres = null
+
+i=0
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].data= va_autoroute
+vl_parametres[i].output = FALSE
+i=i+1
+
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].data = va_pr
+vl_parametres[i].output = FALSE
+i=i+1
+
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].data = va_sens
+vl_parametres[i].output = FALSE
+i=i+1
+
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].data = 0		' pt caracteristique
+vl_parametres[i].output = FALSE
+i=i+1
+
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].data = 0		' type pt caracteristique
+vl_parametres[i].output = FALSE
+i=i+1
+
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].data = 0		' position
+vl_parametres[i].output = FALSE
+i=i+1
+
+vl_parametres[i].data=0  		' type
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = FALSE
+i=i+1
+
+vl_parametres[i].data=null      	' autoroute
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' pr
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' sens
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' pt car
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' type pt car
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' position
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' vr
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' vm2
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' vm1
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' vl
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' bau
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' vri
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' vm2i
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' vm1i
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' vli
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' baui
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' bau_etroite
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data = null    	' baui_etroite
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' district
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' district recouvrement
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+i=i+1
+
+vl_parametres[i].data=null      	' resultat
+vl_parametres[i].type = SYB#INT4_
+vl_parametres[i].output = TRUE
+
+IF (COM05_SQL_Procedure (XZAE66_Configuration_Voies,
+			vl_parametres, vl_resultats, C_MODULE) <> COM_OK)
+{
+	vl_msg="Erreur dans la vérification de la localisation"
+	INFO_MESSAGE@(vl_msg)
+	RETURN (COM_NOK)
+}
+ELSE IF vl_resultats.status=XZAEC_LOC_PT_CAR_INC
+{
+	INFO_MESSAGE@("Point caractéristique inexistant")
+	RETURN (COM_NOK)
+}
+
+/*suivant la valeur du resultat*/
+CASE OF vl_resultats.return_parameters[20]
+	CASE XDC_LOC_SENS_MOD
+		INFO_MESSAGE@("Sens incorrect")
+		RETURN (COM_NOK)
+
+	CASE XDC_LOC_PR_MOD
+		INFO_MESSAGE@("PR incorrect")
+		RETURN (COM_NOK)
+
+	CASE XDC_LOC_AUT_MOD
+		INFO_MESSAGE@("Autoroute incorrecte")
+		RETURN (COM_NOK)
+
+	CASE XDC_LOC_INC
+		INFO_MESSAGE@("Localisation incorrecte")
+		RETURN (COM_NOK)
+ENDCASE
+
+IF (va_site<>XDC_CI)
+{
+	/* la localisation doit rester sur mon site		*/
+	/* Ajout SAGA :                                         */
+	/* sauf dans le cas des districts Aubagne ou Cannet     */
+	/* ou la localisation peut etre sur le site de la DDE83 */
+	
+	IF ((vl_resultats.return_parameters[18]<>va_site) AND NOT
+		((vl_resultats.return_parameters[18] = XDC_DDE83) AND
+		((va_site = XDC_DA) OR (va_site = XDC_VE))))
+	{
+		INFO_MESSAGE@("L'événement ne peut être localisé que sur votre site")
+		RETURN (COM_NOK)
+	}
+
+	IF ((vl_resultats.return_parameters[18]<>va_site) AND
+		((vl_resultats.return_parameters[18] = XDC_DDE83) AND
+		((va_site = XDC_DA) OR (va_site = XDC_VE))))
+	{
+		COM01_Trace(COM_INFO,"demande de confirmation du PR hors réseau")
+		
+		if PEND_FOR_NEW_TASK@("ITMA_TCF_Demande_Confirmation",
+			"Attention, vous avez saisi une localisation hors réseau. Validez-vous ? ") = COM_NOK
+		{
+			RETURN (COM_NOK)
+		}
+	}
+}
+
+RETURN (COM_OK)
+
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recherche les infos de localisation de la FMC
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRAU_Lecture_Localisation_FMC_SONO (va_numEvt, va_cleEvt, FORMAT TM_Localisation_FMC vl_localisation)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_numEvt     : Numero de l'action
+*   va_cleEvt     : Identifiant du site
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*   Lit en base de donnees la FMC et retourne les elements de localisation : autoroute, sens, pr debut et pr fin
+*
+---------------------------------------------------------------------------- */
+
+var	FORMAT	COM_Intitule_FMC	vl_FMC
+
+
+IF ITMA_COM_Lire_Evenement (va_numEvt, va_cleEvt, vl_FMC, C_MODULE) = COM_OK
+{
+	vl_localisation.autoroute = vl_FMC.localisation.NumAuto
+	vl_localisation.sens = vl_FMC.localisation.sens_circulation
+	vl_localisation.pr = vl_FMC.localisation.PR
+	RETURN (COM_OK)
+}
+ELSE
+{
+	RETURN (COM_NOK)
+}
+
+ENDMACRO
+
+

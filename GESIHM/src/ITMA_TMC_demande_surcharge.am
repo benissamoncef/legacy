@@ -1,0 +1,158 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_demande_surcharge.am,v 1.9 1995/09/12 20:29:30 gesconf Exp $     Release : $Revision: 1.9 $      Date : $Date: 1995/09/12 20:29:30 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTMC * FICHIER ITMA_TMC_demande_surcharge.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Demande de surcharge au CI
+*
+*   Cf. DCG 2.4.66
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	27 dec 1994	: Creation						V1.1
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+
+DEFINE	C_MODULE	"MTMC"			' Nom du module
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* permet de demander au CI d'accepter un evenement pour surcharge
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_demande_surcharge (va_numero,va_cle,va_libelle,va_enrichir)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR tl_retour,tl_poke_data
+	VAR tl_args
+	VAR vl_msg
+	VAR vl_reponse
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A charge la fenetre*/
+vl_fenetre=DB_LOAD@("ITMA_TMC_demande_surcharge")
+
+/*A messages recus*/
+tl_messages_acceptes[0]=COM_CANAL_FIN
+tl_messages_acceptes[1]=COM_CANAL_MTMC_SURCHARGE
+DB_ACCEPT_POKES@(vl_fenetre,tl_messages_acceptes)
+
+vl_reponse=COM_NOK
+
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)
+
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	CASE OF vl_exit_value
+		CASE "BP_valider"
+			/*A ne plus afficher le libelle de la demande*/
+			DB_CTRL_DISPLAY@(vl_fenetre,"LI_demande",FALSE)
+			DB_CTRL_DISPLAY@(vl_fenetre,"BP_valider",FALSE)
+			
+		'	DB_TIMER@(vl_fenetre,10)
+
+			/* Construire les paramètres d'appel de la fonction relais */
+			tl_args[0]=va_numero
+			tl_args[1]=va_cle
+			tl_args[2]=va_libelle
+			tl_args[3]=SYSTEM_VAR@(vg_nom_site)
+			tl_args[4]=SYSTEM_VAR@(vg_numero_poste)
+			tl_args[5]=va_enrichir
+			tl_args[6]=SYSTEM_VAR@(vg_site)
+			NEW_TASK@("ITMA_TIR_EXEC",MTAR_FCT_DEMANDESURCHARGE,
+								COM_CANAL_MTMC,tl_args)
+
+		CASE "BP_annuler"
+			IF (vl_reponse=COM_OK)
+			{
+				/*! je note que la surcharge est en cours*/
+				tl_args[0]=va_numero
+				tl_args[1]=va_cle
+				SET_SYSTEM_VAR@(vg_fiche_surcharge,tl_args)
+				RETURN (vl_reponse)
+			}
+			ELSE
+				RETURN (COM_NOK)
+
+		CASE "timer_"
+			INFO_MESSAGE@("Pas de réponse du CI")
+			RETURN
+
+		CASE "poke_"
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				CASE COM_CANAL_FIN
+					RETURN
+
+				CASE COM_CANAL_MTMC_SURCHARGE
+					BEEP@()
+					DB_CTRL_TITLE@(vl_fenetre,"BP_annuler","Fermer")
+					tl_retour=DB_GET_POKE_DATA@(vl_fenetre)
+					tl_retour=ARRAY_FROM_STRING@(tl_retour[0],MTAR_CAR_SEPAR)
+					vl_reponse=tl_retour[0]
+					IF (vl_reponse=COM_NOK)
+					{
+						/*A feu rouge*/
+						DB_CTRL_TITLE@(vl_fenetre,"LI_reponse",
+							"Surcharge refusée par le CI")
+					}
+					ELSE
+					{
+						/*A feu vert*/
+						DB_CTRL_TITLE@(vl_fenetre,"LI_reponse",
+							"Surcharge acceptée par le CI")
+
+						/*A icone dans la liste des fmc a traiter*/
+						DB_SEND_POKE@(COM_CANAL_MTLT_SURCHARGE,tl_args)
+					}
+			ENDCASE
+	ENDCASE
+WEND
+ENDMACRO

@@ -1,0 +1,164 @@
+/*E*/
+/* Fichier : @(#)ITMA_TBR_Visu_FLU_V2.am	1.3        Release : 1.3        Date : 03/24/14
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTBR * FICHIER ITMA_TBR_Visualiser_FLU.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* visualiser le fichier des FLU 
+*
+----------------------------------------------------------------------------:1
+---
+* HISTORIQUE :
+*
+* PCL	23/05/2014 :   creation
+* PNI 	28/07/2014 : Modification pour filtrer par autoroute DEM1090 1.3
+-------------------------------------------------------------------------------
+*/
+
+INCLUDE	"dbase_.am"
+INCLUDE	"app_ids_.am"				'pour récupérer le nom des appli Applix
+INCLUDE	"windows_.am"				'pour récupérer le nom des appli Applix
+include "errors_.am"
+
+DEFINE	REP_FICHIER	"/produits/migrazur/appliSD/fichiers/flu/"
+DEFINE	PATH_OUTILS	"/produits/migrazur/appliSD/fichiers/mbo"
+DEFINE  CMD_RCP		"/produits/migrazur/appliSD/exec/tscmd.x "
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Creation d'une boite de dialogue pour permettre de visualiser les FLU
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+
+MACRO ITMA_TBR_Visualiser_FLU ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Aucun
+*
+* CONDITION D'UTILISATION
+*   Appel depuis le sous menu Application / Fonctions annexes
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_exit_value
+	VAR vl_la_fenetre_est_active
+	VAR vl_fenetre			 
+    	VAR vl_indice
+	VAR vl_commande
+	VAR vl_commande2
+	VAR vl_machine
+	VAR vl_contenu_fichier
+	VAR tl_fichiers
+	VAR vl_host
+	VAr tl_data
+	VAR tl_donnees
+	VAR vl_retour_CMD
+	VAR vl_string_CMD
+	VAR vl_trouve
+	VAR vl_driver
+	VAR tl_param
+	VAR count
+	VAR i
+	VAR vl_autoroute
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	RETURN
+}
+
+vl_autoroute[0]="A8"
+vl_autoroute[1]="A500"
+vl_autoroute[2]="A50"
+vl_autoroute[3]="A501"
+vl_autoroute[4]="A51"
+vl_autoroute[5]="A52"
+vl_autoroute[6]="A520"
+vl_autoroute[7]="A57"
+
+
+
+/*A
+ * Charger la fenetre "menu principal"
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TBR_Visualiser_FLU")
+DB_XPOS@ (vl_fenetre, 300)
+DB_YPOS@ (vl_fenetre, 100)
+
+
+DB_CTRL_STRINGS@(vl_fenetre,"BO_Autoroute",vl_autoroute)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BO_Autoroute",TRUE)
+
+/*A Recuperer le contenue du fichier */
+/*vl_contenu_fichier = READ_ASCII_FILE@(FILE_SYSTEM_FILES@(REP_FICHIER) ++ "TABLEAU_ZONES_OMBRE_FLU_V2.csv")*/
+vl_contenu_fichier = READ_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/flu/LIST-FLU-PAR-AUTOROUTE-A8.txt")
+/*A Initialiser la liste des fichiers */
+
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_fichiers", vl_contenu_fichier)
+vl_la_fenetre_est_active = TRUE
+
+
+/*A boucle infinie de traitement des evenements*/
+WHILE vl_la_fenetre_est_active
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+
+	CASE "BO_Autoroute"
+	MACRO_WINS_BUSY@()
+	i = DB_CTRL_GET_VALUE@(vl_fenetre, "BO_Autoroute")
+	IF i = 0
+		vl_contenu_fichier = READ_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/flu/LIST-FLU-PAR-AUTOROUTE-A8.txt")
+	ELSE IF i = 1
+		vl_contenu_fichier = READ_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/flu/LIST-FLU-PAR-AUTOROUTE-A500.txt")
+	ELSE IF i = 2
+		vl_contenu_fichier = READ_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/flu/LIST-FLU-PAR-AUTOROUTE-A50.txt")
+	ELSE IF i = 3
+		vl_contenu_fichier = READ_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/flu/LIST-FLU-PAR-AUTOROUTE-A501.txt")
+	ELSE IF i = 4
+		vl_contenu_fichier = READ_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/flu/LIST-FLU-PAR-AUTOROUTE-A51.txt")
+	ELSE IF i = 5
+		vl_contenu_fichier = READ_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/flu/LIST-FLU-PAR-AUTOROUTE-A52.txt")
+	ELSE IF i = 6
+		vl_contenu_fichier = READ_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/flu/LIST-FLU-PAR-AUTOROUTE-A520.txt")
+	ELSE
+		vl_contenu_fichier = READ_ASCII_FILE@("/produits/migrazur/appliSD/fichiers/flu/LIST-FLU-PAR-AUTOROUTE-A57.txt")
+DB_CTRL_STRINGS@ (vl_fenetre, "BL_fichiers", vl_contenu_fichier)
+vl_la_fenetre_est_active = TRUE
+
+	CASE "BP_quitter"
+	RETURN
+	ENDCASE	
+
+WEND
+ENDMACRO
+
+

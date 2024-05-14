@@ -1,0 +1,1019 @@
+/*E*/
+/*  Fichier : $Id: ITMA_TRT_Test_DAI.am,v 1.6 2009/12/11 13:50:45 gesconf Exp $        Release : $Revision: 1.6 $        Date : $Date: 2009/12/11 13:50:45 $
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TRT * FICHIER ITMA_TRT_Test_DAI.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Resultats d'un test semi-automatique des analyseurs DAI.
+*
+*   Non decrit dans le DCG.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JPL		06/07/07 : Creation 1.1
+* JPL		26/07/07 : Lecture analyseurs en base et non en fichiers conf. 1.2
+* JPL		27/07/07 : Affichage 'BAU / Pb.mesure' pour derniere voie 1.3
+* JPL		03/09/07 : Ne plus redimensionner la fenetre pour eviter un "fantome" (DEM 699) 1.4
+* JPL		10/12/09 : DB_ACCEPT_POKES@ déplacé aprés de DB_LOAD  DEM921 1.5 1.6
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdf_ax.h"
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+
+INCLUDE	"../inc/xzao811sp.h"
+
+
+DEFINE	C_MODULE		"MTRT"			' Nom du module
+
+var     	vm_fenetre			' item de la fenetre du module
+
+/*A
+ * Definition des fichiers utilises
+ * --------------------------------
+ */
+
+DEFINE	C_FICH_CONFIG_DAI	"Config_DAI_LCR"	' Configuration des eqts.
+DEFINE	C_FICH_COMMANDE_DAI	"MTRT_DAI_cmd.lcr"	' Commande envoyee a l'eqt.
+DEFINE	C_FICH_REPONSE_DAI	"MTRT_DAI.lcr"		' Reponse attendue de l'eqt.
+
+DEFINE	C_SOUS_REP_MODELES	COM_SOUS_REP_IHM        ' Repertoire des modeles d'impression
+
+
+
+/*A
+ * Definition des valeurs de commande, de reponses et de mesures
+ * -------------------------------------------------------------
+ */
+
+DEFINE	C_ANA_CMD_TEST			"MIA"
+
+DEFINE	C_ANA_PAS_REPONSE		"Pas de reponse"
+DEFINE	C_ANA_REPONSE_NAK		"Reponse NAK"
+
+DEFINE	C_ANA_VOIE_PBMESURE		"999"
+DEFINE	C_ANA_VOIE_INHIBE		"998"
+DEFINE	C_ANA_VOIE_INVERSE		"997"
+
+
+
+/*A
+ * Definition des etats des analyseurs DAI
+ * ---------------------------------------
+ */
+
+DEFINE	C_ETAT_OK		0
+DEFINE	C_ETAT_HS		1
+DEFINE	C_ETAT_REFUS		2
+DEFINE	C_ETAT_ERR_COMM		3
+
+
+
+/*A
+ * Definition des images digitalisees refletant les etats des analyseurs DAI
+ * -------------------------------------------------------------------------
+ */
+
+DEFINE	C_PICTO_INCONNU		NULL
+DEFINE	C_PICTO_OK		"pix_ok"
+DEFINE	C_PICTO_HS		"pix_croix"
+
+
+
+/*A
+ * Description des formats de donnees internes et affichees
+ * --------------------------------------------------------
+ */
+
+FORMAT	TRT_Donnees_DAI					' Format des donnees lues en base
+	numero,						' Numero de l'equipement
+	nom,						' Nom de l'equipement
+	machine						' ... de rattachement de l'equipement
+
+
+FORMAT	TRT_Donnees_ANA					' Format des donnees lues en base
+	dai,						' DAI de rattachement (numero, puis index)
+	numero_eqt,					' Id. unique en base de l'analyseur
+	nom,						' Nom de l'analyseur
+	autoroute,					' Nom autoroute
+	PR_debut,
+	PR_fin,
+	sens,
+	numero,						' Numero de l'analyseur
+	nb_voies					' Nombre de voies surveillees
+
+
+FORMAT	TRT_Resultats					' Format des donnees affichees
+	designation,					' Nom ou localisation
+	voie1,						' Etat de la voie No 1
+	voie2,						' Etat de la voie No 2
+	voie3,						' Etat de la voie No 3
+	voie4,						' Etat de la voie No 4
+	voie5						' Etat de la voie No 5
+
+
+VAR	FORMAT TRT_Donnees_DAI	tm_DAI			' Table des informations DAI
+VAR	FORMAT TRT_Donnees_ANA	tm_ANA			' Table des informations Analyseurs
+VAR	vm_ana_teste					' Rang de l'analyseur en cours de test
+
+VAR	FORMAT TRT_Resultats	tm_resultats		' Table des resultats affiches
+VAR	tm_pictos					' Liste des pictogrammes
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Affichage du test semi-automatique des analyseurs DAI.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRT_Test_DAI (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option "Tester -> DAI" au menu ecran textuel.
+*
+* FONCTION
+*   Affiche l'etat des analyseurs DAI testes.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_objet_selecte			' L'objet courant de la fenetre
+VAR	vl_les_messages_acceptes		' Pour abonnement aux messages
+VAR	vl_la_fenetre_est_active
+VAR	vl_installer_traitement_erreur
+VAR   vl_fenetre                              ' Nom de la fenetre du module
+
+VAR	vl_message				' Reponse recue
+VAR	vl_etat					' Etat de l'analyseur teste
+VAR	tl_impr_DAI				' Liste a imprimer
+VAR	vl_nb_l_visu				' Taille de la table affichee
+VAR	vl_1ere_ligne				' 1ere ligne affichee
+VAR	vl_der_ligne				' Dernière ligne affichee
+VAR	vl_reduit
+VAR	vl_date, vl_jj, vl_mm, vl_aa, vl_hh, vl_mn
+VAR	tl_titres
+VAR	i, j
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@ (ERROR_NUMBER@(), ERROR_STRING@(), ERROR_OBJECT@())
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN
+}
+
+
+/*A
+ * Charger la fenetre de test des DAI
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TRT_Test_DAI")
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_MTIE
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TRT_Test_DAI")
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+'DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre, "TA_DAI", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_DAI", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_DAI", FALSE)
+
+
+/*A
+ * Definir les titres des colonnes de la table
+ * -------------------------------------------
+ */
+
+DB_DISPLAY_ONLY@ (vl_fenetre, TRUE)			' Pour acces aux objets tables
+DB_DISPLAY@ (vl_fenetre)
+DB_DISPLAY_ONLY@ (vl_fenetre, FALSE)
+
+tl_titres[0] = "Analyseur", 70				' Titre colonne et taille en pixels
+tl_titres[1] = "Vitesse v1", 75
+tl_titres[2] = "Vitesse v2", 75
+tl_titres[3] = "Vitesse v3", 75
+tl_titres[4] = "Vitesse v4", 75
+tl_titres[5] = "Vitesse v5", 75
+tl_titres[6] = "", 0
+
+DB_TABLE_SET_DATA@ (vl_fenetre, "TA_DAI", NULL, tl_titres, NULL)
+
+
+
+
+/*A
+ * Initialiser la visualisation (liste des analyseurs)
+ * ---------------------------------------------------
+ */
+
+IF TRT_DAI_Init_Liste_DAI (vl_fenetre) <> COM_OK {
+	RETURN (COM_NOK)
+}
+IF TRT_DAI_Init_Liste_ANA (vl_fenetre) <> COM_OK {
+	RETURN (COM_NOK)
+}
+
+DB_TABLE_SET_DATA@ (vl_fenetre, "TA_DAI", tm_resultats, tl_titres, tm_pictos)
+
+
+/*A
+ * Lire et afficher l'heure courante
+ * ---------------------------------
+ */
+
+vl_date = COM09_Date_Courante()
+COM14_Valeurs_Horodate (vl_date, vl_jj, vl_mm, vl_aa, vl_hh, vl_mn)
+DB_CTRL_TITLE@ (vl_fenetre, "LI_Heure_Debut", vl_hh ++ ":" ++ vl_mn)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY@ (vl_fenetre)
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+COM01_Trace (COM_DEBUG1,"ITMA_TRT_Test_DAI"++vl_objet_selecte)
+	IF (vl_objet_selecte <> "poke_")  AND  (SYSTEM_VAR@ (vg_verrou) = TRUE) {
+		vl_objet_selecte = NULL
+	}
+
+	CASE OF vl_objet_selecte
+
+	CASE "BP_reduire"
+		IF (vl_reduit = FALSE) {
+			vl_reduit = TRUE
+			DB_HEIGHT@ (vl_fenetre, 280)
+			DB_WIDTH@ (vl_fenetre, 490)
+			DB_CTRL_XPOS@ (vl_fenetre, "BP_Quitter", 30)
+			DB_CTRL_XPOS@ (vl_fenetre, "BP_demarrer", 120)
+			DB_CTRL_XPOS@ (vl_fenetre, "BP_reduire", 210)
+			DB_CTRL_XPOS@ (vl_fenetre, "BP_Imprimer", 300)
+			DB_CTRL_XPOS@ (vl_fenetre, "BP_Aide", 390)
+			DB_CTRL_YPOS@ (vl_fenetre, "BP_Quitter", 10)
+			DB_CTRL_YPOS@ (vl_fenetre, "BP_demarrer", 10)
+			DB_CTRL_YPOS@ (vl_fenetre, "BP_reduire", 10)
+			DB_CTRL_YPOS@ (vl_fenetre, "BP_Imprimer", 10)
+			DB_CTRL_YPOS@ (vl_fenetre, "BP_Aide", 10)
+
+			DB_CTRL_XPOS@ (vl_fenetre, "LI_Titre_Heure_Debut", 140)
+			DB_CTRL_XPOS@ (vl_fenetre, "LI_Heure_Debut", 260)
+			DB_CTRL_XPOS@ (vl_fenetre, "T_Heure_Debut", 253)
+			DB_CTRL_YPOS@ (vl_fenetre, "LI_Titre_Heure_Debut", 50)
+			DB_CTRL_YPOS@ (vl_fenetre, "LI_Heure_Debut", 53)
+			DB_CTRL_YPOS@ (vl_fenetre, "T_Heure_Debut", 48)
+
+			DB_CTRL_XPOS@ (vl_fenetre, "TA_DAI", 12)
+			DB_CTRL_YPOS@ (vl_fenetre, "TA_DAI", 100)
+			DB_CTRL_HEIGHT@ (vl_fenetre, "TA_DAI", 160)
+
+			DB_CTRL_DISPLAY@ (vl_fenetre, "T_Fenetre", FALSE)
+
+			DB_CTRL_TITLE@ (vl_fenetre, "BP_reduire", "Agrandir")
+		} ELSE {
+			vl_reduit = FALSE
+			DB_HEIGHT@ (vl_fenetre, 734)
+			DB_WIDTH@ (vl_fenetre, 540)
+			DB_CTRL_XPOS@ (vl_fenetre, "BP_Quitter", 56)
+			DB_CTRL_XPOS@ (vl_fenetre, "BP_demarrer", 146)
+			DB_CTRL_XPOS@ (vl_fenetre, "BP_reduire", 242)
+			DB_CTRL_XPOS@ (vl_fenetre, "BP_Imprimer", 334)
+			DB_CTRL_XPOS@ (vl_fenetre, "BP_Aide", 423)
+			DB_CTRL_YPOS@ (vl_fenetre, "BP_Quitter", 15)
+			DB_CTRL_YPOS@ (vl_fenetre, "BP_demarrer", 15)
+			DB_CTRL_YPOS@ (vl_fenetre, "BP_reduire", 15)
+			DB_CTRL_YPOS@ (vl_fenetre, "BP_Imprimer", 15)
+			DB_CTRL_YPOS@ (vl_fenetre, "BP_Aide", 15)
+
+			DB_CTRL_XPOS@ (vl_fenetre, "LI_Titre_Heure_Debut", 176)
+			DB_CTRL_XPOS@ (vl_fenetre, "LI_Heure_Debut", 293)
+			DB_CTRL_XPOS@ (vl_fenetre, "T_Heure_Debut", 284)
+			DB_CTRL_YPOS@ (vl_fenetre, "LI_Titre_Heure_Debut", 55)
+			DB_CTRL_YPOS@ (vl_fenetre, "LI_Heure_Debut", 55)
+			DB_CTRL_YPOS@ (vl_fenetre, "T_Heure_Debut", 50)
+
+			DB_CTRL_XPOS@ (vl_fenetre, "TA_DAI", 40)
+			DB_CTRL_YPOS@ (vl_fenetre, "TA_DAI", 100)
+			DB_CTRL_HEIGHT@ (vl_fenetre, "TA_DAI", 600)
+
+			DB_CTRL_XPOS@ (vl_fenetre, "T_Fenetre", 0)
+			DB_CTRL_YPOS@ (vl_fenetre, "T_Fenetre", 0)
+			DB_CTRL_DISPLAY@ (vl_fenetre, "T_Fenetre", TRUE)
+
+			DB_CTRL_TITLE@ (vl_fenetre, "BP_reduire", "Réduire")
+			COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+		}
+
+
+	CASE "BP_demarrer"
+		/*B Réinitialiser la table des états des analyseurs */
+		FOR i = 0  TO ARRAY_SIZE@ (tm_ANA) - 1
+			tm_resultats[i].voie1 = NULL
+			tm_resultats[i].voie2 = NULL
+			tm_resultats[i].voie3 = NULL
+			tm_resultats[i].voie4 = NULL
+			tm_resultats[i].voie5 = NULL
+
+			tm_pictos[i] = { C_PICTO_INCONNU }
+		NEXT i
+		DB_TABLE_SET_NEW_DATA@ (vl_fenetre, "TA_DAI", tm_resultats, 0)
+		DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre, "TA_DAI", 0, tm_pictos)
+		DB_TABLE_SET_NEW_TOP_ROW@ (vl_fenetre, "TA_DAI", 0)
+
+		IF ARRAY_SIZE@ (tm_ANA) > 0 {
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_demarrer", TRUE)
+
+			/*B Envoyer la commande de test au premier analyseur */
+			vm_ana_teste = 0
+			TRT_DAI_Envoi_Commande (vm_ana_teste)
+		}
+
+
+	CASE "BP_Quitter"
+		vl_la_fenetre_est_active = FALSE
+
+
+	CASE "BP_Imprimer"
+		FOR i = 0 TO ARRAY_SIZE@ (tm_resultats) - 1
+			tl_impr_DAI[i] = tm_resultats[i].designation ++ "\t"
+			tl_impr_DAI[i] = tl_impr_DAI[i] ++ tm_resultats[i].voie1 ++ "\t"
+			tl_impr_DAI[i] = tl_impr_DAI[i] ++ tm_resultats[i].voie2 ++ "\t"
+			tl_impr_DAI[i] = tl_impr_DAI[i] ++ tm_resultats[i].voie3 ++ "\t"
+			tl_impr_DAI[i] = tl_impr_DAI[i] ++ tm_resultats[i].voie4 ++ "\t"
+			tl_impr_DAI[i] = tl_impr_DAI[i] ++ tm_resultats[i].voie5 ++ "\n"
+		NEXT i
+		WP_APPLICATION_DLG@ (null, TRUE)
+		WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+		                  C_SOUS_REP_MODELES ++ "ITMA_TRT_Test_DAI.aw")
+		WP_GOTO_END@ ()
+		FOR i = 0 TO ARRAY_SIZE@ (tl_impr_DAI) - 1
+			WP_ENTER_TEXT@ (tl_impr_DAI[i])
+		NEXT i
+		COM36_Imprimer_Texte ("ITMA_TRT_Test_DAI_imp.aw")
+
+
+	CASE "poke_"
+
+		/*A
+		 * Sur reception d'un message destine a ce poste, sur message de
+		 * fin de test fermer la fenetre ; sinon rafraichir l'etat des DAI
+		 * ---------------------------------------------------------------
+		 */
+
+		CASE OF  DB_GET_POKE@ (vl_fenetre)
+		CASE COM_CANAL_FIN
+			vl_la_fenetre_est_active = FALSE
+
+		CASE COM_CANAL_MTIE
+			vl_message = DB_GET_POKE_DATA@ (vl_fenetre)
+			CASE OF vl_message[0]
+			CASE XDC_OK
+				vl_etat = TRT_DAI_Traite_Resultat (tm_resultats[vm_ana_teste],
+				                                      tm_ANA[vm_ana_teste].nb_voies)
+			CASE XDC_NOK
+				vl_etat = C_ETAT_REFUS
+			DEFAULT
+				vl_etat = C_ETAT_HS
+			ENDCASE
+			TRT_DAI_Ecrire_Etat_Voies (tm_resultats[vm_ana_teste],
+			                              tm_ANA[vm_ana_teste].nb_voies, vl_etat)
+
+			COM01_Trace (COM_DEBUG2,"retour TRT_DAI_Traite_Resultat:vl_etat:"++vl_etat)
+			/*B Représenter graphiquement l'état de l'analyseur */
+			CASE OF vl_etat
+			CASE C_ETAT_OK
+				tm_pictos[vm_ana_teste] = { C_PICTO_OK }
+			CASE C_ETAT_HS
+				tm_pictos[vm_ana_teste] = { C_PICTO_HS }
+			CASE C_ETAT_REFUS
+				tm_pictos[vm_ana_teste] = { C_PICTO_INCONNU }
+			CASE C_ETAT_ERR_COMM
+				tm_pictos[vm_ana_teste] = { C_PICTO_INCONNU }
+			ENDCASE
+
+			/*B Afficher les résultats */
+			DB_TABLE_SET_NEW_DATA@ (vl_fenetre, "TA_DAI", tm_resultats, 0)
+			DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre, "TA_DAI", 0, tm_pictos)
+
+			/* doit être fait à chaque fois (au cas où redimensionnement) */
+			vl_nb_l_visu = DB_TABLE_GET_DISP_LINES@ (vl_fenetre, "TA_DAI")
+
+			/* si l'élément est hors zone de visualisation, ne rien faire */
+			/* (ne pas perturber l'opérateur s'il en visualise d'autres) */
+			vl_1ere_ligne = DB_TABLE_GET_TOP_ROW@ (vl_fenetre, "TA_DAI")
+			vl_der_ligne = vl_1ere_ligne + vl_nb_l_visu - 1
+			'IF (vm_ana_teste < vl_1ere_ligne) OR (vm_ana_teste > vl_der_ligne) {
+				'DB_TABLE_SET_NEW_TOP_ROW@ (vl_fenetre, "TA_DAI", vm_ana_teste)
+			'}
+
+			/* si l'élément est en fin de zone de visualisation, faire défiler */
+			IF (vm_ana_teste <= vl_der_ligne) AND (vl_der_ligne - vm_ana_teste < 1) {
+				DB_TABLE_SET_NEW_TOP_ROW@ (vl_fenetre, "TA_DAI", vm_ana_teste + 2 - vl_nb_l_visu)
+			}
+
+			DB_TABLE_SET_SELECTIONS@ (vl_fenetre, "TA_DAI", { vm_ana_teste })
+
+			/*B Envoyer la commande à l'analyseur suivant ; */
+			/*B si c'est le dernier, autoriser le redémarrage du test */
+			vm_ana_teste = vm_ana_teste + 1
+			IF vm_ana_teste < ARRAY_SIZE@ (tm_ANA) {
+				COM01_Trace (COM_DEBUG2,"TRT_DAI_Envoi_Commande (vm_ana_teste):")
+				TRT_DAI_Envoi_Commande (vm_ana_teste)
+			} ELSE {
+				DB_CTRL_GRAYED@ (vl_fenetre,"BP_demarrer", FALSE)
+			}
+		ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Constitue le fichier de commande de test d'un analyseur donne
+*  et l'envoie a l'equipement DAI indique.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRT_DAI_Envoi_Commande (va_idx_analyseur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_idx_analyseur  : Rang de l'analyseur a tester.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRT_Test_DAI
+*
+* FONCTION
+*   Ecrit le fichier de commande de test de l'analyseur
+*   et envoie le message de commande adequat a la machine
+*   a laquelle est rattache l'equipement DAI.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_idx_dai				' Rang de l'eqt. DAI correspondant
+VAR	vl_fichier_cmd
+VAR	vl_str_num_ana
+VAR	vl_cmd					' Commande envoyee
+VAR	vl_message				' donnees commande
+ 
+vl_fichier_cmd = SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+                    COM_SOUS_REP_DEQ ++ C_FICH_COMMANDE_DAI
+
+/* Supprimer le fichier de commande précédent */
+DELETE_FILE@ (vl_fichier_cmd)
+
+
+/*A
+ * Constituer la commande de test de l'analyseur indique
+ * -----------------------------------------------------
+ */
+
+vl_str_num_ana = "0" ++ tm_ANA[va_idx_analyseur].numero
+vl_str_num_ana = SUBSTRING@ (vl_str_num_ana, LEN@ (vl_str_num_ana) - 1)
+
+COM01_Trace (COM_DEBUG2,"TRT_DAI_Envoi_Commande cmde:"++C_ANA_CMD_TEST ++ vl_str_num_ana)
+
+/* Creer le fichier et y ecrire la commande de test de l'analyseur */
+OPEN_ASCII_FILE@ (vl_fichier_cmd, "w")
+WRITE_FILE@ (vl_fichier_cmd, C_ANA_CMD_TEST ++ vl_str_num_ana)
+CLOSE_FILE@ (vl_fichier_cmd)
+
+
+/* Supprimer tout fichier résultat précédent */
+DELETE_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+                 COM_SOUS_REP_DEQ ++ C_FICH_REPONSE_DAI)
+
+
+/*A
+ * Envoyer la commande a l'equipement DAI indique via la machine adequate
+ * ----------------------------------------------------------------------
+ */
+
+vl_idx_dai = tm_ANA[va_idx_analyseur].dai
+vl_message = {	XDC_EQT_DAI,
+		tm_DAI[vl_idx_dai].numero,		' numero equipement
+		C_FICH_COMMANDE_DAI,			' ficher de commande
+		C_FICH_REPONSE_DAI,			' ficher resultat
+		0,					' periode
+		"00:00:00",				' heure debut
+		"00:00:00",				' heure fin
+		tm_DAI[vl_idx_dai].machine
+}
+vl_message = ARRAY_TO_STRING@ (vl_message, MTAR_CAR_SEPAR)
+vl_cmd = { MTAR_MSG_EXEC, 1, MTAR_FCT_XZEX01, vl_message }
+DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Traite et affiche le résultat du test de l'analyseur en cours.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRT_DAI_Traite_Resultat (FORMAT TRT_Resultats va_resultats, va_nb_voies)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_resultats      : Resultats du test de l'analyseur a mettre a jour ;
+*   va_nb_voies       : Nombre de voies observées par l'analyseur.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : valeur de l'etat de l'analyseur
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRT_Test_DAI
+*
+* FONCTION
+*   Exploite le fichier de resultat de test de l'analyseur
+*   et affiche les états des voies observées.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_fichier_res
+VAR	vl_texte				' Texte renvoyé par l'analyseur
+VAR	vl_reponse				' Données de la réponse
+VAR	vl_mesures				' Mesures des voies
+VAR	i
+ 
+vl_fichier_res = SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+                    COM_SOUS_REP_DEQ ++ C_FICH_REPONSE_DAI
+
+/*B Vérifier la présence du fichier résultat */
+IF NOT FILE_EXISTS@ (vl_fichier_res) {
+	RETURN (C_ETAT_HS)
+}
+
+
+/*A
+ * Lire le fichier résultat et extraire la ligne de réponse
+ * --------------------------------------------------------
+ */
+
+vl_texte = READ_ASCII_FILE@ (vl_fichier_res)
+
+/* Chercher la commande en début de ligne */
+FOR i = 0  TO ARRAY_SIZE@ (vl_texte)
+	IF SUBSTRING@ (vl_texte[i], 1, LEN@ (C_ANA_CMD_TEST)) = C_ANA_CMD_TEST {
+		vl_reponse = vl_texte[i + 1]
+		BREAK i
+	}
+NEXT i
+IF vl_reponse = NULL {
+	RETURN (C_ETAT_HS)
+}
+
+
+/*B
+ * La commande a été trouvée, analyser la réponse
+ * ----------------------------------------------
+ */
+COM01_Trace (COM_DEBUG2,"TRT_DAI_Traite_Resultat:reponse:"++vl_reponse)
+IF vl_reponse = C_ANA_PAS_REPONSE {
+	RETURN (C_ETAT_HS)
+} ELSE IF vl_reponse = C_ANA_REPONSE_NAK {
+	RETURN (C_ETAT_REFUS)
+}
+
+IF LEN@ (vl_reponse) < 40 {
+	RETURN (C_ETAT_HS)
+}
+
+vl_reponse = SUBSTRING@ (vl_reponse, 10)
+COM01_Trace (COM_DEBUG2,"TRT_DAI_Traite_Resultat:reponse2:"++vl_reponse)
+FOR i = 0 TO va_nb_voies - 1
+	vl_mesures[i] = SUBSTRING@ (vl_reponse, 1 + i*3, 3)
+
+	IF vl_mesures[i] = C_ANA_VOIE_PBMESURE {
+		/* la dernière voie peut être la BAU */
+		IF (i = va_nb_voies - 1) {
+			vl_mesures[i] = "Bau/Pb.mes"
+		} ELSE {
+			vl_mesures[i] = "Pb.mesure"
+		}
+	} ELSE IF vl_mesures[i] = C_ANA_VOIE_INHIBE {
+		vl_mesures[i] = "Inhibé"
+	} ELSE IF vl_mesures[i] = C_ANA_VOIE_INVERSE {
+		vl_mesures[i] = "Inversé"
+	}
+NEXT i
+
+va_resultats.voie1 = vl_mesures[0]
+va_resultats.voie2 = vl_mesures[1]
+va_resultats.voie3 = vl_mesures[2]
+va_resultats.voie4 = vl_mesures[3]
+va_resultats.voie5 = vl_mesures[4]
+
+RETURN (C_ETAT_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Positionne les valeurs particulières d'état des voies
+*  dans les cas de résultats de test incorrects (pas de mesures).
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRT_DAI_Ecrire_Etat_Voies (FORMAT TRT_Resultats va_resultats, va_nb_voies, va_etat)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_resultats      : Resultats du test de l'analyseur a mettre a jour ;
+*   va_nb_voies       : Nombre de voies observées par l'analyseur ;
+*   va_etat           : La valeur particulière de résultat à représenter.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Aucun
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRT_Test_DAI
+*
+* FONCTION
+*   Ecrit une valeur particulière pour chaque voie de l'analyseur.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_texte			' Texte représentant l'état de l'analyseur
+VAR	vl_mesures			' Mesures des voies
+VAR	i
+ 
+/*A
+ * Ne rien faire si le test s'est correctement déroulé
+ * ---------------------------------------------------
+ */
+
+IF va_etat = C_ETAT_OK {
+	RETURN
+}
+
+
+CASE OF va_etat
+CASE C_ETAT_HS
+	vl_texte = "HS"
+CASE C_ETAT_REFUS
+	vl_texte = "REFUS"
+ENDCASE
+
+
+/*B
+ * Ecrire la valeur d'état pour chaque voie
+ * ----------------------------------------
+ */
+
+FOR i = 0 TO va_nb_voies - 1
+	vl_mesures[i] = vl_texte
+NEXT i
+
+va_resultats.voie1 = vl_mesures[0]
+va_resultats.voie2 = vl_mesures[1]
+va_resultats.voie3 = vl_mesures[2]
+va_resultats.voie4 = vl_mesures[3]
+va_resultats.voie5 = vl_mesures[4]
+
+RETURN
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialise la liste des Analyseurs des DAI du site.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRT_DAI_Init_Liste_ANA ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRT_Test_DAI
+*
+* FONCTION
+*   Pour chaque DAI faisant l'objet du test,
+*   lit en base de données la liste de ses analyseurs.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT SQL_Procedure_Params@	vl_parametres
+VAR	FORMAT SQL_Procedure_Result@	vl_resultats
+
+VAR	FORMAT TRT_Donnees_ANA	tl_analyseurs	' Liste des analyseurs d'une DAI
+VAR	nb_ana					' Nombre d'analyseurs
+VAR	vl_pr
+VAR	i, j
+
+/*A
+ * Pour chaque équipement DAI,
+ * Lire la liste des analyseurs qu'il gère
+ * ---------------------------------------
+ */
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = XDC_BASE_CFG
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT2_
+vl_parametres[1].data = 0
+vl_parametres[1].output = FALSE
+
+FOR i = 0  TO ARRAY_SIZE@ (tm_DAI) - 1
+	vl_parametres[1].data = tm_DAI[i].numero
+	IF COM05_SQL_Procedure (XZAO811_Liste_Analyseurs_De_La_DAI,
+	                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		ERROR@ (COM_ERREUR_PROC_SQL,
+		           "Erreur lors de la lecture en base des analyseurs de la DAI")
+	tl_analyseurs = vl_resultats.select_results[0]
+
+	/*A
+	 * Ajouter chaque analyseur à la liste des équipements testés
+	 * ----------------------------------------------------------
+	 */
+
+	FOR j = 0  TO ARRAY_SIZE@ (tl_analyseurs) - 1
+		nb_ana = ARRAY_SIZE@ (tm_ANA)
+		tm_ANA[nb_ana] = tl_analyseurs[j]
+
+		/* mettre à jour l'index de la DAI de rattachement */
+		tm_ANA[nb_ana].dai = i
+
+		/* la designation de l'analyseur sera le PR de debut */
+		vl_pr = COM31_Libelle_PR (tl_analyseurs[j].PR_debut)
+		tm_resultats[nb_ana].designation = vl_pr ++ "," ++ tl_analyseurs[j].sens
+
+		tm_pictos[nb_ana] = { C_PICTO_INCONNU }
+	NEXT j
+NEXT i
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialise la machine de rattachement des equipements DAI.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRT_DAI_Init_Machines ()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   TRT_DAI_Init_Liste_Eqts
+*
+* FONCTION
+*   Lit le fichier de configuration LCR des analyseurs DAI
+*   et extrait la machine a laquelle est rattache chaque equipement
+*   faisant l'objet du test.
+*
+---------------------------------------------------------------------------- */
+
+VAR	vl_fichier_conf
+VAR	tl_conf_DAI				' Table de configuration eqts.
+VAR	i, j
+
+vl_fichier_conf = SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+                     COM_SOUS_REP_DEQ ++ C_FICH_CONFIG_DAI
+
+IF NOT FILE_EXISTS@ (vl_fichier_conf) {
+	ERROR@ (COM_ERR_FICH_NON_TROUVE, COM_LIB_FICH_NON_TROUVE,
+	           "Configuration des équipements DAI ")
+}
+
+tl_conf_DAI = READ_ASCII_FILE@ (vl_fichier_conf)
+
+/*B
+ * Decouper en colonnes et formater chaque ligne de configuration DAI
+ * ------------------------------------------------------------------
+ */
+
+FOR i = 0  TO ARRAY_SIZE@ (tl_conf_DAI) - 1
+	tl_conf_DAI[i] = ARRAY_FROM_STRING@ (tl_conf_DAI[i], ",")
+	tl_conf_DAI[i][1] = tl_conf_DAI[i][1] + 0	' Formater le No equip.
+	tl_conf_DAI[i][2] = TRIM@ (TABS_TO_SPACES@ (tl_conf_DAI[i][2]))
+NEXT i
+
+/*A
+ * Rechercher chaque equipement DAI et lui associer sa machine
+ * -----------------------------------------------------------
+ */
+
+FOR i = 0  TO ARRAY_SIZE@ (tm_DAI) - 1
+	j = COM45_IndexEnColonne (tl_conf_DAI, 1, tm_DAI[i].numero)
+	tm_DAI[i].machine = tl_conf_DAI[j][2]
+NEXT i
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+*  Initialise la liste des DAI du site local.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRT_DAI_Init_Liste_DAI (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRT_Test_DAI
+*
+* FONCTION
+*   Lit en base la liste des DAI du district. Complete les donnees
+*   de chaque avec sa machine lue en fichier de configuration.
+*
+---------------------------------------------------------------------------- */
+
+VAR	FORMAT COM_Donnees_Equipements	tl_data		' Donnees lues en base
+VAR	FORMAT COM_Localisation		vl_localisation
+VAR	i
+
+/*A
+ * Lire la liste des DAI du site (ni HS, ni desactives) 
+ * ----------------------------------------------------
+ */
+
+IF ITMA_COM_Lire_Equipements (XDC_EQT_DAI, SYSTEM_VAR@ (vg_site),
+                                 0, XDC_EQT_NON_HS + XDC_EQT_NON_DESACTIVE, 0, 0,
+                                 tl_data, C_MODULE) <> COM_OK
+{
+	ERROR@ (COM_ERREUR_PROC_SQL, "Erreur lors de la lecture en base des équipements DAI")
+}
+
+
+FOR i = 0  TO ARRAY_SIZE@ (tl_data) - 1
+	tm_DAI[i].numero = tl_data[i].numero
+	tm_DAI[i].nom = tl_data[i].nom
+NEXT i
+
+
+/*A
+ * Ajouter aux equipements DAI la machine a laquelle ils sont attaches
+ * -------------------------------------------------------------------
+ */
+
+IF TRT_DAI_Init_Machines (tl_data) <> COM_OK {
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO

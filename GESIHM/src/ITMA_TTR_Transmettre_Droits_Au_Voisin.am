@@ -1,0 +1,296 @@
+/*E*/
+/* Fichier : $Id: ITMA_TTR_Transmettre_Droits_Au_Voisin.am,v 1.4 2020/11/03 17:47:04 pc2dpdy Exp $      Release : $Revision: 1.4 $        Date : $Date: 2020/11/03 17:47:04 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TMC * FICHIER ITMA_TTR_Transmettre_Droits_Au_Voisin.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Transmettre le droit d'enrichir 
+*
+*   Cf. DCG 2.4.66
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Torregrossa	11 Mar 1996	: Creation (modif 364)				V1.1
+* Torregrossa	23 Sep 1996	: Modif interface appel proc XZAE19 (CONF 4)	V1.2
+* JMG	21/11/07	: N postes operateur DEM/717	1.3
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+include 	"../../XDMICG/inc/xdc_ax.h"
+include 	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE "../inc/xzae19sp.h"
+INCLUDE "../inc/xzae181sp.h"
+INCLUDE "../inc/xzae147sp.h"
+
+DEFINE	C_MODULE	"MTTR"			' Nom du module
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* transmet les droits d'enrichir des FMC a traiter au poste voisin
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTR_Transmettre_Droits_Au_Voisin (va_numero_poste, va_numero_poste_demandeur, va_mode)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_numero_poste: numero du poste operateur transmettrant le droit
+* va_numero_poste_demandeur: numero du poste operateur demandeur des droits d'enrichir
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+        VAR FORMAT TDO_Poste_Operateur tl_postes
+        VAR FORMAT TDO_District tl_districts, tl_les_districts
+VAR	tl_messages_acceptes,vl_exit_value
+Var vl_heading, vl_table_data
+        VAR FORMAT TDO_District_local tl_info_district_local
+VAr vl_sel, vl_numero_site,vl_installer_traitement_erreur
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAr vl_fenetre
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR i
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+if (va_mode=TRUE) 
+{
+        i = 0
+        vl_parametres[i].type= SYB#INT4_
+        vl_parametres[i].data=va_numero_poste
+        vl_parametres[i].output=FALSE
+        i = i + 1
+
+        vl_parametres[i].type= SYB#INT4_
+        vl_parametres[i].data=va_numero_poste_demandeur
+        vl_parametres[i].output=FALSE
+        i = i + 1
+
+	vl_parametres[i].type = SYB#CHAR_                               ' Site local
+	vl_parametres[i].data = SYSTEM_VAR@(vg_nom_site)
+	vl_parametres[i].output = FALSE
+	i = i + 1
+
+
+        /*A execution de la requete SQL*/
+        IF COM05_SQL_Procedure(XZAE19_Transmettre_Tous_Droits_Enrichir_Au_Voisin,
+                                vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+        {
+                RETURN (COM_NOK)
+        }
+
+        IF vl_resultats.status = XDC_ACT_REFUSEE
+                RETURN (XDC_ACT_REFUSEE)
+
+        RETURN (COM_OK)
+
+}
+
+
+
+/*A
+ * Charger la fenetre "Lier ..."
+ * ----------------------------------
+ */
+vl_fenetre = DB_LOAD@ ("ITMA_TTR")
+DB_XPOS@(vl_fenetre,517)
+DB_YPOS@(vl_fenetre,677)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TTR_Transmission_Evt")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+tl_les_districts = SYSTEM_VAR@(vg_les_districts)
+tl_info_district_local = SYSTEM_VAR@(vg_info_district_local)
+
+
+  /*recherche les autres postes operateurs du site*/
+  	i = 0
+        vl_parametres[i].type= SYB#INT4_
+        vl_parametres[i].data=SYSTEM_VAR@(vg_numero_poste)
+        vl_parametres[i].output=FALSE
+        i = i + 1
+  
+        vl_parametres[i].type= SYB#CHAR_
+        vl_parametres[i].data=SYSTEM_VAR@(vg_nom_site)		
+        vl_parametres[i].output=FALSE
+        i = i + 1
+  
+        /*A execution de la requete SQL*/
+        IF COM05_SQL_Procedure(XZAE181_Liste_Fiches_Operateur_Site_Local,
+		vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	{
+		RETURN (COM_NOK)
+	}
+
+	tl_districts = vl_resultats.select_results[0]
+
+	/*sur PC N2, rajouter le CI*/
+	IF SYSTEM_VAR@(vg_type_machine)  = XDC_TYPE_PCNIVEAU2 {
+		tl_districts[ARRAY_SIZE@(tl_districts)]=XDC_CI, XDC_NOM_SITE_CI
+	}
+
+/*A
+ * afficher les districts
+ */
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+vl_heading=NULL
+vl_table_data=NULL
+vl_heading[0,0]="Num"
+vl_heading[0,1]=50
+vl_heading[1,0]="Nom"
+vl_heading[1,1]=400
+DB_TABLE_SET_DATA@(vl_fenetre,"BL_site",tl_districts,vl_heading,NULL)
+DB_CTRL_TITLE@(vl_fenetre,"BP_transmettre","Transmettre les droits d'enrichir")
+
+vl_sel[0]=0
+DB_TABLE_SET_SELECTIONS@(vl_fenetre,"BL_site",vl_sel)
+vl_numero_site=tl_districts[0].numero
+
+/*A
+ * active les tables des sites et des postes operateurs*/
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BL_site",TRUE)
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+
+/*A
+ * le bouton Quitte est choisi par defaut
+ */
+DB_CTRL_DEFAULT_BUTTON@(vl_fenetre,"BP_quitter",TRUE)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+        ERROR_BOX@
+        COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+        vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A init*/
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+        /*A
+        * afficher la fenetre*/
+        DB_DISPLAY@(vl_fenetre)
+
+        /*A
+        * attente d'un evenement*/
+        vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+        /*A
+        * suivant l'evenement */
+        CASE OF vl_exit_value
+                CASE "BP_quitter"
+                        /*A Bye*/
+                        RETURN (COM_QUITTE)
+
+                /*A choix d'un site dans la table*/
+                CASE "BL_site"
+                        /*A
+                        * on determine la liste des postes operateurs du site*/
+                        vl_sel=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"BL_site")
+                        vl_sel=vl_sel[0]
+                        vl_numero_site=tl_districts[vl_sel].numero
+
+		/*A je transmets le droit d'enrichir*/
+                CASE "BP_transmettre"
+			MACRO_WINS_BUSY@()
+
+			if (vl_numero_site<>XDC_CI) {
+        i = 0
+        vl_parametres[i].type= SYB#INT4_
+        vl_parametres[i].data=va_numero_poste
+        vl_parametres[i].output=FALSE
+        i = i + 1
+
+        vl_parametres[i].type= SYB#INT4_
+        vl_parametres[i].data=vl_numero_site
+        vl_parametres[i].output=FALSE
+        i = i + 1
+
+	vl_parametres[i].type = SYB#CHAR_                               ' Site local
+	vl_parametres[i].data = SYSTEM_VAR@(vg_nom_site)
+	vl_parametres[i].output = FALSE
+	i = i + 1
+
+
+        /*A execution de la requete SQL*/
+        IF COM05_SQL_Procedure(XZAE19_Transmettre_Tous_Droits_Enrichir_Au_Voisin,
+                                vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+        {
+                RETURN (COM_NOK)
+        }
+			}
+			else {
+			vl_parametres[0].type=SYB#CHAR_
+			vl_parametres[0].data=SYSTEM_VAR@(vg_nom_site)
+			vl_parametres[0].output=FALSE
+			vl_parametres[1].type=SYB#CHAR_
+			vl_parametres[1].data=XDC_NOM_SITE_CI
+			vl_parametres[1].output=FALSE
+			/*on transfere ses droits d'enrichir au CI*/
+			COM05_SQL_Procedure (XZAE147_Transmet_Droits_FMC,
+				vl_parametres, vl_resultats, "ITMA_TMT")
+			}
+        IF vl_resultats.status = XDC_ACT_REFUSEE
+                RETURN (XDC_ACT_REFUSEE)
+
+        RETURN (COM_OK)
+		ENDCASE
+WEND
+ENDMACRO

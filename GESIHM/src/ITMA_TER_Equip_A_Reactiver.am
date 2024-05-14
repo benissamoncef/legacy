@@ -1,0 +1,487 @@
+/*E*/
+/* Fichier : $Id: ITMA_TER_Equip_A_Reactiver.am,v 1.6 1995/03/28 13:48:38 lecrivain Exp $      Release : $Revision: 1.6 $        Date : $Date: 1995/03/28 13:48:38 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TER * FICHIER ITMA_TER_Equip_A_Reactiver.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Liste des equipements a reactiver.
+*
+*   Non decrit dans le DCG
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 22 Dec 1994	: Creation                                        V1.1
+* Lecrivain 27 Dec 1994	: Redimensionnement de la fenetre                 V1.2
+* Guilhou   06 Jan 1994	: reprise complete				V1.3
+* Lecrivain 28 Mar 1995	: Designation differente de l'equipement          V1.6
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE "../../XDMICG/inc/xzat18sp.h"
+INCLUDE "../../XDMICG/inc/xzat19sp.h"
+
+
+
+DEFINE	C_MODULE	"MTER"					' Nom du module
+
+
+
+/*A
+ * Noms des images digitalisees designant les differents etats
+ * -----------------------------------------------------------
+ */
+
+DEFINE	C_PICTO_A_REACTIVER	"pix_ok"
+DEFINE	C_PICTO_A_DESACTIVER	"pix_croix"
+
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	TER_Equipement
+	numero,					' Identifiant de l'equipement
+	type,					' Type de l'equipement (25 car)
+	designation,				' Nom ou Autoroute/PR/sens
+	date					' Horodate changt. etat (16 car)
+
+
+VAR FORMAT TER_Equipement tm_desact		' Liste des equipements a desactiver
+VAR FORMAT TER_Equipement tm_react		' Liste des equipements a reactiver
+
+VAR	tm_types_react,tm_types_desact			' Numeros de type equipements
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Affichage de la liste des equipements a reactiver ou a desactiver.
+*  Reactivation / desactivation d'equipements de cette liste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TER_Equip_A_Reactiver (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_appelant       : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option " -> " dans MTMT
+*
+* FONCTION
+*   Permet a l'operateur de connaitre la liste des equipements a reactiver
+*   ou a desactiver et d'agir sur leur etat d'activation.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_select				' Equipement selecte
+    VAR     vl_picto				' Pictogramme a modifier
+	
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Equipements a reactiver"
+ * --------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TER")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@(vl_fenetre, 0)
+DB_YPOS@(vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TER_Equip_A_Reactiver")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "TA_reactiv", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre, "TA_desactiv", TRUE)
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre, "TA_reactiv", 23)
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre, "TA_desactiv", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_reactiv", FALSE)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre, "TA_desactiv", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_reactiv", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_desactiv", FALSE)
+
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_reactiver", TRUE)
+DB_CTRL_GRAYED@ (vl_fenetre, "BP_desactiver", TRUE)
+
+
+/*A
+ * Initialiser les donnees a visualiser (liste des equipements)
+ * ------------------------------------------------------------
+ */
+
+IF TER_Init_Liste_Equipements (vl_fenetre) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+	CASE "TA_reactiv"
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_reactiver", FALSE)
+
+    CASE "BP_reactiver"
+	vl_select=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_reactiv")
+	vl_select=vl_select[0]
+
+	IF (vl_select++"")<>null
+	{
+	IF TER_Changer_Activation (tm_types_react[vl_select],
+				      tm_react[vl_select].numero,
+				      TRUE) = COM_OK {
+
+	    /*A
+	     * et si l'action se deroule correctement, l'effacer de la liste
+	     * -----------------------------------------------------
+	     */
+		tm_react=ARRAY_DELETE@(tm_react,vl_select)
+		DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_reactiv",0,-1)
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_reactiv",tm_react,0)
+
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_reactiver", TRUE)
+	}
+	}
+
+
+	CASE "TA_desactiv"
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_desactiver", FALSE)
+
+    CASE "BP_desactiver"
+	vl_select=DB_TABLE_GET_SELECTIONS@(vl_fenetre,"TA_desactiv")
+	vl_select=vl_select[0]
+
+	IF (vl_select++"")<>null
+	{
+	IF TER_Changer_Activation (tm_types_desact[vl_select],
+				      tm_desact[vl_select].numero,
+				      FALSE) = COM_OK {
+
+	    /*A
+	     * et si l'action se deroule correctement, l'effacer de la liste
+	     * -----------------------------------------------------
+	     */
+		tm_desact=ARRAY_DELETE@(tm_desact,vl_select)
+		DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_desactiv",0,-1)
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_desactiv",tm_desact,0)
+
+	    DB_CTRL_GRAYED@ (vl_fenetre, "BP_desactiver", TRUE)
+	}
+	}
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des equipements a desactiver ou a reactiver.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TER_Init_Liste_Equipements (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TER_Equip_A_Reactiver
+*
+* FONCTION
+*   Lit en base de donnees et affiche la liste des equipements actuellement
+*   a desactiver ou a reactiver et indique leur etat.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT COM_Donnees_Equipements	vl_data
+    VAR     vl_t_titres					' Titres colonnes table
+    VAR     vl_l_picto_desact,vl_l_picto_react	' Noms des pictogrammes
+
+    VAR FORMAT TDO_Type_Equipement  vl_les_types_equip  ' Liste types equip.
+    VAR vl_l_types_equip				' Numeros de types
+
+    VAR     vl_site					' Site de selection
+    VAR FORMAT COM_Localisation vl_localisation
+    VAR     vl_type
+    VAR     i
+
+
+/*A
+ * Lire dans l'environnement la liste des types d'equipements
+ * ----------------------------------------------------------
+ */
+
+vl_les_types_equip = SYSTEM_VAR@ (vg_les_types_equipement)
+vl_l_types_equip = ARRAY_COLUMN@ (vl_les_types_equip, TDO_NUMERO_TYPE_EQUIP)
+
+
+
+vl_site = SYSTEM_VAR@ (vg_site)
+IF vl_site = XDC_CI
+    vl_site = NULL
+
+
+/*A
+ * Lire en base de donnees la liste des equipements a reactiver
+ * ------------------------------------------------------------
+ */
+
+IF ITMA_COM_Lire_Equipements (NULL, vl_site,
+				XDC_EQT_A_REACTIVER, 0, XDC_EQT_HS, 0,
+				vl_data, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+    tm_react[i].numero = vl_data[i].numero
+
+    vl_type = ARRAY_INDEX@ (vl_l_types_equip, vl_data[i].type)
+    IF vl_type >= 0
+	tm_react[i].type = vl_les_types_equip[vl_type].nom
+
+    IF vl_data[i].autoroute = NULL
+	tm_react[i].designation = vl_data[i].nom
+    ELSE {
+	vl_localisation = vl_data[i].autoroute, vl_data[i].PR, vl_data[i].sens
+	tm_react[i].designation = COM10_Localisation (vl_localisation)
+    }
+
+    tm_react[i].date = COM18_Date_SGBD_Formatee (vl_data[i].date)
+
+
+    tm_types_react[i] = vl_data[i].type		' Conserver numero type
+
+	vl_l_picto_react[i] = C_PICTO_A_REACTIVER, NULL
+NEXT i
+
+
+
+/*A
+ * Lire en base de donnees la liste des equipements a desactiver 
+ * --------------------------------------------------------------
+ */
+
+IF ITMA_COM_Lire_Equipements (NULL, vl_site,
+				XDC_EQT_A_DESACTIVER, 0, XDC_EQT_HS, 0,
+				vl_data, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+    tm_desact[i].numero = vl_data[i].numero
+
+    vl_type = ARRAY_INDEX@ (vl_l_types_equip, vl_data[i].type)
+    IF vl_type >= 0
+	tm_desact[i].type = vl_les_types_equip[vl_type].nom
+
+    IF vl_data[i].autoroute = NULL
+	tm_desact[i].designation = vl_data[i].nom
+    ELSE {
+	vl_localisation = vl_data[i].autoroute, vl_data[i].PR, vl_data[i].sens
+	tm_desact[i].designation = COM10_Localisation (vl_localisation)
+    }
+
+    tm_desact[i].date = COM18_Date_SGBD_Formatee (vl_data[i].date)
+
+
+    tm_types_desact[i] = vl_data[i].type		' Conserver numero type
+
+	vl_l_picto_desact[i] = C_PICTO_A_DESACTIVER, NULL
+NEXT i
+
+/*A
+ * Definir les titres des colonnes des tables
+ * -------------------------------------------
+ */
+
+vl_t_titres[0] = "Numéro",       0	' Titre colonne et taille en pixels
+vl_t_titres[1] = "Type",         255
+vl_t_titres[2] = "Désignation",  237
+vl_t_titres[3] = "Date",         106
+vl_t_titres[4] = "", 0
+
+
+/*A
+ * Valuer les tables a afficher
+ * --------------------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)			' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)				'  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_reactiv",
+			tm_react, vl_t_titres, vl_l_picto_react)
+DB_TABLE_SET_DATA@ (va_fenetre, "TA_desactiv",
+			tm_desact, vl_t_titres, vl_l_picto_desact)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Change l'etat d'activation d'un equipement.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TER_Changer_Activation (va_type_equip, va_num_equip, va_activer)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_type_equip     : Identifiant du type de l'equipement ;
+*   va_num_equip      : Identifiant de l'equipement a activer ou desactiver ;
+*   va_activer        : Indicateur d'activation / desactivation.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TER_Equip_A_Reactiver
+*
+* FONCTION
+*   Execute la requete voulue soit pour desactiver, soit pour reactiver
+*   l'equipement dont l'identifiant est indique en argument.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = COM_Identifiant_Equipement
+vl_parametres[0].data = va_num_equip
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Type_Equip
+vl_parametres[1].data = va_type_equip
+vl_parametres[1].output = FALSE
+
+
+IF va_activer {
+    IF COM05_SQL_Procedure (XZAT19_Activation,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+} ELSE {
+    IF COM05_SQL_Procedure (XZAT18_Desactivation,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+	RETURN (COM_NOK)
+}
+
+
+RETURN (COM_OK)
+
+ENDMACRO

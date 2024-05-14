@@ -1,0 +1,530 @@
+/*E*/
+/* Fichier : $Id: ITMA_TLT_Travaux.am,v 1.4 2020/11/03 17:40:06 pc2dpdy Exp $     Release : $Revision: 1.4 $        Date : $Date: 2020/11/03 17:40:06 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TLT * FICHIER ITMA_TLT_Travaux.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Liste des travaux en prevision sur un PC simplifie 
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	05 sep 1996	: Creation 1.1
+* Guilhou	17 oct 1996	: icones stylo devant chaque ligne (DEM/1246) 1.2
+* Lecrivain	22 fev 2007	: Homogeneisation arguments d'appel MTMC 1.3
+* LCL   	22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+INCLUDE	"../inc/ITMA_TLV.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/xzae105sp.h"
+INCLUDE	"../inc/itre_son_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+INCLUDE    "../../XDMICG/inc/xzaec_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTLT"			' Nom du module
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM			1
+
+DEFINE	C_LIB_FMC_INCONNUE	"Cet événement ne vous est pas destiné"
+
+
+/*A
+ * Noms des images digitalisees particularisant
+ *     les caracteristiques d'un evenement
+ * --------------------------------------------
+ */
+
+DEFINE	C_PICTO_ENRICHIR	"pix_crayon"
+DEFINE	C_PICTO_PAR_DEFAUT	"pix_designer"
+DEFINE	C_PICTO_SURCHARGE	"pix_designer"
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	TLT_Evenement
+	numero,					' Numero evenement
+	cle,					' Poste enrichisseur (3 car)
+	type,					' Type evenement (25 car)
+	date_debut,				' Date debut (16 car)
+	localisation				' Localisation event. (28 car)
+
+
+/*A
+ * Description du format des donnees internes
+ * ------------------------------------------
+ */
+
+FORMAT	TLT_Info_Evenement
+	FORMAT COM_Intitule_FMC info_evt,	' Informations evenement
+	enrichir,				' A-t-on les droits d'enrichir ?
+	date_debut,				' date de debut fmc
+	date_debut_prevu,			' date de debut prevu fmc
+	date_fin,				' date de fin fmc
+	date_fin_prevue				' date de fin prevue fmc
+
+/*A
+ * Description du format des donnees lues en base
+ * ----------------------------------------------
+ */
+
+FORMAT	TLT_Donnees_Evenement
+	numero,				' Cle evenement
+	cle,				' Numero d'evenement
+	type,					' Numero de type evenement
+	date,
+	autoroute,
+        PR,
+        sens_circul
+        
+
+VAR	FORMAT TLT_Donnees_Evenement tm_tab
+
+VAR FORMAT TLT_Evenement vm_t_evt		' Table des evenements affichee
+VAR FORMAT TLT_Evenement vm_t_evt_ini		' Table des evenements affichee
+VAR	vm_l_picto				' Noms des pictogrammes
+
+VAR FORMAT TLT_Info_Evenement vm_t_info		' Table des infos internes
+VAR	vm_mode_formation		'mode formation
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation de la liste des fiches Main Courante a traiter pour le poste
+*  operateur.
+*  Sur reception d'un signal de modification, rafraichissement de la liste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLT_Travaux (va_appelant,va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation par MTMT.
+*
+* FONCTION
+*   affiche la liste des fiches Main Courante locales
+*   a traiter associee au poste operateur.
+*   Se met en attente d'un signal (message d'une autre tache) de changements
+*   et sur occurrence du signal, reinitialise la liste des fiches.
+*   Sur reception de messages, edite la liste (ajoute ou supprime une fiche)
+*   ou visualise la liste des elements Main Courante.
+*   Ne termine que sur reception d'un message de fin.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_events			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_message				' Message recu d'un autre module
+    VAR     vl_args_msg				' Differents elements du message
+    VAR     vl_mode_FMC				' Le mode actuel
+
+    VAR     vl_select				' Selection(s) dans la table
+    VAR     i
+	VAR vl_indice,vl_index
+	VAR vl_date_debut
+	VAR vl_date_debut_prevu
+	VAR vl_date_fin
+	VAR vl_date_fin_prevue
+	VAR vl_cmd
+	VAR FORMAT  TLT_Evenement vl_evt
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A
+ * Charger la fenetre "Liste evenements a traiter"
+ * -----------------------------------------------
+ */
+
+vl_fenetre_events = DB_LOAD@ ("ITMA_TLT_Travaux")
+DB_WINDOW_REMAIN@ (vl_fenetre_events, TRUE)
+
+DB_XPOS@ (vl_fenetre_events, 0)
+DB_YPOS@ (vl_fenetre_events, 93)
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_MTLT_TRV
+DB_ACCEPT_POKES@ (vl_fenetre_events, vl_les_messages_acceptes)
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre_events, "TA_Evenements", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_events, "TA_Evenements", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_events, "TA_Evenements", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_events, "TA_Evenements", TRUE)
+
+
+/*A
+ * Initialiser la visualisation (liste des evenements)
+ * ---------------------------------------------------
+ */
+MACRO_WINS_BUSY@()
+IF Init_Visualisation_Travaux (vl_fenetre_events,va_horodate) <> COM_OK
+    RETURN
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_DISPLAY@ (vl_fenetre_events)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_events)
+
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre_events)
+	CASE COM_CANAL_FIN
+	    vl_la_fenetre_est_active = FALSE
+
+	/*poke de fin de la liste des fmc (utilise par module MTSC)*/
+	CASE COM_CANAL_MTLT_FIN
+		RETURN
+
+	/*poke de mise a jour de la liste des trv en prevision*/
+	CASE COM_CANAL_MTLT_TRV
+		TLT_Init_Liste_Travaux(vl_fenetre_events,null)
+		DB_TABLE_CLEAR_DATA@(vl_fenetre_events, "TA_Evenements",0,-1)
+		DB_TABLE_SET_NEW_DATA@(vl_fenetre_events, "TA_Evenements",vm_t_evt,0)
+		DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre_events, "TA_Evenements", 0, vm_l_picto)
+        ENDCASE
+
+	CASE "BP_quitter"
+	    RETURN
+
+     /* appui sur le bouton Consulter FMC */
+     CASE "TA_Evenements"
+	MACRO_WINS_BUSY@()
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_events,"TA_Evenements")
+	i = vl_select[0]
+
+	/*si une FMC est bien selectionnee*/
+	IF ( (i++"")<>null) {
+		vl_evt=vm_t_evt[i]
+
+		/*je l'ouvre*/
+		IF SYSTEM_VAR@ (vg_fmc_ouverte)
+			ERROR@ (C_ERR_IHM, COM_LIB_FMC_OUVERTE)
+		ELSE {
+			vm_t_evt_ini=vm_t_evt
+			TLT_Init_Liste_Travaux(vl_fenetre_events,null)
+			IF TLT_Index(vl_evt.numero,vl_evt.cle,vm_t_evt) = ARRAY_SIZE@(vm_t_evt){
+				INFO_MESSAGE@("Les travaux sont passes dans l'etat a traiter")
+				DB_TABLE_CLEAR_DATA@(vl_fenetre_events, "TA_Evenements",0,-1)
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre_events, "TA_Evenements",vm_t_evt,0)
+				DB_TABLE_MARKER_PIXMAPS@ (vl_fenetre_events, "TA_Evenements", 0, vm_l_picto)
+			}
+			ELSE {
+				vm_t_evt=vm_t_evt_ini
+				vl_cmd=null
+				vl_cmd[0]= tm_tab[i].type
+				vl_cmd[1]= vl_evt.date_debut
+				vl_cmd[2]= vl_evt.numero
+				vl_cmd[3]= vl_evt.cle
+
+				/* ouvrir la FMC dans les memes conditions */
+				/* que celles de la synthese evenements */
+		    		NEW_TASK@ ("ITMA_TMC_Fiche_Main_Courante", "ITMA_TSE_Synthese_Evenement",
+				              vl_cmd, 1, XDC_FMC_ETAT_PREV)
+			}
+		}
+	}
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO Init_Visualisation_Travaux (va_fenetre,va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLT_Liste_FMC_A_Traiter
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_t_titres				' Titres colonnes de la table
+     VAR     vl_texte
+     VAR      i
+	VAR     vl_type_fmc
+	VAR     vl_index
+	VAR     tl_types_fmc
+
+/*A
+ * Valuer ensuite les donnees de la table
+ * --------------------------------------
+ */
+
+IF TLT_Init_Liste_Travaux (va_fenetre,va_horodate) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Definir les titres des colonnes de la table
+ * -------------------------------------------
+ */
+
+vl_t_titres[0] = "Numéro",		54	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Site",		50
+vl_t_titres[2] = "Type",		105
+vl_t_titres[3] = "Date de début",	106
+vl_t_titres[4] = "Localisation",	182
+
+
+/*A
+ * Valuer la table a afficher
+ * --------------------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@(va_fenetre, "TA_Evenements", vm_t_evt, vl_t_titres)
+DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_Evenements", 0, vm_l_picto)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des messages a diffuser ;
+*  met en evidence les messages dont le nombre de diffusions est 0.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLT_Init_Liste_Travaux (va_fenetre,va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TLT_Init_Visualisation	  a l'initialisation ;
+*   ITMA_TLT_Liste_FMC_A_Traiter  sur reception d'un signal de modification.
+*
+* FONCTION
+*   (re)initialise les valeurs de la liste des fiches Main Courante.
+*
+---------------------------------------------------------------------------- */
+
+VAR FORMAT TDO_Type_FMC		vl_les_types_FMC
+VAR					vl_numeros_FMC
+
+VAR vl_type
+VAR i
+VAR 	FORMAT SQL_Procedure_Params@ vl_parametres
+VAR 	FORMAT SQL_Procedure_Result@ vl_resultats
+VAR 	FORMAT COM_Intitule_FMC vl_FMC
+VAr vl_evt
+/*A
+ * Effacer les structures de donnees (pour reinitialisation)
+ * ---------------------------------------------------------
+ */
+
+vm_t_evt = NULL
+vm_t_info = NULL
+vm_l_picto = NULL
+
+
+/*A
+ * Lire dans l'environnement les listes des types FMC et des districts
+ * -------------------------------------------------------------------
+ */
+
+vl_les_types_FMC = SYSTEM_VAR@ (vg_les_types_FMC)
+vl_numeros_FMC = ARRAY_COLUMN@ (vl_les_types_FMC, TDO_NUMERO_FMC)
+
+vl_parametres[0].type = SYB#CHAR_                               ' Site local
+vl_parametres[0].data = SYSTEM_VAR@(vg_nom_site)
+vl_parametres[0].output = FALSE
+
+/*recherche de ma fmc operateur*/
+IF (COM05_SQL_Procedure (XZAE105_Liste_Travaux_En_Prevision, vl_parametres, vl_resultats, C_MODULE) <> COM_OK)
+   RETURN (COM_NOK)
+
+tm_tab=vl_resultats.select_results[0]
+
+FOR i = 0  TO ARRAY_SIZE@ (tm_tab) - 1
+    vl_FMC.IdFMC.numero = tm_tab[i].numero
+    vl_FMC.IdFMC.cle = tm_tab[i].cle
+    vl_FMC.Numtype = tm_tab[i].type
+    vl_FMC.localisation.NumAuto = tm_tab[i].autoroute
+    vl_FMC.localisation.PR = tm_tab[i].PR
+    vl_FMC.localisation.sens_circulation = tm_tab[i].sens_circul 
+    vl_FMC.date =  COM18_Date_SGBD_Formatee(tm_tab[i].date)
+    vm_t_info[i].info_evt = vl_FMC
+
+    vm_t_evt[i].numero = tm_tab[i].numero
+    vm_t_evt[i].cle = tm_tab[i].cle
+    vm_t_evt[i].date_debut = vl_FMC.date
+    vm_t_evt[i].localisation = COM10_Localisation (vl_FMC.localisation)
+   
+    vl_type = ARRAY_INDEX@ (vl_numeros_FMC, tm_tab[i].type)
+    IF vl_type >= 0
+	vm_t_evt[i].type = vl_les_types_FMC[vl_type].abbrev
+    vm_l_picto[i] = C_PICTO_ENRICHIR, NULL
+NEXT i
+
+RETURN (XDC_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Retourne l'index de l'evenement dont le numero et la cle sont indiques
+*  dans la table d'informations evenements egalement fournie en arguments.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLT_Index (va_num_evt, va_cle_evt, FORMAT TLT_Evenement va_t_evt)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_evt        : Numero de l'evenement ;
+*   va_cle_evt        : Cle de l'evenement ;
+*   va_t_evt          : Table dans laquelle rechercher l'evenement.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : L'index de l'element dans la table.
+*
+* CONDITION D'UTILISATION
+*   Toute macro
+*
+* FONCTION
+*   Recherche simplement l'element dans la table et en retourne l'index.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     i
+
+
+    WHILE i < ARRAY_SIZE@ (va_t_evt)  AND
+	     (va_t_evt[i].numero <> va_num_evt  OR
+	       va_t_evt[i].cle <> va_cle_evt)
+	   i = i + 1
+   WEND
+
+   RETURN (i)
+
+ENDMACRO
+

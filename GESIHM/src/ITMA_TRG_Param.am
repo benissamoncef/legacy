@@ -1,0 +1,612 @@
+/*E*/
+/* Fichier : @(#)ITMA_TRG_Param.am	1.1       Release : 1.1       Date : 04/19/12
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TRG * FICHIER ITMA_TRG_Param.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Paramétrage  regul
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xzae91sp.h"
+INCLUDE	"../../XDMICG/inc/xzae92sp.h"
+INCLUDE	"../../XDMICG/inc/xzae93sp.h"
+INCLUDE	"../../XDMICG/inc/xzae94sp.h"
+INCLUDE	"../../XDMICG/inc/xzao570sp.h"
+INCLUDE    "../../XDMICG/inc/xzaec_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"../inc/xzao550sp.h"
+INCLUDE	"../inc/xzao562.h"
+
+
+
+DEFINE	C_MODULE	"MTRG"			' Nom du module
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM			1
+
+
+
+/*A
+ * Noms des images digitalisees particularisant
+ *     les caracteristiques d'un evenement
+ * --------------------------------------------
+ */
+
+DEFINE	C_PICTO_FIGE		"pix_croix"
+DEFINE	C_PICTO_MODIFIABLE	"pix_crayon"
+DEFINE	C_PICTO_VERT		"pix_vert"
+DEFINE	C_PICTO_ROUGE		"pix_rouge"
+
+VAR  FORMAT  TDO_Libelle_Predefini tm_lib_pre, tm_lib_pre_valides
+
+/*A
+ * Description du format des donnees provenant de la base
+ * ------------------------------------------------------
+ */
+
+FORMAT TRG_Typ_Lib_Pre
+	notyp,				'No du type de libelle
+	nom,					'Nom du type de libelle
+	valeur, type				'valeur du type de libelle
+
+
+FORMAT 	TRG_Libelle
+	valide,				' ce libelle est il valide ou non?
+	code,				' code de ce libelle
+	position,				' position de ce libelle dans la liste des libelles
+	libelle,				' nom du libelle
+	explication			' explication de ce libelle
+
+
+
+VAR	vm_l_picto_type			' Noms des pictogrammes des types de libelles
+VAR	vm_l_picto_lib				' Noms des pictogrammes des libelles
+
+VAR	FORMAT TRG_Typ_Lib_Pre vm_typ_lib_pre	'Liste des types de libelles pre
+VAR	FORMAT TRG_Libelle vm_libelle			'liste des libelles
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation des différents types de libelles.
+*  Sur choix d'un type de libelle, affichage des libelles associes et mise a jour
+*  ou ajout de libelles possible.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRG_Param ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation par menu principal.
+*
+* FONCTION
+*   Lit en base de donnees puis affiche la liste des types de libelles.
+*   Se met en attente du choix d'un type de libelle pour afficher la liste des 
+*   libelles associes.
+*   Permet la modification ou la creation de libelles pour un type de libelles
+*   donne.
+*
+---------------------------------------------------------------------------- */
+
+	VAR     vl_fenetre_events			' Nom de la fenetre du module
+	VAR     vl_objet_selecte			' L'objet courant de la fenetre
+	VAR     vl_la_fenetre_est_active
+	VAR     vl_installer_traitement_erreur
+
+
+	VAR     vl_select				' Selection(s) dans la table
+	VAR     i
+	VAR vl_indice,vl_index
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_data
+	VAR vl_t_titres
+	VAR vl_num_param
+	VAR vl_type_select
+	VAR vl_lib_select
+	VAR vl_val
+	VAR vl_nb_meme_code
+	VAR vl_notyp, vl_nom, vl_valeur
+	VAR tl_lib_pre	
+	VAR vl_numero_lib
+	VAR vl_num_typ	
+	VAR FORMAT 	TRG_Libelle tl_lib
+	VAR vl_refer
+	VAR vl_type
+	VAR vl_basedd
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+/*A
+ * Charger la fenetre "Parametrage des libelles"
+ * ---------------------------------------------
+ */
+
+vl_fenetre_events = DB_LOAD@ ("ITMA_TRG_Param")
+DB_WINDOW_REMAIN@ (vl_fenetre_events, TRUE)
+
+DB_XPOS@ (vl_fenetre_events, 100)
+DB_YPOS@ (vl_fenetre_events, 93)
+
+COM02_Attacher_Aide (vl_fenetre_events, "ITMA_TRG_Param")
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_events, "TA_Liste_Libelle", FALSE)
+DB_CTRL_VERT_SCROLL@ (vl_fenetre_events, "TA_Liste_Libelle", TRUE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_events, "TA_Liste_Libelle", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_events, "TA_Liste_Libelle", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_events, "BO_type_lib_pre", TRUE)
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_events, "BO_refer", TRUE)
+
+/*A
+ * Initialiser la visualisation (liste des evenements)
+ * ---------------------------------------------------
+ */
+MACRO_WINS_BUSY@()
+IF TRG_Init_Visualisation (vl_fenetre_events) <> COM_OK
+    RETURN
+
+    /*A
+     * Visualisation des libelles predefinis dans la combo box,
+     * --------------------------------------------------------
+     */
+		vl_num_typ = 44
+		COM37_Lit_Libelles_Predefinis (vl_num_typ, tm_lib_pre,
+		tm_lib_pre_valides)
+		tl_lib_pre = ARRAY_COLUMN@(tm_lib_pre_valides,3)
+		DB_CTRL_STRINGS@(vl_fenetre_events,"BO_type_lib_pre",tl_lib_pre)
+		vl_lib_select = vl_select
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_type_select = -1
+vl_lib_select = -1
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+    DB_DISPLAY@ (vl_fenetre_events)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_events)
+
+    CASE OF vl_objet_selecte
+   
+	CASE "BO_type_lib_pre"
+		
+vl_select = DB_CTRL_GET_VALUE@(vl_fenetre_events,"BO_type_lib_pre")
+	tl_lib = tm_lib_pre_valides[vl_select]
+	TRG_Init_Lib_Pre(vl_fenetre_events,tl_lib.code)
+	vl_type = tl_lib.code	
+
+		
+    /*A
+     * Sur selection d'un libelle predefini,
+     * -------------------------------------
+     */
+	CASE "TA_Liste_Libelle"
+		MACRO_WINS_BUSY@()
+		vl_select = DB_TABLE_GET_SELECTIONS@(vl_fenetre_events,"TA_Liste_Libelle")
+		vl_lib_select = vl_select[0]
+		
+		/*B mise a jour de la zone d'edition */
+		DB_CTRL_VALUE@(vl_fenetre_events, "BS_Type", vl_type)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BS_Code", vm_typ_lib_pre[vl_lib_select].notyp)
+		DB_CTRL_VALUE@(vl_fenetre_events, "BS_Nom", vm_typ_lib_pre[vl_lib_select].nom)
+	DB_CTRL_VALUE@(vl_fenetre_events, "BS_Valeur", vm_typ_lib_pre[vl_lib_select].valeur)
+
+	/*A
+     * Sur selection bouton modifier,
+     * ------------------------------
+     */
+	CASE "BO_Modifier"
+	if vl_lib_select = -1
+	{
+		/*B cas ou aucun libelle n'est choisi */
+		INFO_MESSAGE@("D'abord choisir un libellé")
+	}
+	else
+	{
+		vl_valeur = DB_CTRL_GET_VALUE@(vl_fenetre_events,"BS_Valeur")
+		if vl_valeur = null or vl_valeur <> INT@(vl_valeur)
+			/*B Cas ou pas de valeur saisi ou bien valeur non entiere*/
+			INFO_MESSAGE@("Une Valeur (nombre sans virgule) doit être saisi")
+		else
+		{
+			/*B execution de la modification */
+			TRG_Maj_Lib_Pre(vl_fenetre_events, XZAO550_MAJ_Reg_Param, vl_valeur)
+			vl_lib_select = -1
+		}
+	}
+
+	/*A
+	 * Sur selection bouton basculer base
+	 * ----------------------------------
+	 */
+	CASE "BP_Base"
+		IF COM05_SQL_Procedure (XZAO562_Trans_RegParam, vl_parametres
+, vl_resultats, C_MODULE) <> COM_OK
+		info_message@("probleme de bascul")	
+
+	/*A
+	 * Sur selection bouton Quitter
+	 * ----------------------------
+	 */
+	CASE "BO_Quitter"
+		vl_la_fenetre_est_active = FALSE
+
+		
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_Param_Libelles
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+     VAR     vl_texte
+     VAR      i
+	VAR     vl_type_fmc
+	VAR	   vl_typ_lib_pre
+	VAR     vl_index
+	VAR     tl_types_fmc
+	VAR 		vl_test
+
+  
+
+/*A
+ * Valuer la table a afficher
+ * --------------------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des libelles predefinis pour le type choisi;
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_Init_Lib_Pre(va_fenetre, va_num_typ_lib)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_Param_Libelles ;
+*
+* FONCTION
+*   initialise les valeurs de la liste des libelles predefinis.
+*
+---------------------------------------------------------------------------- */
+
+  	VAR vl_data
+
+    VAR vl_t_titres, vl_base, vl_simu
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j
+
+
+/*A
+ * Lire en base de donnees la liste des libelles predefinis
+ * --------------------------------------------------------
+ */
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = "CFG"
+if vl_base = 1
+	vl_base = "CFT"
+
+if vl_base = "CFG"
+	vl_simu = 0
+	
+if vl_base = "CFT"
+	vl_simu = 1
+
+
+vl_parametres = null		
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#BIT_
+vl_parametres[1].data = vl_simu
+vl_parametres[1].output = FALSE
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = va_num_typ_lib
+vl_parametres[2].output = FALSE
+		
+vl_resultats = null
+{
+	IF COM05_SQL_Procedure (XZAO570_Lect_Lib_Pre,
+	   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+} 
+
+vm_typ_lib_pre = vl_resultats.select_results[0]
+
+/*A  Affichage des libelles du type de libelles choisi */
+
+vl_t_titres[0] = " ",			0	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Nom",			600
+vl_t_titres[2] = "Valeur",		100
+
+if vm_typ_lib_pre = null 
+	DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_Liste_Libelle",0,1)
+else
+	{
+	DB_TABLE_CLEAR_DATA@(va_fenetre, "TA_Liste_Libelle",0,1)
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_Liste_Libelle", vm_typ_lib_pre, vl_t_titres)
+	DB_TABLE_SET_MARKER_WIDTH@(va_fenetre, "TA_Liste_Libelle", 25)
+	DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_Liste_Libelle", 0, vm_l_picto_lib)
+	}
+
+TRG_Init_Zone_Edition(va_fenetre)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la zone d'edition;
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_Init_Zone_Edition(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_Param_Libelles ;
+*
+* FONCTION
+*   initialise les valeurs de la zone d'edition.
+*
+---------------------------------------------------------------------------- */
+
+		DB_CTRL_VALUE@(va_fenetre,"BS_Type",null)
+		DB_CTRL_VALUE@(va_fenetre,"BS_Code",null)
+		DB_CTRL_VALUE@(va_fenetre,"BS_Nom",null)
+		DB_CTRL_VALUE@(va_fenetre,"BS_Valeur",null)
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Grise ou degrise la zone d'edition;
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_Grise_Zone_Edition(va_fenetre,val)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_Param_Libelles ;
+*
+* FONCTION
+*   grise ou degrise les valeurs de la zone d'edition.
+*
+---------------------------------------------------------------------------- */
+
+		DB_CTRL_GRAYED@(va_fenetre,"BS_Code",val)
+		DB_CTRL_GRAYED@(va_fenetre,"BS_Type",val)
+		DB_CTRL_GRAYED@(va_fenetre,"BO_Effacer",val)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Cree ou modifie un libelle predefini ;
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TRG_Maj_Lib_Pre (va_fenetre, va_proc, va_valeur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*   va_proc		: Nom de la procedure stockee a executer
+*   va_type_select    : No de la ligne de "TA_Liste_Libelle" selectionne
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TRG_Param_Libelles ;
+*
+* FONCTION
+*   creation ou modification d'un libelle predefini.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR i, j, vl_num_param, vl_num_lib, vl_base, vl_res
+
+
+vl_base = DB_CTRL_GET_VALUE@(va_fenetre,"BO_refer")
+if vl_base = 0
+	vl_base = "CFG"
+if vl_base = 1
+	vl_base = "CFT"
+
+vl_parametres = null	
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_base
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT4_
+vl_parametres[1].data = DB_CTRL_GET_VALUE@(va_fenetre, "BS_Code")
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = DB_CTRL_GET_VALUE@(va_fenetre, "BS_Type")
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#INT4_
+
+if va_valeur = null
+	vl_parametres[3].data = 0
+else
+	vl_parametres[3].data = va_valeur
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#INT4_
+vl_parametres[4].data = vl_res
+vl_parametres[4].output = TRUE
+
+vl_resultats = null
+{
+	IF COM05_SQL_Procedure(va_proc,vl_parametres, vl_resultats,C_MODULE) <> COM_OK
+ 	RETURN (COM_NOK)
+} 
+
+TRG_Init_Lib_Pre(va_fenetre,DB_CTRL_GET_VALUE@(va_fenetre, "BS_Type"))
+
+
+ENDMACRO
+
+

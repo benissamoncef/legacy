@@ -1,0 +1,1 @@
+DEFINE XZAC30_Lire_Fax	"XZAC;30" 

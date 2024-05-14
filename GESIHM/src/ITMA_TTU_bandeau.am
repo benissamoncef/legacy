@@ -1,0 +1,1163 @@
+/*A 
+/*Fichier :  @(#)ITMA_TTU_bandeau.am	1.8      Release : 1.8        Date : 03/24/14
+Description des constantes générales
+/*E*/
+/*
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER ITMA_TTU_bandeau.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Creation des bandeaux de commande et navigation
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* A.Bertola 13/02/2007 : IHM supervision NICE en mode dégradé DEM 665
+* A.Bertola 05/06/2008 : intégration des spécificités du tunnel MONACO
+* A.Bertola 01/02/2010 : correction FT 3376: Changer le libellé du BP AUTO/individuel situé dans le bandeau du bas
+* A.Bertola 02/08/2013 : intégration BP HT Centrale La Turbie
+* A.Bertola 23/09/2019 : intégration ouvrage Toulon
+* A.Bertola 09/02/2021 : rénovation éclairage Toulon
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes générales
+ * ------------------------------------- */
+DEFINE	C_MODULE			"MTTU"	' Nom du module
+DEFINE	REP_RENOVE		"../fichiers/renov/"
+
+/*A Description des modules à inclures 
+* ---------------------------------------*/
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+/*A Description des variables globales
+ * ----------------------------------- */
+var		vm_NomSite				' Nom du site
+var		vm_District				' N° du district
+var   vm_fenetre_TTU			' item de la fenetre du module
+VAR		vm_Titre_Fenetre
+VAR		vm_Nom_Fenetre
+var		vm_messages_acceptes
+var vl_fenetre_active
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Creation des bandeaux de commande et navigation
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_bandeau(va_fenetre, va_rep_fich, va_affiche_desenfumage,
+					va_tunnel)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_rep_fich	: nom repertoire tube ou fichier
+*  
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant résultat
+*
+* CONDITION D'UTILISATION
+*   
+*
+* FONCTION
+*    Pilote l'éclairage des tunnels
+*
+---------------------------------------------------------------------------- */
+
+
+/*A Déclaration des variables statiques */
+var tl_color
+var vl_renove
+var vl_fichier
+var vl_existe
+
+vm_NomSite = SYSTEM_VAR@("vg_nom_site")
+vm_District = SYSTEM_VAR@("vg_site")
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN(COM_NOK)
+}
+
+/**********************************************************************************/
+/****************** PARTIE BANDEAU NAVIGATION *******************/
+/**********************************************************************************/
+
+if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+{	'' HORS TOULON
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_gauche","PIX_fleche_gauche_17_17",10,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_gauche",4)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_gauche",23)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_gauche",23)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_gauche",True)
+
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_droite","PIX_fleche_droite_17_17",34,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_droite",4)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_droite",23)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_droite",23)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_droite",True)
+
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_sens","Sens",60,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_sens",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_sens",23)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_sens",41)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_sens",True)
+}
+else
+{	'' TOULON
+	if STRING_INDEX@(va_tunnel,"S1") <> 0
+		DB_CREATE_CTRL@(va_fenetre,5,"TxtSens","",13,10,0)	
+	else
+		DB_CREATE_CTRL@(va_fenetre,5,"TxtSens","",10,10,0)	
+	
+	DB_CTRL_LABEL_FONT_WEIGHT@(va_fenetre, "TxtSens", 1)
+
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_sens","Opposé",10,30,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_sens",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_sens",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_sens",15)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_sens",True)
+}
+
+/****************************************************/
+/* Partie BP exploitation des vues tunnels par tube */
+/****************************************************/
+
+'' DOMAINE SIGNALISATION
+
+if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+{	'' HORS TOULON
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_signalisation","Signalisation",119,32,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_signalisation",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_signalisation",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_signalisation",70)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_signalisation",True)
+
+	vl_fichier =  REP_RENOVE ++ va_rep_fich ++ "/ConfigEqtSignalisation_" ++ va_rep_fich ++ ".cfg"
+	vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+
+	if vl_existe = FALSE
+	{
+		DB_CTRL_GRAYED@(va_fenetre,"BP_signalisation",True)
+		SET_SYSTEM_VAR@ ("vg_domaine_signalisation_existe", false)
+	}
+	else
+	{
+		SET_SYSTEM_VAR@ ("vg_domaine_signalisation_existe", True)
+	}
+}
+else
+{	'' TOULON
+	'' 3 vues de signalisation
+	
+	if STRING_INDEX@(va_tunnel,"S1") <> 0
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_signalisation","Sig entrée",75,5,0)
+	else
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_signalisation","Sig entrée",205,5,0)
+	
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_signalisation",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_signalisation",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_signalisation",60)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_signalisation",True)
+	
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_signalisation2","Sig tunnel",140,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_signalisation2",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_signalisation2",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_signalisation2",60)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_signalisation2",True)	
+	
+	if STRING_INDEX@(va_tunnel,"S1") <> 0
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_signalisation3","Sig trémie",205,5,0)
+	else
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_signalisation3","Sig Renc.",75,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_signalisation3",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_signalisation3",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_signalisation3",60)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_signalisation3",True)
+	
+	SET_SYSTEM_VAR@ ("vg_domaine_signalisation_existe", True)		
+}
+
+
+'' DOMAINE ECLAIRAGE
+
+if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+{	'' HORS TOULON
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_eclairage","Eclairage",194,32,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_eclairage",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_eclairage",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_eclairage",70)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_eclairage",True)
+
+	vl_fichier =  REP_RENOVE ++ va_rep_fich ++ "/ConfigEqtEclairage_" ++ va_rep_fich ++ ".cfg"
+	vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+
+	if vl_existe = FALSE
+	{
+		DB_CTRL_GRAYED@(va_fenetre,"BP_eclairage",True)
+		SET_SYSTEM_VAR@ ("vg_domaine_eclairage_existe", false)
+	}
+	else
+	{
+		SET_SYSTEM_VAR@ ("vg_domaine_eclairage_existe", true)
+	}
+}
+else
+{	'' TOULON
+	'' 2 vues Eclairage possibles
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_eclairage","Ecl tunnel",140,30,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_eclairage",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_eclairage",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_eclairage",60)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_eclairage",True)
+	
+	vl_fichier =  REP_RENOVE ++ va_rep_fich ++ "/ConfigEqtEclairage2_" ++ va_rep_fich ++ ".cfg"
+	vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+
+	if vl_existe = TRUE
+	{
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_eclairage2","Ecl trémie",205,30,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_eclairage2",0)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_eclairage2",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_eclairage2",60)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_eclairage2",True)
+	}	
+	SET_SYSTEM_VAR@ ("vg_domaine_eclairage_existe", true)	
+}
+
+
+'' DOMAINE VENTILATION
+
+if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+{	'' HORS TOULON
+
+	/* on vérifie si on a un ou deux vues ventilation */
+	SET_SYSTEM_VAR@ ("vg_domaine_ventilation_existe", false)
+	vl_fichier =  REP_RENOVE ++ va_rep_fich ++ "/ConfigEqtVentilation2_" ++ va_rep_fich ++ ".cfg"
+	vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+	if vl_existe = FALSE
+	{
+		' on a une seule vue ventilation
+		SET_SYSTEM_VAR@(vg_nb_vue_ventilation,"1")
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_ventilation","Ventilation",269,32,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_ventilation",0)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_ventilation",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_ventilation",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_ventilation",True)
+		
+		vl_fichier =  REP_RENOVE ++ va_rep_fich ++ "/ConfigEqtVentilation_" ++ va_rep_fich ++ ".cfg"
+		vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+		
+		if vl_existe = FALSE
+		{
+			DB_CTRL_GRAYED@(va_fenetre,"BP_ventilation",True)
+		}
+		else
+		{
+			SET_SYSTEM_VAR@ ("vg_domaine_ventilation_existe", True)
+		}
+	}
+	else
+	{
+		SET_SYSTEM_VAR@ ("vg_domaine_ventilation_existe", true)
+		' on a 2 vues ventilation
+		SET_SYSTEM_VAR@(vg_nb_vue_ventilation,"2")
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_ventilation","Vent",267,32,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_ventilation",0)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_ventilation",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_ventilation",25)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_ventilation",True)
+
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_ventilation2","Gaine",303,32,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_ventilation2",0)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_ventilation2",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_ventilation2",25)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_ventilation2",True)
+	}
+}
+else
+{	'' TOULON
+	' on a une seule vue ventilation
+	SET_SYSTEM_VAR@(vg_nb_vue_ventilation,"1")
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_ventilation","Ventilation",270,30,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_ventilation",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_ventilation",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_ventilation",65)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_ventilation",True)
+	
+	SET_SYSTEM_VAR@ ("vg_domaine_ventilation_existe", True)
+}
+
+
+'' DOMAINE LOCAUX TECHNIQUES
+
+if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+	'' HORS TOULON
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_LT","Locaux tech",344,32,0)
+else
+	'' TOULON
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_LT","Locaux tech",340,30,0)
+
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_LT",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_LT",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_LT",70)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_LT",True)
+
+vl_fichier =  REP_RENOVE ++ va_rep_fich ++ "/ConfigEqtLT_" ++ va_rep_fich ++ ".cfg"
+vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+
+if vl_existe = FALSE
+{
+	DB_CTRL_GRAYED@(va_fenetre,"BP_LT",True)
+	SET_SYSTEM_VAR@ ("vg_domaine_lt_existe", false)
+}
+else
+{
+	SET_SYSTEM_VAR@ ("vg_domaine_lt_existe", true)
+}
+
+
+'' DOMAINE EXPLOITATION
+
+if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+{	'' HORS TOULON
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_Exploitation","Exploitation",419,32,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_Exploitation",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_Exploitation",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_Exploitation",70)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_Exploitation",True)
+
+	vl_fichier =  REP_RENOVE ++ va_rep_fich ++ "/ConfigEqtExploitation_" ++ va_rep_fich ++ ".cfg"
+	vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+
+	if vl_existe = FALSE
+	{
+		DB_CTRL_GRAYED@(va_fenetre,"BP_Exploitation",True)
+		SET_SYSTEM_VAR@ ("vg_domaine_exploitation_existe", false)
+	}
+	else
+	{
+		SET_SYSTEM_VAR@ ("vg_domaine_exploitation_existe", true)
+	}
+}
+else
+{	'' TOULON : on a 3 vues Exploitation
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_Exploitation","Auto Evac",270,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_Exploitation",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_Exploitation",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_Exploitation",65)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_Exploitation",True)
+
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_Exploitation2","Exploit IT",340,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_Exploitation2",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_Exploitation2",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_Exploitation2",65)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_Exploitation2",True)
+	
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_Exploitation3","Exp Autres",410,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_Exploitation3",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_Exploitation3",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_Exploitation3",65)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_Exploitation3",True)
+	
+	SET_SYSTEM_VAR@ ("vg_domaine_exploitation_existe", true)
+}
+
+
+'' DOMAINE ENERGIE BT
+
+if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+{	'' HORS TOULON
+	/* on vérifie si on a un ou deux postes BT */
+		SET_SYSTEM_VAR@ ("vg_domaine_bt_existe", false)
+	vl_fichier =  REP_RENOVE ++ va_rep_fich ++ "/ConfigEqtBT2_" ++ va_rep_fich ++ ".cfg"
+	vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+	if vl_existe = FALSE
+	{
+		' on a un seul poste BT
+		SET_SYSTEM_VAR@(vg_nb_poste_BT,"1")
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_BTOUEST","BT",494,32,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_BTOUEST",0)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_BTOUEST",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_BTOUEST",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_BTOUEST",True)
+		
+		vl_fichier =  REP_RENOVE ++ va_rep_fich ++ "/ConfigEqtBT1_" ++ va_rep_fich ++ ".cfg"
+		vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+		
+		if vl_existe = FALSE
+		{
+			DB_CTRL_GRAYED@(va_fenetre,"BP_BTOUEST",True)
+		}
+		else
+		{
+			SET_SYSTEM_VAR@ ("vg_domaine_bt_existe", true)
+		}
+	}
+	else
+	{
+		SET_SYSTEM_VAR@ ("vg_domaine_bt_existe", true)
+		' on a 2 postes BT
+		SET_SYSTEM_VAR@(vg_nb_poste_BT,"2")
+		' cas générique
+		if STRING_INDEX@(UPPERCASE@(va_rep_fich),"MC_") <> 0
+			DB_CREATE_CTRL@(va_fenetre,3,"BP_BTOUEST","BTN",494,32,0)
+		else
+			DB_CREATE_CTRL@(va_fenetre,3,"BP_BTOUEST","BTO",494,32,0)
+
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_BTOUEST",0)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_BTOUEST",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_BTOUEST",25)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_BTOUEST",True)
+
+		' cas particulier du tunnel de Monaco
+		if STRING_INDEX@(UPPERCASE@(va_rep_fich),"MC_") <> 0
+			DB_CREATE_CTRL@(va_fenetre,3,"BP_BTEST","BTS",533,32,0)
+		else		
+			DB_CREATE_CTRL@(va_fenetre,3,"BP_BTEST","BTE",533,32,0)
+
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_BTEST",0)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_BTEST",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_BTEST",25)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_BTEST",True)
+	}
+}
+else
+{	'' TOULON
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_BTOUEST","Energie",415,30,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_BTOUEST",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_BTOUEST",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_BTOUEST",60)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_BTOUEST",True)
+	
+	SET_SYSTEM_VAR@ ("vg_domaine_bt_existe", true)
+}	
+
+/*****************************************/	
+/* Partie BP exploitation vues générales */
+/*****************************************/	
+
+if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+{	'' HORS TOULON
+
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_ltn","LTN",269,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_ltn",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_ltn",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_ltn",70)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_ltn",True)
+
+	vl_fichier =  REP_RENOVE ++ "/ConfigBDLTN.cfg"
+	vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+
+	if vl_existe = FALSE
+	{
+		DB_CTRL_GRAYED@(va_fenetre,"BP_ltn",True)
+		SET_SYSTEM_VAR@ ("vg_domaine_ltn_existe", false)
+	}
+	else
+	{
+		SET_SYSTEM_VAR@ ("vg_domaine_ltn_existe", true)
+	}
+
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_litarret","Lit d'arret",344,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_litarret",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_litarret",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_litarret",70)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_litarret",True)
+
+	vl_fichier =  REP_RENOVE ++ "/ConfigEqtLitsArret.cfg"
+	vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+
+	if vl_existe = FALSE
+	{
+		DB_CTRL_GRAYED@(va_fenetre,"BP_litarret",True)
+		SET_SYSTEM_VAR@ ("vg_domaine_litarret_existe", false)
+	}
+	else
+	{
+		SET_SYSTEM_VAR@ ("vg_domaine_litarret_existe", true)
+	}
+
+
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_systeme","Système",419,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_systeme",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_systeme",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_systeme",70)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_systeme",True)
+
+	vl_fichier =  REP_RENOVE ++ "/ConfigEqtSysteme.cfg"
+	vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+
+	if vl_existe = FALSE
+	{
+		DB_CTRL_GRAYED@(va_fenetre,"BP_systeme",True)
+		SET_SYSTEM_VAR@ ("vg_domaine_systeme_existe", false)
+	}
+	else
+	{
+		SET_SYSTEM_VAR@ ("vg_domaine_systeme_existe", true)
+	}
+
+
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_HT","HT",494,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_HT",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_HT",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_HT",70)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_HT",True)
+
+	vl_fichier =  REP_RENOVE ++ "/ConfigEqtHT.cfg"
+	vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+
+	if vl_existe = FALSE
+	{
+		DB_CTRL_GRAYED@(va_fenetre,"BP_HT",True)
+		SET_SYSTEM_VAR@ ("vg_domaine_ht_existe", false)
+	}
+	else
+	{
+		SET_SYSTEM_VAR@ ("vg_domaine_ht_existe", true)
+	}
+
+	/* A.Bertola 02/08/2013 : intégration BP HT Centrale La Turbie */
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_HT_TU","HT TURBIE",194,5,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_HT_TU",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_HT_TU",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_HT_TU",70)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_HT_TU",True)
+
+	vl_fichier =  REP_RENOVE ++ "/ConfigEqtHT_Turbie.cfg"
+	vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+
+	if vl_existe = FALSE
+	{
+		DB_CTRL_GRAYED@(va_fenetre,"BP_HT_TU",True)
+		SET_SYSTEM_VAR@ ("vg_domaine_ht_turbie_existe", false)
+	}
+	else
+	{
+		SET_SYSTEM_VAR@ ("vg_domaine_ht_turbie_existe", true)
+	}
+}
+else
+{	'' TOULON
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_systeme","Système",75,30,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_systeme",0)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_systeme",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_systeme",60)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_systeme",True)
+
+	vl_fichier =  REP_RENOVE ++ "/ConfigEqtSysteme_TO.cfg"
+	vl_existe = ITMA_TTU_Ctrl_existe_rep_fich(vl_fichier,"F")
+
+	if vl_existe = FALSE
+	{
+		DB_CTRL_GRAYED@(va_fenetre,"BP_systeme",True)
+		SET_SYSTEM_VAR@ ("vg_domaine_systeme_existe", false)
+	}
+	else
+	{
+		SET_SYSTEM_VAR@ ("vg_domaine_systeme_existe", true)
+	}
+}
+
+''**********************************************************
+'' boutons mode et regime ventilation
+''**********************************************************
+if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+{	'' HORS TOULON
+
+	if STRING_INDEX@(UPPERCASE@(va_tunnel),"MONACO") <> 0
+	{
+		DB_CREATE_CTRL@(va_fenetre,8,"Tableau_haut"," ",5,0,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Tableau_haut",58)
+		DB_CTRL_WIDTH@(va_fenetre,"Tableau_haut",990)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Tableau_haut",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Tableau_haut",2)
+
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_ventilation"," ",124+300+145,695-695,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_ventilation",58)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_ventilation",135)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_ventilation",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_ventilation",2)
+
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_mode_ventilation","Mode",133+300+160,7,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_ventilation","Ventilation",133+300+140,23,0)
+
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_ventilation","pix_auto",233+305+90,0,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_ventilation",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_ventilation",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_ventilation",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_ventilation",True)
+	}
+	else
+	{
+		DB_CREATE_CTRL@(va_fenetre,8,"Tableau_haut"," ",5,0,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Tableau_haut",58)
+		DB_CTRL_WIDTH@(va_fenetre,"Tableau_haut",980)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Tableau_haut",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Tableau_haut",2)
+
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_ventilation"," ",124+300+160,695-695,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_ventilation",58)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_ventilation",210)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_ventilation",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_ventilation",2)
+
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_mode_ventilation","Mode de ventilation",133+300+160,12,0)
+
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_ventilation","pix_auto",233+305+160,0,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_ventilation",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_ventilation",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_ventilation",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_ventilation",True)
+	}
+}
+else
+{	'' TOULON
+	DB_CREATE_CTRL@(va_fenetre,8,"Tableau_haut"," ",5,0,0)
+	DB_CTRL_HEIGHT@(va_fenetre,"Tableau_haut",58)
+	DB_CTRL_WIDTH@(va_fenetre,"Tableau_haut",990)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Tableau_haut",True)
+	DB_CTRL_LINE_THICKNESS@(va_fenetre,"Tableau_haut",2)
+
+	DB_CREATE_CTRL@(va_fenetre,8,"Ta_ventilation"," ",124+355,0,0)
+	DB_CTRL_HEIGHT@(va_fenetre,"Ta_ventilation",58)
+	DB_CTRL_WIDTH@(va_fenetre,"Ta_ventilation",105)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_ventilation",True)
+	DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_ventilation",2)
+
+	DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_mode_ventilation","Acc.",233+260,28,0)
+	DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_mode_ventilation2","Général",233+305,28,0)
+	DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_ventilation","Mode Ventilation",233+260,40,0)
+
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_ventilation2","pix_auto_40_20",233+250,0,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_ventilation2",4)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_ventilation2",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_mode_ventilation2",70)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_ventilation2",True)
+
+	DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_ventilation","pix_auto_40_20",233+300,0,0)
+	DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_ventilation",4)
+	DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_ventilation",22)
+	DB_CTRL_WIDTH@(va_fenetre,"BP_mode_ventilation",70)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_ventilation",True)
+
+}
+''**********************************************************
+'' boutons mode et regime eclairage
+''**********************************************************
+if STRING_INDEX@(UPPERCASE@(va_tunnel),"TOULON") = 0
+{	'' HORS TOULON
+
+	if STRING_INDEX@(UPPERCASE@(va_tunnel),"MONACO") <> 0
+	{
+			/* SPECIFIQUE TUNNEL MONACO  */
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_eclairage"," ",640+65,695-695,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_eclairage",58)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_eclairage",500)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_eclairage",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_eclairage",2)
+
+		' creation 1er bouton
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairage","pix_auto",750+25,0,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairage",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairage",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairage",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairage",True)
+
+		' creation 2e bouton
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairage_MC2","pix_aucun",750+95,0,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairage_MC2",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairage_MC2",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairage_MC2",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairage_MC2",True)
+
+		' creation 3e bouton
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairage_MC3","pix_aucun",750+165,0,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairage_MC3",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairage_MC3",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairage_MC3",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairage_MC3",True)
+
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_regime_eclairage"," ",750+25,30,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_regime_eclairage",22)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_regime_eclairage",207)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_regime_eclairage",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_regime_eclairage",-2)
+
+		'' eclairage
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_mode_eclairage","Mode N/S",644+75,7,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_regime_eclairage","Régime",644+90,39,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage","Eclairage",644+65,23,0)
+
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_regime_eclairage","",755+100,34,0)
+
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_regime_ecl_nord","Régime nord",120,315,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_regime_ecl_nord",0)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_regime_ecl_nord",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_regime_ecl_nord",126)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_regime_ecl_nord",True)
+		DB_CTRL_DISPLAY@(va_fenetre,"BP_regime_ecl_nord",false)
+
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_regime_ecl_sud","Régime sud",795,315,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_regime_ecl_sud",0)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_regime_ecl_sud",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_regime_ecl_sud",126)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_regime_ecl_sud",True)
+		DB_CTRL_DISPLAY@(va_fenetre,"BP_regime_ecl_sud",false)
+	}
+	else
+	{
+			/* HORS TUNNEL MONACO  */
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_eclairage"," ",640+156,695-695,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_eclairage",58)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_eclairage",188)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_eclairage",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_eclairage",2)
+
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_mode_eclairage","Mode eclairage",644+156,12,0)
+
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairage","pix_auto",750+155,0,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairage",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairage",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairage",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairage",True)
+
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_regime_eclairage"," ",750+155,30,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_regime_eclairage",22)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_regime_eclairage",77)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_regime_eclairage",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_regime_eclairage",-2)
+
+		'' eclairage
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_regime_eclairage","Régime eclairage",644+156,34,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_regime_eclairage","",755+156,34,0)
+	}
+}
+else
+{	'' TOULON
+	if STRING_INDEX@(va_tunnel,"S1") <> 0
+	{
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_eclairage"," ",585,0,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_eclairage",58)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_eclairage",600)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_eclairage",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_eclairage",2)
+
+		/************* zone renfort entree *****************/
+		' texte eclairage renfort entree
+		'DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_mode_eclairage","Mode",615,2,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_entree","Renfort",587,2,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_regime_eclairage","entrée",587,15,0)
+		'DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_sortie","Rég.",595,33,0)
+
+		' creation 1er bouton renfort entree AUTO/MANU
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairageRFEAUTO","pix_auto_40_20",590,28,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairageRFEAUTO",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairageRFEAUTO",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairageRFEAUTO",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairageRFEAUTO",True)
+
+		' creation 2e bouton renfort entree NOMINAL/HORAIRE
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairageRFENOM","pix_nominal_40_20",640,28,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairageRFENOM",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairageRFENOM",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairageRFENOM",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairageRFENOM",True)
+
+		' zone régime renfort entree
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_regime_eclairage"," ",625,0,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_regime_eclairage",22)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_regime_eclairage",65)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_regime_eclairage",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_regime_eclairage",-2)
+
+		' texte dynamique régime en cours renfort entree
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_regime_eclairageE","",630,4,0)
+
+		/************* zone eclairage de base *****************/
+		' texte eclairage de base
+		'DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_mode_eclairage2","Mode",750,2,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_entree2","Ecl.",695,2,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_regime_eclairage2","base",695,15,0)
+		'DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_sortie2","Rég.",730,33,0)
+
+		' creation 3e bouton eclairage base AUTO/MANU
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairageBASEAUTO","pix_auto_40_20",695,28,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairageBASEAUTO",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairageBASEAUTO",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairageBASEAUTO",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairageBASEAUTO",True)
+
+		' creation 4e bouton eclairage base NOMINAL/HORAIRE
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairageBASENOM","pix_nominal_40_20",745,28,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairageBASENOM",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairageBASENOM",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairageBASENOM",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairageBASENOM",True)
+
+		' zone régime eclairage base
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_regime_eclairage2"," ",722,0,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_regime_eclairage2",22)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_regime_eclairage2",65)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_regime_eclairage2",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_regime_eclairage2",-2)
+
+		' texte dynamique régime en cours eclairage base
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_regime_eclairageB","",727,4,0)
+
+		/************* zone renfort sortie *****************/
+		' texte eclairage renfort sortie
+		'DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_mode_eclairage3","Mode",880,2,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_entree3","Renfort",795,2,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_regime_eclairage3","sortie",798,15,0)
+		'DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_sortie3","Rég.",865,33,0)
+
+		' creation 5e bouton renfort sortie AUTO/MANU
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairageRFSAUTO","pix_auto_40_20",800,28,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairageRFSAUTO",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairageRFSAUTO",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairageRFSAUTO",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairageRFSAUTO",True)
+
+		' creation 6e bouton eclairage base NOMINAL/HORAIRE
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairageRFSNOM","pix_nominal_40_20",850,28,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairageRFSNOM",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairageRFSNOM",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairageRFSNOM",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairageRFSNOM",True)
+
+		' zone régime renfort sortie
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_regime_eclairage3"," ",835,0,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_regime_eclairage3",22)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_regime_eclairage3",65)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_regime_eclairage3",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_regime_eclairage3",-2)
+
+		' texte dynamique régime en cours renfort sortie
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_regime_eclairageS","",840,4,0)
+		
+		/************* zone tremie L. Bourgeois renfort entree *****************/
+		' texte eclairage tremie renfort entree
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_entree4","Trémie",905,27,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_regime_eclairage4","Renf E",905,40,0)
+
+		' creation 7e bouton tremie renfort entree AUTO/MANU
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairageTREAUTO","pix_auto_40_20",943,28,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairageTREAUTO",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairageTREAUTO",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairageTREAUTO",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairageTREAUTO",True)
+
+		' zone régime renfort entree
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_regime_eclairage4"," ",923,0,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_regime_eclairage4",22)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_regime_eclairage4",65)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_regime_eclairage4",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_regime_eclairage4",-2)
+
+		' texte dynamique régime en cours renfort entree
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_regime_eclairageT","",923,4,0)
+		
+	}
+	if STRING_INDEX@(va_tunnel,"S2") <> 0
+	{
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_eclairage"," ",585,0,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_eclairage",58)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_eclairage",600)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_eclairage",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_eclairage",2)
+
+		/************* zone eclairage de base *****************/
+		' texte eclairage de base
+		'DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_mode_eclairage2","Mode",750,2,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_entree2","Ecl.",730,2,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_regime_eclairage2","base",730,15,0)
+		'DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_sortie2","Rég.",730,33,0)
+
+		' creation 3e bouton eclairage base AUTO/MANU
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairageBASEAUTO","pix_auto_40_20",755,28,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairageBASEAUTO",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairageBASEAUTO",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairageBASEAUTO",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairageBASEAUTO",True)
+
+		' zone régime eclairage base
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_regime_eclairage2"," ",757,0,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_regime_eclairage2",22)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_regime_eclairage2",65)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_regime_eclairage2",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_regime_eclairage2",-2)
+
+		' texte dynamique régime en cours eclairage base
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_regime_eclairageB","",762,4,0)
+
+		/************* zone renfort entree *****************/
+		' texte eclairage renfort entree
+		'DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_mode_eclairage","Mode",880,2,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_entree","Renfort",855,2,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_regime_eclairage","entrée",858,15,0)
+		'DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_sortie","Rég.",865,33,0)
+
+		' creation 1er bouton renfort entree AUTO/MANU
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairageRFEAUTO","pix_auto_40_20",895,28,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairageRFEAUTO",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairageRFEAUTO",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairageRFEAUTO",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairageRFEAUTO",True)
+
+		' zone régime renfort entree
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_regime_eclairage"," ",895,0,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_regime_eclairage",22)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_regime_eclairage",80)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_regime_eclairage",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_regime_eclairage",-2)
+
+		' texte dynamique régime en cours renfort entree
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_regime_eclairageE","",900,4,0)
+
+		/************* zone renfort sortie *****************/
+		' texte eclairage renfort sortie
+		'DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_mode_eclairage3","Mode",615,2,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_entree3","Renfort",587,2,0)
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_regime_eclairage3","sortie",587,15,0)
+		'DB_CREATE_CTRL@(va_fenetre,5,"Li_titre_eclairage_sortie3","Rég.",595,33,0)
+
+		' creation 5e bouton renfort sortie AUTO/MANU
+		DB_CREATE_CTRL@(va_fenetre,3,"BP_mode_eclairageRFSAUTO","pix_auto_40_20",625,28,0)
+		DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_mode_eclairageRFSAUTO",4)
+		DB_CTRL_HEIGHT@(va_fenetre,"BP_mode_eclairageRFSAUTO",22)
+		DB_CTRL_WIDTH@(va_fenetre,"BP_mode_eclairageRFSAUTO",70)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_mode_eclairageRFSAUTO",True)
+
+		' zone régime renfort sortie
+		DB_CREATE_CTRL@(va_fenetre,8,"Ta_regime_eclairage3"," ",625,0,0)
+		DB_CTRL_HEIGHT@(va_fenetre,"Ta_regime_eclairage3",22)
+		DB_CTRL_WIDTH@(va_fenetre,"Ta_regime_eclairage3",65)
+		DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Ta_regime_eclairage3",True)
+		DB_CTRL_LINE_THICKNESS@(va_fenetre,"Ta_regime_eclairage3",-2)
+
+		' texte dynamique régime en cours renfort sortie
+		DB_CREATE_CTRL@(va_fenetre,5,"Li_regime_eclairageS","",630,4,0)
+	}
+}	
+/**********************************************************************************/
+/************* PARTIE BANDEAU COMMANDES *************************/
+/**********************************************************************************/
+
+DB_CREATE_CTRL@(va_fenetre,8,"Tableau_bas"," ",5,615,0)
+DB_CTRL_HEIGHT@(va_fenetre,"Tableau_bas",120)
+DB_CTRL_WIDTH@(va_fenetre,"Tableau_bas",980)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Tableau_bas",True)
+DB_CTRL_LINE_THICKNESS@(va_fenetre,"Tableau_bas",2)
+
+DB_CREATE_CTRL@(va_fenetre,8,"Tableau_gauche"," ",15,635,0)
+DB_CTRL_HEIGHT@(va_fenetre,"Tableau_gauche",25)
+DB_CTRL_WIDTH@(va_fenetre,"Tableau_gauche",510)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Tableau_gauche",True)
+DB_CTRL_LINE_THICKNESS@(va_fenetre,"Tableau_gauche",-2)
+
+DB_CREATE_CTRL@(va_fenetre,8,"Tableau_droit"," ",540,635,0)
+DB_CTRL_HEIGHT@(va_fenetre,"Tableau_droit",25)
+DB_CTRL_WIDTH@(va_fenetre,"Tableau_droit",424)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"Tableau_droit",True)
+DB_CTRL_LINE_THICKNESS@(va_fenetre,"Tableau_droit",-2)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_cde_incendie","pix_incendie_fin_40_40",36,665,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_cde_incendie",4)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_cde_incendie",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_cde_incendie",70)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_cde_incendie",True)
+
+if va_affiche_desenfumage <> null and va_affiche_desenfumage = true
+{
+DB_CREATE_CTRL@(va_fenetre,3,"BP_desenfumage","Désenfumage",100,665,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_desenfumage",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_desenfumage",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_desenfumage",70)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_desenfumage",True)
+}
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_manuel","pix_scenario",330,665,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_manuel",4)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_manuel",31)
+DB_CTRL_WIDTH@(va_fenetre,"BP_manuel",66)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_manuel",True)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_defaut","pix_defaut",400,690,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_defaut",4)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_defaut",31)
+DB_CTRL_WIDTH@(va_fenetre,"BP_defaut",106)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_defaut",True)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_executer","Executer",553,665,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_executer",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_executer",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_executer",70)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_executer",True)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_sequence","Appel scénario",643,665,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_sequence",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_sequence",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_sequence",116)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_sequence",True)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_travaux_nuit","Marche travaux nuit",415,690,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_travaux_nuit",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_travaux_nuit",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_travaux_nuit",116)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_travaux_nuit",True)
+DB_CTRL_DISPLAY@(va_fenetre,"BP_travaux_nuit",False)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_etat_trafic_excep","Trafic non exceptionnel",643,690,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_etat_trafic_excep",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_etat_trafic_excep",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_etat_trafic_excep",126)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_etat_trafic_excep",True)
+DB_CTRL_DISPLAY@(va_fenetre,"BP_etat_trafic_excep",False)
+tl_color[0] = 1
+tl_color[1] = 255,255,255
+tl_color[2] = "blanc"
+/* couleur texte */
+DB_CTRL_WIDGET_COLOR@(va_fenetre,"BP_etat_trafic_excep",tl_color)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_trafic_excep","Forçage trafic",415,690,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_trafic_excep",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_trafic_excep",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_trafic_excep",126)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_trafic_excep",True)
+DB_CTRL_DISPLAY@(va_fenetre,"BP_trafic_excep",False)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_plage_horaire","Plages horaires inactives",277,690,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_plage_horaire",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_plage_horaire",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_plage_horaire",126)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_plage_horaire",True)
+DB_CTRL_DISPLAY@(va_fenetre,"BP_plage_horaire",False)
+
+'DB_CREATE_CTRL@(va_fenetre,3,"BP_test_trappes","Test trappes",139,690,0)
+DB_CREATE_CTRL@(va_fenetre,3,"BP_ferm_trappes","Ferm trappes",125,690,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_ferm_trappes",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_ferm_trappes",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_ferm_trappes",60)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_ferm_trappes",True)
+DB_CTRL_DISPLAY@(va_fenetre,"BP_ferm_trappes",False)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_ouv_trappes","Ouv trappes",202,690,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_ouv_trappes",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_ouv_trappes",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_ouv_trappes",60)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_ouv_trappes",True)
+DB_CTRL_DISPLAY@(va_fenetre,"BP_ouv_trappes",False)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_quitter","Quitter",813,665,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_quitter",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_quitter",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_quitter",70)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_quitter",True)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_aide","Aide",893,665,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_aide",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_aide",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_aide",70)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_aide",True)
+
+DB_CREATE_CTRL@(va_fenetre,5,"Li_nom","Nom du tunnel",15,620,0)
+
+DB_CREATE_CTRL@(va_fenetre,5,"Li_status","Status :",25,640,0)
+DB_CREATE_CTRL@(va_fenetre,5,"Li_status2","Status :",553,640,0)
+
+
+'-- ajout des composants des vues non renovees
+
+'-- bouton Lier F.M.C.
+DB_CREATE_CTRL@(va_fenetre,3,"BP_lier","Lier F.M.C.",200,665,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_lier",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_lier",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_lier",66)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_lier",True)
+
+'-- Table des fiches
+DB_CREATE_CTRL@(va_fenetre,12,"TA_Evenements","",130,370,0)
+DB_CTRL_HEIGHT@(va_fenetre,"TA_Evenements",220)
+DB_CTRL_WIDTH@(va_fenetre,"TA_Evenements",739)
+
+'-- Liste des fiches
+DB_CREATE_CTRL@(va_fenetre,7,"LI_Evenements","",131,390,0)
+
+'-- boutons Succès et Echec
+DB_CREATE_CTRL@(va_fenetre,3,"BP_ok","Succès",400,665,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_ok",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_ok",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_ok",66)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_ok",True)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_nul","Echec",470,665,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_nul",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_nul",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_nul",66)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_lier",True)
+
+DB_CREATE_CTRL@(va_fenetre,3,"BP_refuser","Refuser",553,690,0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre,"BP_refuser",0)
+DB_CTRL_HEIGHT@(va_fenetre,"BP_refuser",22)
+DB_CTRL_WIDTH@(va_fenetre,"BP_refuser",70)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BP_refuser",True)
+
+'-- zone de texte pour l'appel ITMA_TMC (affichage tunnel - scénario - horodatage)
+'-- bouton quitter
+DB_CREATE_CTRL@(va_fenetre, 5, "Li_statusTMC", "", 100, 20, 0)
+DB_CTRL_DISPLAY@(va_fenetre, "Li_statusTMC", False)
+
+DB_CREATE_CTRL@(va_fenetre, 3, "BP_quitterTMC", "Quitter", 900, 40, 0)
+DB_CTRL_BUTTON_TYPE@(va_fenetre, "BP_quitterTMC", 0)
+DB_CTRL_HEIGHT@(va_fenetre, "BP_quitterTMC", 22)
+DB_CTRL_WIDTH@(va_fenetre, "BP_quitterTMC", 66)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "BP_quitterTMC", True)
+DB_CTRL_DISPLAY@(va_fenetre, "BP_quitterTMC", False)
+
+
+tl_color[0] = 1
+tl_color[1] = 255,0,0
+tl_color[2] = "rouge"
+/* couleur texte */
+'DB_CTRL_WIDGET_COLOR@(va_fenetre,"BP_servitudes",tl_color)
+'DB_CTRL_WIDGET_COLOR@(va_fenetre,"BP_ventilation",tl_color)
+
+
+
+/******   ZONE RESERVEE POUR GRISER OU RENDRE INVISIBLE CERTAINS BOUTONS
+	EN FONCTION DU NOM DU TUNNEL ************/
+
+if STRING_INDEX@(UPPERCASE@(va_tunnel),"FERIC") <> 0
+{
+	/* pas de ventilation pour st pierre de féric */
+	DB_CTRL_DISPLAY@(va_fenetre,"BP_mode_ventilation",False)
+}
+
+RETURN
+
+
+ENDMACRO
+
+

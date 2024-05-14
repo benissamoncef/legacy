@@ -1,0 +1,1 @@
+DEFINE	XZAC93_Commande_BAD		"XZAC93"

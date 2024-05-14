@@ -1,0 +1,574 @@
+/*E*/
+/* Fichier : $Id: ITMA_MCE_Config_Easy_Cam.am,v 1.3 2010/12/16 16:48:11 pc2dpdy Exp $  Release :$Revision: 1.3 $     Date : $Date: 2010/12/16 16:48:11 $
+------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE * FICHIER ITMA_MCE_Config_Easy_CAM.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Configuration des equipements dans la base de donnees INFORMIX a 
+*   partir de la base de donnees SYBASE.
+*
+*   INTERFACE entre les SGBDR SYBASE et INFORMIX.
+*
+*   Cf. DCG 2.7
+*
+-----------------------------------------------------------------------
+* HISTORIQUE :
+*
+* T.Fournel  30 Mars 1995 : Creation    V1.1                            
+* B.Gaborit  07 Avril 1995 : Modif bug nom + requete    V1.4                            
+* B.Gaborit  08 Avril 1995 : Modif nom fichier    V1.1
+-------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+/*A Description des constantes générales
+ * ------------------------------------- */
+DEFINE	C_MODULE			"MCEC"	' Nom du module
+
+/* Parametres de la Connexion SGBDR SYBASE */
+/* 
+** Le vendeur est "Sybase", le compte migrazur
+** et le serveur sur laquelle se situe le moteur SYBASE est "SQL_CI"
+*/
+
+DEFINE	COM_NOM_SGBD_SYB	"Sybase"
+DEFINE	COM_USER_SYB		"MIGRAZUR"
+DEFINE	COM_MOT_PASSE_SYB	"MIGRAZUR"
+DEFINE	COM_BASE_SYB		""
+DEFINE	COM_HOTE_SYB		""			
+DEFINE	COM_SERVEUR_SYB	"SQL_"
+
+/* Parametres de la Connexion SGBDR INFORMIX */
+/* 
+Le vendeur est "Informix", la base de donnees EASYCAM est "isicam'
+et la machine sur laquelle se situe le SE (moteur Informix) est "POCMA"
+*/
+
+DEFINE	COM_NOM_SGBD_IFX	"Informix"
+DEFINE	COM_USER_IFX		""
+DEFINE	COM_MOT_PASSE_IFX	""
+DEFINE	COM_BASE_IFX		"isicam"
+DEFINE	COM_HOTE_IFX		"POCMA"			
+DEFINE	COM_SERVEUR_IFX	""
+
+DEFINE	NOM_ZONE			"SAE"	'Nom de la zone INFORMIX 
+
+/* Fichiers d'inclusion globaux */
+INCLUDE	"../../GESIHM/inc/ITMA_COM.h"
+INCLUDE	"../../GESIHM/inc/ITMA_TDO.h"
+
+/* Variables globales */
+var	vg_canal_SGBD_IFX		'Canal de communication INFORMIX
+var	vg_canal_SGBD_SYB		'Canal de communication SYBASE
+			
+var	vg_Text				'Texte Trace
+
+/*X*/
+/*----------------------------------------------------------------------
+* SERVICE RENDU :	Gestion de la demande creation d'un equipement
+*				 Tache principale 
+*------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_MCE_Config_Easy_CAM()
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant       : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+
+*
+* CODE RETOUR         : XDC_OK en cas d'execution correcte
+*			        XDC_NOK sinon.
+*
+* CONDITION D'UTILISATION
+* Lancer par la tache principale APLIX du module GESIHM lors du
+* lancement du logiciel de maintenance EASY CAM. 
+*
+* FONCTION
+* Interface entre SYBASE et INFORMIX pour la creation des equipements
+* dans le SGBD INFORMIX a partir des equipements de la base de donnees
+* SYBASE (MIGRAZUR).
+*--------------------------------------------------------------------- */
+var format COM_Localisation vl_localisation	'Tableau localisation SAE
+var	vl_Liste_EQT		'liste des equipement SYBASE
+var	vl_Result_IFX		'Resultat requete INFORMIX
+var	vl_indice			'Compteur de boucle 
+var	vl_Nb_EQT			'Nombre d equipements obtenues
+var	vl_requete		'Requete SQL a construire (Informix ou SYBASE)
+var	vl_Libelle_SAE		'Libelle de l equipement (homogene SAE)
+var	vl_Libelle_IFX		'Libelle de l equipement BD INFORMIX
+var	vl_NumeroEqt		'Numero de l equipement
+var	vl_TypeEqt		'Type de l equipement
+var 	vl_nom_site		'Nom du site MIGRAZUR
+var 	vl_IdEqt			'Identifiant interne equipement BD INFORMIX
+var 	vl_CodeZO			'Identifiant interne zone BD INFORMIX
+var 	vl_CodeSIT		'Identifiant interne site BD INFORMIX
+
+
+	/*A
+ 	** Traitements en cas d'erreur durant l'initialisation :
+ 	** informer l'operateur, tracer l'erreur et abandonner
+ 	** -----------------------------------------------------
+ 	*/
+	ON ERROR {
+    		ERROR_BOX@
+    		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+			SQL_DISCONNECT@(vg_canal_SGBD_IFX)
+    		RETURN (XDC_NOK)
+	}
+
+	/*A trace debut de macro */
+	vg_text = COM09_Date_Courante() ++ " MCEC()"
+	COM01_Trace(COM_INFO,vg_text)
+
+	/* Nom du site (Centre d'Information) */
+	vl_nom_site = "CI"
+
+	/*A
+	** Etablir une connexion SGBD SYBASE (s'il n'y en a pas deja une
+	** - pour pouvoir reexecuter, en phase de developpement ).
+	** -------------------------------------------------------
+	*/
+
+	vg_canal_SGBD_SYB = SYSTEM_VAR@ (vg_canal_SGBD)
+	IF  (vg_canal_SGBD_SYB = NULL) {
+
+    		vg_canal_SGBD_SYB = SQL_CONNECT@ (	COM_NOM_SGBD_SYB,
+								COM_USER_SYB, 
+								COM_MOT_PASSE_SYB,
+								COM_BASE_SYB,
+ 								COM_HOTE_SYB,
+ 								COM_SERVEUR_SYB ++
+ 								vl_nom_site)
+
+		/* Test de la demande de connexion */
+		if (IS_NULL(vg_canal_SGBD_SYB) = TRUE)
+		begin
+			'info_message@ ("Connexion Sybase impossible...")
+			vg_text = COM09_Date_Courante() ++
+					" MCE() : Connexion Sybase Impossible..."
+			COM01_Trace(COM_WARNING,vg_text)
+			return(XDC_NOK)
+		end
+
+		SQL_CHANNEL_MASTER@ (vg_canal_SGBD_SYB, 0)
+
+   		SET_SYSTEM_VAR@ (vg_canal_SGBD, vg_canal_SGBD_SYB)
+	}
+
+
+	/*A
+	* Etablir une connexion SGBD INFORMIX.
+	* ------------------------------------
+	*/
+	vg_canal_SGBD_IFX = SQL_CONNECT@ (COM_NOM_SGBD_IFX,
+							COM_USER_IFX,
+	 						COM_MOT_PASSE_IFX,
+				 			COM_BASE_IFX, 
+							COM_HOTE_IFX, 
+							COM_SERVEUR_IFX)
+	/* Test de la demande de connexion */
+	if (IS_NULL(vg_canal_SGBD_IFX) = TRUE)
+	begin
+		'info_message@ ("Connexion Informix impossible...")
+		vg_text = COM09_Date_Courante() ++ 
+				" MCEC() : Connection Informix impossible ..."
+		COM01_Trace(COM_WARNING,vg_text)
+		return(XDC_NOK)
+	end
+
+	SQL_CHANNEL_MASTER@ (vg_canal_SGBD_IFX, 0)
+
+	/*A trace connexion SGBD */
+	vg_text = COM09_Date_Courante() ++
+		 " MCEC(): Connexion Sybase/Informix faite..."
+	COM01_Trace(COM_DEBUG1,vg_text)
+	COM01_Trace(COM_DEBUG1," ")
+
+INFO_MESSAGE@("Connexion Sybase/Informix etablie")
+
+	/*A
+	** Recherche de la liste des equipements dans la table CFG..EQT_GEN du
+	** SGBD Sybase.
+	*/
+
+	/*B
+	** Consultation de la table CFG..EQT_GEN du district "CI". Pour chaque 
+	** equipement, il y a verification de son existence dans la base de donnee.
+	** Si cette equipement n'existe pas, il est alors ajoute dans INFORMIX
+	*/
+
+	/* Construction de la requete SYBASE */
+	vl_Liste_EQT = null
+
+	/*B
+	** Demande du numero et type de l equipement (identifiant unique)
+	**		de l autoroute de sens et du PR (construction ID SAE)
+	** pour tous les equipements de la table EQT_GEN
+	*/
+	vl_requete = "select type,numero,autoroute,PR,sens,nom from CFG..EQT_GEN"
+
+
+	/* Interrogation de la Base de donnees SYBASE */
+	vl_Liste_EQT = sql_select@(vg_canal_SGBD_SYB,vl_requete)
+
+
+	/*
+	** Test du nombre d'enregistrements retournes : Il n'est pas
+	** necessaire de continuer si il n'y a pas d'eqt
+	*/
+	if  (array_size@(vl_Liste_EQT) = 1	and	/* Pas de resultat */
+		(IS_NULL(vl_Liste_EQT[0][0]) = true)) or (array_size@(vl_Liste_EQT) = 0)
+	{
+		vg_text = COM09_Date_Courante() ++ " ITMA_Config_Easy_CAM() " ++
+			"Pas d equipements dans CFG..EQT_GEN..."
+		COM01_Trace(COM_DEBUG1,vg_text)
+		return (XDC_NOK)
+	}
+
+
+	/*	Le type de l'equipement (SYBASE): 	vl_Liste_EQT[i,0]		
+	**	Le numero  d'equipement (SYBASE): 	vl_Liste_EQT[i,1]
+	**	Le numero d'autoroute (SYBASE): 	vl_Liste_EQT[i,2]
+	**	Le PR (SYBASE): 				vl_Liste_EQT[i,3]
+	**	Le sens (SYBASE):				vl_Liste_EQT[i,4]	
+	*/
+
+	/* Nombre d'equipements recuperes */
+	vl_Nb_EQT = ARRAY_SIZE@(vl_Liste_EQT)
+
+
+	/*A S'il exite des equipements */
+	if (vl_Nb_EQT >0 )
+	{		
+		/*A
+		** Pour chaque equipements obtenue.
+		*/
+		for vl_indice = 0 to (vl_Nb_EQT -1)
+			/* Trace info d'equipement traite */
+			COM01_Trace(COM_DEBUG1," ")
+			COM01_Trace(COM_DEBUG1,
+				"------------------------------------------------")
+			vg_text = COM09_Date_Courante() ++
+				" ITMA_Config_Easy_CAM() : L'equipement traite est" ++
+				" Type EQT: " ++ vl_Liste_EQT[vl_indice,0] ++
+				" Numero Eqt: " ++ vl_Liste_EQT[vl_indice,1] ++
+				" Autoroute: " ++ vl_Liste_EQT[vl_indice,2] ++
+				" PR: " ++ vl_Liste_EQT[vl_indice,3] ++
+				" Sens: " ++ vl_Liste_EQT[vl_indice,4] ++
+				" Nom: " ++ vl_Liste_EQT[vl_indice,5]
+			COM01_Trace(COM_DEBUG1,vg_text)
+
+			/*A
+			** Construction du libelle equipement type SAE.
+			*/
+			/*B
+			** Libelle "Autoroute_Sens_PR". Appel de la fonction :
+			*/
+			/* Autoroute,PR et Sens */
+			vl_localisation = vl_Liste_EQT[vl_indice,2],
+						 vl_Liste_EQT[vl_indice,3],
+						   vl_Liste_EQT[vl_indice,4]
+
+			/* Appel à la fonction construisant le libelle SAE */
+			vl_Libelle_SAE = COM10_Localisation (vl_localisation)
+
+			if (vl_Libelle_SAE = "") /* si nul, on prend le nom base */
+			{
+				vl_Libelle_SAE = vl_Liste_EQT[vl_indice,5]
+			}
+						
+			vg_text = COM09_Date_Courante() ++
+				" TMA_Config_Easy_CAM() : Libelle SAE construit : " ++
+				vl_Libelle_SAE
+			COM01_Trace(COM_DEBUG1,vg_text)
+
+
+			/*A
+			** L'equipement existe-il deja ? (Verification dans la
+			** table "T_AP_AP de la BD Informix)
+			*/
+			/*B
+			** Premiere etape: Recherche du numero d'eqt INFORMIX :
+			** Correspondance entre le type et le numero SYBASE et l'ID
+			** INFORMIX.
+			** Consultation de T_AP_AP (type et sit)
+			*/
+
+			/* 
+			** Recheche du libelle du type d'equipement en fonction du type
+			** d'equipement SYBASE.
+			*/
+			vl_TypeEqt = ITMA_TTE_Type_Equipement(vl_Liste_EQT[vl_indice,0])
+	
+			/* Test le libelle resultat */
+			if vl_TypeEqt = "INCONNU"
+			begin
+				/* trace test equipement */
+				vg_text = COM09_Date_Courante() ++ " ITMA_Config_Easy_CAM() " ++
+					"Equipement inconnu..."
+				COM01_Trace(COM_DEBUG1,vg_text)
+				return (XDC_NOK)
+			end
+
+			/* Numero de l'equipement */
+			vl_NumeroEqt = vl_Liste_EQT[vl_indice,1]
+
+
+			/*B
+			** Consultation de T_AP_AP (type et équipement).
+			** Recheche de l'ID interne INFORMIX de l'equipement et du libelle
+			*/
+
+			/* Construction de la requete INFORMIX */
+			vl_Result_IFX = null
+
+			vl_requete = "select NUM_AP,LIBAP_AP from T_AP_AP "
+			vl_requete =
+				format@("%s where AP_AP = '%s'",vl_requete,vl_NumeroEqt)
+			vl_requete =
+				format@("%s and SIT_AP = '%s'",vl_requete,vl_TypeEqt)
+	
+			/* Interrogation de la Base de donnees */
+			vl_Result_IFX=sql_select@(vg_canal_SGBD_IFX,vl_requete)
+
+			/* B
+			** Si la requete ne retourne aucun resultat, la correspondance n'a
+			** pu etre etablie. Ceci est du au fait que l'equipement
+			** en question n'a pas ete declare dans la BD INFORMIX.
+			** (Pas de prise en compte a partir du produit EASYCAM).
+			*/
+
+			/*
+			** Test du nombre d'enregistrements retournes :
+			** Il ne doit y avoir qu'un seul equipement qui satisfasse a la
+			** requete.
+			*/
+			if  (array_size@(vl_Result_IFX) = 1		/* Pas de resultat */
+				and (IS_NULL(vl_Result_IFX[0][0]) = TRUE))
+				or (array_size@(vl_Result_IFX) = 0)
+			{
+				/* trace test equipement */
+				vg_text = COM09_Date_Courante() ++ " ITMA_Config_Easy_CAM()" ++
+					" Equipement inconnu dans EASYCAM"
+					COM01_Trace(COM_DEBUG1,vg_text)
+				/*B
+				** Cet equipement n'existe pas (Ajout).
+				*/
+				vg_text = COM09_Date_Courante() ++
+					" TMA_Config_Easy_CAM() : " ++ 
+					"Ajout de l'equipement dans la BD informix"
+				COM01_Trace(COM_DEBUG1,vg_text)
+
+				/*B Recherche code zone (vl_CodeZO) table T_AP_ZO pour 
+				**  la zone SAE. Le "NOM_ZONE" decrit le nom de la zone SAE
+				**  Il est definie comme constante en debut de fichier.
+				*/
+
+				/* Construction de la requete INFORMIX */
+				vl_Result_IFX = null
+
+				vl_requete = "select NUM_ZO from T_AP_ZO "
+				vl_requete =
+					format@("%s where ZO_ZO = '%s'",vl_requete,NOM_ZONE)
+			
+				/* Interrogation de la Base de donnees */
+				vl_Result_IFX=sql_select@(vg_canal_SGBD_IFX,vl_requete)
+
+				/*
+				** Test du nombre d'enregistrements retournes :
+				** Il ne doit y avoir qu'un seul enregistrement qui satisfasse a 
+				** la requete.
+				*/
+				if  (array_size@(vl_Result_IFX) = 1	/* Pas de resultat */
+					and (IS_NULL(vl_Result_IFX[0][0]) = TRUE))
+					or (array_size@(vl_Result_IFX) = 0)
+				{
+					/* trace test equipement */
+					vg_text = COM09_Date_Courante() ++ 
+						" ITMA_Config_Easy_CAM()" ++
+						"Zone inconnue dans EASYCAM : " ++ vl_Result_IFX[0][0]
+						COM01_Trace(COM_DEBUG1,vg_text)
+
+					return (XDC_NOK)
+				}		
+				vl_CodeZO = vl_Result_IFX[0][0]
+
+
+				/*B 
+				** Recherche code site (vl_CodeSIT) table T_AP_SIT 
+				*/
+
+				/* Construction de la requete INFORMIX */
+				vl_Result_IFX = null
+
+				vl_requete = "select NUM_SIT from T_AP_SIT "
+				vl_requete =
+					format@("%s where SIT_SIT = '%s'",vl_requete,vl_TypeEqt)
+			
+				/* Interrogation de la Base de donnees */
+				vl_Result_IFX=sql_select@(vg_canal_SGBD_IFX,vl_requete)
+
+				/*
+				** Test du nombre d'enregistrements retournes :
+				** Il ne doit y avoir qu'un seul enregistrement qui satisfasse a 				
+				** la requete.
+				*/
+				if  (array_size@(vl_Result_IFX) = 1	/* Pas de resultat */
+					and (IS_NULL(vl_Result_IFX[0][0]) = TRUE))
+					or (array_size@(vl_Result_IFX) = 0)
+				{
+					/* trace test equipement */
+					vg_text = COM09_Date_Courante() ++ 
+						" ITMA_Config_Easy_CAM()" ++
+						"Site inconnu dans EASYCAM : " ++ vl_Result_IFX[0][0]
+						COM01_Trace(COM_DEBUG1,vg_text)
+
+					return (XDC_NOK)
+				}	
+				vl_CodeSIT = vl_Result_IFX[0][0]
+
+
+
+				/*B
+				** Ajout de l'equipement dans la table T_AP_AP 
+				** d'INFORMIX.
+				*/
+				/* Construction de la requete INFORMIX (insert 11 champs) */
+				vl_Result_IFX = null
+
+				vl_requete = "insert into T_AP_AP"
+				vl_requete = format@("%s values (%s",vl_requete,"0")
+													'num_ap
+				vl_requete = format@("%s,%s",vl_requete,vl_CodeZO)
+													'codzo_ap
+				vl_requete = format@("%s,%s",vl_requete,vl_CodeSIT)
+													'codsit_ap
+				vl_requete = format@("%s,%s",vl_requete,"0")
+													'codimp_ap
+				vl_requete = format@("%s,'%s'",vl_requete,vl_NumeroEqt)
+													'ap_ap
+				vl_requete = format@("%s,'%s'",vl_requete,vl_Libelle_SAE)
+													'libap_ap
+				vl_requete = format@("%s,'%s'",vl_requete,"SAE")
+													'zo_ap
+				vl_requete = format@("%s,'%s'",vl_requete,vl_TypeEqt)	
+													'sit_ap
+				vl_requete = format@("%s,'%s'",vl_requete,"")
+													'imput_ap
+				vl_requete = format@("%s,'%s'",vl_requete,"")
+													'rgf_ap
+				vl_requete = format@("%s,'%s')",vl_requete,"n")
+													'base_ap
+
+				vg_text = COM09_Date_Courante() ++
+					" ITMA_Config_Easy_CAM() : " ++ 
+					"Requete d'insertion : " ++ vl_requete
+				COM01_Trace(COM_DEBUG1,vg_text)
+
+
+				/* Interrogation de la Base de donnees */
+				vl_Result_IFX=sql@(vg_canal_SGBD_IFX,vl_requete)
+
+			}
+			else 
+			{
+				/*B
+				** Cet equipement existe deja. Dans ce cas, il y a vérification 
+				** du libelle. S'il est different de celui proposé, il doit etre
+				** mis à jour.
+				*/
+				vg_text = COM09_Date_Courante() ++
+					" ITMA_Config_Easy_CAM() : Equipement deja existant"
+				COM01_Trace(COM_DEBUG1,vg_text)
+
+
+				/* Identifiant INFORMIX de l'equipement */
+				vl_IdEqt =  vl_Result_IFX[0][0]
+				/* Libelle de l'equipememt */
+				vl_Libelle_IFX =  vl_Result_IFX[0][1]
+
+
+				/* Test des libelles (proposé et existant) */
+				if (vl_Libelle_IFX = vl_Libelle_SAE)	/* Les memes */
+				begin
+					/*B
+					** Si le libelle SAE est egale a celui propose
+					**  => pas de modification de l'enregistrement.
+					*/
+					vg_text = COM09_Date_Courante() ++
+						" ITMA_Config_Easy_CAM() : " ++
+						"Pas de modification du libelle..."
+					COM01_Trace(COM_DEBUG1,vg_text)
+
+				end
+				else	/* Libellés différents */
+				begin
+					/*B
+					** Si le libelle SAE est differents de celui propose
+					**  => Modification de l'enregistrement.
+					*/
+					vg_text = COM09_Date_Courante() ++
+						" ITMA_Config_Easy_CAM() : Modification du libelle"
+					COM01_Trace(COM_DEBUG1,vg_text)
+
+					/* Construction de la requete INFORMIX */
+					vl_Result_IFX = null
+
+					vl_requete = 
+						format@("update T_AP_AP set LIBAP_AP = '%s'",
+								vl_Libelle_SAE)
+					vl_requete =
+					format@("%s where AP_AP = '%s'",vl_requete,vl_NumeroEqt)
+					vl_requete =
+					format@("%s and    SIT_AP = '%s'",vl_requete,vl_TypeEqt)
+
+					vg_text = COM09_Date_Courante() ++
+						" ITMA_Config_Easy_CAM() : " ++
+						"Requete UPDATE " ++
+						vl_requete
+					COM01_Trace(COM_DEBUG1,vg_text)
+
+
+					/* Modifier la Base de donnees */
+					vl_Result_IFX=sql@(vg_canal_SGBD_IFX,vl_requete)
+				end
+			}
+
+		/* Passage a l'equipement suivant */
+		next vl_indice	
+	} 	/* Fin du tant qu'il a des Equipements */
+	else	/* Il n'existe pas d'equipements */
+	{
+		/* Trace existance equipements */
+		vg_text = COM09_Date_Courante() ++
+			" ITMA_Config_Easy_CAM() : Il n'exite pas d equipements..."
+		COM01_Trace(COM_DEBUG1,vg_text)	
+	}	/* Fin Il n'existe pas d'equipement */
+
+INFO_MESSAGE@("Fin de la macro...")
+
+	/**************************/
+	/*A Deconnection INFORMIX */
+	SQL_DISCONNECT@(vg_canal_SGBD_IFX)
+
+	/* Trace Fin de tache MCEC */
+	vg_text = COM09_Date_Courante() ++
+		 " ITMA_Config_Easy_CAM() : Fin de la tache"
+	COM01_Trace(COM_DEBUG1,vg_text)
+
+	/*A Fin du module */
+	RETURN (XDC_OK)
+
+ENDMACRO
+

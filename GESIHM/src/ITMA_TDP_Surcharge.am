@@ -1,0 +1,543 @@
+/*E*/
+/* Fichier : $Id: ITMA_TDP_Surcharge.am,v 1.1 2019/12/12 17:30:18 pc2dpdy Exp $     Release : $Revision: 1.1 $        Date : $Date: 2019/12/12 17:30:18 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TDP * FICHIER ITMA_TDP_Surcharge.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   surcharge nhibition des  temps de parcours.
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* LCL 25/11/19	: Creation DEM1365                                     V1.1
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/xzao4001sp.h"
+
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_TBR.h"
+
+
+
+DEFINE	C_MODULE	"MTDP"				' Nom du module
+DEFINE	VUE_COMMUN	"VUES_Commun.elo"
+DEFINE	VUE_APPLIX	"CVUEM_ApplixData.elo"
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+FORMAT T_TDP
+	libelle,
+	tdp_sae,
+	tdp_pit,
+	surcharge,
+	id,
+	site,
+	autoroute,
+	nom_autoroute,
+	sens
+	
+VAR FORMAT T_TDP tm_zdp
+VAR FORMAT T_TDP tm_zdpaff
+VAR vl_NumFMC, vl_CleFMC
+VAR vm_fenetre				' Nom de la fenetre du module
+VAR vm_selection
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Definition des donnees d'une courbe temps de parcours.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TDP_Surcharge (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+    VAR     vl_zdp
+    VAR	    i, vl_indice
+    VAR	    vl_msg, vl_messageDecoupe
+    VAR     vl_num_zdp, vl_tdp_courant, vl_tdp_surcharge, vl_taille
+    VAR     tl_data,tl_retour
+    VAR	    tl_liste_causes
+    VAR     tl_titres
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "TDP Surcharge"
+ * ----------------------------------------
+ */
+
+vm_fenetre = DB_LOAD@ ("ITMA_TDP_Surcharge")
+DB_WINDOW_REMAIN@ (vm_fenetre, TRUE)
+
+DB_XPOS@ (vm_fenetre, 0)
+DB_YPOS@ (vm_fenetre, 93)
+COM27_Agrandir_Fenetre (vm_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vm_fenetre, "ITMA_TDP")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+vl_les_messages_acceptes[1] = COM_CANAL_TDP_SURCHARGE
+DB_ACCEPT_POKES@ (vm_fenetre, vl_les_messages_acceptes)
+
+
+vl_NumFMC=0
+vl_cleFMC=0
+
+/*A
+ * Initialiser la visualisation (liste des zdp)
+ * ------------------------------------------------------------------
+ */
+
+IF TDP_Init_Visualisation (vm_fenetre) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> C_ERR_IHM
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vm_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vm_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+    	CASE "LB_Autoroute"
+		DB_CTRL_GRAYED@(vm_fenetre, "BS_ZONE", TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BS_TDP_SAE", TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BS_TDP_PIT", TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BS_Surcharge", TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BR_SURCHARGE_INHIBITION", TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BP_Valider", TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BP_Lier_FMC", TRUE)
+
+		ITMA_TDP_Charge_BL_zdp()
+
+	CASE "LB_Sens"
+		DB_CTRL_GRAYED@(vm_fenetre, "BS_ZONE", TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BS_TDP_SAE", TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BS_TDP_PIT", TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BS_Surcharge", TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BR_SURCHARGE_INHIBITION", TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BP_Valider", TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BP_Lier_FMC", TRUE)
+
+		ITMA_TDP_Charge_BL_zdp()
+
+ 	CASE "TA_TDP"
+		i = DB_TABLE_GET_SELECTIONS@(vm_fenetre,vl_objet_selecte)
+		i=i[0]
+		vm_selection = i
+		DB_CTRL_VALUE@(vm_fenetre, "BS_ZONE", tm_zdpaff[i].libelle)
+		DB_CTRL_VALUE@(vm_fenetre, "BS_TDP_SAE", tm_zdpaff[i].tdp_sae)
+		DB_CTRL_VALUE@(vm_fenetre, "BS_TDP_PIT", tm_zdpaff[i].tdp_pit)
+		DB_CTRL_VALUE@(vm_fenetre, "BS_Surcharge", tm_zdpaff[i].surcharge)
+		DB_CTRL_GRAYED@(vm_fenetre, "BS_ZONE", FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BS_TDP_SAE", FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BS_TDP_PIT", FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BS_Surcharge", FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BR_SURCHARGE_INHIBITION", FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BP_Valider", FALSE)
+		DB_CTRL_GRAYED@(vm_fenetre, "BP_Lier_FMC", FALSE)
+		DB_CTRL_VALUE@(vm_fenetre,"BR_SURCHARGE_INHIBITION",1)
+		
+	CASE "poke_"
+	        CASE OF  DB_GET_POKE@ (vm_fenetre)
+	        	CASE COM_CANAL_FIN
+	            		vl_la_fenetre_est_active = FALSE
+			CASE COM_CANAL_TDP_SURCHARGE
+				vl_msg = DB_GET_POKE_DATA@(vm_fenetre)
+				vl_messageDecoupe = ARRAY_FROM_STRING@(vl_msg[0],",")
+					vl_num_zdp = vl_messageDecoupe[0]
+					vl_tdp_courant = vl_messageDecoupe[1]
+					vl_tdp_surcharge = vl_messageDecoupe[2]
+
+					if (vl_num_zdp > 0) {
+					vl_taille = ARRAY_SIZE@(tm_zdp)-1
+					for i = 0 to vl_taille
+						if (tm_zdp[i].id = vl_num_zdp)
+						{
+							tm_zdp[i].tdp_sae=vl_tdp_courant
+							tm_zdp[i].surcharge=vl_tdp_surcharge
+							break i
+						}
+					next i
+
+					ITMA_TDP_Charge_BL_zdp()
+					}
+	        ENDCASE
+
+        /*A sur action lier FMC */
+        CASE "BP_Lier_FMC"
+                DB_CTRL_TITLE@(vm_fenetre,"LI_FMC","Status : appel lien FMC")
+
+                /*B on lance la tache de recherche d'evt cause*/
+                tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes", "ITMA_TDP_Surcharge")
+                tl_liste_causes=tl_data[0]
+                /*B affiche la liste des evts a traiter*/
+                DB_CTRL_DISPLAY@(vm_fenetre,"TA_Evenements",TRUE)
+                DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"TA_Evenements",TRUE)
+                DB_TABLE_SET_MARKER_WIDTH@(vm_fenetre, "TA_Evenements", 25)
+                DB_TABLE_ALLOW_COLUMN_RESIZING@( vm_fenetre,"TA_Evenements",True)
+                tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+                tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+                tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+                tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+                tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+                DB_TABLE_SET_DATA@(vm_fenetre,"TA_Evenements", tl_data[1],tl_titres)
+                DB_TABLE_MARKER_PIXMAPS@(vm_fenetre, "TA_Evenements", 0, tl_data[2])
+
+        /*B selection d'un element dans la liste des fiches a traiter*/
+        CASE "TA_Evenements"
+		DB_CTRL_TITLE@(vm_fenetre,"LI_FMC", "Status : selection evenement")
+                tl_retour=ITMA_COM_Validite_Cause("ITMA_TDP_Surcharge", vm_fenetre,tl_liste_causes)
+                vl_NumFMC = tl_retour[0][0]
+                vl_CleFMC = tl_retour[0][1]
+                DB_CTRL_DISPLAY@(vm_fenetre,"TA_Evenements",FALSE)
+                DB_CTRL_TITLE@(vm_fenetre,"LI_FMC",tl_retour[1])
+
+
+	CASE "BR_SURCHARGE_INHIBITION"
+		if (DB_CTRL_GET_VALUE@(vm_fenetre, "BR_SURCHARGE_INHIBITION")=0)
+		{
+			/* Inhibition */
+			DB_CTRL_GRAYED@(vm_fenetre, "BS_Surcharge", TRUE)
+			DB_CTRL_VALUE@(vm_fenetre, "BS_Surcharge", "-1")
+		}
+		else
+		{
+			/* Surcharge */
+			DB_CTRL_GRAYED@(vm_fenetre, "BS_Surcharge", FALSE)
+			DB_CTRL_VALUE@(vm_fenetre, "BS_Surcharge", "0")
+		}
+
+	CASE "BP_Quitter"
+		vl_la_fenetre_est_active = FALSE
+
+
+	/*A
+	 * Sur choix "Valider", verifier la validite des criteres saisis
+	 * -------------------------------------------------------------
+	 */
+
+	CASE "BP_Valider"
+		MACRO_WINS_BUSY@()
+	  	vl_zdp = DB_TABLE_GET_SELECTIONS@ (vm_fenetre, "TA_TDP")
+		if (ARRAY_SIZE@(vl_zdp)=0) 
+			ERROR@ (C_ERR_IHM, COM_LIB_NON_SAISI, "zdp ")
+		vl_zdp=vl_zdp[0]
+
+		vl_indice = vm_selection
+
+		if (vl_NumFMC=0) AND (DB_CTRL_GET_VALUE@(vm_fenetre,"BS_Surcharge") <> 0)
+			ERROR@ (C_ERR_IHM, COM_LIB_NON_SAISI, "FMC ")
+
+		vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_TDP_SURCHARGE, tm_zdpaff[vl_indice].id++MTAR_CAR_SEPAR++
+				DB_CTRL_GET_VALUE@(vm_fenetre,"BS_Surcharge")++
+				MTAR_CAR_SEPAR++vl_NumFMC++MTAR_CAR_SEPAR++vl_CleFMC
+		DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+                vl_NumFMC = 0
+                vl_CleFMC = 0
+                DB_CTRL_TITLE@(vm_fenetre,"LI_FMC","FMC")
+
+		DB_CTRL_VALUE@(vm_fenetre, "BS_ZONE", "")
+		DB_CTRL_VALUE@(vm_fenetre, "BS_TDP_SAE", "")
+		DB_CTRL_VALUE@(vm_fenetre, "BS_TDP_PIT", "")
+		DB_CTRL_VALUE@(vm_fenetre, "BS_Surcharge", "")
+ 
+    ENDCASE
+WEND
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Charge la liste des ZDP en fonction de l'autoroute et du sens selectionnes 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+MACRO ITMA_TDP_Charge_BL_zdp()
+/*
+* ARGUMENTS EN ENTREE :
+*   va_autoroute        : nom de l'autoroute
+*   va_sens		: sens
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TDP_Charge_BL_zdp
+*
+* FONCTION
+*   Initialise le controle de liste des sdp en fonction de l'autoroute et du sens selectionnes
+*
+*/
+VAR vl_taille
+VAR i
+VAR tl_titres
+VAR tl_data
+VAR tl_auto
+VAR tl_sens
+VAR vl_autoroute, vl_sens
+
+tl_auto=DB_CTRL_GET_STRINGS@(vm_fenetre, "LB_Autoroute")
+tl_sens=DB_CTRL_GET_STRINGS@(vm_fenetre, "LB_Sens")
+
+vl_autoroute=tl_auto[DB_CTRL_GET_VALUE@(vm_fenetre, "LB_Autoroute")] 
+vl_sens=tl_sens[DB_CTRL_GET_VALUE@(vm_fenetre, "LB_Sens")]
+
+tm_zdpaff=NULL
+tl_titres = {
+		{ "Libelle",   250 },
+		{ "TDP SAE",   80 },
+		{ "TDP PIT",   80 },
+		{ "Surcharge", 80 }
+	}
+
+
+vl_taille = ARRAY_SIZE@(tm_zdp)-1
+for i = 0 to vl_taille
+/**	[0] id
+	[1] site
+	[2] libelle
+	[3] num autoroute
+	[4] autoroute
+	[5] sens
+	[6] TDP SAE
+	[7] TDP PIT
+	[8] Surcharge
+**/
+	if ((tm_zdp[i].nom_autoroute=vl_autoroute) AND
+ 	    (tm_zdp[i].sens=vl_sens))
+	{
+		tl_data = tm_zdp[i]
+		tm_zdpaff[ARRAY_SIZE@(tm_zdpaff)]=tl_data
+	}
+next i
+
+DB_TABLE_CLEAR_DATA@(vm_fenetre,"TA_TDP",0,-1)
+DB_TABLE_SET_DATA@ (vm_fenetre, "TA_TDP", tm_zdpaff, tl_titres, NULL)
+
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation (listes zdp, ...)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TDP_Init_Visualisation (vm_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   vm_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TDP_Courbe
+*
+* FONCTION
+*   Initialise les valeurs des objets graphiques : listes des stations de
+*   comptage, liste des echangeurs, valeurs des boutons options et bascules.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_liste
+    VAR     vl_indice
+    VAR     i
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR vl_msg
+    VAR vl_taille
+    VAR vl_Autoroutes
+    VAR vl_lib_auto
+	VAR tl_auto
+	VAR tl_sens
+	VAR fORMAT T_TDP tl_data
+	VAR tl_titres
+
+/*A
+ * Lire et afficher la liste des zdp
+ * ------------------------------------------------------------------
+ */
+		vl_parametres[0].type = SYB#CHAR_
+		vl_parametres[0].data = XDC_BASE_CFG
+		vl_parametres[0].output = FALSE
+
+/* execution requete base*/
+IF COM05_SQL_Procedure (XZAO4001_Liste_ZDP,
+	  vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+
+   			RETURN (COM_NOK)
+}	
+
+tl_titres = {
+		{ "Libelle",   300 },
+		{ "TDP SAE",   200 },
+		{ "TDP PIT",   200 },
+		{ "Surcharge", 200 }
+	}
+
+DB_DISPLAY_ONLY@ (vm_fenetre, TRUE)
+DB_DISPLAY@ (vm_fenetre)
+
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"TA_TDP",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BR_SURCHARGE_INHIBITION",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre, "LB_Autoroute",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre, "LB_Sens",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre,"BP_Lier_FMC",TRUE)
+DB_TABLE_SET_DATA@ (vm_fenetre, "TA_TDP", NULL, tl_titres, NULL)
+DB_TABLE_SET_SELECTIONS@ (vm_fenetre, "TA_TDP", NULL)
+
+tl_auto=DB_CTRL_GET_STRINGS@(vm_fenetre, "LB_Autoroute")
+tl_sens=DB_CTRL_GET_STRINGS@(vm_fenetre, "LB_Sens")
+
+vl_taille = ARRAY_SIZE@(vl_resultats.select_results[0])-1
+for i = 0 to vl_taille
+	/*	[0] id
+		[1] site
+		[2] libelle
+		[3] num autoroute
+		[4] autoroute
+		[8] sens
+	*/
+		tl_data.id=   vl_resultats.select_results[0][i][0]
+		tl_data.site=   vl_resultats.select_results[0][i][1]
+		tl_data.libelle=   vl_resultats.select_results[0][i][2]
+		tl_data.autoroute=   vl_resultats.select_results[0][i][3]
+		tl_data.nom_autoroute=   vl_resultats.select_results[0][i][4]
+		tl_data.sens=   vl_resultats.select_results[0][i][8]
+		tl_data.tdp_sae=  0
+		tl_data.tdp_pit =0
+		tl_data.surcharge=  0
+		tm_zdp[array_size@(tm_zdp)]=tl_data
+
+		if ( 	(vl_resultats.select_results[0][i][4]=tl_auto[DB_CTRL_GET_VALUE@(vm_fenetre, "LB_Autoroute")]) AND (vl_resultats.select_results[0][i][8]=tl_sens[DB_CTRL_GET_VALUE@(vm_fenetre, "LB_Sens")]))
+		{
+		tm_zdpaff[array_size@(tm_zdpaff)]=tl_data
+		}
+next i
+vl_Autoroutes = SYSTEM_VAR@(vg_les_autoroutes)
+vl_taille = ARRAY_SIZE@(vl_Autoroutes)-1
+
+for i = 0 to vl_taille
+	vl_lib_auto[i] = vl_Autoroutes[i][1]
+next i
+
+DB_CTRL_STRINGS@(vm_fenetre, "LB_Autoroute", vl_lib_auto)
+DB_CTRL_STRINGS@(vm_fenetre, "LB_Sens", {"1","2"})
+
+DB_TABLE_SET_DATA@ (vm_fenetre, "TA_TDP", tm_zdpaff, tl_titres, NULL)
+
+DB_CTRL_GRAYED@(vm_fenetre, "BS_ZONE", TRUE)
+DB_CTRL_GRAYED@(vm_fenetre, "BS_TDP_SAE", TRUE)
+DB_CTRL_GRAYED@(vm_fenetre, "BS_TDP_PIT", TRUE)
+DB_CTRL_GRAYED@(vm_fenetre, "BS_Surcharge", TRUE)
+DB_CTRL_GRAYED@(vm_fenetre, "BR_SURCHARGE_INHIBITION", TRUE)
+DB_CTRL_GRAYED@(vm_fenetre, "BP_Valider", TRUE)
+
+vl_msg = MTAR_MSG_EXEC, 1, MTAR_FCT_TDP_INIT_SURCHARGE, 0
+DB_SEND_POKE@ (COM_CANAL_TAR01, vl_msg)
+
+DB_DISPLAY_ONLY@ (vm_fenetre, FALSE)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+

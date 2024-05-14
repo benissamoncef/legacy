@@ -1,0 +1,655 @@
+/* Fichier : $Id: ITMA_TAS_Interlocuteurs_Astreint.am,v 1.10 2019/07/02 15:06:16 devgtie Exp $     Release : $Revision: 1.10 $        Date : $Date: 2019/07/02 15:06:16 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TAS * FICHIER ITMA_TAS_Interlocuteurs_Astreint.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :	
+* affichage de la liste des interlocuteurs d'astreinte
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou    14 nov 1996 : Creation	(DEM/1306)			V1.1
+* Guilhou	10 dec 1996 : correction appel ITMA_TLS			1.2
+* Guilhou	12 dec 1996 : retourner succes si un interlocuteur appele (DEM/1337)  1.3
+* Guilhou	06 fev 1998 : fermeture automatique apres appel d'un depanneur (dem/1571) 1.4
+* Guilhou     	04 Aou 1998 : formatage vm_horodate 1.5
+* JMG		30/10/18    : ajout RMVI DEM1315 1.6
+* JMG		12/12/18    : Modif RMVI numero d'appel radio et sous-groupe DEM1315 1.6
+* RGR	    15/05/19    : Modif pour PREMIER_INTERV. a la place de SURVEILLANCE_RESEAU
+* RGR		28/06/19	: Correction type astreinte - DEM1341 -	1.10
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE    "../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../inc/xzap18sp.h"
+INCLUDE	"../inc/xzan50sp.h"
+INCLUDE	"../inc/ITMA_TFS.h"
+INCLUDE "../inc/ITMA_TMC.h"
+
+
+DEFINE C_MODULE	"MTAS"			' Nom du module
+
+DEFINE C_PICTO_VALIDE		"pix_vous_fin",""
+DEFINE C_PICTO_REFUSE		"pix_vous_refuse",""
+DEFINE C_PICTO_A_TRAITER		"pix_vous",""
+
+DEFINE	C_APPELE		0
+DEFINE	C_REFUSE		1
+DEFINE	C_INIT			2
+
+FORMAT	TAS_Interlocuteur
+	sous_type,
+	nom,
+	numero,
+	competence,
+	appel
+
+FORMAT TAS_Interlocuteur_RMVI
+	position,
+	nom,
+	type,
+	tdp,
+	numero,
+	competence,
+	appel,
+	sous_type,
+	radio
+
+FORMAT TAS_RMVI
+	nom,
+	id,
+	type,
+	tdp,
+	taux,
+	position,
+    vitesse,
+	dlp,
+	note
+
+VAR FORMAT TAS_Interlocuteur_RMVI tm_rmvi
+
+VAR FORMAT TDO_Type_Astreinte vm_l_types_astreintes      ' Liste types astr.
+VAR FORMAT  TAS_Interlocuteur	tm_interlocuteurs
+VAR				tm_pictos
+VAR				tm_pictos_RMVI
+
+
+VAR FORMAT TDO_Type_FMC tm_types_fmc    
+VAR tm_auto
+VAR vm_type_astreinte
+VAR vm_autoroute
+VAR vm_PR
+VAR vm_explication
+VAR vm_remarque
+VAR vm_horodate
+VAR vm_affichage_force
+
+VAr vm_indice
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* affichage de la liste des interlocuteurs d'astreinte
+* depuis la selection d'une proposition d'appel dans le plan d'actions
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TAS_Interlocuteurs_Astreint (va_appelant,va_numero_plan,va_numero_ordre,ta_numero_fmc,va_libelle_fmc,
+			FORMAT TMC_fmc va_fiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR vl_selection
+	VAR vl_retour,vl_indice,vl_index
+	VAR tl_arg
+	VAR vl_numero,vl_statut
+	VAR vl_indice_rmvi
+	VAR vl_str
+	VAR vl_type_astreinte
+	VAR vl_arguments	
+	VAR vl_cmd
+	VAR vl_requete, vl_st_id, vl_type,vl_st_tdp, vl_st_taux
+	VAR vl_st_position, vl_st_vitesse, vl_st_dlp, vl_st_note, vl_st_indice
+	VAR vl_ligne
+	VAR FORMAT TAS_RMVI tl_rmvi
+	VAR vl_radio
+	VAR FORMAT  TAS_Interlocuteur_RMVI tl_interl_rmvi
+	VAR tl_titres
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+/*ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+*/
+
+
+/*A
+ * Charger la fenetre "Lier ..."
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TAS_Interlocuteurs_Astreint")
+
+tm_auto = SYSTEM_VAR@ (vg_les_autoroutes)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+
+/*COM02_Attacher_Aide (vl_fenetre, "ITMA_TAS_Interlocuteurs_Astreint")*/
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+vm_affichage_force = FALSE
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+DB_CTRL_DISPLAY@(vl_fenetre,"LI_status",FALSE)
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+tl_messages_acceptes[1] = COM_CANAL_MTAS
+tl_messages_acceptes[2] = COM_CANAL_RMVI_RETOUR
+tl_messages_acceptes[3] = COM_CANAL_RMVI_STATUS
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+tm_rmvi=NULL
+tm_types_fmc = SYSTEM_VAR@ (vg_les_types_FMC)
+DB_CTRL_DISPLAY@(vl_fenetre,"TA_interlocuteurs_RMVI",FALSE)
+
+if (TAS_Init_Interlocuteurs(vl_fenetre,
+				va_numero_plan,
+				va_numero_ordre,
+				ta_numero_fmc)=COM_NOK)
+  return
+
+/* recherche RMVI */
+/* Uniquement PREMIER_INTERV. */
+if (vm_type_astreinte=70) 
+{
+DB_CTRL_DISPLAY@(vl_fenetre,"TA_interlocuteurs_RMVI",TRUE)
+DB_CTRL_DISPLAY@(vl_fenetre,"TA_interlocuteurs",FALSE)
+vl_indice = ARRAY_INDEX@(ARRAY_COLUMN@(tm_auto,0), va_fiche.autoroute)
+vl_index = COM45_IndexEnColonne (tm_types_fmc, TDO_NUMERO_FMC,va_fiche.type)
+vl_requete = va_numero_plan ++ "-" ++ SYSTEM_VAR@("vg_nom_site")
+vl_arguments = vl_requete, tm_auto[vl_indice][1], va_fiche.PR, va_fiche.sens, tm_types_fmc[vl_index].nom
+vl_cmd = MTAR_MSG_EXEC, 1, MTAR_FCT_XZIS50,
+		ARRAY_TO_STRING@ (vl_arguments, MTAR_CAR_SEPAR)
+DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+vm_indice=0
+}
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/* suivant l'evenement */
+	CASE OF vl_exit_value
+		CASE "BP_rmvi"
+			/*appel au WS */
+			/*requete(str) autoroute(str) pr sens type(str)*/
+			vl_str[0]=va_numero_plan++"-"++SYSTEM_VAR@(vg_site)
+			tm_rmvi=NULL
+
+		/*recherche d'autres astreintes*/
+		CASE "BP_rechercher"
+  			PEND_FOR_NEW_TASK@("ITMA_TLS_Liste_Astreintes",
+				"ITMA_TAS_Interlocuteurs_Astreint",
+				vm_type_astreinte,
+				vm_autoroute,
+				vm_pr)
+			
+		/* appui sur le bouton quitter*/
+		CASE "BP_quitter"
+			vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_interlocuteurs,4),C_APPELE)
+
+			/*pas d'interlocuteur contacte*/
+			if (vl_indice=-1) {
+			  /*existe-t-il un interlocuteur non contacte ?*/
+			  vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_interlocuteurs,4),C_INIT)
+			  if (vl_indice<>-1)
+			    return (COM_QUITTE)
+			  else  /*tous les interlocuteurs ont ete refuses*/
+			    return (COM_REFUSE)
+			}
+			else 
+				return (COM_VALIDE)
+
+		CASE "TA_interlocuteurs_RMVI"
+			vl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,vl_exit_value)
+			vl_selection=vl_selection[0]
+			if ((vl_selection++"")<>null) 
+			{
+				tl_arg[0]=tm_rmvi[vl_selection].nom
+				tl_arg[1]=tm_rmvi[vl_selection].numero
+				tl_arg[2]=""
+				tl_arg[3]=tm_rmvi[vl_selection].sous_type
+				tl_arg[4]=tm_rmvi[vl_selection].competence
+				tl_arg[5]=vm_autoroute
+				tl_arg[6]=vm_pr
+				tl_arg[7]=ta_numero_fmc
+				tl_arg[8]=va_libelle_fmc
+				tl_arg[9]=vm_explication
+			/* PREMIER_INTERV */
+			if (vm_type_astreinte=70)
+			{
+			  if (tm_rmvi[vl_selection].type="SIS")
+				vl_type_astreinte[0]=XDC_AST_SIS
+			  else
+			    vl_type_astreinte[0]=vm_type_astreinte
+			}
+			else
+			{
+			  vl_type_astreinte[0]=vm_type_astreinte
+			}
+			vl_type_astreinte[1]=""
+			vl_retour = PEND_FOR_NEW_TASK@("ITMA_TAT_Appel_Telephonique",
+					"ITMA_TIS_Interlocuteurs_Astreint",
+					tm_rmvi[vl_selection].radio,
+					tm_rmvi[vl_selection].numero,
+					tm_rmvi[vl_selection].nom,
+					XDC_APPEL_RADIO,
+					vl_type_astreinte,
+					tl_arg)
+
+				CASE OF (vl_retour)
+					CASE COM_VALIDE
+						tm_pictos_rmvi[vl_selection]=C_PICTO_VALIDE
+
+					CASE COM_REFUSE
+						tm_pictos_rmvi[vl_selection]=C_PICTO_REFUSE
+
+					CASE COM_QUITTE
+						tm_pictos_rmvi[vl_selection]=C_PICTO_A_TRAITER
+				ENDCASE
+			}
+		/*selection d'un interlocuteur dans la liste*/
+		CASE "TA_interlocuteurs"
+			/*recupere l'interlocuteur selectionne*/
+			vl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,vl_exit_value)
+			vl_selection=vl_selection[0]
+
+			/*si un interlocuteur est bien selectionne*/
+			if ((vl_selection++"")<>null) {
+				tl_arg[0]=tm_interlocuteurs[vl_selection].nom
+				tl_arg[1]=tm_interlocuteurs[vl_selection].numero
+				tl_arg[2]=vm_type_astreinte
+				tl_arg[3]=tm_interlocuteurs[vl_selection].sous_type
+				tl_arg[4]=tm_interlocuteurs[vl_selection].competence
+				tl_arg[5]=vm_autoroute
+				tl_arg[6]=vm_pr
+				tl_arg[7]=ta_numero_fmc
+				tl_arg[8]=va_libelle_fmc
+				tl_arg[9]=vm_explication
+				tl_arg[10]=vm_remarque
+
+				/*ouvre la fiche d'astreinte de l'interlocuteur*/
+				vl_retour=PEND_FOR_NEW_TASK@("ITMA_TFS_Fiche_Astreinte",
+							"ITMA_TAS_Interlocuteurs_Astreint",
+							tm_interlocuteurs[vl_selection].competence,
+							vm_horodate,
+							tm_interlocuteurs[vl_selection].numero,
+							tl_arg)
+
+				if vm_type_astreinte=XDC_AST_DEP_VL or
+				   vm_type_astreinte=XDC_AST_DEP_PL or
+				   vm_type_astreinte=XDC_AST_DEP_LEVAGE
+				   return (vl_retour)
+
+				/*suivant le code retour*/
+				CASE OF (vl_retour)
+					CASE COM_VALIDE
+						tm_pictos[vl_selection]=C_PICTO_VALIDE
+
+					CASE COM_REFUSE
+						tm_pictos[vl_selection]=C_PICTO_REFUSE
+
+					CASE COM_QUITTE
+						tm_pictos[vl_selection]=C_PICTO_A_TRAITER
+				ENDCASE
+			}
+
+		/*appui sur le bouton refuser global*/
+		CASE "BP_refuser"
+			vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_interlocuteurs,4),C_APPELE)
+			if (vl_indice<>-1)
+			  INFO_MESSAGE@("Un interlocuteur a deja ete prevenu")
+			else
+			  RETURN (COM_REFUSE)
+
+		/*poke*/
+		CASE "poke_"
+			CASE OF DB_GET_POKE@(vl_fenetre)
+				CASE COM_CANAL_RMVI_STATUS
+					tl_arg=DB_GET_POKE_DATA@(vl_fenetre)
+					vl_numero = tl_arg[0]
+					vl_statut = tl_arg[1]
+					DB_CTRL_DISPLAY@(vl_fenetre, "LI_status",TRUE)
+					DB_CTRL_TITLE@(vl_fenetre, "LI_status",vl_statut)
+					if (vl_numero+0 <>0) {
+					vm_affichage_force = TRUE
+					DB_CTRL_DISPLAY@(vl_fenetre,"TA_interlocuteurs_RMVI",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"TA_interlocuteurs",TRUE)
+					TAS_Init_Interlocuteurs(vl_fenetre,
+					                                va_numero_plan,
+					                                va_numero_ordre,
+					                                ta_numero_fmc)
+					}
+					else {
+					  if (vl_numero+0=0) AND (tm_rmvi=NULL) {
+					vm_affichage_force = TRUE
+					DB_CTRL_DISPLAY@(vl_fenetre,"TA_interlocuteurs_RMVI",FALSE)
+					DB_CTRL_DISPLAY@(vl_fenetre,"TA_interlocuteurs",TRUE)
+					DB_CTRL_TITLE@(vl_fenetre, "LI_status","Interlocuteurs inconnus. Veuillez contacter l'adm. annuaire")
+					TAS_Init_Interlocuteurs(vl_fenetre,
+					                                va_numero_plan,
+					                                va_numero_ordre,
+					                                ta_numero_fmc)
+					}
+					}
+
+				CASE COM_CANAL_RMVI_RETOUR
+					tl_arg=DB_GET_POKE_DATA@(vl_fenetre)
+					vl_requete= tl_arg[0]
+					tl_rmvi.id = tl_arg[1]
+					tl_rmvi.type = tl_arg[2]
+					tl_rmvi.tdp = tl_arg[3]
+					tl_rmvi.taux = tl_arg[4]
+					tl_rmvi.position = tl_arg[5]
+					tl_rmvi.vitesse = tl_arg[6]
+					tl_rmvi.dlp = tl_arg[7]
+					tl_rmvi.note = tl_arg[8]
+					vl_st_indice = tl_arg[9]
+					vl_indice=  vl_st_indice + 0
+					vl_ligne = ARRAY_FROM_STRING@(vl_requete,"-")
+					if (vl_ligne[0]=va_numero_plan) {
+						tl_titres[0]="Position",300
+DB_CTRL_DISPLAY@(vl_fenetre,"TA_interlocuteurs_RMVI",TRUE)
+DB_CTRL_DISPLAY@(vl_fenetre,"TA_interlocuteurs",FALSE)
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_interlocuteurs_RMVI",NULL,tl_titres, NULL)
+						/*recherche du nom de l'interlocuteur*/
+						vl_radio = SUBSTRING@(tl_rmvi.id,6)
+						tl_interl_rmvi = recherche_interl(vl_radio,
+										va_fiche.autoroute,
+										va_fiche.pr,
+										va_fiche.sens,
+										vm_type_astreinte)
+						if (tl_interl_rmvi.radio++"" <>"") {
+						if (SUBSTRING@(tl_rmvi.id,1,5)<>"00000") {
+							tl_interl_rmvi.radio = tl_rmvi.id
+						}
+						tl_interl_rmvi.type = tl_rmvi.type
+						tl_interl_rmvi.tdp = tl_rmvi.tdp
+						tl_interl_rmvi.position = tl_rmvi.position
+						tl_interl_rmvi.appel=C_INIT
+						if (vm_indice=0) {
+							/*premier element => on vide la liste*/
+							DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_interlocuteurs_RMVI",0,-1)
+							tm_rmvi[vm_indice]=tl_interl_rmvi
+						}
+						else
+							tm_rmvi[vm_indice]=tl_interl_rmvi
+						tm_pictos_rmvi[vl_indice]=C_PICTO_A_TRAITER
+						vm_indice = vm_indice + 1
+						DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_interlocuteurs_RMVI", tm_rmvi,0)
+						}
+					}
+
+				CASE COM_CANAL_FIN
+					RETURN (COM_QUITTE)
+
+				/*reception du resultat d'un appel*/
+				CASE COM_CANAL_MTAS
+					tl_arg=DB_GET_POKE_DATA@(vl_fenetre)
+					vl_numero=tl_arg[0]
+					vl_statut=tl_arg[1]
+
+					/*recherche de l'interlocuteur*/
+					vl_indice=ARRAY_INDEX@(
+						ARRAY_COLUMN@(tm_interlocuteurs, 2),
+						 vl_numero)
+					if (vl_indice<>-1) {
+						CASE OF (vl_statut)
+							CASE COM_VALIDE
+								tm_pictos[vl_selection]=C_PICTO_VALIDE
+								tm_interlocuteurs[vl_selection].appel=C_APPELE
+
+							CASE COM_REFUSE
+								tm_pictos[vl_selection]=C_PICTO_REFUSE
+								tm_interlocuteurs[vl_selection].appel=C_REFUSE
+						ENDCASE
+						DB_TABLE_MARKER_PIXMAPS@(vl_fenetre, 
+								"TA_interlocuteurs", 
+								0, tm_pictos)
+					}
+			ENDCASE
+	ENDCASE
+WEND
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* recherche la liste des interlocuteurs d'astreintes
+* pour le type d'astreinte donne
+* et pour la zone geographique associe a la FMC
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TAS_Init_Interlocuteurs (va_fenetre,va_numero_plan,va_numero_ordre,ta_numero_fmc)
+
+/*
+* ARGUMENTS EN ENTREE :
+*		va_fenetre		Identifiant de la fenetre d'affichage.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*	Afficher la liste des machines du site.
+*
+---------------------------------------------------------------------------- */
+
+ VAR	FORMAT	SQL_Procedure_Params@ vl_parametres
+ VAR	FORMAT	SQL_Procedure_Result@ vl_resultats
+ VAR	vl_indice
+ VAR 	tl_titres
+
+vm_l_types_astreintes = SYSTEM_VAR@(vg_les_types_astreintes)
+
+/*A
+ * Lire en base de donnees les informations sur l'action
+ * -----------------------------------------------------
+ */
+
+if (vm_affichage_force=FALSE) {
+vl_parametres[0].type = COM_Numero_PA
+vl_parametres[0].data = va_numero_plan
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Numero_Ordre_PA
+vl_parametres[1].data = va_numero_ordre
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#CHAR_                       ' Remarque
+vl_parametres[2].output = TRUE
+
+vl_parametres[3].type = SYB#CHAR_                       ' Texte d'explication
+vl_parametres[3].output = TRUE
+
+vl_parametres[4].type = COM_Identifiant_PR
+vl_parametres[4].output = TRUE
+
+vl_parametres[5].type = COM_Identifiant_Autoroute
+vl_parametres[5].output = TRUE
+
+vl_parametres[6].type = TFS_Numero_Type_Astreinte
+vl_parametres[6].output = TRUE
+
+vl_parametres[7].type = SYB#DATETIME_
+vl_parametres[7].output = TRUE
+
+IF COM05_SQL_Procedure (XZAP18_Lire_Prop_Tel,
+                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+tm_interlocuteurs = vl_resultats.select_results[0]
+
+vm_remarque = vl_resultats.return_parameters[0]
+vm_explication = vl_resultats.return_parameters[1]
+vm_type_astreinte = vl_resultats.return_parameters[4]
+vm_autoroute = vl_resultats.return_parameters[3]
+vm_pr = vl_resultats.return_parameters[2]
+vm_horodate = COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[5])
+
+/*si pas d'interlocuteurs d'astreinte pour RMVI, afficher la liste des competences*/
+if (vm_type_astreinte<>70) 
+{
+vm_affichage_force=TRUE
+if (tm_interlocuteurs=null) {
+  NEW_TASK@("ITMA_TLS_Liste_Astreintes",
+			"ITMA_TAS_Interlocuteurs_Astreint",
+			vm_type_astreinte,
+			vm_autoroute,
+			vm_pr)
+  return (COM_NOK)
+}
+}
+}
+
+DB_DISPLAY_ONLY@(va_fenetre,TRUE)
+DB_DISPLAY@(va_fenetre)
+vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_types_astreintes, 
+							TDO_NUMERO_TYPE_ASTREINTE)
+					, vm_type_astreinte)
+if vl_indice=-1
+  vl_indice=0
+DB_CTRL_TITLE@(va_fenetre,"LI_type",
+			vm_l_types_astreintes[vl_indice][TDO_NOM_TYPE_ASTREINTE])
+
+
+/*init des pictos devant chaque interlocuteur*/
+for vl_indice = 0 to (ARRAY_SIZE@(tm_interlocuteurs)-1)
+	tm_pictos[vl_indice]=C_PICTO_A_TRAITER
+	tm_interlocuteurs[vl_indice].appel=C_INIT
+next vl_indice
+
+/*affichage de la liste des interlocuteurs*/
+tl_titres[0]="Sous-type",200
+tl_titres[1]="Interlocuteur",500
+DB_TABLE_SET_MARKER_WIDTH@(va_fenetre,"TA_interlocuteurs",25)
+
+if (vm_affichage_force=TRUE) {
+DB_TABLE_SET_DATA@(va_fenetre,"TA_interlocuteurs",tm_interlocuteurs,tl_titres,
+				tm_pictos)
+}
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"TA_interlocuteurs",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"TA_interlocuteurs_RMVI",TRUE)
+
+DB_DISPLAY_ONLY@(va_fenetre,FALSE)
+RETURN (COM_OK)
+
+ENDMACRO
+
+FUNCTION recherche_interl(va_radio,
+		va_autoroute,
+		va_pr,
+		va_sens,
+		va_type_astreinte)
+
+ VAR	FORMAT	SQL_Procedure_Params@ vl_parametres
+ VAR	FORMAT	SQL_Procedure_Result@ vl_resultats
+	VAR FORMAT  TAS_Interlocuteur_RMVI tl_interl_rmvi
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = va_radio++""
+vl_parametres[0].output = FALSE
+vl_parametres[1].type = SYB#INT4_
+vl_parametres[1].data = va_pr
+vl_parametres[1].output = FALSE
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = va_autoroute
+vl_parametres[2].output = FALSE
+vl_parametres[3].type = SYB#INT2_
+vl_parametres[3].data = va_sens
+vl_parametres[3].output = FALSE
+vl_parametres[4].type = SYB#INT2_
+vl_parametres[4].data = va_type_astreinte
+vl_parametres[4].output = FALSE
+vl_parametres[5].type = SYB#INT2_
+vl_parametres[5].data = 1
+vl_parametres[5].output = FALSE
+IF COM05_SQL_Procedure (XZAN50_Interlocuteur_From_Radio,
+                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+tl_interl_rmvi.sous_type = vl_resultats.select_results[0][0][0]
+tl_interl_rmvi.nom = vl_resultats.select_results[0][0][1]
+tl_interl_rmvi.numero = vl_resultats.select_results[0][0][2]
+tl_interl_rmvi.competence = vl_resultats.select_results[0][0][3]
+tl_interl_rmvi.radio = vl_resultats.select_results[0][0][4]
+
+return (tl_interl_rmvi)
+
+ENDFUNCTION

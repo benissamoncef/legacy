@@ -1,0 +1,556 @@
+/* Fichier : $Id: ITMA_WEB_crise.am,v 1.3 2011/09/20 16:19:28 gesconf Exp $      Release : $Revision: 1.3 $        Date : $Date: 2011/09/20 16:19:28 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_WEB * FICHIER ITMA_WEB_crise.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Message Web Crise
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	10/09/02	creation
+* Hilmarcher    xx/07/04        modif prise en compte evolutions des spec localite + horodate v1.1
+* JPL		25/03/09	Ajout titre par defaut et bouton 'Imprimer' 1.2
+* JPL		13/09/11	Support 2e portion de message pour longueur de 500 car. (DEM 993)  1.3
+---------------------------------------------------------------------------- */
+
+INCLUDE		"dbase_.am"
+
+INCLUDE		"XDMICG/inc/xdc_ax.h"
+INCLUDE		"XDMICG/inc/xzic_ax.h"
+
+INCLUDE		"xzae166sp.h"
+INCLUDE		"xzae167sp.h"
+INCLUDE		"xzae168sp.h"
+
+INCLUDE		"ITMA_COM.h"
+INCLUDE		"ITMA_TDO.h"
+INCLUDE		"ITMA_TAR.h"
+
+
+DEFINE	C_MODULE	"MWEB"			' Nom du module
+
+
+/*A
+ * Definition de constantes de valeurs de localisation du message
+ * --------------------------------------------------------------
+ */
+DEFINE	CM_LOCALISE		0
+DEFINE	CM_NON_LOCALISE		1
+
+
+
+DEFINE	C_MODELE_IMPRESSION	"ITMA_WEB_Crise"	' Modele d'impression
+DEFINE	C_SOUS_REP_MODELES	COM_SOUS_REP_IHM	' Repertoire des modeles
+
+
+
+/*A
+ * Definition de variables globales au module
+ * ------------------------------------------
+ */
+
+VAR	tm_localise
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_WEB_crise (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_fenetre				' Nom de la fenetre du module
+	VAR	vl_objet_selecte			' L'objet courant de la fenetre
+	VAR	tl_les_messages_acceptes		' Pour reception de signaux
+	VAR	vl_la_fenetre_est_active
+	VAR	vl_installer_traitement_erreur
+
+	VAR	tl_texte
+	VAR	vl_fichier
+	VAR	vl_cr
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN (COM_NOK)
+}
+
+
+/*A
+ * Charger la fenetre "Message WEB crise"
+ * --------------------------------------
+ */
+
+vl_fenetre= DB_LOAD@ ("ITMA_WEB")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+'DB_WIDTH@ (vl_fenetre, 1264)
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_les_messages_acceptes = {
+	COM_CANAL_FIN
+}
+DB_ACCEPT_POKES@ (vl_fenetre, tl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+tm_localise = {
+	{ CM_LOCALISE,		"Oui" },
+	{ CM_NON_LOCALISE,	"Non" }
+}
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_delai", COM_CHIFFRES)
+
+
+/*A
+ * Initialiser la visualisation (liste des messages)
+ * -------------------------------------------------
+ */
+
+IF WEB_Init_Visualisation (vl_fenetre) <> COM_OK {
+	RETURN (COM_NOK)
+}
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+	vl_installer_traitement_erreur = FALSE
+
+	ON ERROR {
+		ERROR_BOX@
+		'COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY_ONLY@ (vl_fenetre, FALSE)
+	DB_DISPLAY@ (vl_fenetre)
+	DB_DISPLAY_ONLY@ (vl_fenetre, TRUE)
+
+	vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+	CASE OF vl_objet_selecte
+
+	CASE "poke_"
+		CASE OF  DB_GET_POKE@ (vl_fenetre)
+		CASE COM_CANAL_FIN
+			vl_la_fenetre_est_active = FALSE
+		ENDCASE
+
+
+	CASE "BP_fermer"
+		vl_la_fenetre_est_active = FALSE
+
+
+	CASE "BP_arreter"
+		vl_cr = WEB_supprime (vl_fenetre)
+		IF (vl_cr = COM_OK) {
+			DB_CTRL_TITLE@ (vl_fenetre,"LI_Etat", "supprimé")
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_arreter", TRUE)
+		}
+
+
+	CASE "BP_diffuser"
+		vl_cr = WEB_diffuse (vl_fenetre)
+		IF (vl_cr = COM_OK) {
+			WEB_Lire_Dernier_Message (vl_fenetre)
+		}
+
+
+	CASE "BP_imprimer"
+		/*B Ouvrir une fenetre ApplixWord non visible et charger le modele */
+		WP_APPLICATION_DLG@ (NULL, TRUE)
+		WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+				  C_SOUS_REP_MODELES  ++ C_MODELE_IMPRESSION ++ ".aw")
+
+		WP_SET_DOC_VAR@ ("date_der_msg", DB_CTRL_GET_TITLE@ (vl_fenetre, "LI_horodate"))
+		WP_SET_DOC_VAR@ ("delai_der_msg", DB_CTRL_GET_TITLE@ (vl_fenetre, "LI_delai"))
+		IF (DB_CTRL_GET_TITLE@ (vl_fenetre, "LI_local") = "oui") {
+			WP_SET_DOC_VAR@ ("local_der_msg", "Localisé")
+		} ELSE {
+			WP_SET_DOC_VAR@ ("local_der_msg", "Non localisé")
+		}
+		WP_SET_DOC_VAR@ ("etat_der_msg", DB_CTRL_GET_TITLE@ (vl_fenetre, "LI_Etat"))
+		WP_SET_DOC_VAR@ ("titre_der_msg", DB_CTRL_GET_TITLE@ (vl_fenetre, "LI_titre"))
+		tl_texte = DB_EDITBOX_GET_DATA@ (vl_fenetre, "BE_Dernier_Message")
+		WP_SET_DOC_VAR@ ("texte_der_msg", tl_texte)
+
+		tl_texte = DB_EDITBOX_GET_DATA@ (vl_fenetre, "BE_Message")
+		IF ARRAY_SIZE@ (tl_texte) > 0 {
+			WP_SET_DOC_VAR@ ("lib_delai_nouv_msg", "Délai :")
+			WP_SET_DOC_VAR@ ("delai_nouv_msg", DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_delai"))
+			WP_SET_DOC_VAR@ ("unite_delai_nouv_msg", "heures")
+			IF (tm_localise[DB_CTRL_GET_VALUE@ (vl_fenetre, "BO_local")][0] = CM_LOCALISE) {
+				WP_SET_DOC_VAR@ ("local_nouv_msg", "Localisé")
+			} ELSE {
+				WP_SET_DOC_VAR@ ("local_nouv_msg", "Non localisé")
+			}
+			WP_SET_DOC_VAR@ ("titre_nouv_msg", DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_titre"))
+			WP_SET_DOC_VAR@ ("texte_nouv_msg", tl_texte)
+		}
+
+		/*B Formater le texte actuellement ouvert et l'imprimer */
+		vl_fichier = C_MODELE_IMPRESSION ++ "_" ++ SYSTEM_VAR@(vg_numero_poste)
+		COM36_Imprimer_Texte (vl_fichier)
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la fenetre de message de crise.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO WEB_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_WEB_crise
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_cr
+
+/*B Pour avoir acces a certains objets graphiques */
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)
+DB_DISPLAY@ (va_fenetre)
+
+/*B Proposer un titre par defaut pour le message a diffuser */
+DB_CTRL_VALUE@ (va_fenetre, "BS_titre", "LES AUTOROUTES ESCOTA VOUS INFORMENT :")
+
+DB_CTRL_STRINGS@ (va_fenetre, "BO_local", ARRAY_COLUMN@ (tm_localise, 1))
+DB_CTRL_VALUE@ (va_fenetre, "BO_local", 0)
+
+DB_CTRL_GRAYED@ (va_fenetre, "BP_arreter", TRUE)
+
+vl_cr = WEB_Lire_Dernier_Message (va_fenetre)
+RETURN (vl_cr)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit en base de donnees et affiche le dernier de message de crise.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO WEB_Lire_Dernier_Message (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre ou afficher le dernier message.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_WEB_crise
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_texte, vl_texte1, vl_texte2
+	VAR	tl_message
+	VAR	tl_donnees
+	VAR	vl_indice
+
+	VAR FORMAT SQL_Procedure_Result@	vl_resultats
+
+IF COM05_SQL_Procedure (XZAE166_Lire_Message_Crise, NULL, vl_resultats, C_MODULE) <> COM_OK {
+	INFO_MESSAGE@ ("Impossible de lire le dernier message de crise")
+	RETURN (COM_NOK)
+}
+
+tl_donnees = vl_resultats.select_results[0][0]
+
+/*local*/
+vl_indice = ARRAY_INDEX@ (ARRAY_COLUMN@ (tm_localise, 0), tl_donnees[0])
+DB_CTRL_TITLE@ (va_fenetre, "LI_local", LOWERCASE@ (tm_localise[vl_indice][1]))
+
+
+/*delai*/
+DB_CTRL_TITLE@(va_fenetre,"LI_delai",tl_donnees[1])
+
+
+/*titre*/
+DB_CTRL_TITLE@(va_fenetre,"LI_titre",tl_donnees[2])
+
+
+/*suppression*/
+IF (tl_donnees[4]=XDC_FAUX) {
+	DB_CTRL_TITLE@(va_fenetre,"LI_Etat","en cours")
+	DB_CTRL_GRAYED@(va_fenetre, "BP_arreter", FALSE)
+}
+ELSE {
+	DB_CTRL_TITLE@(va_fenetre,"LI_Etat","supprimé")
+	DB_CTRL_GRAYED@(va_fenetre, "BP_arreter", TRUE)
+}
+
+
+/*identifiant*/
+DB_CTRL_TITLE@(va_fenetre,"LI_identifiant",tl_donnees[5])
+
+
+/*message*/
+vl_texte1 = tl_donnees[3]
+vl_texte2 = tl_donnees[13]
+
+/* Completer la premiere portion de texte si elle est tronquee a la lecture */
+vl_texte = FORMAT@ ("%-255s", vl_texte1) ++ vl_texte2
+
+tl_message = ARRAY_FROM_STRING@(vl_texte, "#")
+DB_EDITBOX_SET_DATA@ (va_fenetre, "BE_Dernier_Message",tl_message)
+
+
+/*horodate*/
+DB_CTRL_TITLE@(va_fenetre,"LI_horodate",COM18_Date_SGBD_Formatee(tl_donnees[12]))
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO WEB_supprime (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre ;
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_WEB_crise
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR	FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR	vl_cr
+
+vl_parametres[0].type = SYB#INT4_
+vl_parametres[0].data = DB_CTRL_GET_TITLE@(va_fenetre,"LI_identifiant")
+vl_parametres[0].output = FALSE
+
+vl_cr = COM05_SQL_Procedure (XZAE167_Supprimer_Message_Crise, vl_parametres, vl_resultats, C_MODULE)
+IF (vl_cr <> COM_OK) {
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO WEB_diffuse (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   ITMA_WEB_crise
+*
+* FONCTION
+*   Execute simplement la requete adequate pour memoriser le message.
+*
+---------------------------------------------------------------------------- */
+
+	VAR	vl_titre, vl_delai, vl_local
+	VAR	tl_message
+	VAR	vl_texte, vl_texte1, vl_texte2
+	VAR	vl_message_vide, vl_excedent
+
+	VAR	FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR	FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR	i, vl_cr
+
+vl_titre=DB_CTRL_GET_VALUE@(va_fenetre,"BS_titre")
+if (vl_titre++""=NULL) {
+	INFO_MESSAGE@ ("Le titre doit être renseigné")
+	RETURN (COM_NOK)
+}
+
+if (LEN@(vl_titre) > 200) {
+	INFO_MESSAGE@ ("Le titre est limité à 200 caractères")
+	RETURN (COM_NOK)
+}
+
+
+vl_delai = DB_CTRL_GET_VALUE@(va_fenetre,"BS_delai")
+if (vl_delai++""=NULL) {
+	INFO_MESSAGE@ ("Le délai doit être renseigné")
+	RETURN (COM_NOK)
+}
+
+
+vl_local = DB_CTRL_GET_VALUE@(va_fenetre,"BO_local")
+vl_local = tm_localise[vl_local][0]
+
+
+/* Obtenir le message saisi en supprimant les caracteres inutiles */
+tl_message = DB_EDITBOX_GET_DATA@(va_fenetre,"BE_Message")
+
+vl_message_vide = XDC_VRAI
+FOR i = 0  TO ARRAY_SIZE@ (tl_message) - 1
+	tl_message[i] = SUBSTRING@ (TRIM@ ("." ++ tl_message[i]), 2)
+	IF (tl_message[i] <> "") {
+		vl_message_vide = XDC_FAUX
+	}
+NEXT i
+IF (vl_message_vide = XDC_VRAI) {
+	INFO_MESSAGE@ ("Le message doit être renseigné")
+	RETURN (COM_NOK)
+}
+
+vl_texte = ARRAY_TO_STRING@(tl_message, "#")
+vl_excedent = LEN@ (vl_texte) - 510
+IF (vl_excedent > 0) {
+	INFO_MESSAGE@ ("Le message est trop long de " ++ vl_excedent ++ " caractères")
+	RETURN (COM_NOK)
+}
+
+vl_texte1 = SUBSTRING@(vl_texte, 1, 255)
+vl_texte2 = SUBSTRING@(vl_texte, 256)
+
+vl_parametres[0].type = SYB#CHAR_
+vl_parametres[0].data = vl_titre
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = SYB#INT4_
+vl_parametres[1].data = vl_delai
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT4_
+vl_parametres[2].data = vl_local
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#CHAR_
+vl_parametres[3].data = vl_texte1
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#CHAR_
+vl_parametres[4].data = vl_texte2
+vl_parametres[4].output = FALSE
+
+vl_cr = COM05_SQL_Procedure (XZAE168_Ecrire_Message_Crise, vl_parametres, vl_resultats, C_MODULE)
+IF (vl_cr <> COM_OK) {
+	INFO_MESSAGE@ ("Erreur lors de l'écriture en base du message de crise")
+	RETURN (COM_NOK)
+}
+
+RETURN (COM_OK)
+
+ENDMACRO

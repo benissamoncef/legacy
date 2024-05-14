@@ -1,0 +1,424 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_valide_bouchon.am,v 1.31 2020/11/03 17:44:45 pc2dpdy Exp $        $Revision: 1.31 $        $Date: 2020/11/03 17:44:45 $
+------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------
+* MODULE MTMC * FICHIER ITMA_TMC_valide_bouchon.am
+------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Fiche de consultation et de mise a jour des operations
+* et evenements.
+*
+*  Cf. DCG §2.4.52
+*
+------------------------------------------------------
+* HISTORIQUE :
+*
+* TORREGROSSA	13 Sep 1995	: Modif test compte rendu 
+*                                 proc xzae11 (V 1.14)
+* TORREGROSSA	23 Sep 1996	: Modif code retour si pas le droit d'enrichir (V1.15) (CONF 4)
+* TORREGROSSA	03 Oct 1996	: Ajout type precedent dans XZAE11 (V1.16) (FMC3)
+* GUILHOU	17 oct 1996	: config des voies prises en compte (DEM/1249) V1.17
+* TORREGROSSA	04 Nov 1996	: Ajout type fausse alerte dans XZAE11 (V1.18) (FMC18)
+* TORREGROSSA	14 Nov 1996	: Ajout bau etroite dans XZAE11 (V1.19) (SAD4)
+* TORREGROSSA	02 Dec 1996	: Suppression envoi de poke sur COM_CANAL_MTLT (680) V1.20
+* TORREGROSSA	16 Dec 1996	: Ajout longueur dans XZAE40 (FMC7)  V1.21
+* Guilhou	23 dec 1996 :	archivage longueur de bouchon 1.22
+* TORREGROSSA	15 Dec 1997	: Ajout num_fmc_init, cle_fmc_init dans XZAE11 (1531)  V1.23
+* Torregrossa	08 jan 1998	: Ajout de sit_alerte  (1532) V1.25
+* Torregrossa	02 Mar 1998	: Ajout de com_fmc_init, suppression fmc_init et cle_fmc_init  (1583) V1.26
+* Lecrivain	01 sep 2008	: Message (poke) a MTLT comme pour les autres type Fmc (lie a DEM 721) V1.27
+* JMG		29/11/16	: ajout majeur lot 23 1.28
+* JPL		02/04/19	: Ecriture de l'indicateur d'écoulement en base (DEM 1326)  1.30
+* LCL   	22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+------------------------------------------------------*/
+include	"dbase_.am"
+
+include	"xdc_ax.h"
+include	"xzaec_ax.h"
+include	"xzic_ax.h"
+include	"xzae11sp.h"
+include	"xzae67sp.h"
+
+include "ITMA_COM.h"
+include "ITMA_TDO.h"
+include	"ITMA_TAR.h"
+include	"ITMA_TMC.h"
+
+
+
+VAR FORMAT COM_Identifiant_FMC tm_num_evt	'num et cle de l'evt 
+VAR FORMAT TMC_fmc vm_fiche
+VAR vm_mode
+
+
+/*X*/
+/*------------------------------------------------------
+* SERVICE RENDU : 
+* sauve en base les informations communes d'une fiche bouchon
+*
+------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_valide_bouchon(va_horodate, va_fiche,va_mode, va_longueur, ta_config)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_horodate	:horodate validation
+*
+* ARGUMENTS EN SORTIE :
+* aucun
+*
+* CODE RETOUR : 
+* aucun
+*
+*
+*
+---------------------------------------------------------*/
+VAR vl_cmd, vl_duree, tl_args					' Commande a envoyer, arguments
+VAR FORMAT sql_procedure_params@ param_in,vl_parametres
+var 	i
+var FORMAT sql_procedure_result@ vl_resultats
+VAR vl_msg,vl_indice
+VAR vl_site,vl_poste
+
+	MACRO_WINS_BUSY@()
+
+	vm_fiche=va_fiche
+	vm_mode=va_mode
+
+	IF (SYSTEM_VAR@(vg_surcharge)=TRUE) {
+		vl_site=SYSTEM_VAR@(vg_site_surcharge)
+		vl_poste=SYSTEM_VAR@(vg_numero_poste_surcharge)
+	}
+	ELSE {
+		vl_site=SYSTEM_VAR@(vg_site)
+		vl_poste=SYSTEM_VAR@(vg_numero_poste)
+	}	
+
+	tm_num_evt.numero=vm_fiche.numero
+	tm_num_evt.cle=vm_fiche.cle
+
+
+	i=0	
+	vl_parametres=null
+	vl_parametres[i].type = SYB#INT4_     
+	vl_parametres[i].data=vm_fiche.numero
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = vm_fiche.cle
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = vl_poste
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_mode 'prevision 1 traiter 2 clos 3
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.type
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.debut_prevu 'deb prev
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.debut 'deb
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.fin_prevu 'fin prev
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.fin 'fin
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=va_horodate 'validation
+	vl_parametres[i].type = SYB#DATETIME_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.numero_cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.cle_cause
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.numero_alerte
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.origine 'origine
+	vl_parametres[i].type = SYB#CHAR_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+		vl_parametres[i].data=SYSTEM_VAR@(vg_numero_poste_surcharge) 'enrichisseur
+	ELSE
+		vl_parametres[i].data=SYSTEM_VAR@(vg_numero_poste) 'enrichisseur
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+
+	vl_parametres[i].data=vm_fiche.confirme 'confirme
+	vl_parametres[i].type = SYB#INT4_                     
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.autoroute
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.pr
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.sens
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.nom_point_car
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.point_car
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=vm_fiche.position
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=ta_config[9][1]		'vm_fiche.vr
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[8][1]		'vm_fiche.vm2
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[7][1]		'vm_fiche.vm1
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[6][1]		'vm_fiche.vl
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[5][1]		'vm_fiche.bau
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[4][1]		'vm_fiche.vr_i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[3][1]		'vm_fiche.vm2_i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=ta_config[2][1]		'vm_fiche.vm1_i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data=ta_config[1][1]		'vm_fiche.vl_i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= ta_config[0][1]		'vm_fiche.bau_i
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= vm_fiche.bau_etroite	'bau etroite
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= vm_fiche.bau_i_etroite	'bau etroite
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= vm_fiche.degatsdom
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= vm_fiche.type /*type_precedent*/
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= vm_fiche.fausse_alerte
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= vm_fiche.longueur
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= vm_fiche.com_fmc_init	'commmentaire fmc init
+	vl_parametres[i].type = SYB#CHAR_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= vm_fiche.site_alerte	'site alerte
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data= vm_fiche.majeur
+	vl_parametres[i].type = SYB#INT2_                       
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data = vm_fiche.ecoulement
+	vl_parametres[i].type = SYB#INT1_
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].data = SYSTEM_VAR@(vg_nom_site)
+	vl_parametres[i].type = SYB#CHAR_
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+    	IF COM05_SQL_Procedure (XZAE11_Valider_Fiche,
+				  vl_parametres, vl_resultats, "ITMA_TMC") <> COM_OK
+	{
+		vl_msg="Erreur système inconnue,insertion impossible....."
+		CASE OF (vl_resultats.status)
+			CASE XDC_ARG_INV
+				vl_msg="Arguments en entrée invalides"
+
+			CASE XDC_PRC_INC
+				vl_msg="Procédure stockée inexistante en base"
+
+		ENDCASE
+
+		INFO_MESSAGE@(vl_msg)
+		RETURN (COM_NOK)
+	}
+	ELSE IF (vl_resultats.status <> XDC_OK)
+	{
+		vl_msg="Cause inconnue,insertion impossible....."
+		/*A suivant le code d'erreur renvoye par la procedure*/
+		CASE OF (vl_resultats.status)
+			CASE XZAEC_FMC_PAS_ENR
+				vl_msg="Pas le droit d'enrichir"
+
+			CASE XZAEC_FMC_ETAT_INC
+				vl_msg="Evénement non dans l'état précisé en entrée"
+
+			CASE XZAEC_FMC_DEB_PRV_INC
+				vl_msg="Date de début des travaux en prévision doit être > a la date courate de 24h"
+
+			CASE XZAEC_FMC_VOIE_INC
+				vl_msg="Description des voies incorrecte"
+
+			CASE XZAEC_FMC_LOC_INC
+				vl_msg="Localisation incorrecte"
+		ENDCASE
+		
+		IF vl_resultats.status <> XZAEC_FMC_PAS_ENR
+			INFO_MESSAGE@(vl_msg)
+
+		RETURN (vl_resultats.status)
+	}
+
+
+	/*B je previens la tache de gestion de la liste des fiches */
+	/*B on transmet au module MTLT toutes les donnees affichees */
+	tl_args = {
+		vm_fiche.numero,
+		vm_fiche.cle,
+		vm_fiche.debut,
+		vm_fiche.debut_prevu,
+		vm_fiche.fin,
+		vm_fiche.fin_prevu,
+		vm_fiche.type,
+		vm_fiche.autoroute,
+		vm_fiche.pr,
+		vm_fiche.sens
+	}
+	DB_SEND_POKE@ (COM_CANAL_MTLT_VALIDATION_FMC, tl_args)
+
+
+	IF IS_NULL@ (vm_fiche.fin)  AND  (NOT IS_NULL@ (vm_fiche.debut))  AND
+		(vl_site <> XDC_CI)
+	{
+		/*B lancer le calcul des equations evenements */
+		IF IS_NULL@ (vm_fiche.fin_prevu)
+			vl_duree = 0
+		ELSE
+		{
+			vl_duree = COM17_Difference_Dates (vm_fiche.fin_prevu, va_horodate)
+			IF vl_duree < 0
+				vl_duree = 0
+		}
+
+		tl_args = vm_fiche.type,
+					vm_fiche.vr,
+					vm_fiche.vm2,
+					vm_fiche.vm1,
+					vm_fiche.vl,
+					vm_fiche.bau,
+					vm_fiche.vr_i,
+					vm_fiche.vm2_i,
+					vm_fiche.vm1_i,
+					vm_fiche.vl_i,
+					vm_fiche.bau_i,
+					vl_duree,
+					va_longueur,
+					va_horodate,
+					vl_poste
+
+		vl_cmd = MTAR_MSG_EXEC, 1,
+					MTAR_FCT_XZAA10, ARRAY_TO_STRING@(tl_args, MTAR_CAR_SEPAR)
+		DB_SEND_POKE@ (COM_CANAL_TAR01, vl_cmd)
+	}
+
+	RETURN (COM_OK)
+ENDMACRO

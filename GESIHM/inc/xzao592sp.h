@@ -1,0 +1,1 @@
+define XZAO592_Sauve_Config_FMC_Regulation	"XZAO592"

@@ -1,0 +1,1 @@
+DEFINE	XZAP16_Lire_Prop_Envoi_TFM	"XZAP;16"

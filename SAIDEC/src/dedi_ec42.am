@@ -1,0 +1,295 @@
+/*E*/
+/* Fichier : $Id: dedi_ec42.am,v 1.2 1997/11/07 10:27:16 gesconf Exp $	      Release : $Revision: 1.2 $        Date : $Date: 1997/11/07 10:27:16 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec42.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* definition du mode de fonctionnement NAV
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	19 jan 1994	: Creation						V1.1
+* Guilhou 07 nov 1997	: bra voie lente 		(dem/1459) 1.2
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+
+VAR tm_modes
+VAR tm_modes_lent
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition du mode de fonctionnement
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec42 ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice
+var tl_pokes
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec42")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,5)
+DB_YPOS@(vl_fenetre,72)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec42_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			IF (ec42_valide(vl_fenetre)=TRUE)
+				RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec42_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice,vl_index
+VAR tl_modes
+VAR tl_modes_lent
+
+	/*A init des modes de fonctionnement*/
+	tm_modes[0]="pre-signalisation de retrecissement par la gauche",
+				"ctes.nav_ret_gauche"
+	tm_modes[1]="pre-signalisation de retrecissement par la droite",
+				"ctes.nav_ret_droite"
+	tm_modes[2]="pre-signalisation partielle",
+				"ctes.nav_presignalisation_partielle"
+	tm_modes[3]="pre-signalisation de retrecissement par la gauche et deploiement du biseau",
+				"ctes.nav_ret_gauche_et_biseau"
+
+	tm_modes_lent[0]="pre-signalisation de retrecissement par la droite",
+				"ctes.nav_ret_droite"
+	tm_modes_lent[1]="pre-signalisation de retrecissement par la gauche",
+				"ctes.nav_ret_gauche"
+	tm_modes_lent[2]="pre-signalisation partielle",
+				"ctes.nav_presignalisation_partielle"
+	tm_modes_lent[3]="pre-signalisation de retrecissement par la droite et deploiement du biseau",
+				"ctes.nav_ret_droite_et_biseau"
+	tl_modes=ARRAY_COLUMN@(tm_modes,0)
+
+	DB_CTRL_STRINGS@(va_fenetre,"BO_signale",tl_modes)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_vl",tl_modes)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_vm",tl_modes)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_vr",tl_modes)
+
+	tl_modes_lent=ARRAY_COLUMN@(tm_modes_lent,0)
+
+	DB_CTRL_STRINGS@(va_fenetre,"BO_signale_lent",tl_modes_lent)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_vl_lent",tl_modes_lent)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_vm_lent",tl_modes_lent)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_vr_lent",tl_modes_lent)
+
+	/*A chargement des modes depuis le fichier de config*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_FONCT_NAV)
+
+	/*A parcourt le tableau lu et extrait les champs*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tl_data[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+											DEDI_CAR_SEPAR)
+	NEXT vl_indice
+	tl_data=ARRAY_COLUMN@(tl_data,0)
+
+	vl_index=ARRAY_INDEX@(tl_modes,tl_data[0])
+	IF (vl_index=-1)
+		vl_index=0
+	DB_CTRL_VALUE@(va_fenetre,"BO_signale",vl_index)
+		
+	vl_index=ARRAY_INDEX@(tl_modes,tl_data[1])
+	IF (vl_index=-1)
+		vl_index=0
+	DB_CTRL_VALUE@(va_fenetre,"BO_vl",vl_index)
+		
+	vl_index=ARRAY_INDEX@(tl_modes,tl_data[2])
+	IF (vl_index=-1)
+		vl_index=0
+	DB_CTRL_VALUE@(va_fenetre,"BO_vm",vl_index)
+		
+	vl_index=ARRAY_INDEX@(tl_modes,tl_data[3])
+	IF (vl_index=-1)
+		vl_index=0
+	DB_CTRL_VALUE@(va_fenetre,"BO_vr",vl_index)
+		
+
+	vl_index=ARRAY_INDEX@(tl_modes_lent,tl_data[4])
+	IF (vl_index=-1)
+		vl_index=0
+	DB_CTRL_VALUE@(va_fenetre,"BO_signale_lent",vl_index)
+		
+	vl_index=ARRAY_INDEX@(tl_modes_lent,tl_data[5])
+	IF (vl_index=-1)
+		vl_index=0
+	DB_CTRL_VALUE@(va_fenetre,"BO_vl_lent",vl_index)
+		
+	vl_index=ARRAY_INDEX@(tl_modes_lent,tl_data[6])
+	IF (vl_index=-1)
+		vl_index=0
+	DB_CTRL_VALUE@(va_fenetre,"BO_vm_lent",vl_index)
+		
+	vl_index=ARRAY_INDEX@(tl_modes_lent,tl_data[7])
+	IF (vl_index=-1)
+		vl_index=0
+	DB_CTRL_VALUE@(va_fenetre,"BO_vr_lent",vl_index)
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation des modes de fonctionnement nav
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec42_valide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	/*A recupere les valeurs des modes de fonctionnement*/
+	vl_indice=DB_CTRL_GET_VALUE@(va_fenetre,"BO_signale")
+	tl_data[0]=ARRAY_TO_STRING@(tm_modes[vl_indice],DEDI_CAR_SEPAR)
+	
+	vl_indice=DB_CTRL_GET_VALUE@(va_fenetre,"BO_vl")
+	tl_data[1]=ARRAY_TO_STRING@(tm_modes[vl_indice],DEDI_CAR_SEPAR)
+
+	vl_indice=DB_CTRL_GET_VALUE@(va_fenetre,"BO_vm")
+	tl_data[2]=ARRAY_TO_STRING@(tm_modes[vl_indice],DEDI_CAR_SEPAR)
+
+	vl_indice=DB_CTRL_GET_VALUE@(va_fenetre,"BO_vr")
+	tl_data[3]=ARRAY_TO_STRING@(tm_modes[vl_indice],DEDI_CAR_SEPAR)
+	
+	/*A recupere les valeurs des modes de fonctionnement*/
+	vl_indice=DB_CTRL_GET_VALUE@(va_fenetre,"BO_signale_lent")
+	tl_data[4]=ARRAY_TO_STRING@(tm_modes_lent[vl_indice],DEDI_CAR_SEPAR)
+	
+	vl_indice=DB_CTRL_GET_VALUE@(va_fenetre,"BO_vl_lent")
+	tl_data[5]=ARRAY_TO_STRING@(tm_modes_lent[vl_indice],DEDI_CAR_SEPAR)
+
+	vl_indice=DB_CTRL_GET_VALUE@(va_fenetre,"BO_vm_lent")
+	tl_data[6]=ARRAY_TO_STRING@(tm_modes_lent[vl_indice],DEDI_CAR_SEPAR)
+
+	vl_indice=DB_CTRL_GET_VALUE@(va_fenetre,"BO_vr_lent")
+	tl_data[7]=ARRAY_TO_STRING@(tm_modes_lent[vl_indice],DEDI_CAR_SEPAR)
+
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_FONCT_NAV,tl_data)
+
+	RETURN (TRUE)
+ENDMACRO
+
+
+

@@ -1,0 +1,704 @@
+/*E*/
+/* Fichier : $Id: ITMA_TGI_Gabarit_Itineraire.am,v 1.16 2010/10/11 10:50:12 gesconf Exp $      Release : $Revision: 1.16 $        Date : $Date: 2010/10/11 10:50:12 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TGI * FICHIER ITMA_TGI_Gabarit_Itineraire.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Liste des ouvrages d'art dont la taille est inferieure a une valeur donnee
+* choisie par l'operateur sur un itineraire donne ;
+* Mise en valeur de l'ouvrage de plus petite taille.
+*
+*   Cf. DCG 2.4.34
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	25 Aug 1994  Creation					V1.1
+* Guilhou	14 oct 1994  inclusion fichiers _ax.h		V1.5
+* Lecrivain	17 Oct 1994  Traiter un "poke_" en verrouillage IHM       V1.6
+* Lecrivain	16 Nov 1994  Controle meme autoroute ; affichage gabarit  V1.7
+* Lecrivain	27 Dec 1994  Redimensionnement de la fenetre              V1.8
+* Lecrivain	02 Mar 1995  Gabarit en metres ; autoroute ; impression   V1.10
+* Noel		21 Sep 1995  introduction de la procédure commune 
+*				de demande d'impression			  V1.13
+* JPL	04/11/2008 	Renommage, formatage ... 1.14
+* JPL	21/10/2008 ...	Gabarit sur itineraire multi-autoroutes (DEM 809) 1.15
+* JPL	27/09/2010	Prise en compte des PR de limites de concession (DEM 930) 1.16
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE "XDMICG/inc/xzic_ax.h"
+INCLUDE "XDMICG/inc/xdc_ax.h"
+
+INCLUDE	"GESIHM/inc/ITMA_COM.h"
+INCLUDE	"GESIHM/inc/ITMA_TDO.h"
+
+INCLUDE	"GESIHM/inc/ITMA_TAR.h"
+INCLUDE	"GESIHM/inc/xzao01sp.h"
+
+
+
+DEFINE	C_MODULE	"MTGI"			' Nom du module
+
+
+DEFINE	C_MODELE_LST_OUVRAG	"ITMA_TGI_Liste_Ouvrages"	' Fichier modele
+DEFINE	C_SOUS_REP_MODELES	COM_SOUS_REP_IHM		' Repert.modeles
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+DEFINE	C_LIB_CHOISIR_ECH	"Choisir d'abord les échangeurs amont et aval"
+
+
+
+FORMAT	TGI_Ouvrage				' Format infos affichees
+	autoroute,
+	PR,
+	nom,
+	gabarit
+
+
+FORMAT	TGI_Donnees_Ouvrage			' Format donnees lues en base
+	nom,
+	gabarit,
+	PR,
+	autoroute
+
+
+
+VAR FORMAT TDO_Autoroute tm_autoroutes		' Table complete des autoroutes
+VAR FORMAT TDO_Echangeur tm_echangeurs		' Table complete des echangeurs
+VAR FORMAT TDO_Echangeur tm_acces_autoroutes	' Table complete des acces aux autoroutes
+
+VAR FORMAT TDO_Echangeur tm_acces_amont		' Points d'acces amont selectionnes
+VAR FORMAT TDO_Echangeur tm_acces_aval		' Points d'acces aval selectionnes
+
+VAR	vm_amont				' Rang echangeur amont selecte
+VAR	vm_aval					' Rang echangeur aval selecte
+VAR	vm_hauteur				' Hauteur saisie
+
+VAR FORMAT TGI_Ouvrage tm_ouvrages		' Table d'ouvrages affichee
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation des ouvrages d'art de hauteur inferieure a une hauteur donnee
+*  sur un itineraire donne.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TGI_Gabarit_Itineraire (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMT
+*
+* FONCTION
+*   Permet a l'operateur de saisir les deux extremites (amont et aval)
+*   d'un itineraire donne sur deux autoroutes quelconques,
+*   ainsi qu'une hauteur maximale ;
+*   chacune des deux extremites peut etre soit un echangeur,
+*   soit un point de limite de concession sur l'autoroute selctionnee.
+*
+*   Le module lit ensuite en Base de donnees puis affiche la liste
+*   des ouvrages d'art et des tunnels figurant sur l'itineraire defini,
+*   dans le sens amont -> aval, dont la taille est inferieure
+*   a la hauteur saisie.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_gabarit			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+    VAR     vl_hauteur				' Hauteur de recherche ouvrages
+    VAR     tl_message, tl_args			' Message envoye, arguments
+    VAR     vl_fichier
+    VAR     vl_index
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN (COM_NOK)
+}
+
+
+/*A
+ * Charger la fenetre "Gabarit"
+ * ----------------------------
+ */
+
+vl_fenetre_gabarit = DB_LOAD@ ("ITMA_TGI")
+DB_WINDOW_REMAIN@ (vl_fenetre_gabarit, TRUE)
+
+DB_XPOS@ (vl_fenetre_gabarit, 0)
+DB_YPOS@ (vl_fenetre_gabarit, 93)
+COM27_Agrandir_Fenetre (vl_fenetre_gabarit, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre_gabarit, "ITMA_TGI_Gabarit_Itineraire")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_gabarit, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre_gabarit, "BS_Hauteur", COM_CHIFFRES ++ ".,")
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_gabarit, "BL_Autoroutes_Amont", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre_gabarit, "BL_Autoroutes_Amont", -1)
+
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_gabarit, "BL_Autoroutes_Aval", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre_gabarit, "BL_Autoroutes_Aval", -1)
+
+DB_CTRL_VALUE@ (vl_fenetre_gabarit, "BL_Echangeurs_Amont", -1)
+
+DB_CTRL_VALUE@ (vl_fenetre_gabarit, "BL_Echangeurs_Aval", -1)
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_gabarit, "TA_Ouvrages", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_gabarit, "TA_Ouvrages", FALSE)
+
+DB_CTRL_GRAYED@ (vl_fenetre_gabarit, "BP_Imprimer", TRUE)
+
+
+/*A
+ * Initialiser la visualisation (listes des acces aux autoroutes)
+ * --------------------------------------------------------------
+ */
+
+IF TGI_Init_Visualisation (vl_fenetre_gabarit) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> C_ERR_IHM
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_gabarit)
+
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_gabarit)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_gabarit)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur selection d'une autoroute (amont ou aval),
+     * afficher la liste de ses echangeurs
+     * ----------------------------------------------
+     */
+
+    CASE "BL_Autoroutes_Amont"
+	vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre_gabarit, "BL_Autoroutes_Amont")
+	tm_acces_amont = TGI_Acces_Autoroute (vl_fenetre_gabarit,
+	                                         "BL_Echangeurs_Amont",
+	                                         tm_autoroutes[vl_index].numero)
+	tm_ouvrages = NULL
+	DB_TABLE_CLEAR_DATA@ (vl_fenetre_gabarit, "TA_Ouvrages", 0, -1)
+	DB_CTRL_GRAYED@ (vl_fenetre_gabarit, "BP_Imprimer", TRUE)
+
+
+    CASE "BL_Autoroutes_Aval"
+	vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre_gabarit, "BL_Autoroutes_Aval")
+	tm_acces_aval = TGI_Acces_Autoroute (vl_fenetre_gabarit,
+	                                           "BL_Echangeurs_Aval",
+	                                           tm_autoroutes[vl_index].numero)
+	tm_ouvrages = NULL
+	DB_TABLE_CLEAR_DATA@ (vl_fenetre_gabarit, "TA_Ouvrages", 0, -1)
+	DB_CTRL_GRAYED@ (vl_fenetre_gabarit, "BP_Imprimer", TRUE)
+
+
+    /*A
+     * Sur choix "Valider", verifier qu'une hauteur et deux echangeurs sont
+     * saisis puis rechercher et afficher les ouvrages repondant aux criteres
+     * ----------------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	vm_amont = DB_CTRL_GET_VALUE@(vl_fenetre_gabarit, "BL_Echangeurs_Amont")
+	IF vm_amont < 0 {
+	    ERROR@ (C_ERR_IHM, C_LIB_CHOISIR_ECH)
+	}
+
+	vm_aval = DB_CTRL_GET_VALUE@ (vl_fenetre_gabarit, "BL_Echangeurs_Aval")
+	IF vm_aval < 0 {
+	    ERROR@ (C_ERR_IHM, C_LIB_CHOISIR_ECH)
+	}
+
+	vl_hauteur = DB_CTRL_GET_VALUE@ (vl_fenetre_gabarit, "BS_Hauteur")
+	IF vl_hauteur > 100
+	    vl_hauteur = vl_hauteur \ 1
+	ELSE vl_hauteur = (vl_hauteur * 100) \ 1
+	vm_hauteur = FORMAT@ ("%4s", vl_hauteur / 100 + 0.001)
+
+	TGI_Liste_Ouvrages (vl_fenetre_gabarit, vm_amont, vm_aval, vl_hauteur)
+
+	DB_CTRL_GRAYED@ (vl_fenetre_gabarit, "BP_Imprimer", ARRAY_SIZE@ (tm_ouvrages) = 0)
+
+
+    /*A
+     * Sur choix "Imprimer", produire le fichier et demander son impression
+     * --------------------------------------------------------------------
+     */
+
+    CASE "BP_Imprimer"
+	/*A Charger le document modele */
+	WP_APPLICATION_DLG@(NULL, TRUE)
+	WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+			    C_SOUS_REP_MODELES ++ C_MODELE_LST_OUVRAG ++ ".aw")
+
+	/*A Valuer les variables */
+	WP_SET_DOC_VAR@("Hauteur", SUBSTRING@(vm_hauteur, 1, 4) ++ " m")
+	WP_SET_DOC_VAR@("Echangeur_Amont", tm_acces_amont[vm_amont].nom)
+	WP_SET_DOC_VAR@("Echangeur_Aval", tm_acces_aval[vm_aval].nom)
+	WP_SET_DOC_VAR@("Ouvrages", DB_TABLE_GET_DATA@(vl_fenetre_gabarit, "TA_Ouvrages"))
+
+	vl_fichier = C_MODELE_LST_OUVRAG ++ "_" ++ SYSTEM_VAR@(vg_numero_operateur)
+
+	COM36_Imprimer_Texte(vl_fichier)
+
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation (liste des autoroutes, titres colonnes table).
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TGI_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGI_Gabarit_Itineraire
+*
+* FONCTION
+*   Initialise les valeurs des listes d'autoroutes avec les donnees figurant
+*   dans le module global.
+*   Construit la liste complete des acces aux autoroutes en ajoutant
+*   aux echangeurs les points d'acces en limites de concession.
+*
+---------------------------------------------------------------------------- */
+
+    VAR	FORMAT TDO_Echangeur	tl_echangeurs		' Liste des echangeurs
+    VAR	FORMAT TDO_Echangeur	vl_acces		' Un acces en limite concession
+
+    VAR	FORMAT TDO_Bifurcation	tl_bifurcations, tl_bifurc_autoroute
+
+    VAR     vl_autoroute
+    VAR     tl_noms_autoroutes
+    VAR     tl_titres				' Titres colonnes table
+    VAR     i, j, k
+
+
+/*A
+ * Lire la liste des autoroutes et valuer les libelles a l'ecran
+ * -------------------------------------------------------------
+ */
+
+tm_autoroutes = SYSTEM_VAR@ (vg_les_autoroutes)
+tl_noms_autoroutes = ARRAY_COLUMN@ (tm_autoroutes, TDO_NOM_AUTOROUTE)
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Autoroutes_Amont", tl_noms_autoroutes)
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Autoroutes_Aval", tl_noms_autoroutes)
+
+
+/*A
+ * Lire la liste des echangeurs et ignorer ceux qui ont ete supprimes
+ * ------------------------------------------------------------------
+ */
+
+tl_echangeurs = SYSTEM_VAR@ (vg_les_echangeurs)
+
+j = 0
+FOR i = 0  TO ARRAY_SIZE@ (tl_echangeurs) - 1
+	IF NOT tl_echangeurs[i].supprime {
+		tm_echangeurs[j] = tl_echangeurs[i]
+		j = j + 1
+	}
+NEXT i
+
+
+/*A
+ * Construire la liste complete des acces aux autoroutes
+ * -----------------------------------------------------
+ */
+
+tl_bifurcations = SYSTEM_VAR@ (vg_les_bifurcations)
+
+/*A Prendre pour acces tous les echangeurs, puis pour chaque autoroute */
+/*A ajouter les acces en limites de concession */
+tm_acces_autoroutes = tm_echangeurs
+
+FOR i = 0  TO ARRAY_SIZE@ (tm_autoroutes) - 1
+	vl_autoroute = tm_autoroutes[i].numero
+	tl_bifurc_autoroute = COM44_ValeursEnColonne (tl_bifurcations,
+	                                              TDO_AUTO1_BIFURCATION,
+	                                              { vl_autoroute }, TRUE)
+	vl_acces = NULL
+	vl_acces.autoroute = vl_autoroute
+
+	/*B si le debut de concession n'est pas situe a une bifurcation */
+	j = COM45_IndexEnColonne (tl_bifurc_autoroute, TDO_PR1_BIFURCATION,
+	                             tm_autoroutes[i].debut_concession)
+	IF j >= 0 {
+		/*B ou si l'autoroute a la bifurcation n'est pas en concession */
+		k = COM45_IndexEnColonne (tm_autoroutes, TDO_NUMERO_AUTOROUTE,
+		                             tl_bifurc_autoroute[j].autoroute2)
+		IF (k < 0)
+		      /*! Ajouter le debut de l'A8 malgre la jonction A51 ! */
+		      OR (vl_autoroute = 1)
+			j = -1
+	}
+	IF j < 0 {
+		/*B alors ajouter cet acces, nomme selon l'autoroute et le PR */
+		vl_acces.nom = tm_autoroutes[i].nom ++ ", " ++
+		                  tm_autoroutes[i].debut_concession
+		vl_acces.PR = tm_autoroutes[i].debut_concession
+		k = 0
+		WHILE k < ARRAY_SIZE@ (tm_acces_autoroutes)  AND
+		         (vl_acces.nom >> tm_acces_autoroutes[k].nom)
+			k = k + 1
+		WEND
+		tm_acces_autoroutes=ARRAY_INSERT@(tm_acces_autoroutes,vl_acces,k)
+	}
+
+	/*B si la fin de concession n'est pas situe a une bifurcation */
+	j = COM45_IndexEnColonne (tl_bifurc_autoroute, TDO_PR1_BIFURCATION,
+	                             tm_autoroutes[i].fin_concession)
+	IF j >= 0 {
+		/*B ou si l'autoroute a la bifurcation n'est pas en concession */
+		k = COM45_IndexEnColonne (tm_autoroutes, TDO_NUMERO_AUTOROUTE,
+		                             tl_bifurc_autoroute[j].autoroute2)
+		IF (k < 0) 
+			j = -1
+	}
+	IF j < 0 {
+		/*B alors ajouter cet acces, nomme selon l'autoroute et le PR */
+		vl_acces.nom = tm_autoroutes[i].nom ++ ", " ++
+		                  tm_autoroutes[i].fin_concession
+		vl_acces.PR = tm_autoroutes[i].fin_concession
+		k = 0
+		WHILE k < ARRAY_SIZE@ (tm_acces_autoroutes)  AND
+		         (vl_acces.nom >> tm_acces_autoroutes[k].nom)
+			k = k + 1
+		WEND
+		tm_acces_autoroutes=ARRAY_INSERT@(tm_acces_autoroutes,vl_acces,k)
+	}
+NEXT i
+
+
+/*A
+ * Definir les titres des colonnes de la table
+ * -------------------------------------------
+ */
+
+tl_titres = {			' Titre colonne et taille en pixels
+	{ "Autoroute",	70 },
+	{ "PR",		60 },
+	{ "Ouvrage",	200 },
+	{ "Gabarit",	60 },
+	{ "", 0 }
+}
+
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)			' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)				'  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@(va_fenetre, "TA_Ouvrages", NULL, tl_titres)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Extrait de la liste complete les points d'acces a l'autoroute indiquee.
+*  Affiche leurs noms a l'ecran dans l'objet indique
+*  (liste des acces "amont" ou "aval") et retourne la sous-liste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TGI_Acces_Autoroute (va_fenetre, va_id_liste_acces, va_autoroute)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_id_liste_acces : Id. de la liste ou afficher les acces ;
+*   va_autoroute      : Id. de l'autoroute dont on selectionne les acces.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGI_Gabarit_Itineraire
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     tl_acces_autoroute		' Liste des acces a l'autoroute
+    VAR     tl_noms_acces		' Liste des noms affichee
+    VAR     i, j
+
+/*A
+ * Extraire les points d'acces de l'autoroute indiquee
+ * ---------------------------------------------------
+ */
+
+tl_acces_autoroute = COM44_ValeursEnColonne (tm_acces_autoroutes,
+                                                TDO_AUTO_ECH,
+                                                { va_autoroute },
+                                                TRUE)
+
+tl_noms_acces = ARRAY_COLUMN@ (tl_acces_autoroute, TDO_NOM_ECH)
+
+
+/*A
+ * Valuer la liste d'echangeurs indiquee et annuler la selection
+ * -------------------------------------------------------------
+ */
+
+DB_CTRL_STRINGS@ (va_fenetre, va_id_liste_acces, tl_noms_acces)
+DB_CTRL_VALUE@ (va_fenetre, va_id_liste_acces, -1)
+
+
+RETURN (tl_acces_autoroute)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recherche en base de donnees et affiche la liste des ouvrages repondant
+*  aux criteres definis par les parametres.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TGI_Liste_Ouvrages (va_fenetre, va_idx_amont, va_idx_aval, va_hauteur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre courante ;
+*   va_idx_amont      : Index dans sa liste de l'extremite amont ;
+*   va_idx_aval       : Index dans sa liste de l'extremite aval ;
+*   va_hauteur        : Hauteur minimale.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TGI_Gabarit_Itineraire
+*
+* FONCTION
+*   Recherche en base de donnees la liste des ouvrages compris entre les
+*   extremites amont et aval de l'itineraire indiques
+*   et dont la taille est inferieure a la hauteur indiquee.
+*   Affiche les noms des ouvrages et si la liste n'est pas vide, met en
+*   evidence celui de plus petit gabarit.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT TGI_Donnees_Ouvrage tl_data	' Table d'ouvrages lue en base
+    VAR     vl_le_plus_petit			' Rang du plus petit ouvrage
+    VAR     vl_gabarit_min			' Son gabarit
+    VAR     vl_nb_visibles
+    VAR     tl_selections
+    VAR     vl_cr
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     i, j, k
+
+
+/*A
+ * Effacer les donnees actuellement affichees
+ * ------------------------------------------
+ */
+
+tm_ouvrages = NULL
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_Ouvrages", 0, -1)
+
+
+/*A
+ * Rechercher les ouvrages en base de donnees
+ * ------------------------------------------
+ */
+
+vl_parametres = COM15_Parametres_Requete ( {
+	{ FALSE,	SYB#INT2_,			va_hauteur },
+	{ FALSE,	COM_Identifiant_Autoroute,	tm_acces_amont[va_idx_amont].autoroute },
+	{ FALSE,	COM_Identifiant_PR,		tm_acces_amont[va_idx_amont].PR },
+	{ FALSE,	COM_Identifiant_Autoroute,	tm_acces_aval[va_idx_aval].autoroute },
+	{ FALSE,	COM_Identifiant_PR,		tm_acces_aval[va_idx_aval].PR }
+} )
+
+vl_cr = COM05_SQL_Procedure (XZAO01_Gabarit, vl_parametres, vl_resultats, C_MODULE)
+IF (vl_cr <> COM_OK)
+{
+	BEEP@
+	IF (vl_cr = XDC_ACT_REFUSEE) {
+		INFO_MESSAGE@ ("Aucun itinéraire trouvé entre les deux échangeurs")
+	} ELSE {
+		INFO_MESSAGE@ ("Erreur lors de la recherche des ouvrages en base de données")
+	}
+	RETURN (COM_NOK)
+}
+
+
+/*A
+ * Rassembler les ouvrages trouves sur toutes les etapes
+ * et determiner l'ouvrage de plus petit gabarit
+ * -----------------------------------------------------
+ */
+
+vl_le_plus_petit = 0
+vl_gabarit_min = va_hauteur
+
+k = 0
+FOR i = 0  TO ARRAY_SIZE@ (vl_resultats.select_results) - 1
+	tl_data = vl_resultats.select_results[i]
+
+	FOR j = 0  TO ARRAY_SIZE@ (tl_data) - 1
+		tm_ouvrages[k].autoroute = tl_data[j].autoroute
+		tm_ouvrages[k].PR = COM31_Libelle_PR (tl_data[j].PR)
+		tm_ouvrages[k].nom = tl_data[j].nom
+		tm_ouvrages[k].gabarit = tl_data[j].gabarit / 100
+
+		IF tl_data[j].gabarit < vl_gabarit_min {
+			vl_le_plus_petit = k
+			vl_gabarit_min = tl_data[j].gabarit
+		}
+		k = k + 1
+	NEXT j
+NEXT i
+
+
+/*A
+ * Afficher la liste des ouvrages et si elle n'est pas
+ * vide mettre en evidence celui de plus petit gabarit
+ * ---------------------------------------------------
+ */
+
+DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_Ouvrages", tm_ouvrages, 0)
+
+IF ARRAY_SIZE@ (tm_ouvrages) > 0 {
+	tl_selections = { vl_le_plus_petit }
+	DB_TABLE_SET_SELECTIONS@ (va_fenetre, "TA_Ouvrages", tl_selections)
+
+	/* assurer que le plus petit ouvrage est visualise */
+	vl_nb_visibles = DB_TABLE_GET_DISP_LINES@ (va_fenetre, "TA_Ouvrages")
+	IF (vl_le_plus_petit >= vl_nb_visibles - 1) {
+		DB_TABLE_SET_NEW_TOP_ROW@ (va_fenetre, "TA_Ouvrages", vl_le_plus_petit - (vl_nb_visibles / 2))
+	}
+}
+
+
+RETURN (COM_OK)
+
+ENDMACRO

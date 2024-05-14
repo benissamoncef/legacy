@@ -1,0 +1,1 @@
+DEFINE	XZAT61_Programmer_Neutre_PMV	"XZAT61"

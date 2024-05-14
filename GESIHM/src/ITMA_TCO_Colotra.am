@@ -1,0 +1,582 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCO_Colotra.am,v 1.8 1998/09/22 13:16:24 gaborit Exp $      Release : $Revision: 1.8 $        Date : $Date: 1998/09/22 13:16:24 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTCO * FICHIER ITMA_TCO_Colotra.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   indicateur colotra
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou 30 dec 1994	: Creation                                         V1.1
+* Gaborit 07 sep 1995	: reprise pour recette site                        V1.3
+* Torregrossa 15 Nov 1995 : Modif horodate courante pour Applix version 4.1 V 1.4
+* Torregrossa 08 fev 1996 : Modif libéllé clé en site                       V1.5
+* Torregrossa 12 fev 1996 : Ajout impression                    	    V1.6
+* Torregrossa 16 avr 1998 : execution au CI pour les PC (1633)         	    V1.7
+* Niepceron   03 Jul 1998 : Connexion a SQL_HIS (dem/1699) v1.8
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzas24sp.h"
+INCLUDE	"../../XDMICG/inc/xzas25sp.h"
+
+DEFINE	C_MODULE		"MTGT"			' Nom du module
+DEFINE	C_MODELE_TCO	"ITMA_TCO_Colotra"	' Nom du modele d'impression
+
+FORMAT TCO_liste_travaux
+	numero,
+	cle,
+	numero_autoroute,
+	sens,
+	nom_autoroute,
+	nom_district,
+	horo_debut,
+	horo_fin,
+	pr_debut,
+	pr_fin,
+	horo_validation
+
+FORMAT TCO_liste_affichee
+	numero,
+	cle,
+	sens,
+	nom_autoroute,
+	horo_debut,
+	horo_fin,
+	pr_debut,
+	pr_fin,
+	colotra
+
+
+VAR FORMAT TCO_liste_travaux	tm_liste
+VAR FORMAT TCO_liste_affichee	tm_listeAffichee
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCO_Colotra (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+	VAR vl_indice
+	VAR tl_str
+	VAR vl_typeCalcul
+	VAR vl_date_deb
+	VAR tl_titres
+	VAR vl_string
+	VAR tl_data
+	VAR vl_fichier
+	VAR FORMAT TDO_Horo_Eclatee	vl_horodate
+	VAR		vl_indice_colotra		'indice colotra calcule
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "COLOTRA"
+ * ---------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TCO")
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TCO_Colotra")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A titres des colonnes*/
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAY@(vl_fenetre)
+tl_titres[0]="Numéro",60
+tl_titres[1]="Site",50
+tl_titres[2]="Sens",50
+tl_titres[3]="Autoroute",120
+tl_titres[4]="Début",150
+tl_titres[5]="Fin",150
+tl_titres[6]="PR début",90
+tl_titres[7]="PR fin",90
+tl_titres[8]="COLOTRA",120
+
+/*A liste des trv finis*/
+DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre,"TA_trv",25,null)
+DB_TABLE_SET_DATA@(vl_fenetre,"TA_trv",null,tl_titres,null)
+DB_TABLE_ALLOW_EDITING@(vl_fenetre,"TA_trv",TRUE)
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+  		/*A appui sur le bouton horohelp */
+		CASE "BP_horohelp"
+			/*A recupere l'heure courante et la formate*/
+			COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+						"BS_jour", "BS_mois", "BS_annee",
+						"BS_heure", "BS_minute")
+
+  CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetre)
+		CASE COM_CANAL_FIN
+		    RETURN
+	ENDCASE
+
+
+     CASE "BP_fermer"
+		RETURN
+
+	CASE "BP_imprimer"
+		tl_data=DB_TABLE_GET_DATA@(vl_fenetre,"TA_trv")
+		IF (tl_data=NULL)
+			INFO_MESSAGE@("Pas de travaux à imprimer")
+		ELSE {
+			/*A ecrire le texte dans un fichier*/
+			WP_APPLICATION_DLG@(NULL, TRUE)
+			WP_LOAD_FILE@ (SYSTEM_VAR@ (vg_repertoire_migrazur) ++
+						COM_SOUS_REP_IHM  ++ C_MODELE_TCO ++ ".aw")
+
+			/*A imprimer la date de calcul */
+			vl_date_deb=COM06_Date_Formatee(
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BS_jour"),
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BS_mois"),
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BS_annee"),
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BS_heure"),
+						DB_CTRL_GET_VALUE@(vl_fenetre,"BS_minute"))
+			WP_SET_DOC_VAR@("horodate_debut",vl_date_deb)
+
+			/*A imprimer le type de calcul */
+			vl_typeCalcul=DB_CTRL_GET_VALUE@(vl_fenetre,"BR_calcul")
+			IF (vl_typeCalcul<>1)
+				/*B si calcul colotra instantané */
+				vl_string="Instantané"
+				/*B si calcul colotra entre début et fin des travaux */
+			ELSE	vl_string="Période entre le début et la fin des travaux"
+			WP_SET_DOC_VAR@("type_calcul",vl_string)
+
+			/*A imprimer les criteres de vitesse */
+               WP_SET_DOC_VAR@("vitesse_theo",
+                                DB_CTRL_GET_VALUE@(vl_fenetre, "BS_vit_hors_trv"))
+               WP_SET_DOC_VAR@("vitesse_BAU",
+                                DB_CTRL_GET_VALUE@(vl_fenetre,"BS_vit_bau"))
+               WP_SET_DOC_VAR@("vitesse_voies_reduites",
+                                DB_CTRL_GET_VALUE@(vl_fenetre,"BS_vit_voies"))
+               WP_SET_DOC_VAR@("vitesse_bascul",
+                                DB_CTRL_GET_VALUE@(vl_fenetre,"BS_vit_bascul"))
+
+			/*A imprimer l'indice colotra */
+			WP_SET_DOC_VAR@("colotra",vl_indice_colotra)
+
+			/*A imprimer la liste des travaux concernés */
+               tl_str=NULL
+               FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+                      tl_str[vl_indice]=FORMAT@("%6s    %s    %s     %-4s      %-19s   %-19s   %-6s   %-6s   %s",
+										tl_data[vl_indice][0], 
+										tl_data[vl_indice][1],
+										tl_data[vl_indice][2],
+										tl_data[vl_indice][3],
+										tl_data[vl_indice][4],
+										tl_data[vl_indice][5],
+										tl_data[vl_indice][6],
+										tl_data[vl_indice][7],
+										tl_data[vl_indice][8])
+               NEXT vl_indice
+
+               WP_SET_DOC_VAR@("travaux",tl_str)
+
+			vl_fichier = C_MODELE_TCO ++ "_" ++ SYSTEM_VAR@(vg_numero_poste)
+			COM36_Imprimer_Texte(vl_fichier)
+		}
+
+
+	CASE "BP_calculer"
+		vl_indice_colotra = TCO_liste_travaux(vl_fenetre)
+		DB_CTRL_TITLE@(vl_fenetre, "LI_valeur_colotra", vl_indice_colotra)
+
+      ENDCASE
+WEND
+
+
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  retourne la liste des travaux finis et l'indicateur colotra
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TCO_liste_travaux (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*   .
+---------------------------------------------------------------------------- */
+
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR vl_canal, vl_site
+VAR vl_horodate
+VAR vl_indice
+VAR vl_vit_hors_trv
+VAR vl_vit_bau
+VAR vl_vit_voies
+VAR vl_vit_bascul
+VAR vl_typeCalcul
+VAR vl_dateDebut
+VAR vl_dateFin
+VAR vl_colotra_cumule		/* somme courante des indices colotra */
+
+	vl_colotra_cumule = 0
+	vl_site = SYSTEM_VAR@(vg_site)
+
+	MACRO_WINS_BUSY@()
+
+	/*A type de calcul*/
+	vl_typeCalcul=DB_CTRL_GET_VALUE@(va_fenetre,"BR_calcul")
+
+	/*A recupere les vitesses pour le calcul*/
+	vl_vit_hors_trv=DB_CTRL_GET_VALUE@(va_fenetre,"BS_vit_hors_trv")
+	vl_vit_bau=DB_CTRL_GET_VALUE@(va_fenetre,"BS_vit_bau")
+	vl_vit_voies=DB_CTRL_GET_VALUE@(va_fenetre,"BS_vit_voies")
+	vl_vit_bascul=DB_CTRL_GET_VALUE@(va_fenetre,"BS_vit_bascul")
+
+	/*A horodate*/
+	vl_horodate=COM06_Date_Formatee(
+				DB_CTRL_GET_VALUE@(va_fenetre,"BS_jour"),
+				DB_CTRL_GET_VALUE@(va_fenetre,"BS_mois"),
+				DB_CTRL_GET_VALUE@(va_fenetre,"BS_annee"),
+				DB_CTRL_GET_VALUE@(va_fenetre,"BS_heure"),
+				DB_CTRL_GET_VALUE@(va_fenetre,"BS_minute"))
+
+
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = 2
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#DATETIME_
+	vl_parametres[1].data = vl_horodate
+	vl_parametres[1].output = FALSE
+
+	/*A execution requete base*/
+
+	IF COM41_SQL_Procedure_HIS (XZAS24_Liste_Travaux,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		{
+   			RETURN (COM_NOK)
+		}
+	tm_liste=vl_resultats.select_results[0]
+	vl_parametres=null
+
+	DB_TABLE_CLEAR_DATA@(va_fenetre,"TA_trv",0,-1)
+
+	/*A parcourt la liste des trv et la formatte*/
+	tm_listeAffichee=NULL
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_liste)-1)
+		tm_listeAffichee[vl_indice].numero=tm_liste[vl_indice].numero	
+		tm_listeAffichee[vl_indice].cle=tm_liste[vl_indice].cle	
+		tm_listeAffichee[vl_indice].sens=tm_liste[vl_indice].sens	
+		tm_listeAffichee[vl_indice].nom_autoroute=
+							tm_liste[vl_indice].nom_autoroute	
+		tm_listeAffichee[vl_indice].horo_debut=
+					COM18_Date_SGBD_Formatee(tm_liste[vl_indice].horo_debut)
+		tm_listeAffichee[vl_indice].horo_fin=
+					COM18_Date_SGBD_Formatee(tm_liste[vl_indice].horo_fin)
+		tm_listeAffichee[vl_indice].pr_debut=tm_liste[vl_indice].pr_debut	
+		tm_listeAffichee[vl_indice].pr_fin=tm_liste[vl_indice].pr_fin
+	
+	
+		IF (vl_typeCalcul<>1)
+		/*A si calcul colotra instantané */
+		begin
+
+		/*A calcul a une date donnee*/
+		vl_parametres[0].type = SYB#INT4_
+		vl_parametres[0].data = tm_liste[vl_indice].numero
+		vl_parametres[0].output = FALSE
+
+		vl_parametres[1].type = SYB#INT4_
+		vl_parametres[1].data = tm_liste[vl_indice].cle
+		vl_parametres[1].output = FALSE
+
+		vl_parametres[2].type = SYB#INT4_
+		vl_parametres[2].data = tm_liste[vl_indice].pr_debut
+		vl_parametres[2].output = FALSE
+	
+		vl_parametres[3].type = SYB#INT4_
+		vl_parametres[3].data = tm_liste[vl_indice].pr_fin
+		vl_parametres[3].output = FALSE
+	
+		vl_parametres[4].type = SYB#INT4_
+		vl_parametres[4].data = tm_liste[vl_indice].numero_autoroute
+		vl_parametres[4].output = FALSE
+	
+		vl_parametres[5].type = SYB#INT4_
+		vl_parametres[5].data = tm_liste[vl_indice].sens
+		vl_parametres[5].output = FALSE
+	
+		vl_parametres[6].type = SYB#DATETIME_
+		vl_parametres[6].data = vl_horodate
+		vl_parametres[6].output = FALSE
+	
+		vl_parametres[7].type = SYB#DATETIME_
+		vl_parametres[7].data = 				
+			COM18_Date_SGBD_Formatee(tm_liste[vl_indice].horo_validation) ++ ":00"
+		vl_parametres[7].output = FALSE
+	
+		vl_parametres[8].type = SYB#INT4_
+		vl_parametres[8].data = vl_vit_hors_trv
+		vl_parametres[8].output = FALSE
+
+		vl_parametres[9].type = SYB#INT4_
+		vl_parametres[9].data = vl_vit_bau
+		vl_parametres[9].output = FALSE
+
+		vl_parametres[10].type = SYB#INT4_
+		vl_parametres[10].data = vl_vit_voies
+		vl_parametres[10].output = FALSE
+
+		vl_parametres[11].type = SYB#INT4_
+		vl_parametres[11].data = vl_vit_bascul
+		vl_parametres[11].output = FALSE
+
+		vl_parametres[12].type = SYB#INT4_
+		vl_parametres[12].output = TRUE
+
+		vl_parametres[13].type = SYB#INT4_
+		vl_parametres[13].output = TRUE
+
+		/*A execution requete base*/
+		IF (vl_site<>XDC_CI) 
+		{
+			IF COM39_SQL_Procedure_PCS (XZAS25_Ind_Colotra,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+			{
+	   			RETURN (COM_NOK)
+			}
+		}
+		ELSE
+		{
+			IF COM05_SQL_Procedure (XZAS25_Ind_Colotra,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+			{
+   				RETURN (COM_NOK)
+			}			
+		}			
+ 		if (vl_resultats.return_parameters[1]=XDC_OK)
+		{
+			tm_listeAffichee[vl_indice].colotra = vl_resultats.return_parameters[0]
+
+			vl_colotra_cumule = vl_colotra_cumule + vl_resultats.return_parameters[0]
+		}
+		/*A fin si calcul colotra instantané */
+	end
+	else if (tm_listeAffichee[vl_indice].horo_fin<>"")
+		/*A si calcul colotra sur la periode de travaux*/
+	begin
+	   vl_dateDebut = COM35_DateAffichee_En_Secondes( tm_listeAffichee[vl_indice].horo_debut)
+	   vl_dateFin = COM35_DateAffichee_En_Secondes( tm_listeAffichee[vl_indice].horo_fin)
+
+	   WHILE (vl_dateDebut<vl_dateFin)
+
+		vl_dateDebut=vl_dateDebut+3600
+		vl_horodate=DECOMPOSE_TIME@ (vl_dateDebut)
+		vl_horodate=COM06_Date_Formatee (vl_horodate[3], vl_horodate[4] + 1, vl_horodate[5], vl_horodate[2], vl_horodate[1], 0)
+
+		vl_parametres[0].type = SYB#INT4_
+		vl_parametres[0].data = tm_liste[vl_indice].numero
+		vl_parametres[0].output = FALSE
+
+		vl_parametres[1].type = SYB#INT4_
+		vl_parametres[1].data = tm_liste[vl_indice].cle
+		vl_parametres[1].output = FALSE
+
+		vl_parametres[2].type = SYB#INT4_
+		vl_parametres[2].data = tm_liste[vl_indice].pr_debut
+		vl_parametres[2].output = FALSE
+	
+		vl_parametres[3].type = SYB#INT4_
+		vl_parametres[3].data = tm_liste[vl_indice].pr_fin
+		vl_parametres[3].output = FALSE
+	
+		vl_parametres[4].type = SYB#INT4_
+		vl_parametres[4].data = tm_liste[vl_indice].numero_autoroute
+		vl_parametres[4].output = FALSE
+	
+		vl_parametres[5].type = SYB#INT4_
+		vl_parametres[5].data = tm_liste[vl_indice].sens
+		vl_parametres[5].output = FALSE
+	
+		vl_parametres[6].type = SYB#DATETIME_
+		vl_parametres[6].data = vl_horodate
+		vl_parametres[6].output = FALSE
+	
+		vl_parametres[7].type = SYB#DATETIME_
+		vl_parametres[7].data = 	vl_horodate			
+		vl_parametres[7].output = FALSE
+	
+		vl_parametres[8].type = SYB#INT4_
+		vl_parametres[8].data = vl_vit_hors_trv
+		vl_parametres[8].output = FALSE
+
+		vl_parametres[9].type = SYB#INT4_
+		vl_parametres[9].data = vl_vit_bau
+		vl_parametres[9].output = FALSE
+
+		vl_parametres[10].type = SYB#INT4_
+		vl_parametres[10].data = vl_vit_voies
+		vl_parametres[10].output = FALSE
+
+		vl_parametres[11].type = SYB#INT4_
+		vl_parametres[11].data = vl_vit_bascul
+		vl_parametres[11].output = FALSE
+
+		vl_parametres[12].type = SYB#INT4_
+		vl_parametres[12].output = TRUE
+
+		vl_parametres[13].type = SYB#INT4_
+		vl_parametres[13].output = TRUE
+
+		/*A execution requete base*/
+		IF (vl_site<>XDC_CI) 
+		{
+			IF COM39_SQL_Procedure_PCS (XZAS25_Ind_Colotra,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+			{
+	   			RETURN (COM_NOK)
+			}
+		}
+		ELSE
+		{
+			IF COM05_SQL_Procedure (XZAS25_Ind_Colotra,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+			{
+   				RETURN (COM_NOK)
+			}			
+		}			
+ 		if (vl_resultats.return_parameters[1]=XDC_OK)
+			{
+			tm_listeAffichee[vl_indice].colotra = vl_resultats.return_parameters[0] + tm_listeAffichee[vl_indice].colotra
+
+			vl_colotra_cumule = vl_colotra_cumule + vl_resultats.return_parameters[0]
+			}
+	WEND
+		/*A fin si calcul colotra sur la periode de travaux*/
+	end
+
+	DB_TABLE_SET_NEW_DATA@(va_fenetre,"TA_trv",tm_listeAffichee,0)
+
+	NEXT vl_indice
+
+	IF (SYSTEM_VAR@(vg_site)=XDC_CI) AND (NOT IS_NULL@(vg_canal_SGBD_pcs)) {
+               SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+               SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+	       SET_SYSTEM_VAR@(vg_requete_xzae148_en_cours,FALSE)
+	}
+
+	RETURN(vl_colotra_cumule)
+
+
+
+ENDMACRO
+
+
+
+

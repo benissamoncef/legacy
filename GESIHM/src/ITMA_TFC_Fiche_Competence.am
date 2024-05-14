@@ -1,0 +1,607 @@
+/*E*/
+/* Fichier : $Id: ITMA_TFC_Fiche_Competence.am,v 1.21 2017/04/25 11:08:21 devgfi Exp $      Release : $Revision: 1.21 $        Date : $Date: 2017/04/25 11:08:21 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TFS * FICHIER ITMA_TFC_Fiche_Competence.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fiche competence.
+*
+*   Cf. DCG 2.4.28
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 21 Oct 1994 : Creation                                          V1.1
+* Lecrivain 15 Dec 1994 : Fonctions de traitements de dates differentes     V1.5
+* Lecrivain 23 Dec 1994 : Changement localisation des fichiers pictogrammes V1.7
+* Guilhou 16 nov 1996 : refonte de la gestion des astreintes (DEM/1306)  1.11
+* Guilhou 05 mai 1998 : ajout DC, DS et DA dans les sites responsables 1.12
+* Niepceron 02 Fev 1999 : vg_toutes_les_autoroutes remplace vg_les_autoroute dem/1723 v1.14
+* ESCOTA 25 fev 1999 : ajout DY et DP 1.15
+* Claudel 09 Jul 2007 : Suppression DY 1.16
+* JMG      29/09/2009 : SECTO DEM 887
+* JPL / AD   07/10/2014 : Gestion du sens des zones geographiques (DEM 1100) 1.19
+* JMG   09/03/17        : REGIONALISATION - DEM1220 1.20
+* JPL	27/03/17	: Liste des sites lue en variable publique (regionalisation DEM 1173)  1.21
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TFC.h"
+INCLUDE	"../inc/ITMA_TFA.h"
+INCLUDE	"../inc/ITMA_TFS.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE "../inc/xzan31sp.h"
+INCLUDE "../inc/xzan32sp.h"
+
+
+
+DEFINE	C_MODULE	"MTFC"			' Nom du module
+
+
+
+/*A
+ * Definition des codes et libelles
+ * des erreurs specifiques au module
+ * ---------------------------------
+ */
+
+DEFINE	C_ERR_REMPLIR_EN_TETE	1
+DEFINE	C_LIB_REMPLIR_EN_TETE	"Saisir d'abord l'en-tête de la fiche"
+
+
+
+/*A
+ * Valeur de duree d'astreinte signifiant "infinie"
+ * ------------------------------------------------
+ */
+
+DEFINE	C_DUREE_INFINIE		0
+
+
+
+/*A
+ * Nom des images digitalisees marquant les dates du calendrier
+ * ------------------------------------------------------------
+ */
+
+DEFINE	C_PICTO_NON_MODIFIE	NULL
+DEFINE	C_PICTO_MODIFIE		"pix_designer"
+
+
+
+/*A
+ * Formats des donnees calendrier affichees
+ * ----------------------------------------
+ */
+
+FORMAT	TFC_Calendrier
+	date,
+	nom
+
+
+
+VAR	vm_num_competence			   ' No competence editee
+
+VAR	vm_l_num_zones		 		   ' Numeros zones geographiques
+VAR	vm_l_zones		 		   ' Libelles zones
+
+VAR 	vm_sous_type
+
+VAR FORMAT TDO_Categorie_Astreinte vm_l_categ_astreintes ' Liste categories
+VAR FORMAT TDO_Autoroute vm_l_autoroutes		 ' Liste autoroutes
+VAR FORMAT TFA_Interlocuteur vm_l_interlocuteurs	 ' Liste interlocuteurs
+
+VAR FORMAT TDO_District		vm_l_districts
+
+VAR FORMAT TDO_District		vm_l_sites
+
+
+VAR FORMAT TFC_Competence vm_competence		' Infos competence
+
+VAR vm_mode_creation
+
+VAR FORMAT TDO_Dictionnaire tm_sens
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Saisie, modification, visualisation d'une fiche competence.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFC_Fiche_Competence (va_appelant, va_num_comp,
+				    FORMAT TDO_Type_Astreinte va_type_astreinte,
+				    va_sous_type_astreinte,
+				    FORMAT TDO_District va_district,
+				    va_site_responsable)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*  va_num_comp        : Numero de la competence a editer ;
+*  va_type_astreinte  : Type d'astreinte de la competence.
+*  va_sous_type_astreinte : sous type d'astreinte
+*  va_district 		: district de la competence
+*  va_site_responsable  : site responsable de la gestion du calendrier
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTLS
+*
+* FONCTION
+*   Si le numero de competence en entree est nul il s'agit d'une creation de
+*   fiche competence ; sinon lit en base de donnees les informations sur la
+*   competence de numero indique et les affiche pour modifications.
+*   Permet d'editer la categorie d'astreinte, la duree et l'heure de debut
+*   d'astreinte ainsi que la liste des zones geographiques de la competence.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre		' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR     vl_index, vl_index2			      ' Rangs d'objets selectes
+    VAR FORMAT TFA_Interlocuteur vl_interlocuteur     ' ... choisi avec MTLA
+
+    VAR     vl_zone, vl_auto, vl_PR_debut, vl_PR_fin, vl_sens
+    VAR     vl_duree, vl_date
+    VAR     vl_confirme
+	VAR	vl_district
+	VAR vl_selection
+	VAR vl_site
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Fiche competence" et les autres fonctions du module
+ * -----------------------------------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TFC")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@(vl_fenetre, 0)
+DB_YPOS@(vl_fenetre, 93)
+DB_WIDTH@(vl_fenetre, 1264)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TFC_Fiche_Competence")
+
+ITMA_TFC_Fiche_Competence2 ()		      ' Provoque le chargement du module
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+DB_CTRL_VALUE@ (vl_fenetre,"BS_sous_type",va_sous_type_astreinte)
+DB_CTRL_TITLE@(vl_fenetre,"LI_type",va_type_astreinte.nom)
+vm_l_districts[0] = NULL, "Tous"
+vm_l_districts = ARRAY_APPEND@ (vm_l_districts, SYSTEM_VAR@ (vg_les_districts))
+DB_CTRL_STRINGS@ (vl_fenetre, "BO_districts", ARRAY_COLUMN@(vm_l_districts, TDO_NOM_DISTRICT))
+vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_districts, TDO_NUMERO_DISTRICT),va_district.numero)
+if (vl_index=-1)
+  vl_index=0
+DB_CTRL_VALUE@(vl_fenetre, "BO_districts",vl_index)
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_PR_Debut", COM_CHIFFRES ++ ".,")
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_PR_Fin", COM_CHIFFRES ++ ".,")
+
+DB_CTRL_VALUE@ (vl_fenetre, "BL_Autoroutes", -1)
+
+
+/*
+** Initialiser les listes de valeurs selectionnees
+** -----------------------------------------------
+*/
+
+tm_sens = {
+	{ XDC_LES_2_SENS, "2 sens" },
+	{ XDC_SENS_1, "sens 1" },
+	{ XDC_SENS_2, "sens 2" }
+}
+DB_CTRL_STRINGS@ (vl_fenetre, "BO_Sens",ARRAY_COLUMN@(tm_sens,TDO_DICO_VAL))
+DB_CTRL_VALUE@(vl_fenetre, "BO_Sens", 0)
+
+
+vm_l_sites=SYSTEM_VAR@ (vg_les_districts)
+
+DB_CTRL_STRINGS@ (vl_fenetre, "BO_site",ARRAY_COLUMN@(vm_l_sites,TDO_NOM_DISTRICT))
+vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_sites,TDO_NOM_DISTRICT),
+					va_site_responsable)
+if (vl_index=-1)
+  vl_index=0
+DB_CTRL_VALUE@(vl_fenetre, "BO_site",vl_index)
+
+
+/*A
+ * Initialiser les donnees a visualiser (competence, contenu fiche annuaire)
+ * -------------------------------------------------------------------------
+ */
+
+IF TFC_Init_Visualisation (vl_fenetre, va_num_comp,va_sous_type_astreinte) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_NON_SAISI  AND
+	   ERROR_NUMBER@() <> C_ERR_REMPLIR_EN_TETE  AND
+	   ERROR_NUMBER@() <> COM_ERR_VAL_INVAL
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*selection d'une zone*/
+    CASE "BL_Zones"
+      vl_selection=DB_CTRL_GET_VALUE@(vl_fenetre,vl_objet_selecte)
+
+      /*affichage des infos de la zone pour modification*/
+      vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(vm_l_autoroutes,TDO_NUMERO_AUTOROUTE),
+				vm_competence.l_zones_geo[vl_selection].num_autoroute)
+      if vl_index=-1
+	vl_index=0
+      DB_CTRL_VALUE@(vl_fenetre,"BL_Autoroutes",vl_index)
+
+      DB_CTRL_VALUE@(vl_fenetre,"BS_PR_Debut",
+		COM31_Libelle_PR(vm_competence.l_zones_geo[vl_selection].PR_debut))
+      DB_CTRL_VALUE@(vl_fenetre,"BS_PR_Fin",
+		COM31_Libelle_PR(vm_competence.l_zones_geo[vl_selection].PR_fin))
+
+      vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(tm_sens, TDO_DICO_CLE),
+				vm_competence.l_zones_geo[vl_selection].sens)
+      if vl_index < 0
+	vl_index=0
+      DB_CTRL_VALUE@(vl_fenetre, "BO_Sens", vl_index)
+
+
+      /*degrisage des boutons modifier et supprimer*/
+      DB_CTRL_GRAYED@(vl_fenetre,"BP_Modifier_Zone",FALSE)
+      DB_CTRL_GRAYED@(vl_fenetre,"BP_Supprimer_Zone",FALSE)
+
+    /*A
+     * Sur choix "Ajouter Zone" verifier que l'en-tete de la
+     * fiche est rempli et qu'autoroute et PRs sont saisis,
+     * puis ajouter la zone geographique en fin de liste
+     * -----------------------------------------------------
+     */
+
+    CASE "BP_Ajouter_Zone"
+	IF vm_num_competence = NULL
+	    ERROR@ (C_ERR_REMPLIR_EN_TETE, C_LIB_REMPLIR_EN_TETE)
+	vl_auto = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Autoroutes")
+	IF vl_auto < 0
+	    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "Autoroute")
+	vl_PR_debut = COM26_Valeur_PR (vl_fenetre, "BS_PR_Debut")
+	IF vl_PR_debut = XDC_PR_INCONNU
+	    ERROR@ (COM_ERR_VAL_INVAL, COM_LIB_VAL_INVAL, "PR Début")
+	vl_PR_fin = COM26_Valeur_PR (vl_fenetre, "BS_PR_Fin")
+	IF vl_PR_fin = XDC_PR_INCONNU
+	    ERROR@ (COM_ERR_VAL_INVAL, COM_LIB_VAL_INVAL, "PR Fin")
+	vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre, "BO_Sens")
+	IF (vl_index < 0)
+	    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "Sens")
+	vl_sens = tm_sens[vl_index].kle
+
+	IF TFC_Ajouter_Zone_Geographique
+	       (vm_num_competence, vm_l_autoroutes[vl_auto].numero,
+		   vl_PR_debut, vl_PR_fin, vl_sens, vl_zone) = COM_OK
+	{
+		ITMA_TFC_Lire_Competence(vm_num_competence)
+	    DB_CTRL_STRINGS@ (vl_fenetre, "BL_Zones", vm_l_zones)
+	    DB_CTRL_VALUE@ (vl_fenetre, "BL_Zones", -1)
+		DB_CTRL_GRAYED@ (vl_fenetre,"BP_Modifier_Zone",TRUE)
+		DB_CTRL_GRAYED@ (vl_fenetre,"BP_Supprimer_Zone",TRUE)
+	}
+
+
+    /*A
+     * Sur choix "Supprimer Zone" verifier qu'une zone est choisie,
+     * puis la supprimer en base de donnees et dans la liste affichee
+     * --------------------------------------------------------------
+     */
+
+    CASE "BP_Supprimer_Zone"
+	vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Zones")
+	IF vl_index < 0
+	    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "Zone géographique")
+
+	IF TFC_Supprimer_Zone_Geograph (vm_l_num_zones[vl_index]) = COM_OK {
+		ITMA_TFC_Lire_Competence(vm_num_competence)				
+	    DB_CTRL_STRINGS@ (vl_fenetre, "BL_Zones", vm_l_zones)
+	    DB_CTRL_VALUE@ (vl_fenetre, "BL_Zones", -1)
+		DB_CTRL_GRAYED@ (vl_fenetre,"BP_Modifier_Zone",TRUE)
+		DB_CTRL_GRAYED@ (vl_fenetre,"BP_Supprimer_Zone",TRUE)
+	}
+
+
+    /*A
+     * Sur choix "Modifier Zone" verifier qu'une autoroute,
+     * deux valeurs de PRs et une zone a modifier sont saisis,
+     * puis modifier la zone en base de donnees et a l'ecran
+     * -------------------------------------------------------
+     */
+
+    CASE "BP_Modifier_Zone"
+	vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Zones")
+	IF vl_index < 0
+	    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "Zone géographique")
+	vl_auto = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_Autoroutes")
+	IF vl_auto < 0
+	    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "Autoroute")
+
+	vl_PR_debut = COM26_Valeur_PR (vl_fenetre, "BS_PR_Debut")
+	IF vl_PR_debut = XDC_PR_INCONNU
+	    ERROR@ (COM_ERR_VAL_INVAL, COM_LIB_VAL_INVAL, "PR Début")
+	vl_PR_fin = COM26_Valeur_PR (vl_fenetre, "BS_PR_Fin")
+	IF vl_PR_fin = XDC_PR_INCONNU
+	    ERROR@ (COM_ERR_VAL_INVAL, COM_LIB_VAL_INVAL, "PR Fin")
+	vl_index2 = DB_CTRL_GET_VALUE@ (vl_fenetre, "BO_Sens")
+	IF (vl_index2 < 0)
+	    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "Sens")
+	vl_sens = tm_sens[vl_index2].kle
+
+	IF TFC_Supprimer_Zone_Geograph (vm_l_num_zones[vl_index]) = COM_OK {
+	    TFC_Ajouter_Zone_Geographique
+		   (vm_num_competence, vm_l_autoroutes[vl_auto].numero,
+		       vl_PR_debut, vl_PR_fin, vl_sens, vl_zone)
+	    ITMA_TFC_Lire_Competence(vm_num_competence)
+	    DB_CTRL_STRINGS@ (vl_fenetre, "BL_Zones", vm_l_zones)
+	    DB_CTRL_VALUE@ (vl_fenetre, "BL_Zones", -1)
+		DB_CTRL_GRAYED@ (vl_fenetre,"BP_Modifier_Zone",TRUE)
+		DB_CTRL_GRAYED@ (vl_fenetre,"BP_Supprimer_Zone",TRUE)
+	}
+
+	/*validation de la competence*/
+	CASE "BP_valider"
+	MACRO_WINS_BUSY@()
+	vm_sous_type=DB_CTRL_GET_VALUE@(vl_fenetre, "BS_sous_type")
+	vl_district=DB_CTRL_GET_VALUE@(vl_fenetre,"BO_districts")+0
+	vl_site=DB_CTRL_GET_VALUE@(vl_fenetre,"BO_site")+0
+	if ((vm_sous_type++"")<>null) {
+		IF (vm_mode_creation=TRUE) {
+		   	TFC_Creer_Competence
+			   (va_type_astreinte.numero,vm_sous_type,
+					vm_l_districts[vl_district][TDO_NUMERO_DISTRICT],
+				vm_l_sites[vl_site][TDO_NUMERO_DISTRICT],
+			       	vm_num_competence)
+			DB_CTRL_GRAYED@(vl_fenetre, "BP_Ajouter_Zone", FALSE)
+		} 
+		ELSE
+	   	 TFC_Modifier_Competence (vm_num_competence,va_type_astreinte.numero,
+				      vm_sous_type, 
+					vm_l_districts[vl_district][TDO_NUMERO_DISTRICT],
+					vm_l_sites[vl_site][TDO_NUMERO_DISTRICT])
+	}
+	else 
+		INFO_MESSAGE@("Le sous-type d'astreinte doit obligatoirement etre renseigne")
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les donnees de la fiche competence.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFC_Init_Visualisation (va_fenetre, va_num_comp,va_sous_type)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets a initialiser ;
+*  va_num_comp        : Numero de competence de l'astreinte.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFC_Fiche_Competence
+*
+* FONCTION
+*   Initialise les valeurs des listes de categories d'astreintes et
+*   d'autoroutes ;
+*   si un numero de competence est fourni en argument, lit en base de donnees
+*   et affiche la fiche competence et la liste des interlocuteurs competents.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_nb_zones					' Nombre zones geograph.
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     i
+
+
+vm_num_competence = va_num_comp
+
+if (vm_num_competence=null)
+  vm_mode_creation=TRUE
+else
+  vm_mode_creation=FALSE
+
+/*A
+ * Lire dans l'environnement la liste des
+ * autoroutes et valuer la liste visualisee
+ * ----------------------------------------
+ */
+
+vm_l_autoroutes = SYSTEM_VAR@ (vg_toutes_les_autoroutes)
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Autoroutes",
+		     ARRAY_COLUMN@ (vm_l_autoroutes, TDO_NOM_AUTOROUTE))
+
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)			' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)				'  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+
+/*A
+ * En mode modification, lire les informations sur la competence,
+ * --------------------------------------------------------------
+ */
+
+IF va_num_comp <> NULL {
+    IF ITMA_TFC_Lire_Competence (va_num_comp) <> COM_OK
+	RETURN (COM_NOK)
+
+    vm_sous_type=va_sous_type
+    DB_CTRL_STRINGS@ (va_fenetre, "BL_Zones", vm_l_zones)
+    DB_CTRL_VALUE@(va_fenetre, "BL_Zones", -1)
+    DB_CTRL_GRAYED@(va_fenetre, "BP_Modifier_Zone", TRUE)
+    DB_CTRL_GRAYED@(va_fenetre, "BP_Supprimer_Zone", TRUE)
+}
+else {
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Modifier_Zone", TRUE)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Ajouter_Zone", TRUE)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Supprimer_Zone", TRUE)
+}
+
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "BL_Zones",TRUE)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit les donnees d'une competence et les memorise.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFC_Lire_Competence (va_num_comp)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_num_comp        : Numero de la competence a lire.
+*
+*
+* ARGUMENTS EN SORTIE : AUCUN
+*  vm_competence      : Informations de competence lues en base.
+*  vm_l_num_zones     : Liste des numeros de zones.
+*  vm_l_zones         : Liste des libelles de zones.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFC_Fiche_Competence
+*
+* FONCTION
+*   Interface avec la fonction generale de lecture de competence.
+*   Renseigne les structures de donnees du module.
+*
+---------------------------------------------------------------------------- */
+
+	VAR     FORMAT TFC_Competence	vl_competence
+	VAR     vl_nb_zones, i
+
+IF ITMA_TAN_Lire_Competence (va_num_comp, C_MODULE, vl_competence) <> COM_OK
+	RETURN (COM_NOK)
+
+vm_competence = vl_competence
+
+vm_l_num_zones = { }
+vm_l_zones = { }
+
+vl_nb_zones = ARRAY_SIZE@ (vl_competence.l_zones_geo)
+FOR i = 0  TO vl_nb_zones - 1
+	vm_l_num_zones[i] = vl_competence.l_zones_geo[i].numero
+	vm_l_zones[i] = COM12_Libelle_Zone_Competence
+			    (vl_competence.l_zones_geo[i].num_autoroute,
+				vl_competence.l_zones_geo[i].PR_debut,
+				vl_competence.l_zones_geo[i].PR_fin,
+				vl_competence.l_zones_geo[i].sens)
+NEXT i
+
+RETURN (COM_OK)
+
+ENDMACRO

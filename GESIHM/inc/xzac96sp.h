@@ -1,0 +1,1 @@
+DEFINE	XZAC96_Commande_Fin_BAF		"XZAC96"

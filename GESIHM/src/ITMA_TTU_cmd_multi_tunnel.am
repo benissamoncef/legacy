@@ -1,0 +1,1215 @@
+/*E*/
+/* Fichier : $Id: ITMA_TTU_cmd_multi_tunnel.am,v 1.24 2020/11/03 17:47:24 pc2dpdy Exp $      Release : $Revision: 1.24 $        Date : $Date: 2020/11/03 17:47:24 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER ITMA_TTU_cmd_mutli_tunnel.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de Commande d'une sequence sur plusieurs tunnels.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Cornu 		13 Dec 1994	: Creation					1.1
+* Charles		05 Jul 1994	: Action qualité				1.11
+* Volcic	 	18 Dec 1995	: Modif Lien FMC PA				(v1.3)
+* Guilhou		17 sep 1996	: modif gestion lien cause pour applix 4.2	1.14
+* Guilhou 03 oct 1997 : liste des FMC cause a le m look que celle des FMC a traiter (ana/65) 1.15
+* Niepceron		14/01/2008	:  Modifier les traitements et filtres spécifiques DN pour les adapter à DM DEM743 1.16
+* JBL			Nov 2007 : DEM 665
+* BERTOLA		01-03-2010 : correction FT 3373: Problème avec l'outil de commande multi tunnel côté SAE
+* BERTOLA		19-03-2010 : suite correction FT 3373: Problème avec l'outil de commande multi tunnel côté SAE
+*				on ne gère que les tubes rénovés avec les nouveau scénarios propres à la GTC rénovée
+*  JMG           03/03/17 : regio DEM1220
+* LCL			31/03/20  : MOVIS Ajout site local DEM-SAE93
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes générales
+ * ------------------------------------- */
+DEFINE	C_MODULE			"MTTU"	' Nom du module
+DEFINE	REP_CONFIG		"../fichiers/"
+DEFINE	REP_RENOVE		"../fichiers/renov/"
+
+
+/*A Description des modules à inclures 
+* ---------------------------------------*/
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+ /*A Description des procedures sotckées à appeler
+* ------------------------------------------------ */
+INCLUDE	"../inc/xzac63sp.h"
+INCLUDE	"../inc/xzac631sp.h"
+INCLUDE	"../inc/xzac52sp.h"
+INCLUDE	"../inc/xzac05sp.h"
+INCLUDE	"../inc/xzac06sp.h"
+INCLUDE	"../inc/xzat07sp.h"
+INCLUDE	"../inc/xzat01sp.h"
+INCLUDE	"../inc/xzac100sp.h"
+
+
+/*A Description des variables globales
+ * ----------------------------------- */
+var		vm_statut				' Valeur de retour du module
+var     vm_fenetre_TTU			' item de la fenetre du module
+var		vm_messages_acceptes
+var		vm_F_tunnel			    ' fichier de config des tunnels
+var		vm_F_panneau			' fichier de config des panneaux
+var		vm_F_bouton			    ' fichier de config des boutons
+var		vm_dispo				' indice de disponibilité
+var		vm_District				' N° du district
+var		vm_Simulation			' flag de simulation
+var		vm_NomSite			    ' Nom du site en cours
+var		vm_NumSequence			' Numero de la sequence selectionné
+var		vm_NumTube			    ' Numero du tube selectionné
+var		vm_text				    ' text en edition
+var		vm_seq_select			' Nom de la sequence selectionné
+var		vm_semiautomatique		' Flag de semi-automatique
+var		vm_resultat			    ' Flag de resultat de sequence
+var		vm_exe_seq_en_cours		' Flag d'execution d'une sequence selectionné
+var		vm_NumEvt				' N° de l'evenement
+var		vm_CleEvt				' clé de l'evenement
+var		vm_NomOperateur		    ' nom de l'operateur
+var		vm_mode_PA			    ' mode de retour du plan d'action
+var		vm_NumAction			' N° du plan d'action
+var		vm_Autoroutes			' la listes des autoroutes
+var		vm_liste_tunnel2		' fichier des tunnels dispo
+var		tm_liste_causes
+var		tm_BP_menu
+
+var vm_codes_tubes_renoves ' liste des codes des tubes renoves
+var vm_noms_tubes_renoves ' liste des noms des tubes renoves
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commande une sequence sur plusieurs tunnels
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_cmd_multi_tunnel(va_appelant,va_1,va_2,va_3,va_4,va_5,va_6,va_7)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 à va_6		: Suivant la procedure d'appel
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant résultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> Tunnel dans MTMT
+*
+* FONCTION
+*    Commander une sequence sur plusieurs tunnels
+*
+---------------------------------------------------------------------------- */
+
+/*A Déclaration des variables statiques */
+var		vl_Poste			' Le nom de la machine
+var		vl_fenetre_active	' flag de fenetre active
+var		vl_controle_sortie	' flag de sortie
+var		vl_erreur			' flag d'erreur
+var		i,j,k			' index de loop
+var		vl_F_tunnel1		' fichier des tunnels de debut
+var		vl_F_tub1			' rang dans fichier des tunnels de debut
+var		vl_F_tunnel2		' fichier des tunnels de fin
+var		vl_taille			' taille de tableau
+var		vl_trouve			' indice trouvé
+var		vl_index			' index de la liste
+var		vl_defaut			' flag de defaut alarmes
+var 	vl_taille2		' 	"        "
+var		vl_rang			' rang selectionné dans une liste
+var		vl_rang1			' rang selectionné dans une liste
+var		vl_rang2			' rang selectionné dans une liste
+var		vl_numero			' numero selectionné
+var		vl_message		' mesage affiché
+var		vl_text			' text libre
+var		vl_fmc			' libellé FMC retourné
+var		vl_fermeture		' flag de fermeture de la fenetre par socket
+var		vl_F_tpm			' tableau tampon
+var		vl_F_sequence		' fichier de sequence
+var		vm_F_tunnel		' fichier de tunnel
+var		vl_ligne			' tableau d'une ligne
+var		vl_autoroutes		' la liste des libéllés d'autoroutes
+var		vl_tunnel			' tunnel selectionné dans la liste
+var		vl_Nom_Tunnel		' nom des tunnels 
+var		vl_liste_tunnel	' liste des tunnels dispo
+var		vl_sequence		' sequence selectionné dans la liste
+var		vl_seq			' sequence selectionné dans la liste
+var		vl_panneau		' tableau des panneaux à commander
+var		vl_etat			' tableau des etat des panneaux à commandes
+var		vl_sens			' sens selectionné
+var		vl_icon 			' graph à afficher dans l'objet
+var		vl_xpos 			' position X de l'objet
+var		vl_ypos 			' position Y de l'objet 
+var		vl_titre  		' titre du bouton
+var		vl_titre2  		' titre de l'image digit
+var		vl_auto			' type d'autoroute selectionné
+var		vl_abt_alarmes		' flag d'abonnement
+var		vl_abt_panneau		' flag d'abonnement
+var		vl_abt_sequence	' flag d'abonnement
+var		vl_les_districts	' listes des disrticts
+var		vl_defaut_sequence	' flag de defaut sequence
+var		tl_titres,tl_data,tl_retour
+var		vl_explication		' explication du PA
+var		vl_NumAction		' N° d'action retourné par la base
+VAR    	vl_indice       	' Indice de parcours des parametres 
+						' d entree d une procedure stockée
+VAR    	vl_lib_auto       	' libelle autoroute
+var		vl_tub_debut		' n° du tunnel de debut
+var		vl_tub_fin		' n° du tunnel de fin
+var		vl_num_tub		' rang dang fichier des tunnels
+
+var     pos           ' position de recherche dans un tableau
+
+VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+VAR	    FORMAT COM_Localisation vl_localisation
+VAR		vl_tunnel_renove		' indication tunnel renove ou non
+var		vl_Sce_Signalisation
+var		vl_nom_tube
+var		boucle
+var		vl_trigramme
+var		vl_tab
+
+
+/*A MAJ des variables statiques */
+vm_simulation = SYSTEM_VAR@("vg_simuler_SQL")
+vm_District = SYSTEM_VAR@("vg_site")
+vl_poste = SYSTEM_VAR@("vg_numero_operateur")
+vm_NomSite = SYSTEM_VAR@("vg_nom_site")
+vm_dispo = 0
+vl_poste = SYSTEM_VAR@("vg_numero_operateur")
+vm_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vm_NomOperateur = SUBSTRING@(vm_NomOperateur, 1, 25)
+vm_Autoroutes = SYSTEM_VAR@(vg_les_autoroutes)
+vl_taille = ARRAY_SIZE@(vm_Autoroutes)-1
+for i  = 0 to vl_taille
+	vl_autoroutes[i] = vm_Autoroutes[i,0]
+	vl_lib_auto[i] = vm_Autoroutes[i,1]
+next i
+
+vl_abt_alarmes	= False
+vl_abt_panneau	= False
+vl_abt_sequence = False
+vl_fermeture = FALSE
+vm_exe_seq_en_cours = False
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN(COM_NOK)
+}
+
+
+/*A Tracer l'initialisation de la procedure :
+* -------------------------------------------*/
+vm_text = "------------------------------------------------------------"
+COM01_Trace(0,vm_text)
+vm_text = COM09_Date_Courante() ++ " Start ITMA_TTU_cmd_multi_tunnel "
+vm_text = vm_text  ++ "   User : " ++ vm_NomOperateur
+COM01_Trace(0,vm_text)
+COM01_Trace(0," ")
+
+
+/*A Chargement du fichier de config tunnels
+*   ------------------------------------------ */
+vl_F_tpm = READ_ASCII_FILE@(REP_CONFIG ++ "pmv/ConfigBDTunnel.cfg")
+vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+for i = 1 to vl_taille
+	vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+	vl_taille2 = ARRAY_SIZE@(vl_ligne) -1
+	for j = 0 to vl_taille2
+		vm_F_tunnel[vl_ligne[0],j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+	next j
+next i
+
+
+/*A Chargement du fichier de config sequences 
+*   ------------------------------------------ */
+vl_F_tpm = READ_ASCII_FILE@(REP_RENOVE ++ "ConfigSequenceRenov.cfg")
+vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+for i = 0 to vl_taille
+	vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+	vl_taille2 = ARRAY_SIZE@(vl_ligne) -1
+	for j = 0 to vl_taille2
+		vl_F_sequence[i,j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+	next j
+	vl_seq[i]=vl_ligne[0]						' N° de la sequence
+	vl_sequence[i]=TRIM@(TABS_TO_SPACES@(vl_ligne[1]))    ' Nom de la sequence
+next i
+
+
+/*A Lecture de la liste des tunnels disponibles   
+*   ------------------------------------------- */
+
+ ITMA_TTU_Liste_Eqt_Dispo_TTU(vm_District,vm_dispo,XDC_EQT_TUBE)
+
+/*A si pas de Consultation dans SYBASE de la liste des tunnels */
+if NOT IS_ARRAY@(vm_liste_tunnel2) 
+{
+	info_message@("Aucun tunnel disponible dans ce district !")
+	vm_liste_tunnel2[0] = 0
+}
+
+
+'----- chargement du fichier ConfigMenu
+
+vl_F_tpm = READ_ASCII_FILE@(REP_RENOVE ++ "ConfigMenu.cfg")
+vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+
+for i = 0 to vl_taille
+  if ( substring@(vl_F_tpm[i],1,1) <> "#" )
+  {
+    vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+    tm_BP_menu[i,0]=TRIM@(TABS_TO_SPACES@(vl_ligne[0]))
+    tm_BP_menu[i,1]=TRIM@(TABS_TO_SPACES@(vl_ligne[1]))    
+    vm_noms_tubes_renoves[ARRAY_SIZE@(vm_noms_tubes_renoves)]=TRIM@(TABS_TO_SPACES@(vl_ligne[0]))
+  	vm_codes_tubes_renoves[ARRAY_SIZE@(vm_codes_tubes_renoves)]=TRIM@(TABS_TO_SPACES@(vl_ligne[1]))
+  }
+next i
+
+
+vl_F_tpm = ""
+vl_F_tpm[0] = 0
+vl_index = 0
+vl_Nom_Tunnel = ""
+vl_Nom_Tunnel[0,0] = 0
+/*A Mise en forme du nom des tunnels avec Autoroute, Sens, PR et nom */
+vl_taille = ARRAY_SIZE@(vm_liste_tunnel2)-1
+for i = 0 to vl_taille
+	for j = 0 to  ARRAY_SIZE@(vm_F_tunnel)-1
+		if vm_liste_tunnel2[i,2] = vm_F_tunnel[j,1]
+		{
+			if vm_F_tunnel[j,5]> 0
+			{
+				vl_localisation.NumAuto = vm_liste_tunnel2[i,3]
+				vl_localisation.PR = vm_liste_tunnel2[i,4]
+				vl_localisation.sens_circulation = vm_liste_tunnel2[i,5]
+
+				vl_Nom_Tunnel[vl_index,0] = "TUN" 
+								++ COM10_Localisation(vl_localisation)
+				vl_Nom_Tunnel[vl_index,0] = 
+							vl_Nom_Tunnel[vl_index,0] ++ "  " ++ 
+									vm_F_tunnel[j,2]
+
+				vl_F_tpm[vl_index]=vm_F_tunnel[j]
+				vl_Nom_Tunnel[vl_index,1]=j
+				vl_index = vl_index + 1
+				break j
+			}
+		}
+	next j
+next i
+
+vl_liste_tunnel = vl_F_tpm
+
+
+/*A Capture de la valeur de l'autoroute */
+vl_auto = vl_autoroutes[0]
+
+/*A construction de la liste des tunnels */
+vl_sens = 2
+vl_auto = 1
+vl_F_tunnel1 = ""
+vl_F_tunnel1[0] = ""
+vl_F_tub1 = ""
+vl_F_tub1[0] = ""
+j = 0
+vl_taille = ARRAY_SIZE@(vm_liste_tunnel2) -1
+
+if IS_ARRAY@(vm_liste_tunnel2) 
+and IS_ARRAY@(vm_F_tunnel)
+and IS_ARRAY@(vl_F_tunnel1)
+{
+	for i = vl_taille to 0 step -1
+		/*A si le sens correspond */
+		if vm_liste_tunnel2[i,5]=vl_sens and vm_liste_tunnel2[i,3]=vl_auto
+		{
+			/*A recherche du libellé correspondant */
+			vl_text = ""
+			for k = 0 to ARRAY_SIZE@(vl_liste_tunnel)-1
+				if vl_liste_tunnel[k,1] = vm_liste_tunnel2[i,2]
+				{
+					vl_text = vl_Nom_Tunnel[k,0]
+					vl_num_tub = vl_Nom_Tunnel[k,1]
+					break k
+				}
+			next k
+
+			/*A si le libelle existe : ajout dans la liste */
+			if vl_text<>""
+			{
+				vl_F_tunnel1[j] = vl_text
+				vl_F_tub1[j] = vl_num_tub
+				j = j + 1
+			}
+		}
+
+	next i
+}
+
+/*A Ouverture de la liste des tunnels */
+vm_fenetre_TTU = DB_LOAD@("ITMA_TTU_multi_tunnel")
+vm_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vm_fenetre_TTU, vm_messages_acceptes)
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(vm_fenetre_TTU,0)
+DB_YPOS@(vm_fenetre_TTU, 100)
+DEFINE_HELPFILE@("Commande d'une sequence sur plusieurs tunnels", "./aide/ITMA_TTU_cmd_multi_tunnel.aide")
+DB_HELP_TOPIC@(vm_fenetre_TTU,"Commande d'une sequence sur plusieurs tunnels")
+
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BL_tunnel1",True)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BL_tunnel2",True)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BL_sequence",True)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BO_sens",True)
+DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BO_autoroutes",True)
+DB_CTRL_STRINGS@(vm_fenetre_TTU,"BL_tunnel1",vl_F_tunnel1)
+DB_CTRL_STRINGS@(vm_fenetre_TTU,"BL_sequence",vl_sequence)
+DB_CTRL_STRINGS@(vm_fenetre_TTU,"BO_autoroutes",vl_lib_auto)
+DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",True)
+DB_CTRL_VALUE@(vm_fenetre_TTU,"BL_sequence",-1)
+DB_CTRL_VALUE@(vm_fenetre_TTU,"BL_tunnel1",-1)
+DB_CTRL_VALUE@(vm_fenetre_TTU,"BL_tunnel2",-1)
+
+
+/*A Boucle de capture des événements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	if DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BL_sequence")<>-1
+		and DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BL_tunnel1")<>-1
+		and DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BL_tunnel2")<>-1
+		and vm_NumEvt>0 and vm_CleEvt>0
+	{ DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",FALSE) }
+	else { DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",True) }
+	
+	/* affichage de la liste */
+	DB_DISPLAY@(vm_fenetre_TTU)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vm_fenetre_TTU)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action "lier F.M.C" */
+	CASE "BP_lier"
+
+		DB_CTRL_TITLE@(vm_fenetre_TTU,"LI_status","Status : Appel lien FMC")
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",	"ITMA_TNA_pilotage_NAV")
+
+		tm_liste_causes=tl_data[0]
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU,"TA_Evenements",TRUE)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU,"LI_Evenements",TRUE)
+
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"TA_Evenements",TRUE)
+		DB_TABLE_ALLOW_COLUMN_RESIZING@(vm_fenetre_TTU,"TA_Evenements",True)
+		DB_TABLE_SET_MARKER_WIDTH@(vm_fenetre_TTU, "TA_Evenements", 25)
+		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+		DB_TABLE_SET_DATA@(vm_fenetre_TTU,"TA_Evenements",tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vm_fenetre_TTU, "TA_Evenements", 0, tl_data[2])
+		
+
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+
+ 		DB_CTRL_TITLE@(vm_fenetre_TTU,"LI_status","Status : Selection evenement")
+
+		tl_retour=ITMA_COM_Validite_Cause("ITMA_TTU_cmd_multi_tunnel",vm_fenetre_TTU,tm_liste_causes)
+
+		vm_NumEvt = tl_retour[0][0] 
+		vm_CleEvt = tl_retour[0][1]
+		vl_fmc = tl_retour[1]
+		vl_text=TRIM@(SUBSTRING@(vl_fmc,1,46))
+		vl_fmc=vl_text ++ "  " ++ TRIM@(SUBSTRING@(vl_fmc,60,18))
+
+
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU,"TA_Evenements",FALSE)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU,"LI_Evenements",FALSE)
+
+		DB_CTRL_TITLE@(vm_fenetre_TTU,"LI_fmc",vl_fmc)
+
+	/*A sur action executer */
+	CASE "BP_executer"
+
+        if vm_NumEvt = 0 and vm_CleEvt = 0
+        {
+            info_message@("Veuillez d'abord lier cette action a une F.M.C...")
+        }
+        else
+        {
+            /*A MAJ du status */
+            DB_CTRL_TITLE@ (vm_fenetre_TTU, "LI_status", "Status :  " ++ vl_sequence[vm_NumSequence]++" executée")
+	
+            /*A du tunnel de debut au tunnel de fin */
+            for i = vl_tub_debut to vl_tub_fin
+	
+                /*A recherche du N° base du tunnel */
+                vm_NumTube = vl_F_tub1[i]+0
+
+                '-- on ne traite que les tunnels rénovés
+                pos = ARRAY_INDEX@(vm_noms_tubes_renoves, vm_F_tunnel[vm_NumTube,2])
+                if ( pos > -1)
+                {
+                                
+	                /*A Commande de la sequence vers SYBASE si n° de tunnel trouvé */
+	                if vl_seq[vm_NumSequence]+0 <> XDC_SIG_SEQ_RETOUR_NORMAL '(ouverture tunnel)
+	                {
+	                	/* déterminer si le scénario est connu du tube */
+	                	
+						/*A Chargement du fichier de config sequence signalisation du tunnel */
+						vl_nom_tube = vm_F_tunnel[vm_NumTube,2]
+
+						'--INFO_MESSAGE@("vl_nom_tube = " ++ vl_nom_tube)
+						/* recuperer le trigramme qui correspond au nom de repertoire du tube */
+						vl_trigramme =  ITMA_TTU_recuperer_trigramme(vl_nom_tube)
+														
+						vl_F_tpm = READ_ASCII_FILE@(REP_RENOVE ++ vl_trigramme ++ "/ConfigSceSignalisation_" ++ vl_trigramme ++ ".cfg")
+																
+						vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+						vl_Sce_Signalisation = null
+						vl_index = 0
+						for k = 0 to vl_taille
+						  vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[k],",")
+						  vl_tab = ARRAY_SIZE@(vl_ligne)
+						  if substring@(vl_F_tpm[k],1,1) <> "#"
+						  {			
+							vl_taille2 = ARRAY_SIZE@(vl_ligne) -1
+							for j = 0 to vl_taille2
+								vl_Sce_Signalisation[vl_index,j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+							next j
+							vl_index = vl_index + 1
+						  }
+						next k
+						
+						/* Vérifier si le scénario est utilisé par le tube */
+						vl_trouve = 0
+						vl_taille = ARRAY_SIZE@(vl_Sce_Signalisation) -1
+						for boucle = 0 to vl_taille
+							if vl_Sce_Signalisation[boucle,0] = vl_seq[vm_NumSequence]+0
+							{
+								vl_trouve = 1
+								break boucle
+							}
+						next boucle
+	                
+	                	/* Si le scénario est connu du tube */
+	                	if vl_trouve = 1
+						{
+						  /* tunnel renové */
+						  vm_NumAction = ITMA_TTU_Commande_Seq_Tunnel_renov(vm_NumTube, XDC_FAUX, vl_seq[vm_NumSequence]+0)
+						}  
+						else
+						{
+			            	/* scenario non utilisé */
+				        	info_message@("Le scénario " ++ vl_sequence[vm_NumSequence] ++ " pour le tube " ++ vl_nom_tube ++ " n'existe pas, commande non envoyee pour ce tube.")
+						}
+	                }
+	                else
+	                {
+						'-- scénario ouverture tunnel
+						ITMA_TTU_Commande_Retour_Normal_SIG(vm_NumTube, XDC_FAUX)
+	                }
+                }
+                else 
+                {
+                	/* tunnel non renové */
+		            info_message@("Le tube " ++ vl_nom_tube ++ " n'est pas renove, commande non envoyee.")
+				}   
+				'--attente de 1 seconde entre chaque envoi de commande
+				DELAY@(1)
+            next i
+
+            /*A griser le bouton 'executer' */
+            DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",True)
+            DB_CTRL_value@(vm_fenetre_TTU,"BL_sequence",-1)
+            DB_CTRL_VALUE@(vm_fenetre_TTU,"BL_tunnel1",-1)
+            DB_CTRL_VALUE@(vm_fenetre_TTU,"BL_tunnel2",-1)
+		
+            vm_NumEvt = 0
+            vm_CleEvt = 0
+            DB_CTRL_TITLE@(vm_fenetre_TTU,"LI_fmc","")
+        }
+		
+	/*A sur action quitter */
+	CASE "BP_quitter"
+
+		/*A Fermeture de la fenetre */
+		RETURN(COM_NOK)
+
+
+	/*A sur action du choix du sens */
+	CASE "BO_sens"
+
+		/*A Capture de la valeur de selection */
+		if 	DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BO_sens")=0 	{vl_sens = 2}
+		if	DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BO_sens")=1 	{vl_sens = 1}
+
+		/*A Capture de la valeur de l'autoroute */
+		vl_auto = DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BO_autoroutes")
+		vl_auto = vl_autoroutes[vl_auto]
+
+
+
+		/*A construction de la liste des tunnels */
+		vl_F_tunnel1 = ""
+		vl_F_tunnel1[0] = ""
+		vl_F_tub1 = ""
+		vl_F_tub1[0] = ""
+		j = 0
+		vl_taille = ARRAY_SIZE@(vm_liste_tunnel2) -1
+
+		if IS_ARRAY@(vm_liste_tunnel2) 
+		and IS_ARRAY@(vm_F_tunnel)
+		and IS_ARRAY@(vl_F_tunnel1)
+		{
+
+			if vl_sens =1
+			{
+				for i = 0 to vl_taille
+					/*A si le sens correspond */
+					if vm_liste_tunnel2[i,5]=vl_sens and
+							 vm_liste_tunnel2[i,3]=vl_auto
+					{
+						/*A recherche du libellé correspondant */
+						vl_text = ""
+						for k = 0 to ARRAY_SIZE@(vl_liste_tunnel)-1
+							if vl_liste_tunnel[k,1] = vm_liste_tunnel2[i,2]
+							{
+								vl_text = vl_Nom_Tunnel[k,0]
+								vl_num_tub = vl_Nom_Tunnel[k,1]
+								break k
+							}
+						next k
+
+						/*A si le libélle existe : ajout dans la liste */
+						if vl_text<>""
+						{
+							vl_F_tunnel1[j] = vl_text
+							vl_F_tub1[j] = vl_num_tub
+							j = j + 1
+						}
+					}
+				next i
+			}
+			else
+			{
+				for i = vl_taille to  0 step -1
+					/*A si le sens correspond */
+					if vm_liste_tunnel2[i,5]=vl_sens and
+							 vm_liste_tunnel2[i,3]=vl_auto
+					{
+						/*A recherche du libellé correspondant */
+						vl_text = ""
+						for k = 0 to ARRAY_SIZE@(vl_liste_tunnel)-1
+							if vl_liste_tunnel[k,1] = vm_liste_tunnel2[i,2]
+							{
+								vl_text = vl_Nom_Tunnel[k,0]
+								vl_num_tub = vl_Nom_Tunnel[k,1]
+								break k
+							}
+						next k
+
+						/*A si le libélle existe : ajout dans la liste */
+						if vl_text<>""
+						{
+							vl_F_tunnel1[j] = vl_text
+							vl_F_tub1[j] = vl_num_tub
+							j = j + 1
+						}
+					}
+				next i
+			}
+		}
+
+		/*A MAJ des listes */
+		DB_CTRL_STRINGS@(vm_fenetre_TTU,"BL_tunnel1",vl_F_tunnel1)
+		DB_CTRL_value@(vm_fenetre_TTU,"BL_tunnel1",-1)
+		vl_F_tunnel2 = ""
+		vl_F_tunnel2[0] = ""
+		DB_CTRL_STRINGS@(vm_fenetre_TTU,"BL_tunnel2",vl_F_tunnel2)
+		DB_CTRL_value@(vm_fenetre_TTU,"BL_tunnel2",-1)
+
+
+
+	/*A sur action du choix de l'autoroute */
+	CASE "BO_autoroutes"
+
+		/*A Capture de la valeur de selection */
+		if 	DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BO_sens")=0 	{vl_sens = 2}
+		if	DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BO_sens")=1 	{vl_sens = 1}
+
+		/*A Capture de la valeur de l'autoroute */
+		vl_auto = DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BO_autoroutes")
+		vl_auto = vl_autoroutes[vl_auto]
+
+
+		/*A construction de la liste des tunnels */
+		vl_F_tunnel1 = ""
+		vl_F_tunnel1[0] = ""
+		vl_F_tub1 = ""
+		vl_F_tub1[0] = ""
+		j = 0
+		vl_taille = ARRAY_SIZE@(vm_liste_tunnel2) -1
+
+		if IS_ARRAY@(vm_liste_tunnel2) 
+		and IS_ARRAY@(vm_F_tunnel)
+		and IS_ARRAY@(vl_F_tunnel1)
+		{
+
+
+			if vl_sens =1
+			{
+				for i = 0 to vl_taille
+					/*A si le sens correspond */
+					if vm_liste_tunnel2[i,5]=vl_sens and
+							 vm_liste_tunnel2[i,3]=vl_auto
+					{
+						/*A recherche du libellé correspondant */
+						vl_text = ""
+						for k = 0 to ARRAY_SIZE@(vl_liste_tunnel)-1
+							if vl_liste_tunnel[k,1] = vm_liste_tunnel2[i,2]
+							{
+								vl_text = vl_Nom_Tunnel[k,0]
+								vl_num_tub = vl_Nom_Tunnel[k,1]
+								break k
+							}
+						next k
+
+						/*A si le libélle existe : ajout dans la liste */
+						if vl_text<>""
+						{
+							vl_F_tunnel1[j] = vl_text
+							vl_F_tub1[j] = vl_num_tub
+							j = j + 1
+						}
+					}
+				next i
+			}
+			else
+			{
+				for i = vl_taille to  0 step -1
+					/*A si le sens correspond */
+					if vm_liste_tunnel2[i,5]=vl_sens and
+							 vm_liste_tunnel2[i,3]=vl_auto
+					{
+						/*A recherche du libellé correspondant */
+						vl_text = ""
+						for k = 0 to ARRAY_SIZE@(vl_liste_tunnel)-1
+							if vl_liste_tunnel[k,1] = vm_liste_tunnel2[i,2]
+							{
+								vl_text = vl_Nom_Tunnel[k,0]
+								vl_num_tub = vl_Nom_Tunnel[k,1]
+								break k
+							}
+						next k
+
+						/*A si le libélle existe : ajout dans la liste */
+						if vl_text<>""
+						{
+							vl_F_tunnel1[j] = vl_text
+							vl_F_tub1[j] = vl_num_tub
+							j = j + 1
+						}
+					}
+				next i
+			}
+
+
+		}
+
+		/*A MAJ des listes */
+		if NOT IS_ARRAY@(vl_F_tunnel1) {vl_F_tunnel1[0]=""}
+		DB_CTRL_STRINGS@(vm_fenetre_TTU,"BL_tunnel1",vl_F_tunnel1)
+		DB_CTRL_value@(vm_fenetre_TTU,"BL_tunnel1",-1)
+		vl_F_tunnel2 = ""
+		vl_F_tunnel2[0] = ""
+		DB_CTRL_STRINGS@(vm_fenetre_TTU,"BL_tunnel2",vl_F_tunnel2)
+		DB_CTRL_value@(vm_fenetre_TTU,"BL_tunnel2",-1)
+
+	/*A sur action liste tunnel 1 */
+	CASE "BL_tunnel1"
+
+		/*A Capture du rang dans la liste des tunnels */
+		vl_rang1 = DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BL_tunnel1")
+
+		/*A Capture de la valeur de selection */
+		if 	DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BO_sens")=0 	{vl_sens = 2}
+		if	DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BO_sens")=1 	{vl_sens = 1}
+
+		/*A Capture de la valeur de l'autoroute */
+		vl_auto = DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BO_autoroutes")
+		vl_auto = vl_autoroutes[vl_auto]
+
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "LI_status", 
+					"Status :  " ++ vl_F_tunnel1[vl_rang1] ++ " selectionné")
+
+		for i = vl_trouve+1 to vl_taille
+			vl_F_tpm[i-vl_trouve-1] = vl_F_sequence[i,1]
+			if SUBSTRING@(vl_F_sequence[i+2,0],1,3) = "-->" { i = vl_taille}
+		next i
+
+		/*A MAJ la liste des tunnels de fin*/
+		vl_F_tunnel2=""
+		vl_taille=ARRAY_SIZE@(vl_F_tunnel1)
+		j = 0
+		for i  = vl_rang1+1 to vl_taille
+			vl_F_tunnel2[j]=vl_F_tunnel1[i]
+			j = j + 1
+		next i
+
+		vl_tub_debut = vl_rang1
+
+		if NOT IS_ARRAY@(vl_F_tunnel2) {vl_F_tunnel2[0]=""}
+		DB_CTRL_STRINGS@(vm_fenetre_TTU,"BL_tunnel2",vl_F_tunnel2)
+		DB_CTRL_value@(vm_fenetre_TTU,"BL_tunnel2",-1)
+
+	/*A sur action liste tunnel 2 */
+	CASE "BL_tunnel2"
+
+		/*A Capture du rang dans la liste des tunnels */
+		vl_rang2 = DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BL_tunnel2")
+
+		vl_tub_fin = vl_rang2 + vl_tub_debut +1
+
+		/*A MAJ */
+		DB_CTRL_TITLE@(vm_fenetre_TTU,"LI_status",
+					"Status :  "++vl_F_tunnel2[vl_rang2]++" selectionné")
+
+		/*A Activer le bouton executer */
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",False)
+
+	/*A sur action liste sequences */
+	CASE "BL_sequence"
+
+		/*A Capture du rang dans la liste des sequences */
+		vl_rang = DB_CTRL_GET_VALUE@(vm_fenetre_TTU,"BL_sequence")
+
+		/*A Desactiver le bouton 'Executer' sur 'aucune sequence'*/
+		if vl_rang=0 { DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",True) }
+
+		vm_NumSequence = vl_rang
+
+	/*A sur reception de poke */
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vm_fenetre_TTU)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+			vl_fermeture = TRUE
+
+		ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+
+/*A si la fenetre à été fermé par socket arreter l'application 
+*   ---------------------------------------------------------- */
+if vl_fermeture = TRUE then RETURN(COM_NOK)
+
+
+/*B trace de la fin de traitement */
+vm_text = COM09_Date_Courante() ++ " Stop ITMA_TTU_cmd_multi_tunnel "
+vm_text = vm_text ++ "   User : " ++ vm_NomOperateur
+COM01_Trace(0,vm_text)
+
+
+RETURN(COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture des tunnels en disponibilité
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Liste_Eqt_Dispo_TTU(va_District,va_dispo,va_Equipement)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_District	:	le numero du district
+*		va_dispo		:	le type de disponibilité
+*		va_Equipement	:	le type d'equipement
+*
+* ARGUMENTS EN SORTIE : 
+*		Liste_Eqt		: la liste des équipements correspondants
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION
+*   	Lecture des caméras en disponibilités.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+	var	vl_TypeEqt		' type d'équipement
+	var	vl_Liste_select	' liste resultat du select SQL
+	var	vl_Liste			' liste retournée
+	var	i,j				' index de loop
+	var	vl_taille			' taille de la table de resultat
+	var	vl_canal_SGBD		' canal de communication SYBASE
+	var   vl_tmp
+	var	vl_index			' index de tunnel 
+
+	/*A parametrage de vl_parametres */
+	vl_parametres[0].type = SYB#INT1_
+	vl_parametres[0].data = va_Equipement
+	vl_parametres[0].output = FALSE
+	
+	vl_parametres[1].type = SYB#INT1_
+	vl_parametres[1].data = va_District
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type	= SYB#INT4_			' Conditions
+	vl_parametres[2].data	= XDC_EQT_MINEUR+ XDC_EQT_MAJEUR 
+	vl_parametres[2].output	= FALSE
+
+	vl_parametres[3].type	= SYB#INT4_			' Conditions niees
+	vl_parametres[3].data	= XDC_EQT_MINEUR + XDC_EQT_MAJEUR 
+	vl_parametres[3].output	= FALSE
+
+	vl_parametres[4].type	= SYB#INT4_			' Exclusions
+	vl_parametres[4].data	= XDC_EQT_HS + XDC_EQT_CRITIQUE + XDC_EQT_DESACTIVE + XDC_EQT_INHIBE
+	vl_parametres[4].output	= FALSE
+
+	vl_parametres[5].type	= SYB#INT4_			' Exclusions niees
+	vl_parametres[5].data	= 0
+	vl_parametres[5].output	= FALSE
+
+	IF COM05_SQL_Procedure (XZAT01_Liste_Eqt_Dispo,
+								vl_parametres,
+								vl_resultats,
+								C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+	/*A récuperation du select dans la liste 'liste_select' */
+	vl_taille = 0
+	vl_tmp = ""
+	vl_Liste_select = vl_resultats.select_results[0]
+	if va_Equipement=XDC_EQT_TUBE {vm_liste_tunnel2 = vl_resultats.select_results[0]}
+	vl_taille = ARRAY_SIZE@(vl_liste_select) - 1	
+
+
+
+	/*A retour de vl_liste */
+	RETURN (COM_OK)
+
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commander une sequence  
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Commande_Seq_Tunnel_renov(va_NumTube, va_Manuelle, va_NumSequence)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NumTube	        :	numéro du tube
+*		va_Manuelle			:	le type manuel ou auto
+*		va_NumSequence		:	N° de la sequence
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TTU_pilotage_tunnel
+*
+* FONCTION
+*   		Commander le sequence d'une voie vers SYBASE.
+*
+---------------------------------------------------------------------------- */
+
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_Heure		' heure courante
+	var	vl_NumAction	' le N° d'action retournée par la base
+	var vl_poste        ' Le nom de la machine
+	VAR     vl_NomSite                      ' Nom du site
+  
+    vl_poste = SYSTEM_VAR@("vg_numero_operateur")
+
+    	vl_NomSite = SYSTEM_VAR@("vg_nom_site")
+    
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT))
+	{
+		ITMA_TTU_Acces_interdit("Commande_Commande_Seq_Tunnel")
+		RETURN(COM_NOK)
+	}
+
+	vl_Heure = COM09_Date_Courante(TRUE)
+
+	/*A trace de l'appel de la procedure */
+	vm_text = COM09_Date_Courante()++" ---> Appel de la procedure 'XZAC100_Commande_Seq_SIG("++va_NumTube++","++va_Manuelle++","++va_NumSequence++")'"
+	COM01_Trace(0,vm_text)
+
+	/*A parametrage de vl_parametres */
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = vm_NumEvt+0			    ' NumEvt
+	vl_parametres[0].output = FALSE
+	
+	vl_parametres[1].type = SYB#INT1_
+	vl_parametres[1].data = vm_CleEvt+0			    ' CléEvt
+	vl_parametres[1].output = FALSE
+	
+	vl_parametres[2].type = SYB#INT2_
+	vl_parametres[2].data = vl_poste+0		        ' Poste Opérateur
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type = SYB#INT1_
+	vl_parametres[3].data = 3			            ' TypeEqt = tube
+	vl_parametres[3].output = FALSE
+        
+	vl_parametres[4].type = SYB#INT2_
+	vl_parametres[4].data = va_NumTube+0			' NumEqt = numéro tube
+	vl_parametres[4].output = FALSE
+
+	vl_parametres[5].type = SYB#DATETIME_
+	vl_parametres[5].data = vl_heure				' Heure de lancement
+	vl_parametres[5].output = FALSE
+
+	vl_parametres[6].type = SYB#BIT_
+	vl_parametres[6].data = va_Manuelle				' Manu ou Auto
+	vl_parametres[6].output = FALSE
+	
+	vl_parametres[7].type = SYB#INT1_
+	vl_parametres[7].data = NULL                    ' Priorité
+	vl_parametres[7].output = FALSE
+
+	vl_parametres[8].type = SYB#INT4_
+	vl_parametres[8].data = XDC_DISTANCE_INCONNUE   ' DistanceEvt
+	vl_parametres[8].output = FALSE
+
+	vl_parametres[9].type = SYB#INT1_
+	vl_parametres[9].data = va_NumSequence+0        ' N° de la sequence
+	vl_parametres[9].output = FALSE
+
+	vl_parametres[10].type = SYB#INT4_
+	vl_parametres[10].data = NULL					' NumAction
+	vl_parametres[10].output = True
+
+        vl_parametres[11].type = SYB#CHAR_
+        vl_parametres[11].data = vl_NomSite                             ' Site local
+        vl_parametres[11].output = FALSE
+
+	IF COM05_SQL_Procedure(XZAC100_Commande_Seq_SIG, vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+        RETURN (COM_NOK)
+	
+    vl_NumAction = vl_resultats.return_parameters[0]
+	RETURN (vl_NumAction)
+    
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourne un message à l'operateur et trace l'accès interdit
+*				à une macro.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Acces_interdit(va_NomMacro)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomMacro	:	le nom de la macro interdite
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+
+* CONDITION D'UTILISATION :
+*   appel d'une macro avec les droits d'accès insuffisant.
+*
+* FONCTION :
+*	Retourne un message à l'operateur et trace l'accès interdit à une macro
+*---------------------------------------------------------------------------- */
+
+	/*A message d'info à l'opérateur */
+	var		vl_tptext			' zone de text tampon
+	
+	vl_tptext = "L'utilisateur " ++vm_NomOperateur ++ " n'a pas les droits suffisants" ++ NUM_TO_STRING@(10) ++ "pour la fonction : " ++ va_NomMacro
+	info_message@(vl_tptext)
+
+	/*A trace de l'appel de procedure */
+	vl_tptext = COM09_Date_Courante()  
+	vl_tptext =  vl_tptext ++ " Accès Macro "
+				 ++ va_NomMacro ++ " refusé pour " ++ vm_NomOperateur
+	COM01_Trace(0,vl_tptext)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Remet le tunnel à l'etat normal
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Commande_Retour_Normal_SIG(va_NumEqt, va_Manuelle)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NumEqt	:	le numero d'équipement
+*		va_Manuelle	:	Le flag manuel ou automatique
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TTU_pilotage_tunnel
+*
+* FONCTION
+*   		Remet le tunnel à l'etat normal.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_heure			' heure courante
+
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) AND
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+	{
+		ITMA_TTU_Acces_interdit("Commande_Fin_Tunnel")
+		RETURN(COM_NOK)
+	}
+
+	vl_Heure = COM09_Date_Courante(TRUE)
+
+	/*A trace de l'appel de la procedure */
+	vm_text = COM09_Date_Courante()++" ---> Appel de la procedure 'XZAC631_Commande_Fin_Signalisation' "
+	COM01_Trace(0,vm_text)
+
+	/*A parametrage de vl_parametres */
+	vl_parametres[0].type = SYB#INT1_
+	vl_parametres[0].data = 3		/* type eqt : tube */
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#INT4_
+	vl_parametres[1].data = va_NumEqt
+	vl_parametres[1].output = FALSE
+	
+	vl_parametres[2].type = SYB#INT4_
+	vl_parametres[2].data = XDC_VC
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type = SYB#CHAR_
+	vl_parametres[3].data = vl_heure
+	vl_parametres[3].output = FALSE
+
+	vl_parametres[4].type = SYB#INT4_
+	vl_parametres[4].data = va_Manuelle
+	vl_parametres[4].output = FALSE
+
+	vl_parametres[5].type = SYB#CHAR_                               ' Site local
+	vl_parametres[5].data = SYSTEM_VAR@(vg_nom_site)
+	vl_parametres[5].output = FALSE
+
+	if ( COM05_SQL_Procedure (XZAC631_Commande_Fin_Signalisation,vl_parametres,vl_resultats,C_MODULE) <> COM_OK )
+		RETURN (COM_NOK)
+
+	RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourner le trigramme d'un tube
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TTU_recuperer_trigramme(va_tube)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		va_tube		:	nom tube
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*	retourner trigramme tube en fonction du nom du tube.
+*
+---------------------------------------------------------------------------- */
+var vl_rep
+var vl_taille
+var i
+
+
+vl_rep = null
+vl_taille = ARRAY_SIZE@(tm_BP_menu) -1
+for i = 0 to vl_taille
+	if tm_BP_menu[i,0] = va_tube
+	{
+		vl_rep = tm_BP_menu[i,1]
+	}
+next i
+
+return(vl_rep)
+
+endmacro

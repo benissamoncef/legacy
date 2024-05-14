@@ -1,0 +1,586 @@
+/*E*/
+/* Fichier : $Id: dedi_ec44.am,v 1.1 1999/02/26 11:57:51 gaborit Exp $	      Release : $Revision: 1.1 $        Date : $Date: 1999/02/26 11:57:51 $ 
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec44.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* definition des exports intergestionnaires
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Niepceron 18 jan 1999	: Creation						V1.1
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+include "../../XDMICG/inc/xdc_ax.h"
+
+DEFINE	CAR_SEPAR_DEF			" "
+
+FORMAT dedi_cas
+	type,
+	autoroute,
+	pr_debut,
+	pr_fin,
+	sens,
+	duree_inf,
+	duree_sup,
+	trafic
+
+
+VAR FORMAT dedi_cas				tm_cas
+VAR 							tm_evts
+VAR							tm_controles,tm_controlesCommuns
+VAR							tm_listeControlesCommuns
+VAR							vm_type
+VAR							tm_comparateurs	
+VAR						 	vm_selectionInterl
+VAR 							vm_selectionEvt
+VAR							tm_valeursAppel
+VAR							vm_fichier
+VAR 							tm_niveau_trafic,tm_sens, tm_autoroute
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer les exports intergestionnaires
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec44 (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice,vl_index
+var tl_pokes
+var tl_dataInterl,tl_dataEvt
+var vl_appel
+var vl_chaine
+var vl_oldType
+var vl_taille
+var vl_nomEvt
+var vl_titreComp,vl_posComp
+var tl_data
+var tl_appele
+var vl_nomInterl,vl_numInterl
+var tl_inter
+var vl_autoroute,vl_pr_debut,vl_pr_fin,vl_sens,vl_duree_inf,vl_duree_sup,vl_trafic
+
+
+
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec44")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+vm_fichier=AX_PATH++IE_FILE_EXPORT_INTERGEST
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,340)
+DB_YPOS@(vl_fenetre,74)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec44_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+/*A boucle principale */
+WHILE TRUE
+
+	DB_DISPLAY@(vl_fenetre)
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt		
+		/*A appui sur le bouton ajouter*/
+		CASE "BP_ajouter"
+			/*A recupere le nom et le type de l'evenement*/
+			vm_type=DB_CTRL_GET_VALUE@(vl_fenetre,"type")
+			vl_pr_debut=DB_CTRL_GET_VALUE@(vl_fenetre,"pr_debut")
+			vl_pr_fin=DB_CTRL_GET_VALUE@(vl_fenetre,"pr_fin")
+			vl_duree_inf=DB_CTRL_GET_VALUE@(vl_fenetre,"duree_inf")
+			vl_duree_sup=DB_CTRL_GET_VALUE@(vl_fenetre,"duree_sup")
+
+			/*A si le nom est nul*/
+			IF (vm_type=-1)
+				INFO_MESSAGE@("Le type est obligatoire")
+			ELSE IF ( vl_pr_debut>vl_pr_fin)
+				INFO_MESSAGE@("PR incompatibles")
+			ELSE IF (vl_duree_inf>vl_duree_sup)
+				INFO_MESSAGE@("Bornes de la durée incorrectes")
+			ELSE
+			{
+
+					vl_taille=ARRAY_SIZE@(tm_cas)
+
+					/*A nom du nouvel evenement*/
+					tm_cas[vl_taille].type=tm_evts[vm_type]
+					tm_cas[vl_taille].autoroute= tm_autoroute[ DB_CTRL_GET_VALUE@(vl_fenetre,"autoroute")]
+
+					tm_cas[vl_taille].pr_debut=vl_pr_debut
+				   	tm_cas[vl_taille].pr_fin=vl_pr_fin
+
+					tm_cas[vl_taille].sens=tm_sens[ DB_CTRL_GET_VALUE@(vl_fenetre,"sens")]
+		
+					tm_cas[vl_taille].duree_inf=vl_duree_inf
+
+					tm_cas[vl_taille].duree_sup=vl_duree_sup
+
+					tm_cas[vl_taille].trafic=tm_niveau_trafic[ DB_CTRL_GET_VALUE@(vl_fenetre,"trafic")]
+
+
+					/*A met a jour la table des evts*/
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_evts",
+											tm_cas,0)
+
+					/*A selectionne cet element*/
+					vl_indice[0]=vl_taille
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_evts",vl_indice)
+					vm_selectionEvt=vl_taille
+
+					IF (vl_taille>9)
+						DB_TABLE_SET_NEW_TOP_ROW@(vl_fenetre,"TA_evts",
+											vl_taille-9)
+
+			}
+
+		/*A appui sur le bouton supprimer un evenement*/
+		CASE "BP_supprimer"
+			IF ((vm_selectionEvt++"")<>null)
+			{
+				IF (ARRAY_SIZE@(tm_cas)=1)
+					INFO_MESSAGE@("Le dernier élément ne peut pas être supprimé")
+				ELSE
+				{
+					tm_cas=ARRAY_DELETE@(tm_cas,vm_selectionEvt)
+					DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_evts",0,-1)
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_evts",
+											tm_cas,0)
+
+					vm_selectionEvt[0]=0
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_evts",
+											vm_selectionEvt)
+
+					DB_TABLE_SET_NEW_TOP_ROW@(vl_fenetre,"TA_evts",0)
+
+					vm_selectionEvt=0
+				}
+			}
+
+		/*A appui sur le bouton modifier un evenement*/
+		CASE "BP_modifier_evt"
+			IF ((vm_selectionEvt++"")<>null)
+			{
+				/*A nouveau  nom de l'evenement*/
+			vl_pr_debut=DB_CTRL_GET_VALUE@(vl_fenetre,"pr_debut")
+			vl_pr_fin=DB_CTRL_GET_VALUE@(vl_fenetre,"pr_fin")
+			vl_duree_inf=DB_CTRL_GET_VALUE@(vl_fenetre,"duree_inf")
+			vl_duree_sup=DB_CTRL_GET_VALUE@(vl_fenetre,"duree_sup")
+			vm_type=DB_CTRL_GET_VALUE@(vl_fenetre,"type")
+
+			/*A si le nom est nul*/
+			IF (vm_type=-1)
+				INFO_MESSAGE@("Le type est obligatoire")
+			ELSE IF ( vl_pr_debut>vl_pr_fin)
+				INFO_MESSAGE@("PR incompatibles")
+			ELSE IF (vl_duree_inf>vl_duree_sup)
+				INFO_MESSAGE@("Bornes de la durée incorrectes")
+			ELSE
+			{
+					tm_cas[vm_selectionEvt].type=tm_evts[vm_type]
+					tm_cas[vm_selectionEvt].autoroute= tm_autoroute[ DB_CTRL_GET_VALUE@(vl_fenetre,"autoroute")]
+
+					tm_cas[vm_selectionEvt].pr_debut=vl_pr_debut
+				   	tm_cas[vm_selectionEvt].pr_fin=vl_pr_fin
+
+					tm_cas[vm_selectionEvt].sens=tm_sens[ DB_CTRL_GET_VALUE@(vl_fenetre,"sens")]
+	
+					tm_cas[vm_selectionEvt].duree_inf=vl_duree_inf
+					tm_cas[vm_selectionEvt].duree_sup=vl_duree_sup
+
+
+					tm_cas[vm_selectionEvt].trafic=tm_niveau_trafic[ DB_CTRL_GET_VALUE@(vl_fenetre,"trafic")]
+
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_evts",
+											tm_cas,0)
+
+				/*A reselectionne cet element*/
+				vl_indice[0]=vm_selectionEvt
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_evts",vl_indice)
+
+			}
+			}
+
+
+		/*A choix d'un type d'evenement*/
+		CASE "type"
+			/*A memorise l'ancien type*/
+			vl_oldType=vm_type
+			
+			/*A recupere le nouveau type*/
+			vm_type=tm_evts[DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)]
+
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			IF (ec44_valide()=TRUE)
+				RETURN
+
+		/*A selection d'un element dans la liste des evenements*/
+		CASE "TA_evts"
+			/*A on affiche les caracteristiques de l'objectif selectionnee */
+			vl_indice = DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_evts")
+			vm_selectionEvt=vl_indice[0]
+
+			ec44_affiche_controles(vl_fenetre,vm_selectionEvt)
+		
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			/*A je ne suis plus presente*/
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					/*A bye*/
+					RETURN
+			ENDCASE
+
+		DEFAULT
+			vl_posComp=-1
+			/*A comparateur commun?*/
+			IF ((vl_evt="cp_longueur") OR (vl_evt="cp_duree"))
+				vl_posComp=0
+			ELSE
+			{
+				tl_data=ARRAY_COLUMN@(tm_controles,3)
+				FOR vl_indice=0 TO (ARRAY_SIZE(tl_data)-1)
+					/*A je regarde si c'est un comparateur*/
+					vl_index=ARRAY_INDEX@(tl_data[vl_indice],vl_evt)
+					IF (vl_index<>-1)
+						vl_posComp=0
+				NEXT vl_indice
+			}
+
+			IF (vl_posComp<>-1)
+			{
+				/*A recupere le titre*/
+				vl_titreComp=DB_CTRL_GET_TITLE@(vl_fenetre,vl_evt)
+
+				/*A position dans la table des titres de comparateurs*/
+				vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_comparateurs,1),
+										vl_titreComp)
+
+				/*A j'affiche l'icone suivante*/
+				vl_indice=(vl_indice+1) MOD 3
+				DB_CTRL_TITLE@(vl_fenetre,vl_evt,tm_comparateurs[vl_indice][1])
+			}
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec44_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_titre_evts
+VAR tl_data
+VAR vl_indice
+VAR vl_indexEvts,vl_index
+VAR tl_titre_appele
+
+
+	/*A charge les types d'evenements*/
+	tm_evts=SYSTEM_VAR@(vg_types_evts)
+	tm_evts=ARRAY_INSERT@(tm_evts,"",0)
+
+	/*A affiche cette liste*/
+	DB_CTRL_STRINGS@(va_fenetre,"type",tm_evts)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"type",TRUE)
+	DB_CTRL_VALUE@(va_fenetre,"type",-1)
+
+	/*A initialise les controles*/
+
+	tm_niveau_trafic[0]=""
+	tm_niveau_trafic[XDC_RADT_FLUIDE]="fluide"
+	tm_niveau_trafic[XDC_RADT_PRESAT]="pré-saturé"
+	tm_niveau_trafic[XDC_RADT_SATURE]="saturé"
+	DB_CTRL_STRINGS@ (va_fenetre, "trafic" ,tm_niveau_trafic )
+
+	tm_sens[0]="Non précisé"
+	tm_sens[1]="Sens 1"
+	tm_sens[2]="Sens 2"
+	DB_CTRL_STRINGS@ (va_fenetre, "sens" ,tm_sens )
+	tm_autoroute=ARRAY_COLUMN@(SYSTEM_VAR@(vg_autoroutes),1)
+	DB_CTRL_STRINGS@ (va_fenetre, "autoroute" ,tm_autoroute )
+
+	/*A charge la liste des evenements*/
+	tl_data=READ_ASCII_FILE@(vm_fichier)
+
+	/*A parcourt le tableau lu et extrait les champs*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tl_data[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+											DEDI_CAR_SEPAR)
+		tm_cas[vl_indice].type=tm_evts[tl_data[vl_indice][0]]
+		tm_cas[vl_indice].autoroute=tm_autoroute[tl_data[vl_indice][1]]
+		tm_cas[vl_indice].pr_debut=tl_data[vl_indice][2]
+		tm_cas[vl_indice].pr_fin=tl_data[vl_indice][3]
+		tm_cas[vl_indice].sens=tm_sens[tl_data[vl_indice][4]]
+		tm_cas[vl_indice].duree_inf=tl_data[vl_indice][5]
+		tm_cas[vl_indice].duree_sup=tl_data[vl_indice][6]
+		tm_cas[vl_indice].trafic=tm_niveau_trafic[tl_data[vl_indice][7]]
+
+
+	NEXT vl_indice
+
+	DB_CTRL_VALUE@(va_fenetre,"pr_debut",0)
+	DB_CTRL_VALUE@(va_fenetre,"pr_fin",0)
+	DB_CTRL_VALUE@(va_fenetre,"duree_sup",0)
+	DB_CTRL_VALUE@(va_fenetre,"duree_inf",0)
+
+	/*A affiche les titres des colonnes des evts*/
+	ec44_affiche_titres(va_fenetre)
+
+
+
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* affiche les controles correspondant au type de l'evenement
+* les met a jour
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec44_affiche_controles (va_fenetre,va_selection)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR tl_evt
+VAR tl_appele
+VAR vl_indice
+VAR tl_definition
+VAR tl_data
+VAR vl_oldType
+VAR tl_libelleType
+VAR tl_libelleDef
+VAR tl_def_formatee
+
+	/*A je memorise l'ancienne valeur du type*/
+	vl_oldType=DB_CTRL_GET_VALUE@(va_fenetre,"type")
+
+	/*A si un type existait*/
+	IF (vl_oldType<>-1)
+		vl_oldType=tm_evts[vl_oldType]
+	ELSE
+		vl_oldType=null
+
+	/*A j'affiche le bon type et le libelle*/
+	vl_indice=ARRAY_INDEX@(tm_evts,tm_cas[va_selection].type)
+	DB_CTRL_VALUE@(va_fenetre,"type",vl_indice)
+
+	vl_indice=ARRAY_INDEX@(tm_autoroute,tm_cas[va_selection].autoroute)
+	DB_CTRL_VALUE@(va_fenetre,"autoroute",vl_indice)
+
+	vl_indice=ARRAY_INDEX@(tm_sens,tm_cas[va_selection].sens)
+	DB_CTRL_VALUE@(va_fenetre,"sens",vl_indice)
+
+	vl_indice=ARRAY_INDEX@(tm_niveau_trafic,tm_cas[va_selection].trafic)
+	DB_CTRL_VALUE@(va_fenetre,"trafic",vl_indice)
+
+	DB_CTRL_VALUE@(va_fenetre,"pr_debut",tm_cas[va_selection].pr_debut)
+	DB_CTRL_VALUE@(va_fenetre,"pr_fin",tm_cas[va_selection].pr_fin)
+	DB_CTRL_VALUE@(va_fenetre,"duree_sup",tm_cas[va_selection].duree_sup)
+	DB_CTRL_VALUE@(va_fenetre,"duree_inf",tm_cas[va_selection].duree_inf)
+
+	
+ENDFUNCTION
+
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation des objectifs
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec44_valide ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	/*pour tous les evenements*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_cas)-1)
+		tl_data[vl_indice]=ARRAY_INDEX@(tm_evts,tm_cas[vl_indice].type)++
+						DEDI_CAR_SEPAR++
+					ARRAY_INDEX@(tm_autoroute,tm_cas[vl_indice].autoroute)++
+						DEDI_CAR_SEPAR++
+					tm_cas[vl_indice].pr_debut++DEDI_CAR_SEPAR++
+					tm_cas[vl_indice].pr_fin++DEDI_CAR_SEPAR++
+					ARRAY_INDEX@(tm_sens,tm_cas[vl_indice].sens)++
+						DEDI_CAR_SEPAR++
+					tm_cas[vl_indice].duree_inf ++ 
+					DEDI_CAR_SEPAR++
+				   	tm_cas[vl_indice].duree_sup ++ DEDI_CAR_SEPAR++
+					ARRAY_INDEX@(tm_niveau_trafic,tm_cas[vl_indice].trafic) ++
+					DEDI_CAR_SEPAR
+
+					
+	NEXT vl_indice
+
+	WRITE_ASCII_FILE@(vm_fichier,tl_data)
+	RETURN (TRUE)
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'affichage des titres des colonnes de la table des evts
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec44_affiche_titres (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR tl_titre_evts
+var vl_indice
+var vl_indexEvts
+var vl_index
+
+	/*A affiche la liste des objectifs*/
+	tl_titre_evts[0][0] = "Type"
+	tl_titre_evts[0][1] = 200
+	tl_titre_evts[1][0] = "Autoroute"
+	tl_titre_evts[1][1] = 100
+	tl_titre_evts[2][0] = "PR début"
+	tl_titre_evts[2][1] = 100
+	tl_titre_evts[3][0] = "PR fin"
+	tl_titre_evts[3][1] = 100
+	tl_titre_evts[4][0] = "Sens"
+	tl_titre_evts[4][1] = 100
+	tl_titre_evts[5][0] = "durée inf."
+	tl_titre_evts[5][1] = 100
+	tl_titre_evts[6][0] = "durée sup."
+	tl_titre_evts[6][1] = 100
+	tl_titre_evts[7][0] = "trafic"
+	tl_titre_evts[7][1] = 100
+
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_evts", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_evts",TRUE)
+	DB_TABLE_SET_DATA@(va_fenetre,"TA_evts",tm_cas,tl_titre_evts)
+	
+ENDFUNCTION
+
+

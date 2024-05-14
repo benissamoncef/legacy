@@ -1,0 +1,162 @@
+/*X  Fichier : $Id: eqt_gen.tab,v 1.8 2018/10/19 16:36:36 devgfi Exp $      Release : $Revision: 1.8 $        Date : $Date: 2018/10/19 16:36:36 $
+------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR 
+------------------------------------------------------
+* SOUS-SYSTEME  BASEDD
+------------------------------------------------------
+* FICHIER eqt_gen.tab
+------------------------------------------------------
+* DESCRIPTION DE LA PROCEDURE :
+*
+* création de la table EQT_GEN
+*
+------------------------------------------------------
+* HISTORIQUE :
+*
+* C.T.	09/08/94	: Creation
+* C.T.	23/09/94	: Ajout de la colonne type_maitre
+* C.T.	11/04/95	: Ajout de la description de la table
+* JMG	11/11/07	: ajout site de gestion
+* JPL	10/10/18	: ajout colonne 'eqt_supprime'  1.8
+* JPC	29/06/23	: Ajout index EQT_GEN_FK2 comme en PROD
+-----------------------------------------------------*/
+
+
+/* ============================================================ */
+/*   Nom de la base   :  MIGRAZUR                               */
+/*   Nom de SGBD      :  SYBASE10                               */
+/*   Date de creation :  29/07/94                              */
+/* ============================================================ */
+
+/* ============================================================ */
+/*   Table : EQT_GEN                                            */
+/* ============================================================ */
+
+/* Suppression de la table si elle existe */
+/* ===========================*/
+if exists (select * from sysobjects where name = 'EQT_GEN' and type = 'U')
+	begin
+	drop table EQT_GEN
+	end
+go
+
+declare @nom_base varchar(10)
+
+/* nom de la base courante */
+select @nom_base = db_name()
+
+/*
+*  Fonctionalité de la table
+*  -------------------------
+*  Contient les caractéristiques générales des équipements
+*
+*  Description des colonnes de la table
+*  ------------------------------------
+*        numero                  : numéro de l'équipement
+*        type                    : numéro du type de l'équipement
+*        maitre                  : numéro de l'équipement pilotant cet équipement
+*        type_maitre             : numéro du type de l'équipement pilotant cet équipement
+*        autoroute               : numéro de l'autoroute de l'équipement
+*        PR                      : PR de l'équipement
+*        sens                    : sens de la chaussée de l'équipement
+*        nom                     : nom de l'équipement
+*	 site_gestion		: site de gestion
+*	 eqt_supprime		: indicateur de suppression
+*
+*  Remarque
+*  --------
+*  Le numéro d'équipement est unique par type d'équipement. Pour sélection un
+*  équipement, il faut préciser son numéro et son type.
+*  Voici la liste exhaustive de ces types :
+*      type :            libellé                                : complément
+*      ---------------------------------------------------------------------
+*        1  : biseaux de rabattement automatique (BRA ou NAV)   : EQT_NAV
+*        2  : panneaux à message variable                       : EQT_PMV
+*        3  : tunnel                                            : EQT_TUB
+*        4  : détecteur automatique d'incident                  : EQT_DAI
+*        5  : système vidéo                                     : EQT_SYV
+*        6  : locaux technique vidéo                            : EQT_LTV
+*        7  : caméra                                            : EQT_CAM
+*        8  : modules d'appel automatique                       : EQT_MAA
+*        9  : moniteurs                                         : EQT_MNT
+*        10 : lit d'arrêt                                       : EQT_TUB
+*        11 : demi échangeur                                    : EQT_ECH
+*        12 : réseau d'appel d'urgence                          : EQT_RAU
+*        13 : machine                                           : EQT_MAC
+*        14 : poste d'appel d'urgence                           : EQT_PAU
+*        15 : GTC de Nice                                       : EQT_NIC
+*        18 : capteur tunnel                                    : EQT_TUB
+*        19 : feux d'affectation des voies                      : EQT_???
+*        20 : panneau GTC                                       : EQT_PAN
+*        21 : module de biseau de rabattement automatique       : EQT_MOD
+*        22 : serveur de terminaux                              : EQT_???
+*        23 : mini GTC                                          : EQT_GTC
+*        24 : entree TOR                                        : EQT_TOR
+*        25 : pictogramme                                       : EQT_PCT
+*        26 : recueil automatique des données trafic            : EQT_RAD
+*        27 : analyseur                                         : EQT_ANA
+*        28 : magnétoscopes                                     : EQT_MAG
+*        29 : extincteur                                        : EQT_TUB
+*        30 : capteur d'opacité                                 : EQT_TUB
+*        31 : capteur de taux CO                                : EQT_TUB
+*        32 : operator                                          : EQT_???
+*        33 : équipement Satir                                  : EQT_???
+*        0  : équipement autre                                  : néant
+*/
+
+
+create table EQT_GEN
+(
+    type                            tinyint               not null,
+    numero                          smallint              not null,
+    maitre                          smallint              null    ,
+    type_maitre                     tinyint               null    ,
+    autoroute                       tinyint               null    ,
+    PR                              T_PR                  null    ,
+    sens                            tinyint               null    ,
+    nom                             char(10)              not null     ,
+    site_gestion		    tinyint               null,
+    eqt_supprime		    bit       default 0   not null
+)
+/* ajout des droits a public*/
+grant all on EQT_GEN to public
+
+/* =============================================================== */
+/*   creation des cles primaires et des index en fonction de la base courante                     */
+/* =============================================================== */
+if @nom_base = 'CFG'
+	begin
+	/* ========================================================== */
+	/*   Cle primaire : type, numero                                      */
+	/* ========================================================== */
+	execute sp_primarykey EQT_GEN, type, numero
+
+	/* ========================================================== */
+	/*   Index : EQT_GEN_PK                                         */
+	/*   Index : EQT_GEN_FK1                                        */
+	/*   Index : EQT_GEN_FK2                                        */
+	/* ========================================================== */
+	create unique index EQT_GEN_PK on EQT_GEN (type, numero)
+	create index EQT_GEN_FK1 on EQT_GEN (maitre)
+	create index EQT_GEN_FK2 on EQT_GEN (type, numero, autoroute, sens)
+	end
+
+if @nom_base = 'CFT'
+	begin
+	/* ========================================================== */
+	/*   Cle primaire : type, numero                                      */
+	/* ========================================================== */
+	execute sp_primarykey EQT_GEN, type, numero
+
+	/* ========================================================== */
+	/*   Index : EQT_GEN_PK                                         */
+	/*   Index : EQT_GEN_FK1                                        */
+	/*   Index : EQT_GEN_FK2                                        */
+	/* ========================================================== */
+	create unique index EQT_GEN_PK on EQT_GEN (type, numero)
+	create index EQT_GEN_FK1 on EQT_GEN (maitre)
+	create index EQT_GEN_FK2 on EQT_GEN (type, numero, autoroute, sens)
+	end
+
+go
+

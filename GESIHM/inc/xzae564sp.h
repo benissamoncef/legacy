@@ -1,0 +1,1 @@
+define XZAE564_Ecrire_Fiche_Regulation	"XZAE564"

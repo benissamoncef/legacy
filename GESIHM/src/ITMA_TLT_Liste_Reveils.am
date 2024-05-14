@@ -1,0 +1,268 @@
+/*E*/
+/* Fichier : $Id: ITMA_TLT_Liste_Reveils.am,v 1.5 2019/09/09 18:19:10 devgfi Exp $        $Revision: 1.5 $        $Date: 2019/09/09 18:19:10 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTLT * FICHIER ITMA_TLT_Liste_Reveils.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Liste des reveils.
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou  19 jan 1994 : Creation                                          V1.1
+* NDE		xx/08/2015	: Fusion des deux liste de reveils Evt/Opr (DEM 1138) 1.3
+* JPL		22/09/2015	: Suppression du message de reveil Off au menu textuel 1.4
+* JPL		09/04/2019	: Fusion des trois listes de reveils (DEM 1325)  1.5
+---------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+
+INCLUDE	"xdc_ax.h"
+INCLUDE	"xzic_ax.h"
+
+INCLUDE	"ITMA_COM.h"
+INCLUDE	"ITMA_TDO.h"
+
+DEFINE	C_MODULE 	"MTLT"
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation de la liste des reveils.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TLT_Liste_Reveils (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation sur selection du reveil general au menu textuel.
+*
+* FONCTION
+*   Sur invocation au menu, lit les listes publiques de reveils
+*   et presente ces listes fusionnees sans doublon a l'operateur.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetres			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+	
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Liste des reveils"
+ * --------------------------------------
+ */
+
+vl_fenetres = DB_LOAD@ ("ITMA_TLT_Liste_Reveils")
+
+DB_XPOS@ (vl_fenetres, 0)
+DB_YPOS@ (vl_fenetres, 93)
+
+COM02_Attacher_Aide (vl_fenetres, "ITMA_TLT_Liste_Reveils")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetres, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetres, "TA_reveils", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetres, "TA_reveils", TRUE)
+
+
+/*A
+ * Initialiser la visualisation (liste des reveils)
+ * ---------------------------------------------------
+ */
+
+IF TLT_Init_Visualisation (vl_fenetres) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetres)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetres)
+	CASE OF vl_objet_selecte
+	CASE "BP_quitter"
+	    vl_la_fenetre_est_active = FALSE
+		RETURN
+
+    CASE "poke_"
+	CASE OF  DB_GET_POKE@ (vl_fenetres)
+		CASE COM_CANAL_FIN
+		    vl_la_fenetre_est_active = FALSE
+	ENDCASE
+   ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TLT_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLL_Liste_Alertes
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_t_titres				' Titres colonnes de la table
+    VAR	FORMAT TLT_Reveil_Fmc	tl_data, tl_data_2, tl_data_3
+    VAR     tl_data_size
+    VAR	    vl_i_reveil, vl_i_reveil2
+    VAR     vl_duplique
+
+	
+/*A
+ * Definir les titres des colonnes de la table
+ * puis afficher les titres et une table vide
+ * -------------------------------------------
+ */
+
+vl_t_titres[0] = "Numéro",		120	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Clé",		120
+vl_t_titres[2] = "Texte du réveil",	700
+
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+
+tl_data=SYSTEM_VAR@(vg_liste_reveils ++ "_1")
+tl_data_size = ARRAY_SIZE@(tl_data)
+
+tl_data_2 = SYSTEM_VAR@(vg_liste_reveils ++ "_2")
+tl_data_3 = SYSTEM_VAR@(vg_liste_reveils ++ "_3")
+
+IF IS_NULL@ (tl_data_2) {
+	tl_data_2 = tl_data_3
+} ELSE IF NOT IS_NULL@ (tl_data_3) {
+	tl_data_2 = ARRAY_APPEND@ (tl_data_2, tl_data_3)
+}
+
+/*
+**  Fusionner le contenu de la 1ere liste de reveils
+**   avec les autres sans creer de reveils dupliques
+*/
+
+IF NOT IS_NULL@ (tl_data_2)
+{
+	/* pour chaque reveil dans la seconde liste */
+	FOR vl_i_reveil2 = 0 TO (ARRAY_SIZE@(tl_data_2) - 1)
+		vl_duplique = FALSE
+		FOR vl_i_reveil = 0 TO (tl_data_size - 1)
+			/* verifie s'il existe deja dans la liste primaire de reveils */
+			IF((tl_data[vl_i_reveil].num_fmc = tl_data_2[vl_i_reveil2].num_fmc) AND
+			   (tl_data[vl_i_reveil].cle_fmc = tl_data_2[vl_i_reveil2].cle_fmc) AND
+			   (tl_data[vl_i_reveil].texte = tl_data_2[vl_i_reveil2].texte))
+			{
+				vl_duplique = TRUE
+				BREAK vl_i_reveil
+			}
+		NEXT vl_i_reveil
+
+		/* si le reveil n'existe pas deja, l'ajoute en fin de tableau */
+		IF(vl_duplique = FALSE)
+		{
+			tl_data[tl_data_size] = tl_data_2[vl_i_reveil2]
+			tl_data_size = tl_data_size + 1
+		}
+	NEXT vl_i_reveil2
+}
+
+DB_TABLE_SET_DATA@(va_fenetre, "TA_reveils", tl_data, vl_t_titres)
+
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+RETURN (COM_OK)
+
+ENDMACRO
+
+

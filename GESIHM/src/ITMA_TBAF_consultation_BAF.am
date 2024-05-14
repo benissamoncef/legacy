@@ -1,0 +1,506 @@
+/*E*/
+/* Fichier :$Id: ITMA_TBAF_consultation_BAF.am,v 1.4 2015/03/09 16:26:28 gesconf Exp $    Release : $Revision: 1.4 $        Date : $Date: 2015/03/09 16:26:28 $
+------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------------------------
+* MODULE MTPM * FICHIER  ITMA_TBAF_consultation_BAF.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de consultation des BAF.
+*
+*
+------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG	28/11/05	 creation
+* JMG   13/11/07        : ajout site de gestion DEM715
+* JMG	12/03/12	: linux
+* PNI	09/03/15	: correction affichage lib BAF qque soit sa dispo DEM1120 1.4
+--------------------------------------------------------------------- */
+
+
+
+/*A Description des modules a inclures 
+* ------------------------------------ */
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../inc/ITMA_TBAF.h"
+
+ /*A Description des procedures sotckees a appeler
+* ------------------------------------------------ */
+INCLUDE	"../inc/xzao162sp.h"
+INCLUDE	"../inc/xzao163sp.h"
+INCLUDE	"../inc/xzao164sp.h"
+INCLUDE	"../inc/xzae72sp.h"
+INCLUDE	"../inc/xzac41sp.h"
+INCLUDE	"../inc/xzac62sp.h"
+INCLUDE	"../inc/xzac03sp.h"
+INCLUDE	"../inc/xzac02sp.h"
+INCLUDE	"../inc/xzat06sp.h"
+INCLUDE	"../inc/xzat01sp.h"
+INCLUDE	"../inc/xzat06sp.h"
+INCLUDE	"../inc/xzao05sp.h"
+INCLUDE	"../inc/xzap13sp.h"
+
+
+DEFINE  C_PIX_M11_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m11_eteint.im"
+DEFINE  C_PIX_M11_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m11_allume.im"
+DEFINE  C_PIX_M21_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m21_eteint.im"
+DEFINE  C_PIX_M21_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m21_allume.im"
+DEFINE  C_PIX_M15_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m15_eteint_vertical2.im"
+DEFINE  C_PIX_M15_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m15_allume_vertical.im"
+DEFINE  C_PIX_M25_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m15_eteint_vertical2.im"
+DEFINE  C_PIX_M25_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m25_allume_vertical180.im"
+DEFINE  C_PIX_M12_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_eteint_vertical.im"
+DEFINE  C_PIX_M12_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_allume_vertical.im"
+DEFINE  C_PIX_M22_ETEINT        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_eteint_vertical.im"
+DEFINE  C_PIX_M22_ALLUME        "/produits/migrazur/appliSD/fichiers/pic/pix_baf_m12_allume_vertical.im"
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Consultation des BAF
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBAF_consultation_BAF(va_appelant,va_1,va_2,va_3,va_4,
+											va_5,va_6,va_7)
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 a va_6		: Suivant la procedure d'appel
+*
+*	Deux appels possibles:
+*
+*		ITMA_TUE	11	<-- Numero de la BAF sur laquelle on
+*						a clique
+*			^
+*			|
+*		Appel depuis le synoptique Bp de gauche
+*
+*
+*
+*		ITMA_TMC	Structure de la fiche ACTION ( TMC_ActionFiche )
+*
+*			^
+*			|
+*		Appel depuis la FMC Liste des actions
+*
+*
+*
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant resultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> BAF dans MTMT
+*
+* FONCTION
+*    Pilote les BAF
+*
+--------------------------------------------------------------------- */
+
+
+/*A Declaration des variables */
+/*A ------------------------- */
+
+/*A Variables secondaires ou de travail */
+/*A ----------------------------------- */
+
+VAR FORMAT 	TMC_actionFiche	vl_ficheAction
+
+var	vl_appel_connu		' Flag de reconnaisance de l'appel
+var	vl_fenetre_active	' flag de fenetre active
+var	vl_controle_sortie	' flag de sortie
+var	vl_erreur			' flag d'erreur
+var	i,j,vl_mess		' index de loop
+var	vl_message		' message affiche
+var	vl_trouve			' flag pour trouver le bon scenario 		d'après le code
+var	vl_lib_fmc		' tableau du libelle fmc a construire
+var	vl_retour		 	' code retourne a l'appelant
+var	vl_Appel			' appelant
+var	vl_District		' N° du district
+var	vl_messages_acceptes
+var	vl_text			' texte en edition
+var	vl_NomOperateur	' nom de l'operateur
+var	vl_retour_fmc		' code retourne a l'appelant fmc
+var	vl_message_scenario	' message relatif a un eqt pour un scenario
+
+/*A Variables principales */
+/*A --------------------- */
+
+/*A Liste des BAF et leurs infos associees Table sur indice numero BAF
+*/
+
+var	FORMAT Config_BAF vl_info_liste_BAF
+
+/*A Liste de nom des BAF disponibles
+*/
+var	vl_liste_nom_BAF_dispo
+
+/*A Structure infos BAF plan d'action
+*/
+var	FORMAT PA_BAF vl_BAF
+
+/*A Tableau d'infos contenant les infos sur la configuration des
+	messages et des affichages pour les BAFs Indice du tableau le
+							numero de l'equipement dans la BAF */ 
+var	FORMAT ST_affichage_et_message vl_ST_aff_msg
+
+
+
+/*A Item de la fenetre du module
+*/
+var 	vl_fenetre_TBAF
+
+/*A Numero de la BAF en cours
+*/
+var	vl_NumBAF
+
+/*A liste des objets pour la boite de dialogue consultation
+*/
+var FORMAT	ST_objet	vl_liste_objet_consultation
+
+/*A liste des objets pour la boite de dialogue pilotage
+*/
+var	FORMAT	ST_objet	vl_liste_objet_pilotage
+
+
+vl_District 	= SYSTEM_VAR@(vg_site)
+
+vl_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vl_NomOperateur = SUBSTRING@(vl_NomOperateur, 1, 25)
+vl_Appel		= SUBSTRING@(va_appelant,1,8)
+
+vl_appel_connu=FALSE
+
+/*B trace du debut du traitement */
+vl_text = "------------------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = " Start ITMA_TBAF_pilotage_BAF   User : " ++ vl_NomOperateur
+COM01_Trace(0,vl_text)
+
+vl_text = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vl_text)
+
+if NOT(IS_ARRAY@(va_1))
+{	vl_text = "va_1 : " ++ va_1
+	COM01_Trace(0,vl_text)}
+else 
+{	vl_text = "va_1  est un tableau"
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_2))
+{	vl_text = "va_2 : " ++ va_2
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_3))
+{	vl_text = "va_3 : " ++ va_3
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_4))
+{	vl_text = "va_4 : " ++ va_4
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_5))
+{	vl_text = "va_5 : " ++ va_5
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_6))
+{	vl_text = "va_6 : " ++ va_6
+	COM01_Trace(0,vl_text)
+}
+
+if NOT(IS_ARRAY@(va_7))
+{	vl_text = "va_7 : " ++ va_7
+	COM01_Trace(0,vl_text)
+}
+
+
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+    ERROR_BOX@
+    COM01_Trace(COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN(COM_NOK)
+}
+
+
+/*A Pour initialiser les procedures communes */
+/*  ---------------------------------------- */
+
+ITMA_TBAF_commun_BAF()
+
+ITMA_TBAF_Init_Config_BAF(vl_info_liste_BAF)
+
+vl_liste_nom_BAF_dispo = ITMA_TBAF_Liste_Eqt_Disponibles(vl_District,
+										vl_info_liste_BAF)
+
+/*A Si l'appelant est le plan synoptique BP de gauche */
+
+if vl_Appel = "ITMA_TUE"
+{
+	if NOT(IS_ARRAY@(va_1))
+	{
+		vl_NumBAF = va_1+0
+	}
+	else
+	{
+		vl_NumBAF = va_1[0] +0
+	}
+	if vl_NumBAF >= ARRAY_SIZE@(vl_info_liste_BAF)
+	{
+		info_message@("Le BAF demande n'est pas disponible")
+		RETURN(COM_NOK)
+	}
+	if TRIM@(vl_info_liste_BAF[vl_NumBAF].Identifiant)=""
+	{
+		info_message@("Le BAF demande n'est pas disponible")
+		RETURN(COM_NOK)
+	}
+	
+	vl_messages_acceptes[0] = COM_CANAL_FIN
+	vl_messages_acceptes[1] = COM_CANAL_MTBAF
+	ITMA_TBAF_init_boite_dialogue_consultation(vl_fenetre_TBAF,
+				vl_messages_acceptes,vl_info_liste_BAF[vl_BAF.NumEqt].Type)
+
+	/*A lecture de l'etat actuel du BAF */
+
+	vl_BAF.Priorite	= 0
+	vl_BAF.DistanceEvt	= XDC_DISTANCE_INCONNUE
+	vl_BAF.NumEqt		= vl_NumBAF
+
+	ITMA_TBAF_Lecture_BAF(vl_BAF.NumEqt,vl_BAF)
+
+	DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_BAF",
+					vl_info_liste_BAF[vl_NumBAF].Identifiant)	
+	
+	DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_fmc_nouveau",vl_BAF.fmc_liee)
+
+	DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"LI_fmc_nouveau",TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"Tableau",TRUE)
+		
+	/*A Abonnement a l'etat des panneaux */
+	vl_erreur = ITMA_TBAF_Abt_Etat_Panneaux_BAF(
+					XDC_DEBUT_ABONNEMENT_EQUEXT,
+						COM51_NomSite(vl_info_liste_BAF[vl_NumBAF].NomSite))
+																		
+	/*A MAJ du libelle status */
+
+	DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_status",
+								"Etat du BAF en temps reel")
+	vl_appel_connu=TRUE
+}
+
+/*A Si l'appelant est la FMC liste des actions */
+
+if vl_Appel = "ITMA_TMC"	
+{
+	vl_FicheAction = va_1
+	ITMA_COM_Lire_Evenement (vl_FicheAction.numero_fiche ,
+							vl_FicheAction.cle_fiche,
+							vl_lib_fmc,C_MODULE)
+
+	vl_retour = ITMA_TBAF_Lecture_PA_BAF(
+						vl_FicheAction.numero_action,
+								vl_FicheAction.cle_action)
+	vl_NumBAF = vl_retour[0]+0
+	vl_messages_acceptes[0] = COM_CANAL_FIN
+	ITMA_TBAF_init_boite_dialogue_consultation(vl_fenetre_TBAF,
+				vl_messages_acceptes,vl_info_liste_BAF[vl_NumBAF].Type)
+
+	vl_retour_fmc = COM11_Libelle_FMC(vl_lib_fmc)
+	
+	DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_fmc_nouveau",vl_retour_fmc)
+
+	DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"LI_fmc_nouveau",TRUE)
+	DB_CTRL_DISPLAY@(vl_fenetre_TBAF,"Tableau",TRUE)
+
+	
+/* *** */
+/* !!! */
+
+	if vl_info_liste_BAF[vl_NumBAF].Disponible=TRUE
+	{
+		DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_BAF",
+					vl_info_liste_BAF[vl_NumBAF].Identifiant)
+	}
+	else
+	{
+	
+		DB_CTRL_TITLE@(vl_fenetre_TBAF,"LI_BAF",vl_info_liste_BAF[vl_NumBAF].Identifiant)	
+	}
+
+	ITMA_TBAF_MAJ_BAF(vl_NumBAF,vl_retour[2],vl_retour[4],vl_retour[5],
+				vl_retour[6],vl_retour[7],vl_retour[8],
+							vl_fenetre_TBAF,vl_info_liste_BAF[vl_NumBAF].Type,"consultation")
+	vl_appel_connu=TRUE
+}
+
+/* Si l'appel est inconnu ( pas ITMA_TUE et pas ITMA_TMC ) */
+
+if(vl_appel_connu=FALSE)
+{
+	/* Alors */
+	/* Retourner une erreur */
+
+	info_message@("L'appel '"++vl_Appel++
+			"' n'est pas reconnu pas la boite de dialogue "++ 
+									"Consultation d'un BAF")
+	RETURN(COM_NOK)
+}
+/* Finsi */
+DB_REFRESH@(vl_fenetre_TBAF)
+
+/*A flag de fenetre : actif */
+
+vl_fenetre_active = TRUE
+WHILE (vl_fenetre_active)
+
+	DB_DISPLAY@ (vl_fenetre_TBAF)
+
+	vl_controle_sortie = DB_EXIT_CTRL@ (vl_fenetre_TBAF)
+	
+	if SYSTEM_VAR@(vg_verrou)
+	{
+		vl_controle_sortie = NULL
+	}
+
+	CASE OF vl_controle_sortie
+
+		CASE "BP_quitter"
+			vl_fenetre_active = FALSE
+
+	    	CASE "poke_"
+
+	     	CASE OF  DB_GET_POKE@ (vl_fenetre_TBAF)
+
+	     	CASE COM_CANAL_FIN
+	    			vl_fenetre_active = FALSE
+
+			/*A si poke de fin de canal : fermeture de fenetre */
+			CASE COM_CANAL_MTBAF
+
+				/*A capture du message */
+				vl_message = DB_GET_POKE_DATA@(vl_fenetre_TBAF)
+
+				/*A trace de la reception du message */
+				vl_text =	"   MsgPoke MTBAF : " ++ vl_message[0]
+				COM01_Trace(0,vl_text)
+				COM01_Trace(0," ")
+
+				/*A decomposition des messages en tableau */
+				vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+				/*A si numero de BAF en cours d'edition */
+				if vl_mess[0]+0 =  vl_NumBAF+0
+				{				
+					/*A on boucle sur toutes les infos du msg */
+					for i = 1 to ARRAY_SIZE@(vl_mess)-1 step 2
+
+						ITMA_TBAF_MAJ_BAF(vl_NumBAF,vl_mess[2],vl_mess[4],
+								vl_mess[6],vl_mess[8],
+								vl_mess[10],vl_mess[12],
+								vl_fenetre_TBAF,vl_info_liste_BAF[vl_NumBAF].Type,
+								"consultation")
+
+					next i
+				}
+
+	   		ENDCASE
+
+	ENDCASE
+	
+WEND
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ---------------------------------------------------------------------
+* SERVICE RENDU :	Initialisation generale de la boite de dialogue
+*												Consultation
+*
+*  ---------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBAF_init_boite_dialogue_consultation(va_fenetre_TBAF,
+			va_messages_acceptes,va_type_baf)
+
+/*----------------------------------------------------------------------
+* ARGUMENTS EN ENTREE :
+*
+*  	va_fenetre_TBAF			:	Item de la boite de dialogue
+*												Consultation
+*	va_messages_acceptes	:	Liste des messages acceptes par la
+*											boite de dialogue
+*	va_liste_objet	:	Liste des objets Consultation 
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*  	va_fenetre_TBAF			:	Item de la boite de dialogue
+*												Consultation
+*
+* CODE RETOUR         :
+*
+* CONDITION D'UTILISATION
+*
+*
+* FONCTION
+*
+*    Initialisation generale de la boite de dialogue Consultation
+*
+--------------------------------------------------------------------- */
+
+va_fenetre_TBAF = DB_LOAD@("ITMA_TBAF_consultation_BAF")
+
+DB_ACCEPT_POKES@ (va_fenetre_TBAF, va_messages_acceptes)
+
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux"){
+DB_XPOS@ (va_fenetre_TBAF, 800)
+DB_YPOS@ (va_fenetre_TBAF, 800)
+}
+else {
+DB_XPOS@ (va_fenetre_TBAF, 462)
+DB_YPOS@ (va_fenetre_TBAF, 454)
+}
+
+if va_type_baf=1
+{
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module21_terrain",FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module22_terrain",FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre_TBAF,"BP_module25_terrain",FALSE)
+}
+
+
+DB_DISPLAY_ONLY@(va_fenetre_TBAF,TRUE)
+DB_DISPLAY@(va_fenetre_TBAF)
+MACRO_WINS_BUSY@()
+DB_DISPLAY_ONLY@(va_fenetre_TBAF,FALSE)
+
+ENDMACRO
+

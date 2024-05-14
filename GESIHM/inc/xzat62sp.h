@@ -1,0 +1,1 @@
+DEFINE	XZAT62_Supprimer_Neutre_PMV	"XZAT62"

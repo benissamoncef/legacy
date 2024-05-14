@@ -1,0 +1,1 @@
+DEFINE	XZAT01_Liste_Eqt_Dispo		"XZAT;01"

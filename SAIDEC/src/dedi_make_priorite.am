@@ -1,0 +1,200 @@
+/*E*/
+/* Fichier : $Id: dedi_make_priorite.am,v 1.3 1999/02/26 12:00:09 gaborit Exp $	      Release : $Revision: 1.3 $        Date : $Date: 1999/02/26 12:00:09 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_make_priorite.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* genere les fichiers ASCII de priorite des actions proposees
+* (format RTie ou format Texte, en fonction de vg_mode)   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Thomas	30 Jan 1995	: Creation						V1.1
+* Guilhou 23 mai 1996 : astreintes gérées par numéeo DEM/1125	V1.2
+* Niepceron 15/01/1999	: ajout action intergest V1.3
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+VAR tm_astreintes
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* genere les regles TFM
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_make_priorite()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+* dedi
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR tl_commentaire
+VAR syntaxe_correcte
+
+	trace_chaine("")
+	trace_chaine("PRIORITE DES ACTIONS PROPOSEES")
+	trace_chaine("")
+
+	/*A
+	**  on initialise tm_astreintes 
+	*/
+	tm_astreintes = SYSTEM_VAR@(vg_astreintes)
+
+
+	/*A
+	**  on exploite le fichier des priorites des actions PC 
+	*/
+	trace_chaine("Priorite des actions PC ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_PRIORITE_PC)
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		lit_action(tl_data[vl_indice], vl_indice, IE_MODELE_PRIORITE_PC)
+		trace_point()
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        PRIORITE DES ACTIONS PROPOSEES :" 
+	tl_commentaire[1] = "*        ordre des actions proposees au PC"
+	tl_commentaire[2] = "*        (la plus prioritaire en tete)"
+	dedi_shell(IE_MODELE_PRIORITE_PC, IE_SUFFIXE_RL, tl_commentaire)
+
+	/*A
+	**  on exploite le fichier des priorites des actions CI 
+	*/
+	trace_chaine("Priorite des actions CI ")
+	tl_data = READ_ASCII_FILE@(AX_PATH++IE_FILE_PRIORITE_CI)
+
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		lit_action(tl_data[vl_indice], vl_indice, IE_MODELE_PRIORITE_CI)
+		trace_point()
+	NEXT vl_indice
+
+	tl_commentaire[0] = "*        PRIORITE DES ACTIONS PROPOSEES :" 
+	tl_commentaire[1] = "*        ordre des actions proposeesau CI"
+	tl_commentaire[2] = "*        (la plus prioritaire en tete)"
+	dedi_shell(IE_MODELE_PRIORITE_CI, IE_SUFFIXE_RL, tl_commentaire)
+
+
+
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION lit_action (va_data, va_indice, va_modele)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_data :		"libelle|action|competence"
+*	va_indice :	le numero de la regle a generer
+*	va_modele :	le nom du modele AxWord
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR         : aucun
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION		: genere le fichier priorite_pc.tie (priorite_ci.tie)
+*
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR tl_arg
+VAR vl_i
+
+	/*A on isole les arguments */
+	tl_data = ARRAY_FROM_STRING@(va_data, dedi_car_separ)
+
+	/*A le premier argument est le libelle */
+	tl_arg[0] = tl_data[0]
+
+	/*A le deuxieme argument permet de construire le contexte et le type d'action*/
+	CASE OF tl_data[1]
+
+		CASE dedi_action_tfm
+			tl_arg[1] = "tfm_diff"
+			tl_arg[2] = "action_tfm"
+			tl_arg[3] = NULL
+
+		CASE dedi_action_appel
+			tl_arg[1] = "appel, appel_datex"
+			tl_arg[2] = "action_appel"
+
+			/*B on recupere l'interlocuteur et on recherche son identifiant */
+			vl_i = ARRAY_INDEX@(ARRAY_COLUMN@(tm_astreintes,1),tl_data[2])
+			tl_arg[0] = tl_arg[0]++" "++tm_astreintes[vl_i][0]
+			tl_arg[3] = tl_data[2]
+
+		CASE dedi_action_fax
+			tl_arg[1] = "texte_fax, texte_fax_datex"
+			tl_arg[2] = "action_fax"
+			tl_arg[3] = NULL
+
+		CASE dedi_action_pmv
+			tl_arg[1] = "pmv"
+			tl_arg[2] = "action_pmv"
+			tl_arg[3] = NULL
+
+		CASE dedi_action_nav
+			tl_arg[1] = "nav"
+			tl_arg[2] = "action_nav"
+			tl_arg[3] = NULL
+
+		CASE dedi_action_tunnel
+			tl_arg[1] = "tunnel"
+			tl_arg[2] = "action_tunnel"
+			tl_arg[3] = NULL
+
+		CASE dedi_action_echangeur
+			tl_arg[1] = "echangeur"
+			tl_arg[2] = "action_echangeur"
+			tl_arg[3] = NULL
+
+		CASE dedi_action_export
+			tl_arg[1] = "export_datex"
+			tl_arg[2] = "action_export"
+			tl_arg[3] = NULL
+
+	ENDCASE
+
+	/*A on applique le modele ax-word */
+	dedi_genere(va_modele,va_indice,tl_arg)
+
+ENDFUNCTION
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,295 @@
+/*E*/
+/* Fichier : @(#)fermeture_las_planas_1.am	1.43      Release : 1.43        Date : 04/22/02
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER fermeture_las_planas_1.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de fermeture de las planas 1          
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* cluchague 30/09/2002   : Creation         
+* cluchague 07/03/2003   : v1.2 ajout d'un delai d'1s entre chaque commande 
+                           + entrelacement des pilotages                                    
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes générales
+ * ------------------------------------- */
+DEFINE	C_MODULE			"MTEC"	' Nom du module
+DEFINE	REP_CONFIG		"../fichiers/"
+
+
+/*A Description des modules à inclures 
+* ---------------------------------------*/
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+ /*A Description des procedures sotckées à appeler
+* ------------------------------------------------ */
+
+
+/*A Description des variables globales
+ * ----------------------------------- */
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Creation d'une boite de dialogue pour permettre la fermeture de las planas sens 1 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO fermeture_las_planas_1()
+
+/*
+* ARGUMENTS EN ENTREE : Aucun
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Appel depuis le menu principal
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+VAR     vl_exit_value
+VAR     vl_la_fenetre_est_active
+VAR     vl_fenetre
+VAR     vl_text
+VAR     vl_fichier_commande
+VAR     vl_fichier_resultat
+VAR     vl_machine
+VAR     vl_type_equipement
+VAR     vl_equipement
+VAR     vl_tunnel
+VAR     vl_scenario
+VAR     vl_action
+VAR     vl_cmd
+VAR     vl_PMV
+VAR     vl_message1 
+VAR     vl_message2 
+VAR     vl_message3 
+VAR     vl_alternat1
+VAR     vl_alternat2
+VAR     vl_alternat3
+VAR     vl_clignotement1
+VAR     vl_clignotement2
+VAR     vl_clignotement3
+VAR     vl_flash
+VAR     vl_nom_machine
+VAR     vl_texte
+VAR     vl_picto
+VAR     vl_clignotement
+VAR     vl_nav
+VAR     vl_nom_scenario
+
+/*A
+* Traitements en cas d'erreur durant l'initialisation :
+* informer l'operateur, tracer l'erreur et abandonner
+* -----------------------------------------------------
+*/
+
+ON ERROR {
+    ERROR_BOX@
+    RETURN
+    }
+
+
+  /*A
+   * Charger la fenetre "menu principal"
+   * ----------------------------------
+   */
+     INSTALL_FILE@ ("/produits/migrazur/appliSD/exec/ITMA_TIE_fenetre_LCR.elo")
+     vl_fenetre = DB_LOAD@ ("fermeture_las_planas_1")
+     /* pour que la fenetre disparaisse apres 1 clic */
+     DB_WINDOW_REMAIN@ (vl_fenetre, FALSE)
+     DB_XPOS@ (vl_fenetre, 0)
+     DB_YPOS@ (vl_fenetre, -35)
+
+     vl_la_fenetre_est_active = TRUE
+     /*A boucle infinie de traitement des evenements*/
+     WHILE vl_la_fenetre_est_active
+       /*A
+       * afficher la fenetre*/
+       DB_DISPLAY@(vl_fenetre)
+
+       /*A
+       * attente d'un evenement*/
+       vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+        /*A
+        * suivant l'evenement */
+        CASE OF vl_exit_value
+
+        /*B si demande d'execution */
+	CASE "BP_valider"
+	  MACRO_WINS_BUSY@()
+
+        /*_______________________________*/
+	   /* pilotage du tunnel las planas */
+        /*_______________________________*/
+        vl_tunnel = 8 
+	   vl_scenario = 1
+	   vl_action = 0
+	   vl_text = COM09_Date_Courante()
+	   vl_text =  vl_text ++ " fermeture LP1 --> XZET03 "
+	   COM01_Trace(0,vl_text)
+	   vl_cmd[0]=MTAR_MSG_EXEC
+	   vl_cmd[1]=1
+	   vl_cmd[2]=MTAR_FCT_XZET03
+	   vl_cmd[3]= vl_tunnel ++MTAR_CAR_SEPAR++ vl_scenario++MTAR_CAR_SEPAR++ vl_action
+	   DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	   vl_text = COM09_Date_Courante()
+	   vl_text =  vl_text ++ " -- DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	   COM01_Trace(0,vl_text)
+	   COM01_Trace(0," ")
+        DELAY@(1)
+
+        /*______________*/
+        /* pilotage PMV */
+        /*______________*/
+        vl_PMV = 12 
+	   vl_message1 = "   A8 COUPEE   " 
+	   vl_message2 = "     A 1 KM    " 
+	   vl_message3 = "    ACCIDENT   " 
+/*	   vl_message1 = "     TEST      " 
+	   vl_message2 = " SIGNALISATION " 
+	   vl_message3 = "               " */
+	   vl_alternat1= "               "
+	   vl_alternat2= "               "
+	   vl_alternat3= "               "
+	   vl_clignotement1 = 1
+	   vl_clignotement2 = 1
+	   vl_clignotement3 = 1
+	   vl_flash = 0
+	   vl_action = 0
+	   vl_nom_machine = "POLTN04"
+	   vl_text = COM09_Date_Courante()
+	   vl_text =  vl_text ++ " fermeture LP1 --> XZEP01_Commande_PMV"
+	   COM01_Trace(0,vl_text)
+	   vl_cmd[0]=MTAR_MSG_EXEC
+	   vl_cmd[1]=1
+	   vl_cmd[2]=MTAR_FCT_XZEP01
+	   vl_cmd[3]= vl_PMV++MTAR_CAR_SEPAR++vl_message1++MTAR_CAR_SEPAR++vl_message2++MTAR_CAR_SEPAR++vl_message3++MTAR_CAR_SEPAR++
+	              vl_alternat1++MTAR_CAR_SEPAR++vl_alternat2++MTAR_CAR_SEPAR++vl_alternat3++MTAR_CAR_SEPAR++
+		      vl_clignotement1++MTAR_CAR_SEPAR++vl_clignotement2++MTAR_CAR_SEPAR++vl_clignotement3++MTAR_CAR_SEPAR++
+		      vl_flash++MTAR_CAR_SEPAR++vl_action++MTAR_CAR_SEPAR++vl_nom_machine
+	   DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	   vl_text = COM09_Date_Courante()
+	   vl_text =  vl_text ++ " -- DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	   COM01_Trace(0,vl_text)
+	   COM01_Trace(0," ")
+        DELAY@(1)
+
+        /*_________________________________*/
+	   /* pilotage du tunnel de pessicart */
+        /*_________________________________*/
+        vl_tunnel = 6 
+	   vl_scenario = 1
+	   vl_action = 0
+	   vl_text = COM09_Date_Courante()
+	   vl_text =  vl_text ++ " fermeture LP1 --> XZET03 "
+	   COM01_Trace(0,vl_text)
+	   vl_cmd[0]=MTAR_MSG_EXEC
+	   vl_cmd[1]=1
+	   vl_cmd[2]=MTAR_FCT_XZET03
+	   vl_cmd[3]= vl_tunnel ++MTAR_CAR_SEPAR++ vl_scenario++MTAR_CAR_SEPAR++ vl_action
+	   DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	   vl_text = COM09_Date_Courante()
+	   vl_text =  vl_text ++ " -- DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	   COM01_Trace(0,vl_text)
+	   COM01_Trace(0," ")
+        DELAY@(1)
+
+        /*______________*/
+	   /* pilotage BRA */
+        /*______________*/
+        vl_nav = 11
+	   vl_nom_scenario = "PRVL"
+	   vl_action = 0      
+	   vl_nom_machine =  "POLTN04"
+	   vl_text = COM09_Date_Courante()
+	   vl_text =  vl_text ++ " fermeture LP1 --> XZEN02_Commande_SCEN"
+	   COM01_Trace(0,vl_text)
+	   vl_cmd[0]=MTAR_MSG_EXEC
+	   vl_cmd[1]=1
+	   vl_cmd[2]=MTAR_FCT_XZEN02
+	   vl_cmd[3]= vl_nav++MTAR_CAR_SEPAR++vl_nom_scenario++MTAR_CAR_SEPAR++vl_action++MTAR_CAR_SEPAR++vl_nom_machine
+	   DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	   vl_text = COM09_Date_Courante()
+	   vl_text =  vl_text ++ " -- DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	   COM01_Trace(0,vl_text)
+	   COM01_Trace(0," ")
+        DELAY@(1)
+
+       /*________________*/
+	   /* pilotage picto */
+        /*________________*/
+        vl_pmv = 12
+	   vl_texte = "      "
+	   vl_picto = "ACCI" 
+	   vl_clignotement = 1
+	   vl_flash = 0 
+	   vl_nom_machine =  "POLTN04"
+	   vl_text = COM09_Date_Courante()
+	   vl_text =  vl_text ++ " fermeture LP1 --> XZEP02_Commande_PICTO"
+	   COM01_Trace(0,vl_text)
+	   vl_cmd[0]=MTAR_MSG_EXEC
+	   vl_cmd[1]=1
+	   vl_cmd[2]=MTAR_FCT_XZEP02
+	   vl_cmd[3]= vl_PMV++MTAR_CAR_SEPAR++vl_texte++MTAR_CAR_SEPAR++vl_picto++MTAR_CAR_SEPAR++
+		      vl_clignotement++MTAR_CAR_SEPAR++vl_flash++MTAR_CAR_SEPAR++vl_nom_machine
+	   DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	   vl_text = COM09_Date_Courante()
+	   vl_text =  vl_text ++ " -- DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	   COM01_Trace(0,vl_text)
+	   COM01_Trace(0," ")
+        DELAY@(1)
+
+        /*__________________________________________*/
+	   /* pilotage du tunnel de st pierre de feric */
+        /*__________________________________________*/
+        vl_tunnel = 4 
+	   vl_scenario = 3 
+	   vl_action = 0
+	   vl_text = COM09_Date_Courante()
+	   vl_text =  vl_text ++ " fermeture LP1 --> XZET03 "
+	   COM01_Trace(0,vl_text)
+	   vl_cmd[0]=MTAR_MSG_EXEC
+	   vl_cmd[1]=1
+	   vl_cmd[2]=MTAR_FCT_XZET03
+	   vl_cmd[3]= vl_tunnel ++MTAR_CAR_SEPAR++ vl_scenario++MTAR_CAR_SEPAR++ vl_action
+	   DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	   vl_text = COM09_Date_Courante()
+	   vl_text =  vl_text ++ " -- DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	   COM01_Trace(0,vl_text)
+	   COM01_Trace(0," ")
+
+        RETURN
+
+	CASE "BP_quitter"
+	   RETURN
+        ENDCASE
+
+WEND
+ENDMACRO
+
+

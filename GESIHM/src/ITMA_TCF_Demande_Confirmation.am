@@ -1,0 +1,174 @@
+/*E*/
+/* Fichier : $Id: ITMA_TCF_Demande_Confirmation.am,v 1.7 1994/12/15 11:18:09 noel Exp $      Release : $Revision: 1.7 $        Date : $Date: 1994/12/15 11:18:09 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TCF * FICHIER ITMA_TCF_Demande_Confirmation.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Demander une confirmation
+*
+*   Cf. DCG 2.4.16
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	26 Sep 1994	: Creation						V1.1
+* Guilhou	13 oct 1994	: inclusion xzic_ax.h				V1.4
+* Guilhou	14 oct 1994	: inclusion xdc_ax.h				V1.5
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+
+
+DEFINE	C_MODULE	"MTCF"			' Nom du module
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Afficher le texte et demander une confirmation de celui-ci
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCF_Demande_Confirmation (va_proposition)
+
+/*
+* ARGUMENTS EN ENTREE :
+* va_proposition	: Texte a confirmer
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : XDC_OK -> confirmation
+				  XDC_NOK -> annulation
+*
+* CONDITION D'UTILISATION
+*   MTAP
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR tl_message
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Explication Proposition"
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TCF")
+
+DB_XPOS@ (vl_fenetre, 220)
+DB_YPOS@ (vl_fenetre, 140)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_Demande_Confirmation")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+/*A
+ * si appel depuis un autre Applix
+ * l'argument est un tableau*/
+IF (IS_ARRAY@(va_proposition))
+	tl_message=va_proposition
+ELSE
+	tl_message[0]=va_proposition
+DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+DB_DISPLAy@(vl_fenetre)
+DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_confirmation",tl_message)
+DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		/*A
+		* choix du bouton Annuler*/
+		CASE "BP_annuler"
+			/*bye et indique que l'operateur a annule*/
+			RETURN (COM_NOK)
+		/*A
+		* choix du bouton Valider*/
+		CASE "BP_valider"
+			/*A
+			bye et indique que l'operateur a confirme*/
+			RETURN (COM_OK)
+
+		/*A
+		on recoit un poke*/
+		CASE "poke_"
+			/*A
+			* suivant le poke*/
+			CASE OF DB_GET_POKE@(vl_fenetre)
+				/*A
+				* poke de fin*/
+				CASE COM_CANAL_FIN
+					/*A
+					* bye*/
+					RETURN (COM_NOK)
+			ENDCASE
+		
+	ENDCASE
+WEND
+ENDMACRO
+

@@ -1,0 +1,684 @@
+/*E*/
+/* Fichier : $Id: ITMA_TRS_Rapport_De_Synthese.am,v 1.10 2021/06/03 07:21:21 pc2dpdy Exp $     Release : $Revision: 1.10 $        Date : $Date: 2021/06/03 07:21:21 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_THE * FICHIER ITMA_TRS_Rapport_De_Synthese.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Rapport de synthese
+*
+*   Cf. DCG 2.4.36
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain 05 Sep 1994	: Creation                                        V1.1
+* Niepceron   03 Jul 1998 : Connexion a SQL_HIS (dem/1699) v1.2
+* JMG	28/09/05	: ajout PMVA BAF BAD	1.4
+* LCL   09/07/07        : Suppression DY 1.5
+* JMG   29/09/09        : SECTO DEM 887
+* JMG   09/03/17        : REGIONALISATION - DEM1220 1.7
+* LCL   12/04/18	: Ajout controleurs de feux CTRL_FEUX 1.8 DEM1284
+* CGR	13/01/21	: Ajout IMU DEM-SAE155 1.9
+* CGR	02/04/21	: Ajout SONO PAU DEM-SAE244 1.10
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE    "../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"../inc/xzae71sp.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+
+
+DEFINE	C_MODULE	"MTRS"			' Nom du module
+
+
+
+/*A
+ * Valeur maximale du type FMC dans le premier groupe de criteres
+ * --------------------------------------------------------------
+ */
+
+DEFINE	C_MAX_CRITERE_FMC_1	32
+
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_CHOISIR_TYPE	1
+DEFINE	C_LIB_CHOISIR_TYPE	"Choisir au moins un type FMC ou Action"
+
+DEFINE	C_ERR_PERIODE_INVAL	2
+DEFINE	C_LIB_PERIODE_INVAL	"Période définie invalide"
+
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	THE_Historique
+	type,					' Type action/even/oper (25 car)
+	localisation,				' Localisation initiale (23 car)
+	date_debut,				' Horodate debut event. (19 car)
+	date_fin,				' Horodate de fin (si existante)
+	evt_lie					' Operation/event. lie (25 car)
+
+
+
+/*A
+ * Description du format des donnees lues en base
+ * ----------------------------------------------
+ */
+
+FORMAT	THE_Donnees_Historique
+	num_evt,
+	cle_evt,
+	type_evt,
+	num_cause,
+	cle_cause,
+	date_deb,
+	date_fin,
+	autoroute,
+	PR,
+	sens,
+	categorie
+
+
+
+VAR FORMAT THE_Historique vm_histo			' Historique selecte
+
+VAR FORMAT COM_Intitule_FMC vm_FMC			' FMC choisie
+
+VAR FORMAT TDO_District vm_l_districts			' Liste des districts
+VAR FORMAT TDO_Type_FMC	vm_l_types_FMC			' Liste des types FMC
+VAR vm_lib_types_action					' Libelles types actions
+
+VAR vm_num_districts					' Numeros de districts
+VAR vm_num_types_FMC					' Numeros de types FMC
+VAR vm_num_types_action					' Numeros types action
+
+VAR vm_masques_districts				' Masques associes
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Affichage de la liste chronologique des actions, evenements ou operations
+*  survenus sur des lieux et dans une periode donnes.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TRS_Rapport_De_Synthese (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option "Consulter -> rapport de synthese" dans MTMS
+*
+* FONCTION
+*   Permet a l'operateur de saisir des criteres de recherche (periode, district).
+*   Lit ensuite en base de donnees puis affiche la liste des actions, evenements
+*   ou operations survenus sur les lieux et dans la periode choisis.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre_rapport			' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+
+    VAR FORMAT TDO_Evt_Cause vl_evt		' Evenement lie
+
+    VAR     vl_date_deb, vl_date_fin
+    VAR     vl_districts			' District(s) selecte(s)
+    VAR     vl_types_FMC			' Type(s) FMC selecte(s)
+    VAR     vl_types_act			' Type(s) d'action selecte(s)
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Historique exploitation"
+ * --------------------------------------------
+ */
+
+vl_fenetre_rapport = DB_LOAD@ ("ITMA_TRS")
+DB_WINDOW_REMAIN@ (vl_fenetre_rapport, TRUE)
+
+DB_XPOS@ (vl_fenetre_rapport, 0)
+DB_YPOS@ (vl_fenetre_rapport, 93)
+COM27_Agrandir_Fenetre (vl_fenetre_rapport, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre_rapport, "ITMA_THE_Histo_Exploitation")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_rapport, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre_rapport, "BS_Jour_Debut", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_rapport, "BS_Mois_Debut", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_rapport, "BS_Annee_Debut", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_rapport, "BS_Heure_Debut", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_rapport, "BS_Minute_Debut", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_rapport, "BS_Jour_Fin", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_rapport, "BS_Mois_Fin", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_rapport, "BS_Annee_Fin", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_rapport, "BS_Heure_Fin", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre_rapport, "BS_Minute_Fin", COM_CHIFFRES)
+
+DB_CTRL_MULTI_SELECT@ (vl_fenetre_rapport, "BL_Districts", TRUE)
+DB_CTRL_VALUE@ (vl_fenetre_rapport, "BL_Districts", NULL)
+
+DB_CTRL_MULTI_SELECT@ (vl_fenetre_rapport, "BL_Types_FMC", TRUE)
+vl_types_FMC[0] = 0
+DB_CTRL_VALUE@ (vl_fenetre_rapport, "BL_Types_FMC", vl_types_FMC)
+
+
+
+
+
+
+
+
+DB_CTRL_TITLE@ (vl_fenetre_rapport, "LI_FMC", NULL)
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_rapport, "TA_Historique", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_rapport, "TA_Historique", FALSE)
+
+
+/*A
+ * Initialiser les donnees a visualiser (listes des districts et des types FMC)
+ * ----------------------------------------------------------------------------
+ */
+
+IF THE_Init_Districts_Types_FMC (vl_fenetre_rapport) <> COM_OK
+    RETURN (COM_NOK)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> C_ERR_PERIODE_INVAL  AND
+	   ERROR_NUMBER@() <> C_ERR_CHOISIR_TYPE
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre_rapport)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre_rapport)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre_rapport)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur action "horodate courante", la lire et l'afficher
+     * -----------------------------------------------------
+     */
+
+    CASE "BP_horodeb"
+	COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre_rapport,
+			     "BS_Jour_Debut", "BS_Mois_Debut", "BS_Annee_Debut",
+			     "BS_Heure_Debut", "BS_Minute_Debut")
+
+
+    CASE "BP_horofin"
+	COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre_rapport,
+				 "BS_Jour_Fin", "BS_Mois_Fin", "BS_Annee_Fin",
+				 "BS_Heure_Fin", "BS_Minute_Fin")
+
+
+    /*A
+     * Sur choix "Choix FMC", invoquer MTLE pour choisir une FMC
+     * ---------------------------------------------------------
+     */
+
+    CASE "BP_Choix_FMC"
+	IF NOT IS_NULL@ (vm_FMC) {
+	    vm_FMC = NULL
+	    DB_CTRL_TITLE@ (vl_fenetre_rapport, "LI_FMC", NULL)
+	} ELSE {
+	    vl_evt = PEND_FOR_NEW_TASK@ ("ITMA_TLE_Liste_Evenements",
+					    "ITMA_THE_Histo_Exploitation")
+	    IF NOT IS_NULL@ (vl_evt) {
+		vm_FMC = vl_evt.info_evt
+		DB_CTRL_TITLE@ (vl_fenetre_rapport, "LI_FMC",
+				   COM11_Libelle_FMC (vm_FMC))
+	    }
+	}
+
+
+    /*A
+     * Sur choix "Recherche", verifier qu'un type FMC ou un
+     * type d'action a ete choisi puis lire en base de donnees
+     * et afficher les evenements repondant aux criteres saisis
+     * --------------------------------------------------------
+     */
+
+    CASE "BP_Recherche"
+	vl_date_deb = COM23_Horodate (vl_fenetre_rapport, "BS_Jour_Debut",
+					"BS_Mois_Debut", "BS_Annee_Debut",
+					"BS_Heure_Debut", "BS_Minute_Debut")
+	vl_date_fin = COM23_Horodate (vl_fenetre_rapport, "BS_Jour_Fin",
+					"BS_Mois_Fin", "BS_Annee_Fin",
+					"BS_Heure_Fin", "BS_Minute_Fin")
+	IF COM17_Difference_Dates (vl_date_fin, COM09_Date_Courante ()) > 0 {
+	    DB_CURSOR_IN_ENTRY@ (vl_fenetre_rapport, "BS_Jour_Fin", TRUE)
+	    ERROR@ (COM_ERR_DATE_INVAL, COM_LIB_DATE_INVAL)
+	}
+	IF NOT IS_NULL@ (vl_date_deb)
+	    IF COM17_Difference_Dates (vl_date_fin, vl_date_deb) <= 0 {
+		DB_CURSOR_IN_ENTRY@ (vl_fenetre_rapport, "BS_Jour_Debut", TRUE)
+		ERROR@ (C_ERR_PERIODE_INVAL, C_LIB_PERIODE_INVAL)
+	    }
+
+	vl_districts = DB_CTRL_GET_VALUE@ (vl_fenetre_rapport, "BL_Districts")
+	vl_types_FMC = DB_CTRL_GET_VALUE@ (vl_fenetre_rapport, "BL_Types_FMC")
+
+	THE_Rechercher_Historique (vl_fenetre_rapport, vm_FMC.IdFMC,
+				      vl_date_deb, vl_date_fin,
+				      vl_districts, vl_types_act, vl_types_FMC)
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des districts et celle des types FMC.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO THE_Init_Districts_Types_FMC (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   ITMA_THE_Histo_Exploitation
+*
+* FONCTION
+*   Initialise les valeurs des listes des districts des types FMC a partir
+*   des donnees figurant dans le module global.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT THE_Historique vl_t_histo	' Table historique (vide)
+    VAR	vl_t_titres				' Titres colonnes de la table
+    VAR FORMAT TDO_Type_FMC vl_type_FMC
+    VAR i
+
+
+/*A
+ * Lire dans l'environnement la liste des districts ;
+ * initialiser la liste des masques associes ; afficher les libelles
+ * -----------------------------------------------------------------
+ */
+
+vm_l_districts = SYSTEM_VAR@ (vg_les_districts)
+
+vm_num_districts = ARRAY_COLUMN@ (vm_l_districts, TDO_NUMERO_DISTRICT)
+
+FOR i = 0  TO ARRAY_SIZE@ (vm_l_districts) - 1
+    CASE OF vm_l_districts[i].numero
+    CASE XDC_CI
+	vm_masques_districts[i] = XDC_HIS_EXP_CI
+    CASE XDC_DN
+	vm_masques_districts[i] = XDC_HIS_EXP_DN
+    CASE XDC_VC
+	vm_masques_districts[i] = XDC_HIS_EXP_DM
+    CASE XDC_DA
+	vm_masques_districts[i] = XDC_HIS_EXP_DA
+    CASE XDC_VD
+	vm_masques_districts[i] = XDC_HIS_EXP_DP
+    CASE XDC_VE
+	vm_masques_districts[i] = XDC_HIS_EXP_DC
+    CASE XDC_DP
+	vm_masques_districts[i] = XDC_HIS_EXP_DS
+    ENDCASE
+NEXT i
+
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Districts",
+		     ARRAY_COLUMN@ (vm_l_districts, TDO_NOM_DISTRICT))
+
+
+/*A
+ * Lire dans l'environnement la liste des types FMC et des types
+ * d'actions ; ajouter un element "Aucun" et afficher leurs libelles
+ * -----------------------------------------------------------------
+ */
+
+vm_l_types_FMC = SYSTEM_VAR@ (vg_les_types_FMC)
+vl_type_FMC.numero = "Aucun"
+vl_type_FMC.nom = "Aucun"
+vm_l_types_FMC = ARRAY_INSERT@ (vm_l_types_FMC, vl_type_FMC, 0)
+
+vm_num_types_FMC = ARRAY_COLUMN@ (vm_l_types_FMC, TDO_NUMERO_FMC)
+DB_CTRL_STRINGS@ (va_fenetre, "BL_Types_FMC",
+		     ARRAY_COLUMN@ (vm_l_types_FMC, TDO_NOM_FMC))
+
+
+vm_num_types_action = "Aucun",
+			XDC_ACT_NAV,
+			XDC_ACT_PMV,
+			XDC_ACT_TUNNEL,
+			XDC_ACT_DEPANNEUR,
+			XDC_ACT_AFF_GARE,
+			XDC_ACT_PAT_SIS,
+			XDC_ACT_INTERVENTION,
+			XDC_ACT_PMV_REMORQUE,
+			XDC_ACT_PMV_FOURGON,
+			XDC_ACT_TFM,
+			XDC_ACT_ECHANGEUR,
+			XDC_ACT_FAX,
+			XDC_ACT_TEL,
+			XDC_ACT_BIP,
+			XDC_ACT_BAF,
+			XDC_ACT_BAD,
+			XDC_ACT_PMVA,
+			XDC_ACT_CFE,
+			XDC_ACT_IMU,
+			XDC_ACT_PAU
+
+
+
+/*A
+ * Definir les titres des colonnes de la table
+ * -------------------------------------------
+ */
+
+vl_t_titres[0] = "Type",          255	' Titre colonne et taille en pixels
+vl_t_titres[1] = "Localisation",  158
+vl_t_titres[2] = "Date Début",    106
+vl_t_titres[3] = "Date Fin",      106
+vl_t_titres[4] = "Evénement lié", 291
+vl_t_titres[5] = "", 0
+
+
+/*A
+ * Afficher la table
+ * -----------------
+ */
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+DB_TABLE_SET_DATA@(va_fenetre, "TA_Historique", vl_t_histo, vl_t_titres)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recherche et affiche les donnees historisees repondant aux criteres indiques
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO THE_Rechercher_Historique (va_fenetre,
+				    FORMAT COM_Identifiant_FMC va_id_FMC,
+				    va_horodate_debut, va_horodate_fin,
+				    va_districts, va_types_action,
+				    va_types_FMC)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a valuer ;
+*   va_id_FMC         : Identifiant fiche main courante ;
+*   va_horodate_debut : Horodate de debut de recherche ;
+*   va_horodate_fin   : Horodate de fin de recherche ;
+*   va_districts      : Liste des districts choisis ;
+*   va_types_action   : Liste des types d'action choisis ;
+*   va_types_FMC      : Liste des types FMC choisis.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_THE_Histo_Exploitation
+*
+* FONCTION
+*   Recherche en base de donnees les evenements historises repondant aux
+*   criteres indiques en arguments ; affiche les donnees retournees dans la
+*   table d'evenements.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_criteres_districts, vl_criteres_action	' Criteres construits
+    VAR     vl_criteres_FMC_1, vl_criteres_FMC_2
+    VAR FORMAT THE_Donnees_Historique vl_data		' Donnees selectees
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR FORMAT COM_Localisation vl_localisation
+    VAR FORMAT COM_Intitule_FMC vl_id_FMC_cause
+    VAR     i, j
+
+
+/*A
+ * Constituer les criteres de selection a partir des listes
+ * et verifier qu'au moins un type d'action ou FMC a ete choisi
+ * ------------------------------------------------------------
+ */
+
+vl_criteres_action = 0
+
+
+/*B
+ * Criteres de type FMC
+ * --------------------
+ */
+
+vl_criteres_FMC_1 = 0
+vl_criteres_FMC_2 = 0
+FOR i = 0  TO ARRAY_SIZE@ (va_types_FMC) - 1
+    IF va_types_FMC[i] <> 0 {				'Ignorer le type "Aucun"
+	IF vm_num_types_FMC[va_types_FMC[i]] > C_MAX_CRITERE_FMC_1
+	    vl_criteres_FMC_2 = vl_criteres_FMC_2 +
+				   2 ^ (vm_num_types_FMC[va_types_FMC[i]]
+					  - C_MAX_CRITERE_FMC_1 - 1)
+	ELSE vl_criteres_FMC_1 = vl_criteres_FMC_1 +
+				    2 ^ (vm_num_types_FMC[va_types_FMC[i]] - 1)
+    }
+NEXT i
+
+IF vl_criteres_action = 0  AND  vl_criteres_FMC_1 = 0  AND vl_criteres_FMC_2 = 0
+    ERROR@ (C_ERR_CHOISIR_TYPE, C_LIB_CHOISIR_TYPE)
+
+
+/*B
+ * Criteres de districts : si aucun n'est selecte les prendre tous
+ * ---------------------------------------------------------------
+ */
+
+vl_criteres_districts = 0
+FOR i = 0  TO ARRAY_SIZE@ (va_districts) - 1
+    vl_criteres_districts = vl_criteres_districts +
+				vm_masques_districts[va_districts[i]]
+NEXT i
+
+IF vl_criteres_districts = 0 {
+    FOR i = 0  TO ARRAY_SIZE@ (vm_masques_districts) - 1
+	vl_criteres_districts = vl_criteres_districts + vm_masques_districts[i]
+    NEXT i
+}
+
+
+/*A
+ * Lire en base de donnees les evenements repondant aux criteres
+ * -------------------------------------------------------------
+ */
+
+vl_parametres[0].type = COM_Numero_Evenement
+vl_parametres[0].data = va_id_FMC.numero
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Cle_Evenement
+vl_parametres[1].data = va_id_FMC.cle
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#DATETIME_
+vl_parametres[2].data = va_horodate_debut
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#DATETIME_
+vl_parametres[3].data = va_horodate_fin
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#INT4_
+vl_parametres[4].data = vl_criteres_districts
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = SYB#INT4_
+vl_parametres[5].data = vl_criteres_action
+vl_parametres[5].output = FALSE
+
+vl_parametres[6].type = SYB#INT4_
+vl_parametres[6].data = vl_criteres_FMC_1
+vl_parametres[6].output = FALSE
+
+vl_parametres[7].type = SYB#INT4_
+vl_parametres[7].data = vl_criteres_FMC_2
+vl_parametres[7].output = FALSE
+
+
+IF COM41_SQL_Procedure_HIS (XZAE71_Historique_Exploitation,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+vl_data = vl_resultats.select_results[0]
+
+
+/*A
+ * Afficher les donnees retournees
+ * -------------------------------
+ */
+
+vm_histo = NULL
+FOR i = 0  TO ARRAY_SIZE@ (vl_data) - 1
+    IF vl_data[i].categorie = XDC_HIS_EXP_ACT {
+	j = ARRAY_INDEX@ (vm_num_types_action, vl_data[i].type_evt)
+	IF j > 0
+	    vm_histo[i].type = vm_lib_types_action[j]
+    } ELSE {
+	j = ARRAY_INDEX@ (vm_num_types_FMC, vl_data[i].type_evt)
+	IF j > 0
+	    vm_histo[i].type = vm_l_types_FMC[j].nom
+    }
+
+    vm_histo[i].date_debut = COM18_Date_SGBD_Formatee (vl_data[i].date_deb)
+    vm_histo[i].date_fin = COM18_Date_SGBD_Formatee (vl_data[i].date_fin)
+
+    vl_localisation = vl_data[i].autoroute, vl_data[i].PR, vl_data[i].sens
+    vm_histo[i].localisation = COM10_Localisation (vl_localisation)
+
+    IF vl_data[i].num_cause <> NULL  AND  vl_data[i].cle_cause <> NULL
+	IF ITMA_COM_Lire_Evenement (vl_data[i].num_cause, vl_data[i].cle_cause,
+					vl_id_FMC_cause, C_MODULE) = COM_OK
+	    vm_histo[i].evt_lie = COM11_Libelle_FMC (vl_id_FMC_cause)
+NEXT i
+
+
+DB_TABLE_CLEAR_DATA@ (va_fenetre, "TA_Historique", 0, -1)
+DB_TABLE_SET_NEW_DATA@ (va_fenetre, "TA_Historique", vm_histo, 0)
+
+RETURN (COM_OK)
+
+ENDMACRO

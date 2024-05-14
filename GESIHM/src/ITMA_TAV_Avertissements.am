@@ -1,0 +1,190 @@
+/*E*/
+/* Fichier : $RCSfile: ITMA_TAV_Avertissements.am,v $      Release : $Revision: 1.14 $       Date : %G
+---------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TAV * FICHIER ITMA_TAV_Avertissements.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Gère la liste des avertissements operateurs
+*
+*   Cf. DCG 2.4.33
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou    30 Sep 1994 : Creation                                        V1.1
+* Noel       05 Dec 1994 : Modification de la position de la BD            V1.3
+* Guilhou    21 Dec 1994 : Correction parametres recus du poke             V1.5
+* Guilhou    26 Dec 1994 : Repositionnement                                V1.6
+* Lecrivain  12 Avr 1995 : Changement table en liste (scroll horizontal)   V1.8
+* Lecrivain  26 Avr 1995 : Reception de chaine ou de table au choix ...    V1.9
+* Noel	     07 Sep 1995 : Ajout d'un test sur reception d'une chaine vide V1.10
+* Niepceron	21 Jan 1999	: decalage vers le bas de la fenetre pour demasquer  les icones (1727) 1.11
+* PNI 	16/10/12        : recalage de la position de la fenetre pour ecran 16/9 Linux 1.12
+* NDE	24/07/15	: position de fenetre changee pour le CI uniquement (DEM1338) 1.13     
+* PNI           26/01/2017      : Prisentation sur deux fenjtres pour tous les sites 1.97 (DEM1150)
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAV.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+
+
+DEFINE	C_MODULE			"MTAV"				' Nom du module
+
+DEFINE	C_TAILLE_MAX		30					' Taille maximale de la liste
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Afficher le texte 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TAV_Avertissements ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Aucun
+*
+* CONDITION D'UTILISATION
+*   
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR vl_code, tl_data
+	VAR tl_messages, vl_taille
+	VAR vl_fenetre_xpos, vl_fenetre_ypos
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Liste des avertissements"
+ * ---------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TAV")
+
+IF (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+	vl_fenetre_xpos = 514
+ELSE
+	vl_fenetre_xpos = 572
+
+	vl_fenetre_xpos = vl_fenetre_xpos + 1061
+	vl_fenetre_ypos = 391
+	/*vl_fenetre_ypos = 105*/
+
+DB_XPOS@ (vl_fenetre, vl_fenetre_xpos)
+DB_YPOS@ (vl_fenetre, vl_fenetre_ypos)
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+tl_messages_acceptes[1]= COM_CANAL_MTAV
+tl_messages_acceptes[2]= COM_CANAL_MTAV_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+		ERROR_BOX@
+		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+		vl_installer_traitement_erreur = TRUE
+	}
+WEND
+
+
+/*A boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		/*A
+		* reception d'un poke*/
+		CASE "poke_"
+			vl_code = DB_GET_POKE@(vl_fenetre)
+			CASE OF vl_code
+				/*A poke de fin*/
+				CASE COM_CANAL_FIN
+				CASE COM_CANAL_MTAV_FIN
+					RETURN
+
+				/*A nouveau message a afficher*/
+				CASE COM_CANAL_MTAV
+					tl_data = DB_GET_POKE_DATA@(vl_fenetre)
+					IF IS_ARRAY@ (tl_data)
+						tl_data = tl_data[0]
+					IF LEN@(tl_data) <> 0
+					{		
+
+						/*A Si la liste a atteint sa taille maximale, la purger */
+						tl_messages = DB_CTRL_GET_STRINGS@(vl_fenetre,"BL_Messages")
+						vl_taille = ARRAY_SIZE@ (tl_messages)
+						IF vl_taille = C_TAILLE_MAX {
+							tl_messages = ARRAY_DELETE@ (tl_messages, 0)
+							vl_taille = vl_taille - 1
+						}
+
+						/*A Ajouter a la liste le message recu et l'afficher */
+						tl_messages[vl_taille] = tl_data
+						DB_CTRL_STRINGS@ (vl_fenetre, "BL_Messages", tl_messages)
+						DB_CTRL_VALUE@ (vl_fenetre, "BL_Messages", vl_taille)
+					}
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO

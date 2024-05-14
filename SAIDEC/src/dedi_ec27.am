@@ -1,0 +1,594 @@
+/*E*/
+/* Fichier : $Id: dedi_ec27.am,v 1.10 2000/12/11 14:36:34 gesconf Exp $	      Release : $Revision: 1.10 $        Date : $Date: 2000/12/11 14:36:34 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec27.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* definition des objectifs pmv
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	29 nov 1994	: Creation						V1.1
+* Thomas	17 feb 1995	: Ajout pictos interdits				V1.1
+* Thomas	21 oct 1995	: Ajout liste des variables (1.2)
+* Thomas	27 oct 1995	: Modif liste des variables (1.3)
+* Thomas	30 jan 1996	: Modif 758 : champ PMV à blanc par défaut 
+*			Modif 765 : supprimer/modifier le premier objectif	(1.4)
+* Guilhou	07 dec 1996 	: ajout temps de parcours 1.5
+* Guilhou	29 mai 1997: temps de parcours devient temps_de_parcours 1.6
+* Guilhou	31 dec 1997	: ajout distance_avec_bifurc (dem/1534) 1.7
+* Guilhou	09 mar 1998	: ajout le_PMV_chaussee_opposee (dem/1516) 1.8
+* Guilhou	22 oct 1999	: ajout elt nature_longueur
+* Guilhou	15 nov 2000	: inhibition qq fct recherche PMV 1.10
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+VAR FORMAT dedi_objectif 	tm_objectifs,tm_objectifs_indices
+VAR 						tm_elements
+VAR FORMAT dedi_perturbation	tm_perts
+VAR 						tm_pmv
+VAR FORMAT dedi_picto		tm_pictos
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition des objectifs PMV
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec27 ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice, vl_i
+var vl_selection
+var tl_data
+var vl_nom
+var vl_elt1
+var vl_nomInitial
+var tl_perts_indices	'indices des perts concernees par les chgts d'obj
+var tl_pokes
+var tl_editbox_sel
+var vl_pos
+var tl_pictos_interdits
+var vl_rang_picto
+
+/*A si la fenetre Perturbations est ouverte*/
+IF (SYSTEM_VAR@(vg_presence_ec29)=TRUE)
+	/*A je lui dis de se fermer*/
+	DB_SEND_POKE@(dedi_canal_ec29_fin)
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec27")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,5)
+DB_YPOS@(vl_fenetre,72)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec27_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+
+		/*A appui sur le bouton pictos*/
+		CASE "BP_pictos"
+			/*A affiche la liste des pictos*/
+			DB_CTRL_DISPLAY@(vl_fenetre, "BL_pictos",
+					NOT DB_CTRL_GET_DISPLAY@(vl_fenetre,"BL_pictos"))
+
+		/*A choix d'un picto dans la liste*/
+		CASE "BL_pictos"
+			/*A ajout de ce picto dans la liste des pictos interdits*/
+			vl_pos=DB_CTRL_GET_VALUE@(vl_fenetre,vl_evt)
+			tl_pictos_interdits[ARRAY_SIZE@(tl_pictos_interdits)] =
+												tm_pictos[vl_pos][1]
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_pictos",tl_pictos_interdits)
+			DB_CTRL_DISPLAY@(vl_fenetre, "BL_pictos", FALSE)
+
+		/*A appui sur effacer (pour les pictos interdits) */
+		CASE "BP_effacer"
+			tl_editbox_sel=DB_EDITBOX_GET_SELECTION@(vl_fenetre,"BE_pictos")
+			FOR vl_i=tl_editbox_sel[0] TO tl_editbox_sel[2]
+				tl_pictos_interdits=ARRAY_DELETE@(tl_pictos_interdits,
+												tl_editbox_sel[0])
+			NEXT vl_i
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_pictos",tl_pictos_interdits)
+
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			ec27_valide()
+			
+			/*! je dis a la tache des relations objectifs/perturbations
+			 * que la liste des objectifs a ete valide*/
+			DB_SEND_POKE@(dedi_canal_ec29_valide,tm_objectifs)
+			RETURN
+
+		/*A selection d'un element dans la liste des objectifs*/
+		CASE "TA_objs"
+			/*A on affiche les caracteristiques de l'objectif selectionnee */
+			vl_indice = DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_objs")
+			vl_selection=vl_indice[0]
+		
+			IF (vl_selection++""<>null)
+			{	
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_modifier",FALSE)
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_supprimer",FALSE)
+		
+				DB_CTRL_VALUE@(vl_fenetre, "BS_nom", 		
+							tm_objectifs_indices[vl_selection].nom)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_bandeau", 		
+							tm_objectifs_indices[vl_selection].bandeau)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_distance", 		
+							tm_objectifs_indices[vl_selection].distance)
+				DB_CTRL_VALUE@(vl_fenetre, "BS_distance_bifurc",
+							tm_objectifs_indices[vl_selection].distance_bifurc)
+				DB_CTRL_VALUE@(vl_fenetre, "BO_elt1", 
+							tm_objectifs_indices[vl_selection].elt1)
+				DB_CTRL_VALUE@(vl_fenetre, "BO_elt2", 
+							tm_objectifs_indices[vl_selection].elt2)
+				DB_CTRL_VALUE@(vl_fenetre, "BO_elt3", 
+							tm_objectifs_indices[vl_selection].elt3)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_pmv",
+								tm_objectifs_indices[vl_selection].pmv)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_conseil_l1",
+								tm_objectifs[vl_selection].conseil1)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_conseil_l2",
+								tm_objectifs[vl_selection].conseil2)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_conseil_l3",
+								tm_objectifs[vl_selection].conseil3)
+				/*B remplace les trigrammes par les noms des pictos */
+				tl_pictos_interdits=NULL
+				FOR vl_i=0 TO
+					(ARRAY_SIZE@(tm_objectifs[vl_selection])-dedi_pos_pictos-1)
+					vl_rang_picto = ARRAY_INDEX@(ARRAY_COLUMN@(tm_pictos,0),
+							tm_objectifs[vl_selection][vl_i+dedi_pos_pictos])
+					IF vl_rang_picto <> -1
+						tl_pictos_interdits[vl_i]=tm_pictos[vl_rang_picto][1]
+				NEXT vl_i
+				DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_pictos",tl_pictos_interdits)
+			}
+	
+		/*A appui sur le bouton ajouter*/
+		CASE "BP_ajouter"
+			/*A on verifie qu'il n'existe pas d'objectif de meme nom */
+			vl_nom =  DB_CTRL_GET_VALUE@(vl_fenetre, "BS_nom")
+			vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_objectifs,0),vl_nom)
+
+			IF (vl_indice<>-1)
+				INFO_MESSAGE@("Il existe deja un objectif d'information de meme nom. Creation refusee.")
+
+			/*A si le 1° element ou le nom est null*/
+			ELSE IF ((DB_CTRL_GET_VALUE@(vl_fenetre,"BO_elt1")=0)
+					OR (vl_nom=null))
+				INFO_MESSAGE@("Le 1° élément et le nom doivent être non nuls")
+
+			/*A si il n'y a pas de fonction PMV associée */
+			ELSE	IF (DB_CTRL_GET_VALUE@(vl_fenetre,"BO_pmv")=0)
+				INFO_MESSAGE@("Vous devez choisir les PMV associés à l'objectif d'information.")
+				
+			/*si la distance bifurc est renseignee, la distance doit l'etre aussi*/
+			ELSE 	IF (  (DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance_bifurc")++""<>"") AND
+				      (DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance")++""=""))
+				INFO_MESSAGE@("si la distance bifurcation est renseignee, la distance doit l'etre aussi")
+
+			/*A ajoute cet element dans la liste*/
+			ELSE
+			{					
+				vl_indice=ARRAY_SIZE@(tm_objectifs)
+
+				tm_objectifs_indices[vl_indice].nom = vl_nom
+				tm_objectifs_indices[vl_indice].elt1=
+					DB_CTRL_GET_VALUE@(vl_fenetre,"BO_elt1")
+
+				tm_objectifs_indices[vl_indice].elt2=
+					DB_CTRL_GET_VALUE@(vl_fenetre,"BO_elt2")
+				tm_objectifs_indices[vl_indice].elt3=
+					DB_CTRL_GET_VALUE@(vl_fenetre,"BO_elt3")
+				tm_objectifs[vl_indice].distance=
+					DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance")
+				tm_objectifs_indices[vl_indice].distance=
+						tm_objectifs[vl_indice].distance
+				tm_objectifs[vl_indice].distance_bifurc=
+					DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance_bifurc")
+				tm_objectifs_indices[vl_indice].distance_bifurc=
+						tm_objectifs[vl_indice].distance_bifurc
+				tm_objectifs[vl_indice].bandeau=
+					DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bandeau")
+				tm_objectifs_indices[vl_indice].pmv=
+					DB_CTRL_GET_VALUE@(vl_fenetre,"BO_pmv")
+
+				tm_objectifs[vl_indice].nom=
+					tm_objectifs_indices[vl_indice].nom
+				tm_objectifs[vl_indice].elt1= 
+					tm_elements[tm_objectifs_indices[vl_indice].elt1]
+				tm_objectifs[vl_indice].elt2= 
+					tm_elements[tm_objectifs_indices[vl_indice].elt2]
+				tm_objectifs[vl_indice].elt3= 	
+					tm_elements[tm_objectifs_indices[vl_indice].elt3]
+				tm_objectifs[vl_indice].conseil1=
+					DB_CTRL_GET_VALUE@(vl_fenetre,"BS_conseil_l1")
+				tm_objectifs[vl_indice].conseil2=
+					DB_CTRL_GET_VALUE@(vl_fenetre,"BS_conseil_l2")
+				tm_objectifs[vl_indice].conseil3=
+					DB_CTRL_GET_VALUE@(vl_fenetre,"BS_conseil_l3")
+				tm_objectifs[vl_indice].pmv=
+					tm_pmv[tm_objectifs_indices[vl_indice].pmv]
+
+				/*B remplace les noms des pictos par les trigrammes */
+				FOR vl_i=0 TO (ARRAY_SIZE@(tl_pictos_interdits)-1)
+					vl_rang_picto = ARRAY_INDEX@(
+									ARRAY_COLUMN@(tm_pictos,1),
+									tl_pictos_interdits[vl_i])
+					IF vl_rang_picto <> -1
+						tm_objectifs[vl_indice][dedi_pos_pictos+vl_i]=
+											tm_pictos[vl_rang_picto][0]
+				NEXT vl_i
+
+				DB_TABLE_CLEAR_DATA@(vl_fenetre,"TA_objs",0,-1)
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_objs",tm_objectifs,0)
+
+				/*A effacer les valeurs des controles*/
+				DB_CTRL_VALUE@(vl_fenetre,"BS_nom",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_elt1",0)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_elt2",0)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_elt3",0)	
+				DB_CTRL_VALUE@(vl_fenetre,"BO_pmv",0)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_conseil_l1",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_conseil_l2",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_conseil_l3",null)
+				vl_selection=null
+
+				/*! je dois ajouter cet objectif a la liste des objectifs
+				 *  qu'on peut associer aux perturbations*/
+				DB_SEND_POKE@(dedi_canal_ec29_ajobj,tm_objectifs)
+			}
+
+		/*A appui sur le bouton modifier*/
+		CASE "BP_modifier"
+			/*A si un element est selectionne*/
+			IF (vl_selection++""<>null)
+			{
+				/*A je recupere nom et premier element*/
+				vl_nom=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_nom")
+				vl_elt1=DB_CTRL_GET_VALUE@(vl_fenetre, "BO_elt1")
+
+				/*A je mets de cote le nom initial de l'objectif*/
+				vl_nomInitial=tm_objectifs_indices[vl_selection].nom
+
+				/*A si le 1° element ou le nom est null*/
+				IF ((vl_elt1=0) OR (vl_nom=null))
+				{
+					INFO_MESSAGE@("Le 1° élément et le nom doivent être non nuls")
+				}
+				ELSE
+				{
+					/*A ajoute cet element dans la liste des objectifs*/
+					tm_objectifs_indices[vl_selection].nom=vl_nom
+					tm_objectifs_indices[vl_selection].elt1=vl_elt1
+					tm_objectifs_indices[vl_selection].elt2=
+								DB_CTRL_GET_VALUE@(vl_fenetre, "BO_elt2")
+					tm_objectifs_indices[vl_selection].elt3=
+								DB_CTRL_GET_VALUE@(vl_fenetre, "BO_elt3")				
+					tm_objectifs_indices[vl_selection].pmv=
+								DB_CTRL_GET_VALUE@(vl_fenetre, "BO_pmv")
+	
+					tm_objectifs[vl_selection].distance=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance")
+					tm_objectifs_indices[vl_selection].distance=
+							tm_objectifs[vl_selection].distance
+					tm_objectifs[vl_selection].distance_bifurc=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_distance_bifurc")
+					tm_objectifs_indices[vl_selection].distance_bifurc=
+							tm_objectifs[vl_selection].distance_bifurc
+					tm_objectifs[vl_selection].bandeau=
+							DB_CTRL_GET_VALUE@(vl_fenetre,"BS_bandeau")
+
+					tm_objectifs[vl_selection].nom = 
+								tm_objectifs_indices[vl_selection].nom
+					tm_objectifs[vl_selection].elt1= 
+						tm_elements[tm_objectifs_indices[vl_selection].elt1]
+					tm_objectifs[vl_selection].elt2 = 
+						tm_elements[tm_objectifs_indices[vl_selection].elt2]
+					tm_objectifs[vl_selection].elt3 = 		
+						tm_elements[tm_objectifs_indices[vl_selection].elt3]
+					tm_objectifs[vl_selection].pmv = 		
+						tm_pmv[tm_objectifs_indices[vl_selection].pmv]
+					tm_objectifs[vl_selection].conseil1=DB_CTRL_GET_VALUE@(
+													vl_fenetre,
+													"BS_conseil_l1")
+					tm_objectifs[vl_selection].conseil2=DB_CTRL_GET_VALUE@(
+													vl_fenetre,
+													"BS_conseil_l2")
+					tm_objectifs[vl_selection].conseil3=DB_CTRL_GET_VALUE@(
+													vl_fenetre,
+													"BS_conseil_l3")
+					/*B remplace les noms des pictos par les trigrammes */
+					/*! on comence par effacer les anciennes valeurs */
+					FOR vl_i=dedi_pos_pictos 
+							TO (ARRAY_SIZE@(tm_objectifs[vl_selection])-1)
+						tm_objectifs[vl_selection]=
+							ARRAY_DELETE@(tm_objectifs[vl_selection], vl_i)
+					NEXT vl_i
+					FOR vl_i=0 TO (ARRAY_SIZE@(tl_pictos_interdits)-1)
+						vl_rang_picto = ARRAY_INDEX@(
+											ARRAY_COLUMN@(tm_pictos,1),
+											tl_pictos_interdits[vl_i])
+						IF vl_rang_picto <> -1
+							tm_objectifs[vl_selection][dedi_pos_pictos+vl_i]=
+											tm_pictos[vl_rang_picto][0]
+					NEXT vl_i
+
+					DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_objs",tm_objectifs,0)
+					vl_indice[0]=vl_selection
+					DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_objs",vl_indice)
+
+					/*! je dois mettre a jour les relations perturbations/objectifs
+					 *  ou cet objectif apparait si le nom a change*/
+					IF (vl_nomInitial<>tm_objectifs[vl_selection].nom)
+					{
+						tl_data[0]=vl_selection
+						tl_data[1]=tm_objectifs[vl_selection].nom
+						DB_SEND_POKE@(dedi_canal_ec29_modifobj,tl_data)
+					}
+				}
+			}
+	
+		/*A appui sur le bouton supprimer*/
+		CASE "BP_supprimer"
+			/*A si un element est selectionne*/
+			IF (vl_selection++""<>null)
+			{
+				/*A efface l'element des listes des objectifs*/
+				tm_objectifs=ARRAY_DELETE@(tm_objectifs,vl_selection)
+				tm_objectifs_indices=ARRAY_DELETE@(tm_objectifs_indices,
+												vl_selection)
+
+				/*A met a jour la boite*/
+				DB_TABLE_CLEAR_DATA@(vl_fenetre, "TA_objs", 0, -1)
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre, "TA_objs", tm_objectifs, 0)
+
+				/*A effacer les valeurs des controles*/
+				DB_CTRL_VALUE@(vl_fenetre,"BS_nom",null)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_elt1",0)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_elt2",0)
+				DB_CTRL_VALUE@(vl_fenetre,"BO_elt3",0)	
+				DB_CTRL_VALUE@(vl_fenetre,"BO_pmv",0)	
+
+				/*! je dois supprimer cet objectif de la liste des objectifs
+				 *  qu'on peut associer aux perturbations*/
+				DB_SEND_POKE@(dedi_canal_ec29_supobj,vl_selection)
+
+				vl_selection=null
+			}
+			
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			/*! je previens la tache de gestion des relations obj/pert
+			* que les modif sur les obj doivent etre annules*/
+			DB_SEND_POKE@(dedi_canal_ec29_annule)
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec27_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_titre_objs
+VAR tl_data
+VAR vl_indice
+
+	/*A affichage des variables autorisees pour le bandeau*/
+	tl_data[0]="DISTANCE"
+	DB_CTRL_STRINGS@(va_fenetre,"BL_var",tl_data)
+
+	/*A caracteres valides pour le nom de l'objectif*/
+	DB_CTRL_VALID_CHARS@(va_fenetre,"BS_nom",DEDI_CAR_VALIDES)
+
+	/*A chargement des perturbations*/
+	tm_perts=SYSTEM_VAR@(vg_perturbations_pmv)
+
+	/*A recupere les objectifs*/
+	tm_objectifs=SYSTEM_VAR@(vg_objectifs_pmv)
+
+	/*A initialisation des elements d'un objectifs*/
+	tm_elements="","nature","probabilite",
+				"conseil","localisation","cause","temps_de_parcours",
+				"longueur"
+
+	/*A affichage de cette liste*/
+	DB_CTRL_STRINGS@(va_fenetre,"BO_elt1",tm_elements)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_elt2",tm_elements)
+	DB_CTRL_STRINGS@(va_fenetre,"BO_elt3",tm_elements)
+
+	/*A active ces listes*/
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BO_elt1",TRUE)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BO_elt2",TRUE)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BO_elt3",TRUE)
+
+	/*A initialisation de la liste des pmv */
+	tm_pmv = "", "le premier PMV en amont", "le deuxieme PMV en amont", "le troisieme PMV en amont(inhibe)", "le PMV en amont de l'aire precedente", "le PMV en amont de la sortie precedente", "les PMV en amont", "les PMV dans la perturbation", "le premier PMV en aval(inhibe)", "les 2 PMV eligibles en amont", "le PMV sur la chaussee opposee(inhibe)"
+
+	DB_CTRL_GRAYED@(va_fenetre,"BP_modifier",TRUE)
+	DB_CTRL_GRAYED@(va_fenetre,"BP_supprimer",TRUE)
+
+	/*A affiche et active la liste des pmv*/
+	DB_CTRL_STRINGS@(va_fenetre, "BO_pmv", tm_pmv)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "BO_pmv", TRUE)
+
+	/*A initialisation de la liste des pictos */
+	tm_pictos = SYSTEM_VAR@(vg_pictos)
+	DB_CTRL_PICKABLE@(va_fenetre, "BL_pictos", TRUE)
+	DB_CTRL_STRINGS@(va_fenetre, "BL_pictos", ARRAY_COLUMN@(tm_pictos, 1))
+	DB_CTRL_DISPLAY@(va_fenetre, "BL_pictos", FALSE)
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "BL_pictos", TRUE)
+
+
+	/*A affiche la liste des objectifs*/
+	tl_titre_objs[0][0] = "Objectifs"
+	tl_titre_objs[0][1] = 100
+	tl_titre_objs[1][0] = "Elément 1"
+	tl_titre_objs[1][1] = 80
+	tl_titre_objs[2][0] = "Elément 2"
+	tl_titre_objs[2][1] = 80
+	tl_titre_objs[3][0] = "Elément 3"
+	tl_titre_objs[3][1] = 80
+	tl_titre_objs[4][0] = "PMV"
+	tl_titre_objs[4][1] = 500
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_objs", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_objs",TRUE)
+
+	/*A parcourt le tableau des objectifs pour remplacer 
+	* le nom des elements par leur indice dans le tableau tm_elements */
+	tm_objectifs_indices=tm_objectifs
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_objectifs)-1)
+		tm_objectifs_indices[vl_indice].elt1=ARRAY_INDEX@(tm_elements,
+									tm_objectifs[vl_indice].elt1)
+		tm_objectifs_indices[vl_indice].elt2=ARRAY_INDEX@(tm_elements,
+									tm_objectifs[vl_indice].elt2)
+		tm_objectifs_indices[vl_indice].elt3=ARRAY_INDEX@(tm_elements,
+									tm_objectifs[vl_indice].elt3)
+		tm_objectifs_indices[vl_indice].pmv=ARRAY_INDEX@(tm_pmv,
+									tm_objectifs[vl_indice].pmv)
+	NEXT vl_indice
+
+	DB_TABLE_SET_DATA@(va_fenetre, "TA_objs", tm_objectifs, tl_titre_objs)
+
+	/*! je lance en meme temps la tache de  relation objectif/perturbation*/
+	NEW_TASK@("dedi_ec29","dedi_ec27")
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation des objectifs
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec27_valide ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice, vl_ok
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	/*A on genere le fichier de config*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_objectifs)-1)	
+		/*A transforme la ligne de donnees en une chaine*/
+		tl_data[vl_indice]=ARRAY_TO_STRING@(tm_objectifs[vl_indice],
+											DEDI_CAR_SEPAR)
+	
+	NEXT vl_indice
+
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_OBJ_PMV,tl_data)
+
+	/*A on met a jour la variable globale*/
+	SET_SYSTEM_VAR@(vg_objectifs_pmv,tm_objectifs)
+
+	RETURN (vl_ok)
+ENDMACRO
+
+
+

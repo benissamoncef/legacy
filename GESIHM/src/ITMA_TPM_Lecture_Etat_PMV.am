@@ -1,0 +1,605 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPM_Lecture_Etat_PMV.am,v 1.4 2012/05/29 10:05:43 pc2dpdy Exp $      Release : $Revision: 1.4 $        Date : $Date: 2012/05/29 10:05:43 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_COM * FICHIER ITMA_TPM_Lecture_Etat_PMV.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fonctions communes au module MTPM.
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Mismer	05/09/1996	: Creation                              V1.1
+* Mismer  25/03/1997  	: Modif affichage PMV avec TDP (DEM/1417) V1.2 
+* C.T.    04/02/1998  	: Correction erreur compil. (Priorite, fmc_liee) V1.3
+* LCL     07/02/2012    : Ajout TdP etendu (DEM/1014) V1.4
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TAR.h"
+INCLUDE "../inc/ITMA_TDO.h"
+INCLUDE "../inc/ITMA_PMV_format.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE "../inc/xzat05sp.h"
+INCLUDE "../inc/xzao411sp.h"
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture en base de l'état d'un PMV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPM_Lecture_Etat_PMV (va_mode_formation,
+				 FORMAT  type_PMV_GEN va_PMV,va_maj_etat,
+				 va_module)
+
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*   aucun
+*
+*
+* ARGUMENTS EN SORTIE	: 
+*	va_PMV	: Etat d'affichage du PMV
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   Appel XZAT05_Utilisation_PMV.
+*
+---------------------------------------------------------------------------- */
+
+
+	VAR	vl_lib_fmc		' libellé fmc
+	var	vl_tptext			' zone de text tampon
+	VAR	vl_horodate
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	va_PMV.Horodate = COM09_Date_Courante()
+
+	/*A Définition de vl_parametres */
+	vl_parametres[0].type	= SYB#DATETIME_
+	if NOT va_mode_formation
+		vl_parametres[0].data	= NULL
+	else
+	{
+		vl_horodate = SYSTEM_VAR@(vg_Horodate_Formation)
+		vl_parametres[0].data	= vl_horodate
+	}
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type	= SYB#INT1_
+	vl_parametres[1].data	= va_PMV.NumEqt+0
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT2_
+	vl_parametres[2].data	= 0			' Dispo PMV
+	vl_parametres[2].output	= TRUE
+
+	vl_parametres[3].type	= SYB#INT2_
+	vl_parametres[3].data	= 0			' Dispo picto
+	vl_parametres[3].output	= TRUE
+
+	vl_parametres[4].type	= SYB#INT2_
+	vl_parametres[4].data	= 0			' Type PMV
+	vl_parametres[4].output	= TRUE
+
+	vl_parametres[5].type	= SYB#CHAR_
+	vl_parametres[5].data	= 0			' Message Ligne 1
+	vl_parametres[5].output	= TRUE
+
+	vl_parametres[6].type	= SYB#CHAR_
+	vl_parametres[6].data	= 0			' Message Ligne 2
+	vl_parametres[6].output	= TRUE
+
+	vl_parametres[7].type	= SYB#CHAR_
+	vl_parametres[7].data	= 0			' Message Ligne 3
+	vl_parametres[7].output	= TRUE
+
+	vl_parametres[8].type	= SYB#CHAR_
+	vl_parametres[8].data	= 0			' Message Alternat 1
+	vl_parametres[8].output	= TRUE
+
+	vl_parametres[9].type	= SYB#CHAR_
+	vl_parametres[9].data	= 0			' Message Alternat 2
+	vl_parametres[9].output	= TRUE
+
+	vl_parametres[10].type	= SYB#CHAR_
+	vl_parametres[10].data	= 0			' Message Alternat 3
+	vl_parametres[10].output	= TRUE
+
+	vl_parametres[11].type	= SYB#BIT_
+	vl_parametres[11].data	= 0			' Clignot 1
+	vl_parametres[11].output	= TRUE
+
+	vl_parametres[12].type	= SYB#BIT_
+	vl_parametres[12].data	= 0			' Clignot 2
+	vl_parametres[12].output	= TRUE
+
+	vl_parametres[13].type	= SYB#BIT_
+	vl_parametres[13].data	= 0			' Clignot 3
+	vl_parametres[13].output	= TRUE
+
+	vl_parametres[14].type	= SYB#BIT_
+	vl_parametres[14].data	= 0			' Flash
+	vl_parametres[14].output	= TRUE
+
+	vl_parametres[15].type	= SYB#CHAR_
+	vl_parametres[15].data	= 0			' Type picto
+	vl_parametres[15].output	= TRUE
+
+	vl_parametres[16].type	= SYB#CHAR_
+	vl_parametres[16].data	= 0			' Text picto
+	vl_parametres[16].output	= TRUE
+
+	vl_parametres[17].type	= SYB#INT2_
+	vl_parametres[17].data	= 0			' N° type picto
+	vl_parametres[17].output	= TRUE
+
+	vl_parametres[18].type	= SYB#BIT_
+	vl_parametres[18].data	= 0			' Clignot. picto
+	vl_parametres[18].output	= TRUE
+
+	vl_parametres[19].type	= SYB#INT4_
+	vl_parametres[19].data	= 0			' N° Evt
+	vl_parametres[19].output	= TRUE
+
+	vl_parametres[20].type	= SYB#INT2_
+	vl_parametres[20].data	= 0			' Clé Evt
+	vl_parametres[20].output	= TRUE
+
+	vl_parametres[21].type	= SYB#INT2_
+	vl_parametres[21].data	= 0			' Priorité
+	vl_parametres[21].output	= TRUE
+
+	vl_parametres[22].type	= SYB#INT4_
+	vl_parametres[22].data	= 0			' Distance Evt
+	vl_parametres[22].output	= TRUE
+
+	vl_parametres[23].type	= SYB#INT4_
+	vl_parametres[23].data	= 0			' N° Action
+	vl_parametres[23].output	= TRUE
+
+	vl_parametres[24].type	= SYB#INT1_
+	vl_parametres[24].data	= 0			' N° Site Action
+	vl_parametres[24].output	= TRUE
+
+	vl_parametres[25].type	= SYB#CHAR_
+	vl_parametres[25].data	= 0			' Ligne direction
+	vl_parametres[25].output	= TRUE
+
+	vl_parametres[26].type	= SYB#CHAR_
+	vl_parametres[26].data	= 0			' Alternat direction
+	vl_parametres[26].output	= TRUE
+	
+	/*A Exécution de la procedure XZAT05_Utilisation_PMV */
+	IF COM05_SQL_Procedure 
+			(XZAT05_Utilisation_PMV,vl_parametres,vl_resultats,va_module)
+			 <> COM_OK
+    			RETURN (COM_NOK)
+
+	/*A MAJ de la table PMV avec les arguments de sorties */
+	va_PMV.DispoPMV 			=	vl_resultats.return_parameters[0]
+	va_PMV.DispoPicto			=	vl_resultats.return_parameters[1]
+	va_PMV.NumTypePMV			=	vl_resultats.return_parameters[2]
+	/*A si va_PMV.NumeroAction : MAJ avec lecture base */
+	if (va_maj_etat) 
+	{
+		va_PMV.Message1	= SUBSTRING@(vl_resultats.return_parameters[3],1,15)
+	  	va_PMV.Message2 	= SUBSTRING@(vl_resultats.return_parameters[4],1,15)
+	  	va_PMV.Message3 	= SUBSTRING@(vl_resultats.return_parameters[5],1,15)
+	  	va_PMV.Alternat1 	= SUBSTRING@(vl_resultats.return_parameters[6],1,15)
+	  	va_PMV.Alternat2 	= SUBSTRING@(vl_resultats.return_parameters[7],1,15)
+	  	va_PMV.Alternat3 	= SUBSTRING@(vl_resultats.return_parameters[8],1,15)
+	  	va_PMV.TypePicto	= TRIM@(vl_resultats.return_parameters[13])
+	    	va_PMV.TextePicto 	= SUBSTRING@(vl_resultats.return_parameters[14],1,6)
+  	 	va_PMV.Clignotement1	= vl_resultats.return_parameters[9]
+    	 	va_PMV.Clignotement2	= vl_resultats.return_parameters[10]
+	  	va_PMV.Clignotement3	=	vl_resultats.return_parameters[11]
+	  	va_PMV.Flash			=	vl_resultats.return_parameters[12]
+	  	va_PMV.ClignotementPicto	=	vl_resultats.return_parameters[16]
+	 	va_PMV.Direction		= vl_resultats.return_parameters[23]
+	 	va_PMV.AltDirection   	= vl_resultats.return_parameters[24]
+	}
+
+	/*A MAJ avec base du n° Evt + Clé & NumAction */
+	va_PMV.NumTypePicto		=	vl_resultats.return_parameters[15]
+	va_PMV.Numero_Evt		=	vl_resultats.return_parameters[17]+0
+	va_PMV.Cle_Evt			=	vl_resultats.return_parameters[18]+0
+	va_PMV.Priorite		=	vl_resultats.return_parameters[19]
+	va_PMV.DistanceEvt		=	vl_resultats.return_parameters[20]
+	va_PMV.NumeroAction		=	vl_resultats.return_parameters[21]
+
+	if va_PMV.Numero_Evt<>0 and  va_PMV.Cle_Evt<>0
+	{
+		/*A MAJ du libellé fmc */
+		ITMA_COM_Lire_Evenement ( 
+					va_PMV.Numero_Evt,
+					va_PMV.Cle_Evt, 
+					vl_lib_fmc, 
+					va_module)
+		va_PMV.fmc_liee = COM11_Libelle_FMC(vl_lib_fmc)
+	}
+	else	va_PMV.fmc_liee = "Pas de libellé F.M.C"
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+ 
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner à l'état des PMV et des PICTO.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TPM_Abt_Etat_PMV( va_NomSite )
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomSite		:	Nom du site
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TPM
+*
+* FONCTION :
+*	Permet de s'abonner à l'état des PMV et des PICTO.
+* ------------------------------------------------------------------------------- */
+
+	VAR	vl_cmd
+
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA08  
+
+	/*B arguments */
+	vl_cmd[3]= XDC_DEBUT_ABONNEMENT_EQUEXT ++ MTAR_CAR_SEPAR ++ va_NomSite
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B preparation de la requete pour abonnement PICTO */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA09  
+
+	/*B arguments */
+	vl_cmd[3]= XDC_DEBUT_ABONNEMENT_EQUEXT ++ MTAR_CAR_SEPAR ++ va_NomSite
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+
+/*B code retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Envoi une demende de calcul de TDP.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TPM_Demande_Calcul_TDP ( va_NumPMV, va_NumDest, va_NumAltDest, va_NumDestNoeud , va_site)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NumPMV		:	Numero du PMV
+*		va_NumDest	:	Numero de la destination
+*		va_NumAltDest	:	Numero de la destination pour alternat
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TPM
+*
+* FONCTION :
+*   Envoi une demende de calcul de TDP.
+* ------------------------------------------------------------------------------- */
+
+	VAR	vl_cmd
+	var vl_d1,vl_d2,vl_d3
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEZ01  
+
+	/*B arguments */
+	vl_d1 = va_NumDest
+	vl_d2 = va_NumAltDest
+vl_d3=va_NumDestNoeud
+	if vl_d1=null
+		vl_d1=0
+	if vl_d2=null
+		vl_d2=0	
+	if vl_d3=null
+		vl_d3=0		vl_cmd[3]=va_NumPMV++MTAR_CAR_SEPAR++vl_d1++MTAR_CAR_SEPAR++vl_d2++MTAR_CAR_SEPAR++vl_d3++MTAR_CAR_SEPAR++va_site
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+
+/*B code retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Affiche la liste des destination TDP
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPM_Liste_Destination_PMV ( va_NumPMV, va_NumDest, va_LibDest )
+
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*   aucun
+*
+*
+* ARGUMENTS EN SORTIE	: 
+*	va_NumPMV	: Numero du PMV
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*  
+*
+---------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR FORMAT Config_Dest_TDP	vl_Config_Dest
+VAR vl_LibTmp
+VAR vl_NumTmp
+VAR i, j
+VAR vl_Sens
+
+va_NumDest[0] = "" + 0
+va_LibDest[0] = ""
+
+vl_Config_Dest	 = SYSTEM_VAR@ (vg_Destination_TDP)
+
+if  vl_Config_Dest = NULL
+{
+	/*A
+ 	* Listes des destinations temps de parcours
+ 	* -----------------------------------
+ 	*/
+
+	/*A MAJ de vl_parametres */
+	vl_parametres[0].type	= SYB#CHAR_
+	vl_parametres[0].data	= XDC_BASE_CFG
+	vl_parametres[0].output	= FALSE
+
+
+	/*A Exécution de la procedure XZAO401_Lire_Liste_Destination_TDP	*/			
+	IF COM05_SQL_Procedure ( XZAO411_Destination_PMV_TDP, vl_parametres, 
+					vl_resultats, "ITMA_TPM") <> COM_OK
+		RETURN (COM_NOK)
+
+	/*A recuperation du select dans la liste 'vg_Destination_TDP' */
+	vl_Config_Dest = vl_resultats.select_results[0]
+	SET_SYSTEM_VAR@ (vg_Destination_TDP,vl_Config_Dest )
+
+
+}
+
+j = 0
+FOR i = 0 to ARRAY_SIZE@(vl_Config_Dest)-1
+	IF va_NumPMV = vl_Config_Dest[i].NumPMV
+	{
+		vl_LibTmp[j] = vl_Config_Dest[i].Libelle_PMV
+		vl_NumTmp[j] = vl_Config_Dest[i].NumDest
+		vl_Sens = vl_Config_Dest[i].Sens
+		j = j + 1
+		
+	}
+NEXT i
+
+IF vl_Sens = XDC_SENS_NORD
+{
+	j = 0
+	FOR i = ARRAY_SIZE@(vl_NumTmp)-1 to 0 step -1
+		va_LibDest[j] = vl_LibTmp[i]
+		va_NumDest[j] = vl_NumTmp[i]
+		j = j + 1
+
+	NEXT i
+}
+ELSE
+{
+	j = 0
+	FOR i = 0 to ARRAY_SIZE@(vl_NumTmp)-1 
+		va_LibDest[j] = vl_LibTmp[i]
+		va_NumDest[j] = vl_NumTmp[i]
+		j = j + 1
+
+	NEXT i
+}
+
+/*B code retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Choisir une destination temps de parcours
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPM_Choix_Destination ( va_NumPMV, va_PosX, va_PosY )
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_NumPMV		: le numero du PMV
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   Selectionner le bouton 'Destination' dans la vue piloatge PMV
+*
+* FONCTION
+*    Choisir une destination temps de parcours
+*
+---------------------------------------------------------------------------- */
+
+
+/*A Déclaration des variables statiques */
+var		vl_fenetre_Dest
+var		vl_fenetre_active
+var		vl_controle_sortie
+var		vl_rang			/* rang selectionné dans la liste */
+var 		vl_NumDest
+var		vl_LibDest
+var		vl_select		/* sequence selectionné dans la liste */
+var		vl_messages_acceptes
+
+vl_NumDest[0] = "" + 0
+
+ITMA_TPM_Liste_Destination_PMV ( va_NumPMV, vl_NumDest, vl_LibDest )
+
+
+/*A Chargement du fichier de config sequences 
+*   ------------------------------------------ */
+
+if vl_NumDest[0] + 0 = 0
+{
+	info_message@("Pas de destination possible pour ce PMV ")
+
+	/*A Fermeture de la fenetre */
+	vl_select[0] = "" ++ 0
+	RETURN(vl_select)
+
+}
+
+
+/*A Ouvertue de la liste des sequences */
+vl_fenetre_Dest = DB_LOAD@("ITMA_TPM_liste_destination")
+vl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_Dest, vl_messages_acceptes)
+
+/*A Positionnement de la fenetre  
+*   --------------------------  */
+DB_XPOS@(vl_fenetre_Dest,va_PosX)
+DB_YPOS@(vl_fenetre_Dest,va_PosY)
+
+DB_DISPLAY_ONLY@(vl_fenetre_Dest,True)
+DB_DISPLAY@(vl_fenetre_Dest)
+DB_DISPLAY_ONLY@(vl_fenetre_Dest,False)
+
+DB_CTRL_WORK_COLORS@(vl_fenetre_Dest,"BL_destination",TRUE)
+DB_CTRL_MONOSPACE@(vl_fenetre_Dest,"BL_destination",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_Dest,"BL_destination",True)
+DB_CTRL_STRINGS@(vl_fenetre_Dest,"BL_destination",vl_LibDest)
+
+/*A Boucle de capture des événements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_Dest)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_Dest)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action quitter */
+	CASE "BL_destination"
+
+		/*A Capture du rang dans la liste des destination */
+		vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_Dest,"BL_destination")
+
+		/*A Capture du libellé de la destination choisie */
+		vl_select[0] = "" ++ vl_NumDest[vl_rang]
+		vl_select[1] = vl_LibDest[vl_rang]
+
+		RETURN(vl_select)
+
+	/*A sur reception de poke */
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vl_fenetre_Dest)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+
+		ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+
+ENDMACRO
+
+

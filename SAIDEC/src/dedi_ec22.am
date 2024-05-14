@@ -1,0 +1,250 @@
+/*E*/
+/* Fichier : $Id: dedi_ec22.am,v 1.2 1995/10/25 14:09:40 thomas Exp $	      Release : $Revision: 1.2 $        Date : $Date: 1995/10/25 14:09:40 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec22.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* liste des intitules des rubriques pour le fax
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	30 jan 1995	: Creation						V1.1
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+DEFINE	CAR_SEPAR_DEF			"$"
+
+FORMAT ec22_intitule
+	element,
+	intitule,
+	variable
+
+VAR FORMAT ec22_intitule		tm_intitules
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* intitules des rubriques du fax
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec22 ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_selection
+var tl_pokes
+var vl_indice
+var tl_data
+
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec22")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,5)
+DB_YPOS@(vl_fenetre,72)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec22_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton modifier*/
+		CASE "BP_modifier"
+			/*A si un element est bien selectionne*/
+			IF (vl_selection++"")<>null
+			{
+				/*A nouvel intitule associe a l'element*/
+				tm_intitules[vl_selection].intitule=DB_CTRL_GET_VALUE@(
+											vl_fenetre,"BS_intitule")
+					
+				/*A met a jour la table*/
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_elements",tm_intitules,0)
+
+				/*A reselectionne l'element dans la table*/
+				vl_indice[0]=vl_selection
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_elements",vl_indice)
+			}
+
+		/*A choix d'un element dans la table*/
+		CASE "TA_elements"
+			/*A indice de l'element choisi*/
+			vl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,vl_evt)
+			vl_selection=vl_selection[0]
+
+			IF ((vl_selection++"")<>null)
+			{
+				/*A affiche les valeurs de ce type pour modif*/
+				DB_CTRL_TITLE@(vl_fenetre,"LI_element",
+								tm_intitules[vl_selection].element)
+				DB_CTRL_VALUE@(vl_fenetre,"BS_intitule",
+								tm_intitules[vl_selection].intitule)
+				DB_CURSOR_IN_ENTRY@(vl_fenetre,"BS_intitule")
+			}
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			IF (ec22_valide(vl_fenetre)=TRUE)
+				RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec22_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_titres
+VAR tl_data
+VAR vl_indice
+
+	/*A lecture des intitules*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_INTITULE_FAX)
+
+	/*A formatte les donnees*/	
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tm_intitules[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+												DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+	/*A affiche la liste des elements*/
+	tl_titres[0][0] = "Rubrique"
+	tl_titres[0][1] = 150
+	tl_titres[1][0] = "Intitulé"
+	tl_titres[1][1] = 900
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre, "TA_elements", TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_elements",TRUE)
+
+	DB_TABLE_SET_DATA@(va_fenetre,"TA_elements",tm_intitules,tl_titres)
+
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation des intitules
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec22_valide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	/*A formatte les intitules*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_intitules)-1)
+		tl_data[vl_indice]=ARRAY_TO_STRING@(tm_intitules[vl_indice],
+											DEDI_CAR_SEPAR)
+	NEXT vl_indice
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_INTITULE_FAX,tl_data)
+
+	RETURN (TRUE)
+ENDMACRO
+
+
+

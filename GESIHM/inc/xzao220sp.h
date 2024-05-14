@@ -1,0 +1,1 @@
+DEFINE	XZAO220_Liste_ITPC_Par_District	"XZAO220"

@@ -1,0 +1,408 @@
+/*E*/
+/* Fichier : @(#)XZME02_CreerDT.am	1.1      Release :1.1     Date : 01/09/95
+------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  MAINTE
+------------------------------------------------------------------------
+* MODULE XDMA * FICHIER ITMA_TDT_Creer_DT.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Gestion des demandes de travaux.
+*   INTERFACE entre les SGBDR SYBASE et INFORMIX.
+*
+*   Creation d'une demande de travaux (DT)
+*
+*   Cf. DCG 2.7
+*
+-----------------------------------------------------------------------
+* HISTORIQUE :
+*
+* T.Fournel  03 Jan 1995 : Creation    V1.1                            
+* Lecrivain  29 Mar 1995 : Ajout date de premiere apparition alarme       V1.6
+* T.Fournel  05 avril 1995 : Modification de l'appel du script MPS
+* Lecrivain  12 Avr 1995 : Traitement d'un symptome NULL                  V1.9
+-------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../GESIHM/inc/ITMA_COM.h"
+
+
+/*A Description des constantes générales
+ * ------------------------------------- */
+DEFINE	C_MODULE			"MTDT"	' Nom du module
+
+
+/* Parametres de la Connexion SGBDR INFORMIX */
+/* 
+Le vendeur est "Informix", la base de donnees EASYCAM est "isicam'
+et la machine sur laquelle se situe le SE (moteur Informix) est "POCMA"
+*/
+DEFINE	COM_NOM_SGBD_IFX	"Informix"
+DEFINE	COM_USER_IFX		""
+DEFINE	COM_MOT_PASSE_IFX	""
+DEFINE	COM_BASE_IFX		"isicam"
+DEFINE	COM_HOTE_IFX		"POCMA"			
+DEFINE	COM_SERVEUR_IFX	""
+
+
+/* 
+** Nom du script de la societe MPS qui est utilise pour la creation
+** d'une DT
+*/
+DEFINE	vl_NomScriptMPS	"mgzur.sh"
+
+/* 
+** Prefixe du fichier resultat (contenant l'ID de la DT) genere par le
+** script MPS 
+*/
+DEFINE	vl_NomFichierMPS	"IDDT_"
+
+VAR vg_Text			'Texte Trace
+
+
+/*X*/
+/*----------------------------------------------------------------------
+* SERVICE RENDU :	Creation d'une demandes de travaux
+*------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+MACRO ITMA_TDT_Creer_DT (va_TypeEqt_in, va_NumEqt_in, va_DateApparition_in,
+			 va_Delai_in, va_Symptome_in, va_Demandeur_in, va_IdDT)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_TypeEqt_in       	: Type de l'equipement (numero type SYBASE).
+*  va_NumEqt_in       	: Numero de l'equipement (ID SYBASE)
+*  va_DateApparition_in : Date de premiere apparition alarme
+*  va_Delai_in       	: Delai d'execution de la DT (0<=en jours<=999)
+*  va_Symptome_in       	: Symptome de la DT (Effet)
+*  va_Demandeur_in         : Demandeur de la DT (Visa du demandeur)
+*
+* ARGUMENTS EN SORTIE :
+*  va_IdDT              	: Identifiant de la DT.
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte ;
+*				   COM_NOK en cas d'execution erronee ;
+*			        COM_REFUSE si l'equipement est inconnu d'Informix/EASYCAM.
+*
+* CONDITION D'UTILISATION
+* Appele par la tache chargee de la gestion des alarmes maintenance.
+*
+* FONCTION
+* Interface entre SYBASE et INFORMIX pour la gestion des demandes de
+* travaux (DT)
+*
+* Creation d'une Demande de Travail pour un equipement donne suite a une ALARME.
+*
+--------------------------------------------------------------------- */
+var	vl_NumEqtIFX		'Identifiant de l'eqt Informix / EASYCAM
+var	vl_ContenuFichier	'Contenu d'un fichier ASCII resultat
+var 	vl_NomScript 		'Nom du script a executer (avec chemin)
+var	vl_NomFichier		'Nom du fichier a lire
+var	vl_Resultat		'Resultat d'une requete
+var	vl_Chemin			'Chemin de fichier
+var	vl_Commande		'Commande SHELL a executer
+var	vl_IdDT			'Identifiant de la D de T (resultat)
+var	vl_Demandeur 		'Visa chaine
+var	vl_Symptome		'Effet chaine
+var	vl_DateApparition	'Visa chaine (ajout TF 05/04/95)
+var	vl_Demandeur_tab	'Visa tableau
+var	vl_Symptome_tab	'Effet tableau
+var	vl_DateApparition_tab	'Effet tableau (ajout TF 05/04/95)
+
+var	vl_canal_SGBD_IFX	'Canal de communication INFORMIX
+var	vl_Result_IFX		'Resultat de la requete INFORMIX
+var	vl_requete		'Requete SQL a construire (Informix)
+var	vl_IdEqt			'Identifiant de l'equipement (SGBD Informix)
+var	vl_TypeEqt		'Libelle du type de l'equipement (SGBD SYBASE)
+
+	/*A
+ 	* Traitements en cas d'erreur durant l'initialisation :
+ 	* informer l'operateur, tracer l'erreur et abandonner
+ 	* -----------------------------------------------------
+ 	*/
+	ON ERROR {
+    	ERROR_BOX@
+    		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    	RETURN (COM_NOK)
+	}
+
+	/*A trace debut de macro */
+	vg_text = COM09_Date_Courante() ++ " ITMA_TDT_Creer_DT() debut de Creation ..."
+	COM01_Trace(COM_INFO,vg_text)
+
+
+
+
+	/*A
+	** Recherche du numero d'equipement Informix (Identifiant de
+	** l'equipement dans la BD Informix).
+	** Il faut faire une correspondance entre le type de l'equipement
+	** SYBASE et le numero d'equipement SYBASE avec le numero
+	** d'equipement INFORMIX.
+	*/
+
+	/*A
+	** Demande de connection au SGBDR INFORMIX pour etablir la
+	** correspondance entre les equipements dans les deux SGBD.
+	*/
+	vl_canal_SGBD_IFX = SQL_CONNECT@ (COM_NOM_SGBD_IFX,
+							COM_USER_IFX,
+	 						COM_MOT_PASSE_IFX,
+				 			COM_BASE_IFX, 
+							COM_HOTE_IFX, 
+							COM_SERVEUR_IFX)
+
+	/* Test de la demande de connexion */
+	if IS_NULL(vl_canal_SGBD_IFX) = TRUE
+	begin
+		COM01_Trace (COM_WARNING,"Connexion INFORMIX refuse...")
+		return (COM_NOK)
+	end
+	SQL_CHANNEL_MASTER@ (vl_canal_SGBD_IFX, 0)
+
+
+	/*B
+	** Recherche du numero d'equipement INFORMIX :
+	** (Correspondance entre le type et le numero SYBASE et l'ID
+	** INFORMIX).
+	** Consultation de T_AP_AP (type et sit)
+	*/
+
+	/* Recheche du libelle du type d'equipement en fonction de son */
+	/* numero de type SYBASE. Ceci revient a etablir une	    */
+	/* correspondance entre un numero et un libelle (chaine)       */
+	vl_TypeEqt = ITMA_TTE_Type_Equipement(va_TypeEqt_in)
+
+	/* Test le libelle resultat */
+	if vl_TypeEqt = "INCONNU"
+	begin
+		'info_message@("Equipement inconnu")
+		vg_text = COM09_Date_Courante() ++
+			 " ITMA_TDT_Creer_DT() Equipement inconnu dans EASYCAM ..."
+		COM01_Trace(COM_WARNING,vg_text)
+
+		SQL_DISCONNECT@(vl_canal_SGBD_IFX)
+		return (COM_REFUSE)
+	end
+
+	/* Construction de la requete INFORMIX */
+	vl_Result_IFX = null
+
+	vl_requete = "select NUM_AP"
+	vl_requete = format@("%s from T_AP_AP ",vl_requete)
+	vl_requete = 
+		format@("%s where AP_AP = '%s'",vl_requete,va_NumEqt_in)
+	vl_requete = format@("%s and SIT_AP = '%s'",vl_requete,vl_TypeEqt)
+
+	/* Interrogation de la Base de donnees */
+	vl_Result_IFX=sql_select@(vl_canal_SGBD_IFX,vl_requete)
+
+
+	/* B
+	** Si la requete ne retourne aucun resultat, la correspondance n'a
+	** pu etre etablie. Ceci est peut etre du au fait que l'equipement
+	** en question n'a pas ete declare dans la BD Informix.
+	** (Pas de prise en compte de la CFG dans le produit EASYCAM).
+	*/
+
+	/*
+	** Test du nombre d'enregistrements retournes :
+	** Il ne doit y avoir qu'un seul equipement qui satisfasse la
+	** requete.
+	*/
+	if  array_size@(vl_Result_IFX) = 0		/* Pas de resultat */
+	{
+		'info_message@("Equipement inconnu  Informix/EASYCAM ...")
+		SQL_DISCONNECT@(vl_canal_SGBD_IFX)
+		return (COM_REFUSE)
+	}
+	else if array_size@(vl_Result_IFX)  = 1	and /* Un resultat */
+			 (IS_NULL(vl_Result_IFX[0][0]) = FALSE)
+		vl_NumEqtIFX =  vl_Result_IFX[0][0]
+	else						/* Plusieurs resultats */
+	{
+		'info_message@ ("Incoherence dans la BD Informix/EASYCAM ...")
+		SQL_DISCONNECT@(vl_canal_SGBD_IFX)
+		return (COM_REFUSE)
+	}
+
+
+	/*A
+	** Deconnection INFORMIX une fois la correspondance entre
+	** les equipements etablies.
+	*/
+	SQL_DISCONNECT@(vl_canal_SGBD_IFX)
+
+
+	/*B
+	**  Construction du nom du scripts MPS  a executer.
+	*/
+	/* Recherche de la valeur de la variable d'environement EASYDIR    */
+	/* Les scripts et executables de EASYCAM sont situe sur POCMA dans */
+	/* le repertoire EASYDIR (/produits/GMAO/isicam).			   */
+	vl_Chemin = GET_ENV_VAR@("EASYDIR")
+
+	/* Le repertoire existe- t-il  ? */
+	if DIR_EXISTS@(vl_Chemin) = FALSE
+	begin
+		'info_message@ ("Le repertoire EASYDIR n'existe pas...")
+		vg_text = COM09_Date_Courante() ++
+			 " ITMA_TDT_Creer_DT() Repertoire EASYDIR n'existe pas ..."
+		COM01_Trace(COM_WARNING,vg_text)
+
+		return (COM_NOK)
+	end
+
+	/* Construction du chemin complet  du script a executer */
+	vl_NomScript = format@("%s/%s",vl_Chemin,vl_NomScriptMPS)
+
+	/* Ajout des arguments necessaires pour le script MPS */
+
+	/*B
+	** Les arguments du script "mgzur.h" sont les suivants :
+	** - Identifiant de l'equipement dans la BD Informix (vl_NumEqtIFX)
+	** - Le delai d'intervention (va_Delai_in) exprime en jour
+	** - L'effet constate (va_Symptome_in)
+	** - Le demandeur (va_Demandeur_in)
+	*/
+
+	/* 
+	** Le script MPS n'etant pas capable de reconnaitre  les ' '
+	** (caracteres blancs) dans une chaine de caracteres.
+	** Il est donc indispensable de changer tous les ' ' en '#'.
+	** Le scripts MPS etant capable de reconnaitre tous les autres
+	** caracteres,  il transformera les '#' en ' ' dans Informix meme.
+	*/
+	/* Tous les "tab" sont convertis en blancs et les blancs en "#" */
+    vl_Symptome = TABS_TO_SPACES@(va_Symptome_in,1)
+    vl_Symptome_tab = ARRAY_FROM_STRING@(vl_Symptome," ")
+    vl_Symptome = ARRAY_TO_STRING@(vl_Symptome_tab,"#")
+
+	vl_Demandeur = TABS_TO_SPACES@(va_Demandeur_in,1)
+	vl_Demandeur_tab = ARRAY_FROM_STRING@(vl_Demandeur," ")
+	vl_Demandeur = ARRAY_TO_STRING@(vl_Demandeur_tab,"#")
+
+	/* Le ' ' de la date est remplacé en '#' (ajout TF 05/04/95) */
+	/* "JJ/MM/AAAA HH:MM" -> "JJ/MM/AAAA#HH:MM" */
+	vl_DateApparition = TABS_TO_SPACES@(va_DateApparition_in,1)
+	vl_DateApparition_tab = ARRAY_FROM_STRING@(vl_DateApparition," ")
+	vl_DateApparition = ARRAY_TO_STRING@(vl_DateApparition_tab,"#")
+
+
+	/* Preparation de la commande */
+	vl_Commande	= null
+
+	/* Le format comprend en plus la chaine vl_DateApparition(ajout TF 05/04/95) */
+	vl_Commande	= format@("%s %s %s '%s' '%s' '%s'",vl_NomScript,
+								vl_NumEqtIFX,
+								va_Delai_in,
+								vl_Symptome,
+								vl_Demandeur,
+								vl_DateApparition)
+
+	/* trace commande MPS */
+	vg_text = COM09_Date_Courante() ++
+			" ITMA_TDT_Creer_DT() Cmd: " ++
+			vl_Commande
+	COM01_Trace(COM_DEBUG1,vg_text)
+
+	/*A
+	** Lancement du script (MPS) "mgzur.sh" pour la creation d'une DT avec les
+	** informations strictements necessaires. Les autres informantions seront
+	** initialises par EASYCAM avec des valeurs par defauts. Par exemple, le numero
+	** de DT sera toujours "DT" comme demande de travaux.
+	** Attention : ne pas confondre numero de DT et numero de OD. Ce dernier est le
+	** numero de l'ordre de travaux et il est genere automatiquement par EASYCAM.
+	** C'est ce numero qui servira de reference sur un bon de travail ou une
+	** facture. Le numero de DT n'a quant a lui aucune valeur contractuel.
+	*/
+
+	/* Pas de valeurs significatives pour vl_Resultat */
+	vl_Resultat = SHELL_COMMAND@(vl_Commande)
+	
+
+	/*A
+	** Lecture du fichier creer par le script MPS. Ce fichier contient
+	** l'identifiant de la DT qui vient d'etre creer dans la BD
+	** Informix.
+	*/
+
+	
+	/*B
+	** Regle de nomage du fichier genere par le script MPS : 
+	** "IDDT_nn" ou nn est l'identifiant de l'equipement dans la BD
+	** Informix (vl_NunEqtIFX).
+	** Si la valeur lue dans ce fichier est positive, il s'agit de
+	** l'identifiant de la DT. Sinon, il s'agit du numero d'erreur
+	** Informix (resultat <0) ou un probleme de configuration de la BD
+	** Informix (Eqt n'existant pas dans la BD "isicam")
+	*/
+
+	/* Construction du chemin du  fichier resultat a consulter */
+	vl_NomFichier = format@("%s/%s%s",	vl_Chemin,
+								vl_NomFichierMPS,
+								vl_NumEqtIFX)
+
+	/* trace lecture fichier MPS */
+	vg_text = COM09_Date_Courante() ++
+			" ITMA_TDT_Creer_DT() : Lecture fichier " ++
+			vl_NomFichier
+	COM01_Trace(COM_DEBUG1,vg_text)
+
+
+	/* Lecture du fichier resultat */
+	vl_ContenuFichier = READ_ASCII_FILE@(vl_NomFichier)
+
+	/* Recuperation de l'identifiant de la DT qui vient d'etre creer */
+	vl_IdDT= vl_ContenuFichier[0]
+
+	/*A
+	** Destruction du fichier qui vient d'etre consulte pour liberer
+	** l'espace sur le disque.
+	*/
+	vl_Commande	= null
+
+	vl_Commande = format@("rm %s",vl_NomFichier)
+
+	/*A trace commande "rm" fichier */
+	vg_text = COM09_Date_Courante() ++
+			" ITMA_TDT_Creer_DT() : " ++
+			vl_Commande
+	COM01_Trace(COM_DEBUG1,vg_text)
+
+	vl_Resultat = SHELL_COMMAND@(vl_Commande)
+
+	/*A
+	** Test du resultat obtenu. (Contenu du fichier resultat)
+	*/
+	/* La valeur de l'identifiant doit etre positive */
+	if vl_IdDT < 0
+	{
+		'info_message@ ("Erreur informix...")
+		return (COM_NOK)
+	}
+	else if vl_IdDT = 0	/* Equipement n'existant pas dans la BD EASYCAM */
+	{
+		'info_message@ ("Equipement inconnu dans BD EASYCAM")
+		return (COM_REFUSE)
+	}
+	'else		/* Identifiant de la DT (Informix/EASYCAM) */
+		'info_message@ (vl_IdDT)
+
+
+	va_IdDT = vl_IdDT
+
+	/* trace fin de macro */
+	vg_text = COM09_Date_Courante() ++ 
+			" ITMA_TDT_Creer_DT() fin de creation" ++
+			" (Resultat : " ++ vl_IdDT ++ ")"
+	COM01_Trace(COM_DEBUG1,vg_text)
+
+	return (COM_OK)
+
+ENDMACRO

@@ -1,0 +1,364 @@
+/*E*/
+/* Fichier : $Id: ITMA_TFC_Fiche_Competence2.am,v 1.7 2014/11/12 10:52:38 devgfi Exp $      Release : $Revision: 1.7 $        Date : $Date: 2014/11/12 10:52:38 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TFS * FICHIER ITMA_TFC_Fiche_Competence2.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fiche competence.
+*
+*   Cf. DCG 2.4.28
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	21 Oct 1994 : Creation
+* Guilhou	16 nov 1994 : refonte complete de la gestion des astreintes (DEM/1306) 1.6
+* JPL / AD	06/10/2014 : Ajout du paramètre sens a XZAN16 (DEM 1100) 1.7
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TFC.h"
+INCLUDE	"../inc/ITMA_TFS.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+INCLUDE "../inc/xzan05sp.h"
+INCLUDE "../inc/xzan06sp.h"
+INCLUDE "../inc/xzan16sp.h"
+INCLUDE "../inc/xzan17sp.h"
+INCLUDE "../inc/xzan38sp.h"
+
+
+
+DEFINE	C_MODULE	"MTFC"			' Nom du module
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Permet de provoquer le chargement de ce sous-module.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TFC_Fiche_Competence2 ()
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Creation d'une fiche competence.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFC_Creer_Competence (va_num_type, va_sous_type, va_district,
+			       va_site,
+			       va_num_competence)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_num_type        : Identifiant du type d'astreinte de la competence ;
+*  va_sous_type       : Identifiant du sous type d'astreinte;
+*  va_district        : District de l'astreinte ;
+*
+* ARGUMENTS EN SORTIE :
+*  va_num_competence  : Numero de la competence creee.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFC_Fiche_Competence
+*
+* FONCTION
+*   Execute la requete adequate pour creer une nouvelle fiche competence avec
+*   les informations indiquees ;
+*   si l'operation se deroule correctement, le numero de la competence creee
+*   est retourne.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR vl_retour
+
+
+/*commence par verifier si une competence identique existe en base*/
+vl_parametres[0].type = TFS_Numero_Type_Astreinte
+vl_parametres[0].data = va_num_type
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFS_Sous_Type_Astreinte
+vl_parametres[1].data = va_sous_type
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = TFC_Numero_Competence
+vl_parametres[2].data = null
+vl_parametres[2].output = FALSE
+
+vl_retour=COM05_SQL_Procedure (XZAN38_Verifier_Competence,
+	   vl_parametres, vl_resultats, C_MODULE) 
+if (vl_retour = COM_NOK)
+      RETURN (COM_NOK)
+
+/*si une competence identique existe*/
+if (vl_resultats.status = XDC_ACT_REFUSEE) {
+	/*demande de confirmation*/
+	IF (PEND_FOR_NEW_TASK@("ITMA_TCF_Demande_Confirmation","Une compétence identique existe déjà en base.\nVoulez-vous continuer la création?")=XDC_NOK)
+	  RETURN (COM_QUITTE)
+}
+
+vl_parametres=null
+vl_resultats=null
+
+vl_parametres[0].type = TFS_Numero_Type_Astreinte
+vl_parametres[0].data = va_num_type
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFS_Sous_Type_Astreinte
+vl_parametres[1].data = va_sous_type
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = TFS_District_Astreinte
+vl_parametres[2].data = va_district
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = TFS_District_Astreinte
+vl_parametres[3].data = va_site
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = TFC_Numero_Competence
+vl_parametres[4].output = TRUE
+
+IF COM05_SQL_Procedure (XZAN05_Creer_Competence,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+va_num_competence = vl_resultats.return_parameters[0]
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Modification d'une fiche competence.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFC_Modifier_Competence (va_num_comp, va_num_type,va_sous_type, va_district,va_site)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_num_comp        : Identifiant de la competence a modifier ;
+*  va_sous_type       : Identifiant du sous_type d'astreinte ;
+*  va_district        : District de l'astreinte ;
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFC_Fiche_Competence
+*
+* FONCTION
+*   Execute simplement la requete adequate pour modifier la fiche competence
+*   de numero indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+    VAR vl_retour
+
+
+/*commence par verifier si une competence identique existe en base*/
+vl_parametres[0].type = TFS_Numero_Type_Astreinte
+vl_parametres[0].data = va_num_type
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFS_Sous_Type_Astreinte
+vl_parametres[1].data = va_sous_type
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = TFC_Numero_Competence
+vl_parametres[2].data = va_num_comp
+vl_parametres[2].output = FALSE
+
+vl_retour=COM05_SQL_Procedure (XZAN38_Verifier_Competence,
+	   vl_parametres, vl_resultats, C_MODULE) 
+if (vl_retour = COM_NOK)
+      RETURN (COM_NOK)
+
+/*si une competence identique existe*/
+if (vl_resultats.status = XDC_ACT_REFUSEE) {
+	/*demande de confirmation*/
+	IF (PEND_FOR_NEW_TASK@("ITMA_TCF_Demande_Confirmation","Une compétence identique existe déjà en base.\nVoulez-vous continuer la modification ?")=XDC_NOK)
+	  RETURN (COM_QUITTE)
+}
+
+vl_parametres=null
+vl_resultats=null
+
+vl_parametres[0].type = TFC_Numero_Competence
+vl_parametres[0].data = va_num_comp
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = TFS_Sous_Type_Astreinte
+vl_parametres[1].data = va_sous_type
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = TFS_District_Astreinte
+vl_parametres[2].data = va_district
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = TFS_District_Astreinte
+vl_parametres[3].data = va_site
+vl_parametres[3].output = FALSE
+
+IF COM05_SQL_Procedure (XZAN06_Modifier_Competence,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Ajout d'une zone geographique a une fiche competence.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFC_Ajouter_Zone_Geographique (va_num_comp, va_autoroute,
+					va_PR_debut, va_PR_fin, va_sens, va_num_zone)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_num_comp        : Id. de la competence a laquelle ajouter la zone ;
+*  va_autoroute       : Id. de l'autoroute ou se situe la zone geographique ;
+*  va_PR_debut        : PR de debut de la zone ;
+*  va_PR_fin          : PR de fin de la zone ;
+*  va_sens            : sens de la zone.
+*
+*
+* ARGUMENTS EN SORTIE :
+*  va_num_zone        : Numero de la zone geographique creee.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFC_Fiche_Competence
+*
+* FONCTION
+*   Execute la requete adequate pour ajouter la zone geographique a la
+*   competence de numero indique ;
+*   si l'operation se deroule correctement, le numero de la zone geographique
+*   creee est retourne.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TFC_Numero_Competence
+vl_parametres[0].data = va_num_comp
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Autoroute
+vl_parametres[1].data = va_autoroute
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_PR
+vl_parametres[2].data = va_PR_debut
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Identifiant_PR
+vl_parametres[3].data = va_PR_fin
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = COM_Identifiant_Sens_Circul
+vl_parametres[4].data = va_sens
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = TFC_Numero_Zone_Geographique
+vl_parametres[5].output = TRUE
+
+IF COM05_SQL_Procedure (XZAN16_Ajouter_Zone_Geo_Comp,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+va_num_zone = vl_resultats.return_parameters[0]
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Suppression d'une zone geographique a une fiche competence.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TFC_Supprimer_Zone_Geograph (va_num_zone)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_num_zone        : Identifiant de la zone geographique a supprimer.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TFC_Fiche_Competence
+*
+* FONCTION
+*   Execute simplement la requete adequate pour supprimer la zone geographique
+*   de numero indique.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = TFC_Numero_Zone_Geographique
+vl_parametres[0].data = va_num_zone
+vl_parametres[0].output = FALSE
+
+IF COM05_SQL_Procedure (XZAN17_Supprimer_Zone_Geo_Comp,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+
+RETURN (COM_OK)
+
+ENDMACRO

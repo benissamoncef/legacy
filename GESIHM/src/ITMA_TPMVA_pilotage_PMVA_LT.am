@@ -1,0 +1,1650 @@
+/*E*/
+/* Fichier : $Id: ITMA_TPMVA_pilotage_PMVA_LT.am,v 1.1 2005/09/13 16:18:14 gesconf Exp $   Release : $Revision: 1.1 $      Date : $Date: 2005/09/13 16:18:14 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER ITMA_PMVA_pilotage_PMVA_LT.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* commander l'affichage sur PMVA depuis le LT.
+*
+*  
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou 	16/06/05: Creation								1.1
+
+---------------------------------------------------------------------------- */
+
+
+/*A Description des constantes générales
+ * ------------------------------------*/
+DEFINE	C_MODULE			"MPMVA"	' Nom du module
+DEFINE	TAILLE_REMARQUE 	100		' taille de la remarque en caractères
+DEFINE	REP_CONFIG		"../fichiers/"
+DEFINE	REP_FICHIER		"../fichiers/"
+
+/*A Description des modules à inclures
+ * ----------------------------------
+ */
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/ITMA_PMV_format.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+
+
+/*A Description des variables globales
+ * ----------------------------------*/
+var     	vg_fenetre			' item de la fenetre du module
+var     	vg_objet_selecte		' L'objet courant de la fenetre
+var     	vg_la_fenetre_est_active	' flag d'activation de la fenetre
+var		vg_titre_table_proposition ' titre du tableau des propositions.
+var 		vg_table_proposition	' libellés du tableau des proposition
+var		vg_Liste_elements		' liste des diférents éléments
+var		vg_Liste_PMV			' liste des différents PMV
+var		vg_Message			' tampon message du PMV
+var		vg_Lecture			' text tampon de lecture d'une liste
+var		vg_lect_PMV			' ligne séléctioné dans la liste des PMV
+var		vg_lect_elements		' ligne séléctioné dans la liste des éléments
+var		vg_PMV_Actif				' numéro du PMV actif (1,2 ou 3)
+var		vg_Text_Actif			' type du text modifié (message ou alternat)
+var		vg_messages_acceptes	' les messages acceptés en "_poke"
+var		vg_District				' le nom du district
+var		vg_NumPMV				' Le n° du PMV en cours de consultation
+var		vg_NomOperateur
+var		vg_NomSite			' Nom du site en cours
+var		vg_NomMachine			' nom de la machine
+var		vg_NomMachinePMV		' Nom du LT qui gere le PMV
+var		vg_F_NomMachine		' Liste des nom des LT
+
+
+/*A Description des tableaux
+ * ------------------------*/
+var format type_PMVA vg_PMV	
+var format type_PMVA vg_etat_PMV
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commande l'affichage sur PMV (3 au plus)
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPMVA_pilotage_PMVA_LT (va_appelant,va_1,va_2,va_3,va_4,va_5,va_6)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 à va_6		: N° d'ordre + N° PA  ou  N° Equipement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> PMV dans MTPA
+*
+* FONCTION
+*   Lit en base de donnees puis affiche la liste des alarmes en cours en
+*   mettant en evidence les changements par rapport a la derniere consultation.
+*   Permet a l'operateur de choisir des alarmes dans la liste affichee puis
+*   d'en effectuer l'acquittement, avec mise a jour de la base de donnees.
+*
+---------------------------------------------------------------------------- */
+
+
+var		i,j,k				' index de loop
+var		vl_tampon				' table tamporaire
+var		vl_size				' taille de la table vg_Liste_PMV
+var		vl_retour		 		' code retourne à l'appelant
+var		vl_lib_fmc			' tableau du libellé fmc
+var		vl_fmc				' libellé fmc à construire
+var		vl_erreur				' flag d'erreur
+var		vl_ligne			
+var		vl_taille				
+var		vl_taille2			
+var		vl_F_tpm
+var		vl_F_tpm2
+var		vl_tpm
+var		vl_mess
+var		vl_message
+var		vl_text
+var		vl_rang
+var		vl_lecture
+var		vl_Fichier				' nom du 1er fichier d'equipement
+
+vg_District = SYSTEM_VAR@("vg_site")
+vg_NomSite = SYSTEM_VAR@("vg_nom_site")
+vg_NomOperateur = SYSTEM_VAR@(vg_operateur)
+vg_NomOperateur = SUBSTRING@(vg_NomOperateur, 1, 25)
+vg_NomMachine = SYSTEM_VAR@(vg_poste)
+vg_PMV_Actif = 1
+vg_NumPMV = 0
+
+/*A Definition du traitement a realiser en cas d'erreur
+* -----------------------------------------------------*/
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+vl_text = "------------------------------------------------------------"
+COM01_Trace(0,vl_text)
+vl_text = "Start ITMA_TPMA_pilotage_PMVA_LT " ++ "   User : " ++ vg_NomOperateur
+COM01_Trace(0,vl_text)
+
+
+/*A Charger la fenetre PMV 
+ * ----------------------*/
+vg_fenetre = DB_LOAD@("ITMA_TPMVA_pilotage_PMVA_LT")
+vg_messages_acceptes[0] = COM_CANAL_FIN
+vg_messages_acceptes[1] = COM_CANAL_MTPMVA_ETAT
+DB_ACCEPT_POKES@ (vg_fenetre, vg_messages_acceptes)
+DB_DISPLAY_ONLY@(vg_fenetre,TRUE)
+DB_WINDOW_REMAIN@ (vg_fenetre, TRUE)
+DB_XPOS@ (vg_fenetre, 100)
+DB_YPOS@ (vg_fenetre, 100)
+DB_CTRL_HORIZ_SCROLL@(vg_fenetre,"TA_proposition",FALSE)
+DB_CTRL_RETURN_ON_CHANGE@(vg_fenetre,"TA_proposition",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vg_fenetre,"BA_arret",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vg_fenetre,"BA_clignotement1_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vg_fenetre,"BA_clignotement2_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vg_fenetre,"BA_clignotement3_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vg_fenetre,"BA_clignotement4_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vg_fenetre,"BA_clignotement5_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vg_fenetre,"BA_flash_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vg_fenetre,"BL_message_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vg_fenetre,"BL_alternat_nouveau",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vg_fenetre,"BL_PMV",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vg_fenetre,"BL_éléments",TRUE)
+
+/*A attacher la fenetre d'aide 
+ * --------------------------*/
+COM02_Attacher_Aide (vg_fenetre, "ITMA_TPMVA_pilotage_PMVA_LT")
+
+
+/*A Definir les caracteristiques (initiales) des objets graphiques
+* --------------------------------------------------------------*/
+
+/* effacer certains éléments de la boite de dialogue */
+DB_CTRL_DISPLAY@(vg_fenetre,"BE_modif",FALSE)
+DB_CTRL_DISPLAY@(vg_fenetre,"BP_valider_nouveau",FALSE)
+DB_CTRL_DISPLAY@(vg_fenetre,"BP_annuler_nouveau",FALSE)
+
+/* Griser les boutons de bascules actuel */
+DB_CTRL_GRAYED@(vg_fenetre,"BA_flash_actuel",TRUE)
+DB_CTRL_GRAYED@(vg_fenetre,"BA_clignotement1_actuel",TRUE)
+DB_CTRL_GRAYED@(vg_fenetre,"BA_clignotement2_actuel",TRUE)
+DB_CTRL_GRAYED@(vg_fenetre,"BA_clignotement3_actuel",TRUE)
+DB_CTRL_GRAYED@(vg_fenetre,"BA_clignotement4_actuel",TRUE)
+DB_CTRL_GRAYED@(vg_fenetre,"BA_clignotement5_actuel",TRUE)
+
+/* afficher sur fond blanc les zones de listes et de tableaux */
+DB_CTRL_WORK_COLORS@(vg_fenetre,"BL_message_actuel",TRUE)
+DB_CTRL_WORK_COLORS@(vg_fenetre,"BL_message_nouveau",TRUE)
+DB_CTRL_WORK_COLORS@(vg_fenetre,"BL_alternat_actuel",TRUE)
+DB_CTRL_WORK_COLORS@(vg_fenetre,"BL_alternat_nouveau",TRUE)
+DB_CTRL_WORK_COLORS@(vg_fenetre,"BE_modif",TRUE)
+
+
+
+/*A Affichage de la fenetre
+* -------------------------*/
+DB_DISPLAY@(vg_fenetre)
+ 
+/*A MAJ TA_proposition
+* -------------------*/
+vg_table_proposition 			= ""
+vg_table_proposition[0,0]		=" "
+vg_table_proposition[0,1]		=" "
+vg_table_proposition[0,2]		=" "
+vg_table_proposition[0,3]		=" "
+vg_table_proposition[0,4]		=" "
+vg_titre_table_proposition 		= ""
+vg_titre_table_proposition[0,0] 	= "Ligne 1"
+vg_titre_table_proposition[0,1]	= 170
+vg_titre_table_proposition[1,0] 	= "Ligne 2"
+vg_titre_table_proposition[1,1]	= 170
+vg_titre_table_proposition[2,0] 	= "Ligne 3"
+vg_titre_table_proposition[2,1]	= 170
+vg_titre_table_proposition[3,0] 	= "Ligne 4"
+vg_titre_table_proposition[3,1]	= 170
+vg_titre_table_proposition[4,0] 	= "Ligne 5"
+vg_titre_table_proposition[4,1]	= 170
+DB_TABLE_ALLOW_EDITING@(vg_fenetre,"TA_proposition",True)
+DB_TABLE_ALLOW_COLUMN_RESIZING@(vg_fenetre,"TA_proposition",True)
+DB_TABLE_SET_DATA@(vg_fenetre,"TA_proposition",vg_table_proposition,vg_titre_table_proposition)
+
+
+vg_Liste_elements = READ_ASCII_FILE@(REP_CONFIG ++ "pmv/ConfigListeElementsPMVA.cfg")
+
+
+/*A Lecture du fichier des Eqt par LT et MAJ de la liste  
+*   ------------------------------------------------- */
+vg_Liste_PMV = ""
+vg_F_NomMachine = ""
+
+if LEN@(vg_NomSite)>0
+{
+	vl_Fichier = REP_FICHIER ++ "deq/Config_PMVA_LCR" 
+
+	if FILE_EXISTS@(vl_Fichier) { vl_F_tpm2 = READ_ASCII_FILE@(vl_Fichier) }
+	if IS_ARRAY@(vl_F_tpm2)
+	{
+		vl_taille = 0
+		for i = 0 to ARRAY_SIZE@(vl_F_tpm2)
+			vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm2[i],",")
+			vl_tpm = TRIM@(TABS_TO_SPACES@(vl_ligne[2]))
+			vl_tpm = SUBSTRING@(vl_tpm,1,5)
+			vl_text = SUBSTRING@(vg_NomMachine,1,5)
+			if vl_tpm = vl_text
+			{
+				vl_F_tpm[vl_taille] = vl_F_tpm2[i]
+				vl_taille = vl_taille + 1
+			}
+		next i
+	}
+
+
+}
+else
+{
+ 	info_message@("Mauvaise config du nom site : " ++vg_NomSite )
+	return(COM_NOK)
+}
+
+vl_taille = ARRAY_SIZE@(vl_F_tpm)-1
+for i = 0 to vl_taille
+	vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+	vl_taille2 = ARRAY_SIZE@(vl_ligne)-1
+	for j = 0 to vl_taille2
+		vl_tpm[i,j] = TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+		if LEN@(vl_tpm[i,1])=1 {vl_tpm[i,1] = "00"++vl_tpm[i,1]}
+		if LEN@(vl_tpm[i,1])=2 {vl_tpm[i,1] = "0"++vl_tpm[i,1]}
+	next j
+	vg_Liste_PMV[i] = vl_tpm[i,1] ++ "  " ++ vl_tpm[i,0]
+	vg_F_NomMachine[i] = vl_tpm[i,2]
+
+	vg_etat_PMV[i].Horodate 		=	COM09_Date_Courante()
+	vg_etat_PMV[i].NumEqt 		=	vl_tpm[i,1]		
+	vg_etat_PMV[i].Operateur 	= 	""			
+	vg_etat_PMV[i].Identifiant 	= 	vg_Liste_PMV[i]			
+	vg_etat_PMV[i].DispoPMV 		= 	0			
+	vg_etat_PMV[i].Message1		=	""					
+	vg_etat_PMV[i].Message2		=	""					
+	vg_etat_PMV[i].Message3		=	""					
+	vg_etat_PMV[i].Message4		=	""					
+	vg_etat_PMV[i].Message5		=	""					
+	vg_etat_PMV[i].Alternat1		=	""					
+	vg_etat_PMV[i].Alternat2		=	""				
+	vg_etat_PMV[i].Alternat3		=	""				
+	vg_etat_PMV[i].Alternat4		=	""				
+	vg_etat_PMV[i].Alternat5		=	""				
+  	vg_etat_PMV[i].Flash		=	XDC_PMV_PASFLASH			
+	vg_etat_PMV[i].Clignotement1	=	XDC_PMV_PASCLIGNO	
+	vg_etat_PMV[i].Clignotement2	=	XDC_PMV_PASCLIGNO	
+	vg_etat_PMV[i].Clignotement3	=	XDC_PMV_PASCLIGNO	
+	vg_etat_PMV[i].Clignotement4	=	XDC_PMV_PASCLIGNO	
+	vg_etat_PMV[i].Clignotement5	=	XDC_PMV_PASCLIGNO	
+	vg_etat_PMV[i].Fmc_liee		=	""			
+	vg_etat_PMV[i].Remarque		=	""			
+	vg_etat_PMV[i].Explication		=	""			
+	vg_etat_PMV[i].Numero_Evt		=	0		
+	vg_etat_PMV[i].Cle_Evt			=	0			
+	vg_etat_PMV[i].Priorite		=	0			
+	vg_etat_PMV[i].DistanceEvt		=	XDC_DISTANCE_INCONNUE		
+	vg_etat_PMV[i].NumeroAction		=	0	
+
+next i
+
+if NOT IS_ARRAY@(vg_Liste_PMV)
+{
+	info_message@("Pas de PMVA à piloter pour ce LT ")
+	RETURN(COM_NOK)
+}
+
+
+DB_CTRL_STRINGS@(vg_fenetre, "BL_éléments", vg_Liste_elements)
+DB_CTRL_PICK_DEFAULT@(vg_fenetre, "BL_éléments", TRUE)
+DB_CTRL_STRINGS@(vg_fenetre, "BL_PMV", vg_Liste_PMV)
+
+
+/*A Modif. de la police des fenetres de messages et d'alternats
+* -----------------------------------------------------------*/
+DB_CTRL_MONOSPACE@(vg_fenetre,"BL_message_actuel",TRUE)
+DB_CTRL_MONOSPACE@(vg_fenetre,"BL_alternat_actuel",TRUE)
+DB_CTRL_MONOSPACE@(vg_fenetre,"BL_message_nouveau",TRUE)
+DB_CTRL_MONOSPACE@(vg_fenetre,"BL_alternat_nouveau",TRUE)
+
+
+/*A MAJ de la liste des lignes de message
+* -------------------------------------*/
+ITMA_TPMVA_BL_elements_LT_click
+ITMA_TPMVA_BL_PMVA_LT_click
+
+/*A flag de capture des évenements dans la fenetre
+* ------------------------------------------------*/
+DB_DISPLAY_ONLY@(vg_fenetre,FALSE)
+
+
+/*A Abonnement a l'etat des panneaux */ 
+vl_erreur = ITMA_TPMVA_Abt_Etat_PMVA(XDC_DEBUT_ABONNEMENT_EQUEXT,vg_NomSite)
+
+
+
+/*A Gestion des événements liés à la fiche 'Pilotage des PMV'
+* --------------------------------------------------------*/
+vg_la_fenetre_est_active = TRUE
+WHILE (vg_la_fenetre_est_active)
+
+	/*A
+	 * Lecture de la date system et MAJ du libellé
+	 * -------------------------------------------
+	 */
+	DB_DISPLAY@ (vg_fenetre)
+
+    	vg_objet_selecte = DB_EXIT_CTRL@ (vg_fenetre)
+    	IF SYSTEM_VAR@ (vg_verrou) vg_objet_selecte = NULL
+
+	CASE OF vg_objet_selecte
+
+	CASE "BP_quitter"
+		vg_la_fenetre_est_active = FALSE
+
+	CASE "BP_choisir_PMV"
+
+		vl_text = "Status : Choisir PMVA"
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		ALL_WINDOWS_BUSY@()
+
+		DB_CTRL_STRINGS@(vg_fenetre,"BL_PMV",vg_Liste_PMV)
+		DB_CTRL_DISPLAY@(vg_fenetre,"BL_PMV",TRUE)
+		DB_CTRL_DISPLAY@(vg_fenetre,"Liste_PMV",TRUE)
+		DB_CTRL_DISPLAY@(vg_fenetre,"fleche1GD50",TRUE)
+		
+	CASE "BP_message"
+
+		ITMA_TPMVA_Capture_PMVA_LT()
+		vl_lecture = DB_TABLE_GET_SELECTIONS@(vg_fenetre,"TA_proposition")
+		vl_rang = vl_lecture[0]
+		vl_lecture= DB_TABLE_GET_DATA@(vg_fenetre,"TA_proposition")
+		ITMA_TPMVA_Tabuler_ligne_LT(vl_lecture[vl_rang,1],vl_text,15)
+		vg_PMV.Message1	= vl_text
+		ITMA_TPMVA_Tabuler_ligne_LT(vl_lecture[vl_rang,2],vl_text,15)
+		vg_PMV.Message2	= vl_text
+		ITMA_TPMVA_Tabuler_ligne_LT(vl_lecture[vl_rang,3],vl_text,15)
+		vg_PMV.Message3	= vl_text
+		ITMA_TPMVA_Tabuler_ligne_LT(vl_lecture[vl_rang,4],vl_text,15)
+		vg_PMV.Message4	= vl_text
+		ITMA_TPMVA_Tabuler_ligne_LT(vl_lecture[vl_rang,5],vl_text,15)
+		vg_PMV.Message5	= vl_text
+
+		if DB_CTRL_GET_VALUE@(vg_fenetre,"BA_cligno1")=True
+		{ vg_PMV.Clignotement1 = XDC_PMV_CLIGNORAPIDE }
+		else { vg_PMV.Clignotement1 = XDC_PMV_PASCLIGNO }
+
+		if DB_CTRL_GET_VALUE@(vg_fenetre,"BA_cligno2")=True
+		{ vg_PMV.Clignotement2 = XDC_PMV_CLIGNORAPIDE }
+		else { vg_PMV.Clignotement2 = XDC_PMV_PASCLIGNO }
+
+		if DB_CTRL_GET_VALUE@(vg_fenetre,"BA_cligno3")=True
+		{ vg_PMV.Clignotement3 = XDC_PMV_CLIGNORAPIDE }
+		else { vg_PMV.Clignotement3 = XDC_PMV_PASCLIGNO }
+
+		if DB_CTRL_GET_VALUE@(vg_fenetre,"BA_cligno4")=True
+		{ vg_PMV.Clignotement4 = XDC_PMV_CLIGNORAPIDE }
+		else { vg_PMV.Clignotement4 = XDC_PMV_PASCLIGNO }
+
+		if DB_CTRL_GET_VALUE@(vg_fenetre,"BA_cligno5")=True
+		{ vg_PMV.Clignotement5 = XDC_PMV_CLIGNORAPIDE }
+		else { vg_PMV.Clignotement5 = XDC_PMV_PASCLIGNO }
+
+		ITMA_TPMVA_MAJ_PMVA_LT()
+
+		DB_CTRL_GRAYED@(vg_fenetre,"BP_executer",False)
+		DB_CTRL_GRAYED@(vg_fenetre,"BP_message",True)
+		DB_CTRL_GRAYED@(vg_fenetre,"BP_alternat",True)
+
+		vl_text = "Status : MAJ du message du PMVA"
+ 		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		DB_CTRL_VALUE@(vg_fenetre,"BA_arret",FALSE)
+		
+	CASE "BP_alternat"
+
+		ITMA_TPMVA_Capture_PMVA_LT()
+		vl_lecture = DB_TABLE_GET_SELECTIONS@(vg_fenetre,"TA_proposition")
+		vl_rang = vl_lecture[0]
+		ITMA_TPMVA_Tabuler_ligne_LT(vg_table_proposition[vl_rang,1],vl_text,15)
+		vg_PMV.Alternat1	= vl_text
+		ITMA_TPMVA_Tabuler_ligne_LT(vg_table_proposition[vl_rang,2],vl_text,15)
+		vg_PMV.Alternat2	= vl_text
+		ITMA_TPMVA_Tabuler_ligne_LT(vg_table_proposition[vl_rang,3],vl_text,15)
+		vg_PMV.Alternat3	= vl_text
+		ITMA_TPMVA_Tabuler_ligne_LT(vg_table_proposition[vl_rang,4],vl_text,15)
+		vg_PMV.Alternat4	= vl_text
+		ITMA_TPMVA_Tabuler_ligne_LT(vg_table_proposition[vl_rang,5],vl_text,15)
+		vg_PMV.Alternat5	= vl_text
+
+		ITMA_TPMVA_MAJ_PMVA_LT()
+
+		DB_CTRL_GRAYED@(vg_fenetre,"BP_executer",False)
+		DB_CTRL_GRAYED@(vg_fenetre,"BP_alternat",True)
+		DB_CTRL_GRAYED@(vg_fenetre,"BP_message",True)
+
+		vl_text = "Status : MAJ de l'alternat du PMVA"
+ 		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+ 
+		DB_CTRL_VALUE@(vg_fenetre,"BA_arret",FALSE)
+
+
+
+	CASE "BP_executer"
+
+		if 	(DB_CTRL_GET_DISPLAY@(vg_fenetre,"BL_message_nouveau")=FALSE) or	
+			(DB_CTRL_GET_DISPLAY@(vg_fenetre,"BL_alternat_nouveau")=FALSE)
+		{
+			info_message@("Execution impossible : Valider ou Annuler la modification du message...")	
+		}
+		else
+		{
+			vl_text = "Status : Commande PMVA"
+			DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+			/*A capture de l'etat du PMV pour MAJ du tableau */
+			vl_erreur = ITMA_TPMVA_Capture_PMVA_LT()
+	
+			/*A si mode arret */
+			if DB_CTRL_GET_VALUE@(vg_fenetre,"BA_arret")=TRUE 
+			{
+				if vl_erreur<>COM_NOK
+					{vl_erreur = 
+						ITMA_TPMVA_Arret_PMVA_LT(vg_PMV,vg_NomMachinePMV) }
+			}
+			/*A sinon */
+			else
+			{
+				if vl_erreur<>COM_NOK
+				{
+					vl_erreur = 
+					ITMA_TPMVA_Commander_PMVA_LT(vg_PMV,vg_NomMachinePMV)
+					if vl_erreur = COM_NOK
+					{
+						vl_text = "Status : PMVA refuse"
+					} 
+					else
+					{
+						vl_text = "Status : PMVA accepte"
+					} 
+				} 
+			}
+		}
+
+	/*B selection d'une proposition*/	
+  	CASE "TA_proposition"
+
+		DB_CTRL_GRAYED@(vg_fenetre,"BP_message",False)
+		DB_CTRL_GRAYED@(vg_fenetre,"BP_alternat",False)
+		vl_text = "Status : Selection d'une proposition"
+ 		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+		vl_ligne = ""
+		vl_ligne[0] = vg_table_proposition[vl_rang,1]
+		vl_ligne[1] = vg_table_proposition[vl_rang,2]
+		vl_ligne[2] = vg_table_proposition[vl_rang,3]
+		vl_ligne[3] = vg_table_proposition[vl_rang,4]
+		vl_ligne[4] = vg_table_proposition[vl_rang,5]
+
+
+	CASE "BL_PMV"
+
+		vl_text = "Status : "
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		/*A activation du bouton executer*/
+		DB_CTRL_GRAYED@(vg_fenetre,"BP_executer",FALSE)
+
+		/*A appel de la procedure de capture de la selection */
+		vl_erreur = ITMA_TPMVA_BL_PMVA_LT_click()
+
+	CASE "BL_éléments"
+
+		vl_text = "Status : "
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		vl_erreur = ITMA_TPMVA_BL_elements_LT_click()
+
+	CASE "BA_arret"
+
+		vl_text = "Status : Arret PMVA"
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		if DB_CTRL_GET_VALUE@(vg_fenetre,"BA_arret")=TRUE ITMA_TPMVA_Reset_PMVA_LT(1)
+
+	CASE "BA_flash_nouveau"
+
+		vl_text = "Status : "
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		DB_CTRL_VALUE@(vg_fenetre,"BA_arret",FALSE)
+
+	CASE "BA_clignotement1_nouveau"
+
+		vl_text = "Status : "
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		DB_CTRL_VALUE@(vg_fenetre,"BA_arret",FALSE)
+
+	CASE "BA_clignotement2_nouveau"
+
+		vl_text = "Status : "
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		DB_CTRL_VALUE@(vg_fenetre,"BA_arret",FALSE)
+
+ 	CASE "BA_clignotement3_nouveau"
+
+		vl_text = "Status : "
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		DB_CTRL_VALUE@(vg_fenetre,"BA_arret",FALSE)
+
+ 	CASE "BA_clignotement4_nouveau"
+
+		vl_text = "Status : "
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		DB_CTRL_VALUE@(vg_fenetre,"BA_arret",FALSE)
+
+ 	CASE "BA_clignotement5_nouveau"
+
+		vl_text = "Status : "
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		DB_CTRL_VALUE@(vg_fenetre,"BA_arret",FALSE)
+
+	CASE "BL_message_nouveau"
+
+		vl_text = "Status : Modif. message"
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+			vg_Text_Actif = "message"
+			ITMA_TPM_Appel_Modif_mess_LT()
+
+ 	CASE "BL_alternat_nouveau"
+
+		vl_text = "Status : Modif. alternat"
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+			vg_Text_Actif = "alternat"
+			ITMA_TPMVA_Appel_Modif_mess_LT()
+
+	CASE "BP_valider_nouveau"
+
+		vl_text = "Status : Validation Modif."
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		Modif_message_LT
+
+	CASE "BP_annuler_nouveau"
+
+		vl_text = "Status : Annulation Modif."
+		DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+		ALL_WINDOWS_BUSY@()
+		DB_CTRL_DISPLAY@(vg_fenetre,"BP_valider_nouveau",FALSE)	
+		DB_CTRL_DISPLAY@(vg_fenetre,"BP_annuler_nouveau",FALSE)	
+		DB_CTRL_DISPLAY@(vg_fenetre,"BE_modif",FALSE)	
+		DB_CTRL_DISPLAY@(vg_fenetre,"BL_message_nouveau",TRUE)	
+		DB_CTRL_DISPLAY@(vg_fenetre,"BL_alternat_nouveau",TRUE)	
+		DB_CTRL_DISPLAY@(vg_fenetre,"BP_message",TRUE)
+		DB_CTRL_DISPLAY@(vg_fenetre,"BP_alternat",TRUE)
+
+    	CASE "poke_"
+
+		CASE OF  DB_GET_POKE@ (vg_fenetre)
+
+     	CASE COM_CANAL_FIN
+    			vg_la_fenetre_est_active = FALSE
+
+      	CASE COM_CANAL_MTPMVA_ETAT
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vg_fenetre)
+			vl_text = "Status : Reception message PMVA"
+			DB_CTRL_TITLE@(vg_fenetre,"LI_status",vl_text)
+
+			/*A trace de la reception du message */
+			vl_text = "   MsgPoke MTPMVA_ETAT : "  ++ vl_message[0]
+			COM01_Trace(0,vl_text)
+			COM01_Trace(0," ")
+
+			/*A décomposition du message reçu en tableau */
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+			/*A si reception du n° d'equipement */
+			vl_taille = ARRAY_SIZE@(vg_etat_PMV)
+			for i = 0 to vl_taille
+
+			/*A si PMV compris dans la liste : MAJ liste*/
+			if vl_mess[0]+0= vg_etat_PMV[i].NumEqt+0
+			{
+				ITMA_TPM_Tabuler_ligne_LT(vl_mess[1],vl_text,15)
+				vg_etat_PMV[i].Message1= vl_text 
+				ITMA_TPM_Tabuler_ligne_LT(vl_mess[5],vl_text,15)
+				vg_etat_PMV[i].Message2= vl_text 
+				ITMA_TPM_Tabuler_ligne_LT(vl_mess[9],vl_text,15)
+				vg_etat_PMV[i].Message3= vl_text 
+				ITMA_TPM_Tabuler_ligne_LT(vl_mess[13],vl_text,15)
+				vg_etat_PMV[i].Message4= vl_text 
+				ITMA_TPM_Tabuler_ligne_LT(vl_mess[17],vl_text,15)
+				vg_etat_PMV[i].Message5= vl_text 
+		 
+				ITMA_TPM_Tabuler_ligne_LT(vl_mess[4],vl_text,15)
+				vg_etat_PMV[i].Alternat1= vl_text 
+				ITMA_TPM_Tabuler_ligne_LT(vl_mess[8],vl_text,15)
+				vg_etat_PMV[i].Alternat2= vl_text 
+				ITMA_TPM_Tabuler_ligne_LT(vl_mess[12],vl_text,15)
+				vg_etat_PMV[i].Alternat3= vl_text 
+				ITMA_TPM_Tabuler_ligne_LT(vl_mess[16],vl_text,15)
+				vg_etat_PMV[i].Alternat4= vl_text 
+				ITMA_TPM_Tabuler_ligne_LT(vl_mess[20],vl_text,15)
+				vg_etat_PMV[i].Alternat5= vl_text 
+		 
+				vg_etat_PMV[i].clignotement1 = vl_mess[3] 
+				vg_etat_PMV[i].clignotement2 = vl_mess[7] 
+				vg_etat_PMV[i].clignotement3 = vl_mess[11] 
+				vg_etat_PMV[i].clignotement4 = vl_mess[15] 
+				vg_etat_PMV[i].clignotement5 = vl_mess[19] 
+
+				vg_etat_PMV[i].Flash = vl_mess[21] 
+
+			}
+
+			/*A si PMV en cours de consultation : MAJ IHM */
+			if vg_NumPMV<>0 and vg_NumPMV = vg_etat_PMV[i].NumEqt+0
+				{ ITMA_TPMVA_MAJ_PMVA_LT_actuel(i) }
+
+			next i
+	ENDCASE
+	ENDCASE
+	
+WEND
+
+vl_text = "Stop ITMA_TPMVA_pilotage_PMVA_LT " ++ "   User : " ++ vg_NomOperateur
+COM01_Trace(0,vl_text)
+RETURN(COM_QUITTE)
+
+ENDMACRO
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Capture le click de la liste des PMV
+*				MAJ de la liste des pictogrammes
+*
+*  ----------------------------------------------------------------------------
+*/
+MACRO ITMA_TPMVA_BL_PMVA_LT_click
+
+	var	vl_pos			' tampon de position de la liste
+	var	i			' index de loop1
+	var 	j			' index de loop2
+	var 	k			' index de loop3
+	var	vl_trouve		' flag de condition
+	var	vl_taille		' taille d'une table
+	var	vl_objet		' objet en cours de modif.
+	var	vl_typePMV		' type de PMV
+	var 	vl_typePicto		' type de picto
+	var	vl_text
+
+	ALL_WINDOWS_BUSY@()
+
+	/*A trace de l'appel de procedure */
+	vl_text = "--> ITMA_TPMVA_BL_PMVA_LT_click"
+	COM01_Trace(0,vl_text)
+
+	vl_pos = DB_CTRL_GET_VALUE@(vg_fenetre,"BL_PMV")
+	vg_lect_PMV = vg_Liste_PMV[vl_pos]
+	vl_objet = "BS_identification"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_lect_PMV)	
+	vg_lect_PMV = substring@(vg_lect_PMV,1,3)+0
+	vg_NomMachinePMV = vg_F_nomMachine[vl_pos]
+
+	vl_typePMV = 0
+
+	/*A RESET de la zone actuelle */
+	vg_Message[0] = ""
+	vg_Message[1] = ""
+	vg_Message[2] = ""
+	vg_Message[3] = ""
+	vg_Message[4] = ""
+
+
+	vl_objet = "BL_message_actuel"
+	DB_CTRL_STRINGS@(vg_fenetre, vl_objet, vg_Message)
+
+	vl_objet = "BL_alternat_actuel"
+	DB_CTRL_STRINGS@(vg_fenetre, vl_objet, vg_Message)
+
+	vl_objet = "BA_clignotement1_actuel"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+
+	vl_objet = "BA_clignotement2_actuel"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+
+	vl_objet = "BA_clignotement4_actuel"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+
+	vl_objet = "BA_clignotement5_actuel"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+
+	vl_objet = "BA_flash_actuel"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+
+	vl_objet = "BS_identification"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,"")
+
+	/*A MAJ de la zone actuelle */
+	vl_taille=ARRAY_SIZE@(vg_etat_PMV)-1
+	for i = 0 to vl_taille
+		if vg_etat_PMV[i].NumEqt+0 = vg_lect_PMV+0
+		{
+			ITMA_TPMVA_MAJ_PMVA_LT_actuel(i)
+			vg_NumPMV = vg_etat_PMV[i].NumEqt+0
+		}
+	next i
+
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Capture le click de la liste des éléments
+*				MAJ des lignes 1,2 et 3
+*
+* -----------------------------------------------------------------------------
+*/
+MACRO ITMA_TPMVA_BL_elements_LT_click
+	
+	var	vl_pos		' tampon de position de la liste
+	var	i		' index de loop
+	var	j		' index de loop
+	var	vl_ele_table	' tableau de lecture des elements
+	var	vl_ele_propo	' tableau de lecture des elements
+	var	vl_Fichier	' nom du fichier
+	var	vl_taille
+	var	vl_tpm
+	var	vl_tpm2
+	var	vl_picto
+	var	vl_text
+
+	ALL_WINDOWS_BUSY@()
+
+/*A trace de l'appel de procedure */
+vl_text = "--> ITMA_TPMVA_BL_elements_LT_click"
+COM01_Trace(0,vl_text)
+
+	vl_pos 			=	DB_CTRL_GET_VALUE@(vg_fenetre,"BL_éléments")
+	vg_lect_elements	=	TRIM@(TABS_TO_SPACES@(vg_Liste_elements[vl_pos]))
+	
+
+vl_Fichier = REP_CONFIG ++ "pmv/Config_Element_" ++ vg_lect_elements ++ "_PMVA.cfg" 
+vg_table_proposition	= ""
+
+/*A Si fichier de config existant : MAJ table */
+if FILE_EXISTS@(vl_Fichier)
+{
+	vl_tpm2 = READ_ASCII_FILE@(vl_Fichier)
+	for i = 0 to ARRAY_SIZE@(vl_tpm2)-1
+		vl_tpm = array_from_string@(vl_tpm2[i],",")
+		for j = 0 to array_size@(vl_tpm)-1
+			vl_ele_propo[i,j] = TRIM@(TABS_TO_SPACES@(vl_tpm[j]))
+		next j
+	next i
+
+	for i = 0 to ARRAY_SIZE@(vl_ele_propo)-1
+		vg_table_proposition[i,0]		= vl_ele_propo[i,0]
+		vg_table_proposition[i,1]		= vl_ele_propo[i,1]
+		vg_table_proposition[i,2]		= vl_ele_propo[i,2]
+		vg_table_proposition[i,3]		= vl_ele_propo[i,3]
+		vg_table_proposition[i,4]		= vl_ele_propo[i,4]
+	next i
+}
+else /*A sinon Reset table */
+{ 
+	if vl_pos>0 info_message@("Fichier " ++ vl_Fichier ++ " inexistant ")
+	vg_table_proposition[0]= "","","","","" 
+}
+
+	DB_TABLE_SET_NEW_TOP_ROW@(vg_fenetre,"TA_proposition",0)
+	DB_TABLE_SET_MARKER_WIDTH@(vg_fenetre,"TA_proposition",24)
+	DB_TABLE_SET_DATA@(vg_fenetre,"TA_proposition", vg_table_proposition,
+ 		vg_titre_table_proposition)
+ 	
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Centre un message sur une zone de 'n' caractère
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPMVA_Tabuler_ligne_LT(va_old,va_new,va_taille)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   	va_old        	: Chaine en entrée ;
+*	va_taille		: taille de la chaine de sortie
+*
+*
+* ARGUMENTS EN SORTIE : 
+*   va_new     		: Chaine en sortie.
+*
+*
+* CODE RETOUR         : auncun
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+---------------------------------------------------------------------------- */
+
+	var	vl_long			' longeur du message
+	var 	x			' variable static
+	var 	i			' index de loop
+	var	vl_text
+
+	vl_long = (len@(trim@(va_old)))
+	x = int@((va_taille-vl_long)/2)
+	va_new = ""
+	for i = 1 to x
+		va_new = va_new ++ " "
+	next i
+	vl_text = va_new ++ trim@(va_old) ++ "               "
+	va_new = SUBSTRING@(vl_text,1,15)
+
+ENDMACRO
+
+
+
+
+
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Modifications du message et MAJ de la BL
+*
+*  ----------------------------------------------------------------------------
+*/
+MACRO Modif_message_LT
+	
+var 		vl_objet	' object en cours de modification
+var		vl_text
+
+ALL_WINDOWS_BUSY@()
+
+	vg_Lecture = DB_EDITBOX_GET_DATA@(vg_fenetre,"BE_modif")
+	vg_Lecture[0]=UPPERCASE@(SUBSTRING@(TRIM@(vg_Lecture[0]),1,15))
+	ITMA_TPM_Tabuler_ligne_LT(vg_Lecture[0],vl_text,15)
+	vg_Lecture[0] = vl_text
+	vg_Lecture[1]=UPPERCASE@(SUBSTRING@(TRIM@(vg_Lecture[1]),1,15))
+	ITMA_TPM_Tabuler_ligne_LT(vg_Lecture[1],vl_text,15)
+	vg_Lecture[1] = vl_text
+	vg_Lecture[2]=UPPERCASE@(SUBSTRING@(TRIM@(vg_Lecture[2]),1,15))
+	ITMA_TPM_Tabuler_ligne_LT(vg_Lecture[2],vl_text,15)
+	vg_Lecture[2] = vl_text
+	DB_CTRL_DISPLAY@(vg_fenetre,"BE_modif",FALSE)
+	vg_Lecture[3]=UPPERCASE@(SUBSTRING@(TRIM@(vg_Lecture[3]),1,15))
+	ITMA_TPMVA_Tabuler_ligne_LT(vg_Lecture[3],vl_text,15)
+	vg_Lecture[3] = vl_text
+	DB_CTRL_DISPLAY@(vg_fenetre,"BE_modif",FALSE)
+	vg_Lecture[4]=UPPERCASE@(SUBSTRING@(TRIM@(vg_Lecture[4]),1,15))
+	ITMA_TPM_Tabuler_ligne_LT(vg_Lecture[4],vl_text,15)
+	vg_Lecture[4] = vl_text
+	DB_CTRL_DISPLAY@(vg_fenetre,"BE_modif",FALSE)
+	
+	DB_CTRL_DISPLAY@(vg_fenetre,"BP_valider_nouveau",FALSE)	
+	DB_CTRL_DISPLAY@(vg_fenetre,"BP_annuler_nouveau",FALSE)
+	
+	vl_objet = "BL_"  ++ vg_Text_Actif ++ "_nouveau"
+	DB_CTRL_STRINGS@(vg_fenetre,vl_objet,vg_Lecture)
+
+	DB_CTRL_DISPLAY@(vg_fenetre,"BL_message_nouveau",TRUE)	
+	DB_CTRL_DISPLAY@(vg_fenetre,"BL_alternat_nouveau",TRUE)	
+	DB_CTRL_DISPLAY@(vg_fenetre, "BP_message",TRUE)
+	DB_CTRL_DISPLAY@(vg_fenetre,"BP_alternat",TRUE)
+
+	RETURN(COM_OK)
+					
+ENDMACRO
+
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Affichage d'un BE pour modification du message
+*
+*  ----------------------------------------------------------------------------
+*/
+MACRO ITMA_TPMVA_Appel_Modif_mess_LT()
+
+	
+ALL_WINDOWS_BUSY@()
+
+vg_Lecture = DB_CTRL_GET_STRINGS@(vg_fenetre,"BL_"  ++ vg_Text_Actif ++ "_nouveau")
+DB_EDITBOX_SET_DATA@(vg_fenetre,"BE_modif",vg_Lecture)
+
+DB_CTRL_DISPLAY@(vg_fenetre,"BL_message_nouveau",FALSE)	
+DB_CTRL_DISPLAY@(vg_fenetre,"BL_alternat_nouveau",FALSE)	
+DB_CTRL_DISPLAY@(vg_fenetre,"BP_message",FALSE)
+DB_CTRL_DISPLAY@(vg_fenetre,"BP_alternat",FALSE)
+DB_CTRL_DISPLAY@(vg_fenetre,"BP_valider_nouveau",TRUE)
+DB_CTRL_DISPLAY@(vg_fenetre,"BP_annuler_nouveau",TRUE)
+
+DB_CTRL_DISPLAY@(vg_fenetre,"BE_modif",TRUE)
+
+RETURN(COM_OK)
+					
+ENDMACRO
+
+ 
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Capture des données entrées par l'opérateur
+*				dans la table PMV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPMVA_Capture_PMVA_LT
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+*
+* ARGUMENTS EN SORTIE : 
+*	vg_PMV		: 	la table du PMV traité
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   MAJ de la table du PMV.
+*
+---------------------------------------------------------------------------- */
+
+	var 	i		' index de boucle
+	var 	vl_objet		' objet en cours de modif.
+	var	vl_text
+
+	ALL_WINDOWS_BUSY@()
+
+	/*A trace de l'appel de procedure */
+	vl_text = "--> ITMA_TPMVA_Capture_PMVA_LT"
+	COM01_Trace(0,vl_text)
+
+	vg_PMV.Horodate = COM09_Date_courante()
+
+	vl_objet = "BS_identification"
+	vg_PMV.Identifiant = DB_CTRL_GET_VALUE@(vg_fenetre,vl_objet)
+
+	vg_PMV.NumEqt = SUBSTRING@(vg_PMV.Identifiant ,1,3) + 0
+
+	vl_objet = "BL_message_nouveau"
+	vg_Lecture = DB_CTRL_GET_STRINGS@(vg_fenetre,vl_objet)
+	vg_PMV.Message1 = vg_Lecture[0] ++ "               "
+	vg_PMV.Message1 = SUBSTRING@(vg_PMV.Message1,1,15)
+	vg_PMV.Message2 = vg_Lecture[1] ++ "               "
+	vg_PMV.Message2 = SUBSTRING@(vg_PMV.Message2,1,15)
+	vg_PMV.Message3 = vg_Lecture[2] ++ "               "
+	vg_PMV.Message3 = SUBSTRING@(vg_PMV.Message3,1,15)
+	vg_PMV.Message4 = vg_Lecture[3] ++ "               "
+	vg_PMV.Message4 = SUBSTRING@(vg_PMV.Message4,1,15)
+	vg_PMV.Message5 = vg_Lecture[4] ++ "               "
+	vg_PMV.Message5 = SUBSTRING@(vg_PMV.Message5,1,15)
+
+	vl_objet = "BL_alternat_nouveau"
+	vg_Lecture = DB_CTRL_GET_STRINGS@(vg_fenetre,vl_objet)
+	vg_PMV.Alternat1 = vg_Lecture[0] ++ "               "
+	vg_PMV.Alternat1 = SUBSTRING@(vg_PMV.Alternat1,1,15)
+	vg_PMV.Alternat2 = vg_Lecture[1] ++ "               "
+	vg_PMV.Alternat2 = SUBSTRING@(vg_PMV.Alternat2,1,15)
+	vg_PMV.Alternat3 = vg_Lecture[2] ++ "               "
+	vg_PMV.Alternat3 = SUBSTRING@(vg_PMV.Alternat3,1,15)
+	vg_PMV.Alternat4 = vg_Lecture[3] ++ "               "
+	vg_PMV.Alternat4 = SUBSTRING@(vg_PMV.Alternat4,1,15)
+	vg_PMV.Alternat5 = vg_Lecture[4] ++ "               "
+	vg_PMV.Alternat5 = SUBSTRING@(vg_PMV.Alternat5,1,15)
+
+	vl_objet = "BA_flash_nouveau"
+	vg_Lecture = DB_CTRL_GET_VALUE@(vg_fenetre,vl_objet)
+	if vg_Lecture = TRUE 
+	{ vg_PMV.Flash = XDC_PMV_FLASH }
+	else { vg_PMV.Flash = XDC_PMV_PASFLASH }
+
+	vl_objet = "BA_clignotement1_nouveau"
+	vg_Lecture = DB_CTRL_GET_VALUE@(vg_fenetre,vl_objet)
+	if vg_Lecture = TRUE 
+	{ vg_PMV.Clignotement1 = XDC_PMV_CLIGNORAPIDE }
+	else { vg_PMV.Clignotement1 = XDC_PMV_PASCLIGNO }
+
+	vl_objet = "BA_clignotement2_nouveau"
+	vg_Lecture = DB_CTRL_GET_VALUE@(vg_fenetre,vl_objet)
+	if vg_Lecture = TRUE 
+	{ vg_PMV.Clignotement2 = XDC_PMV_CLIGNORAPIDE }
+	else { vg_PMV.Clignotement2 = XDC_PMV_PASCLIGNO }
+
+	vl_objet = "BA_clignotement3_nouveau"
+	vg_Lecture = DB_CTRL_GET_VALUE@(vg_fenetre,vl_objet)
+	if vg_Lecture = TRUE 
+	{ vg_PMV.Clignotement3 = XDC_PMV_CLIGNORAPIDE }
+	else { vg_PMV.Clignotement3 = XDC_PMV_PASCLIGNO }
+
+	vl_objet = "BA_clignotement4_nouveau"
+	vg_Lecture = DB_CTRL_GET_VALUE@(vg_fenetre,vl_objet)
+	if vg_Lecture = TRUE 
+	{ vg_PMV.Clignotement4 = XDC_PMV_CLIGNORAPIDE }
+	else { vg_PMV.Clignotement4 = XDC_PMV_PASCLIGNO }
+
+	vl_objet = "BA_clignotement5_nouveau"
+	vg_Lecture = DB_CTRL_GET_VALUE@(vg_fenetre,vl_objet)
+	if vg_Lecture = TRUE 
+	{ vg_PMV.Clignotement5 = XDC_PMV_CLIGNORAPIDE }
+	else { vg_PMV.Clignotement5 = XDC_PMV_PASCLIGNO }
+
+	vg_PMV.Remarque = " "
+
+	RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+ 
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	MAJ de l'IHM avec la table PMV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPMVA_MAJ_PMVA_LT
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   MAJ de l'IHM par rapport à la table PMV.
+*
+---------------------------------------------------------------------------- */
+
+	var		vl_objet	' l'objet en cours de modif.
+	var		i		' index de loop
+	var		vl_text
+
+	ALL_WINDOWS_BUSY@()
+
+	/*A trace de l'appel de procedure */
+	vl_text = "--> ITMA_TPMVA_MAJ_PMVA_LT"
+	COM01_Trace(0,vl_text)
+
+	vl_objet = "BS_identification"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_PMV.identifiant)
+
+	vl_objet = "BL_message_nouveau"
+	vg_Lecture[0] = vg_PMV.Message1 
+	vg_Lecture[1] = vg_PMV.Message2
+	vg_Lecture[2] = vg_PMV.Message3
+	vg_Lecture[3] = vg_PMV.Message4	
+	vg_Lecture[4] = vg_PMV.Message5
+	DB_CTRL_STRINGS@(vg_fenetre,vl_objet,vg_Lecture)
+
+	vl_objet = "BL_alternat_nouveau"
+	vg_Lecture[0] = vg_PMV.Alternat1 
+	vg_Lecture[1] = vg_PMV.Alternat2
+	vg_Lecture[2] = vg_PMV.Alternat3
+	vg_Lecture[3] = vg_PMV.Alternat4
+	vg_Lecture[4] = vg_PMV.Alternat5
+	DB_CTRL_STRINGS@(vg_fenetre,vl_objet,vg_Lecture)
+
+	if vg_PMV.Flash = XDC_PMV_FLASH 
+	{ 
+	vg_Lecture = TRUE 
+	vl_objet = "BA_arret"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+	}
+	else { vg_Lecture = FALSE }
+	vl_objet = "BA_flash_nouveau"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_Lecture)
+
+	if vg_PMV.Clignotement1=XDC_PMV_CLIGNORAPIDE  or vg_PMV.Clignotement1=XDC_PMV_CLIGNOLENT
+	{ 
+	vg_Lecture = TRUE
+	vl_objet = "BA_arret"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+	 }
+	else { vg_Lecture = FALSE }
+	vl_objet = "BA_clignotement1_nouveau"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_Lecture)
+
+	if vg_PMV.Clignotement2 = XDC_PMV_CLIGNORAPIDE   or vg_PMV.Clignotement2=XDC_PMV_CLIGNOLENT
+	{ 
+	vg_Lecture = TRUE
+	vl_objet = "BA_arret"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+	 }
+	else { vg_Lecture = FALSE }
+	vl_objet = "BA_clignotement2_nouveau"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_Lecture)
+
+	if vg_PMV.Clignotement3 = XDC_PMV_CLIGNORAPIDE   or vg_PMV.Clignotement3=XDC_PMV_CLIGNOLENT 
+	{ 
+	vg_Lecture = TRUE
+	vl_objet = "BA_arret"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+	 }
+	else { vg_Lecture = FALSE }
+	vl_objet = "BA_clignotement3_nouveau"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_Lecture)
+
+	if vg_PMV.Clignotement4 = XDC_PMV_CLIGNORAPIDE   or vg_PMV.Clignotement4=XDC_PMV_CLIGNOLENT 
+	{ 
+	vg_Lecture = TRUE
+	vl_objet = "BA_arret"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+	 }
+	else { vg_Lecture = FALSE }
+	vl_objet = "BA_clignotement4_nouveau"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_Lecture)
+
+	if vg_PMV.Clignotement5 = XDC_PMV_CLIGNORAPIDE   or vg_PMV.Clignotement5=XDC_PMV_CLIGNOLENT 
+	{ 
+	vg_Lecture = TRUE
+	vl_objet = "BA_arret"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+	 }
+	else { vg_Lecture = FALSE }
+	vl_objet = "BA_clignotement5_nouveau"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_Lecture)
+
+	RETURN (COM_OK)
+	
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	MAJ du PMV actuel avec la table PMV
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPMVA_MAJ_PMVA_LT_actuel(va_numero)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		va_numero		:	le numero du PMV traité
+*
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   	ITMA_PMV
+*
+*
+* FONCTION
+*	MAJ du PMV actuel avec la table PMV.
+*
+---------------------------------------------------------------------------- */
+
+	var		vl_objet	' l'objet en cours de modif.
+	var		i		' index de loop
+	var		vl_text
+
+	ALL_WINDOWS_BUSY@()
+
+	/*A trace de l'appel de procedure */
+	vl_text = "--> ITMA_TPM_MAJ_PMV_LT_actuel"
+	COM01_Trace(0,vl_text)
+
+	vl_objet = "BS_identification"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_etat_PMV[va_numero].identifiant)
+
+	vl_objet = "BL_message_actuel"
+	vg_Lecture[0] = vg_etat_PMV[va_numero].Message1 
+	vg_Lecture[1] = vg_etat_PMV[va_numero].Message2
+	vg_Lecture[2] = vg_etat_PMV[va_numero].Message3
+	vg_Lecture[3] = vg_etat_PMV[va_numero].Message4
+	vg_Lecture[4] = vg_etat_PMV[va_numero].Message5
+	DB_CTRL_STRINGS@(vg_fenetre,vl_objet,vg_Lecture)
+
+	vl_objet = "BL_alternat_actuel"
+	vg_Lecture[0] = vg_etat_PMV[va_numero].Alternat1 
+	vg_Lecture[1] = vg_etat_PMV[va_numero].Alternat2
+	vg_Lecture[2] = vg_etat_PMV[va_numero].Alternat3
+	vg_Lecture[3] = vg_etat_PMV[va_numero].Alternat4
+	vg_Lecture[4] = vg_etat_PMV[va_numero].Alternat5
+	DB_CTRL_STRINGS@(vg_fenetre,vl_objet,vg_Lecture)
+
+	if vg_etat_PMV[va_numero].Flash = XDC_PMV_FLASH
+	{ 
+	vg_Lecture = TRUE 
+	}
+	else { vg_Lecture = FALSE }
+	vl_objet = "BA_flash_actuel"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_Lecture)
+
+	if vg_etat_PMV[va_numero].Clignotement1 = XDC_PMV_CLIGNORAPIDE or  vg_etat_PMV[va_numero].Clignotement1 = XDC_PMV_CLIGNOLENT
+	{ 
+	vg_Lecture = TRUE
+	 }
+	else { vg_Lecture = FALSE }
+	vl_objet = "BA_clignotement1_actuel"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_Lecture)
+
+	if vg_etat_PMV[va_numero].Clignotement2 = XDC_PMV_CLIGNORAPIDE or  vg_etat_PMV[va_numero].Clignotement2 = XDC_PMV_CLIGNOLENT 
+	{ 
+	vg_Lecture = TRUE
+	 }
+	else { vg_Lecture = FALSE }
+	vl_objet = "BA_clignotement2_actuel"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_Lecture)
+
+	if vg_etat_PMV[va_numero].Clignotement3 = XDC_PMV_CLIGNORAPIDE or  vg_etat_PMV[va_numero].Clignotement3 = XDC_PMV_CLIGNOLENT 
+	{ 
+	vg_Lecture = TRUE
+	 }
+	else { vg_Lecture = FALSE }
+	vl_objet = "BA_clignotement3_actuel"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_Lecture)
+
+	if vg_etat_PMV[va_numero].Clignotement4 = XDC_PMV_CLIGNORAPIDE or  vg_etat_PMV[va_numero].Clignotement4 = XDC_PMV_CLIGNOLENT 
+	{ 
+	vg_Lecture = TRUE
+	 }
+	else { vg_Lecture = FALSE }
+	vl_objet = "BA_clignotement4_actuel"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_Lecture)
+
+	if vg_etat_PMV[va_numero].Clignotement5 = XDC_PMV_CLIGNORAPIDE or  vg_etat_PMV[va_numero].Clignotement5 = XDC_PMV_CLIGNOLENT 
+	{ 
+	vg_Lecture = TRUE
+	 }
+	else { vg_Lecture = FALSE }
+	vl_objet = "BA_clignotement5_actuel"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,vg_Lecture)
+
+
+	RETURN (COM_OK)
+	
+ENDMACRO
+
+
+
+
+ 
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Reset du nouveau PMV sur l'IHM
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TPMVA_Reset_PMVA_LT(va_numero)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		va_numero		:	le numero du PMV traité
+*
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   Reset du PMV 'nouveau' sur l'IHM.
+*
+---------------------------------------------------------------------------- */
+
+	var		vl_objet	' l'objet en cours de modif.
+	var		i		' index de loop
+	var		j		' index de loop
+	var		vl_text
+
+	ALL_WINDOWS_BUSY@()
+
+	if va_numero>3 or va_numero<1 
+	{
+		vl_text = "ITMA_TPM_Reset_PMV_LT("++va_numero++") refusée"
+		COM01_Trace(0,vl_text)
+		RETURN(COM_NOK)
+	}
+
+	/*A trace de l'appel de procedure */
+	vl_text = "--> ITMA_TPM_Reset_PMV_LT"
+	COM01_Trace(0,vl_text)
+	vg_Message[0] = ""
+	vg_Message[1] = ""
+	vg_Message[2] = ""
+	vg_Message[3] = ""
+	vg_Message[4] = ""
+
+	vl_objet = "BL_message_nouveau"
+	DB_CTRL_STRINGS@(vg_fenetre, vl_objet, vg_Message)
+
+	vl_objet = "BL_alternat_nouveau"
+	DB_CTRL_STRINGS@(vg_fenetre, vl_objet, vg_Message)
+
+	vl_objet = "BA_clignotement1_nouveau"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+
+	vl_objet = "BA_clignotement2_nouveau"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+
+	vl_objet = "BA_clignotement3_nouveau"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+	vl_objet = "BA_clignotement4_nouveau"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+	vl_objet = "BA_clignotement5_nouveau"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+
+	vl_objet = "BA_flash_nouveau"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,FALSE)
+
+	vl_objet = "BA_arret"
+	DB_CTRL_VALUE@(vg_fenetre,vl_objet,TRUE)
+
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner à l'état des PMV.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TPMVA_Abt_Etat_PMVA(va_Abonnement,va_NomSite)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_Abonnement	:	Type d'abonnement (debut ou fin)
+*		va_NomSite		:	Nom du site
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet de s'abonner à l'état des PMV.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+
+	ALL_WINDOWS_BUSY@()
+
+	/*A trace de l'appel de procedure */
+	vl_text = " --> XZEA080_Abt_Etat_PMVA "
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA080  
+
+	/*B arguments */
+	vl_cmd[3]= va_Abonnement ++ MTAR_CAR_SEPAR ++ va_NomSite
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de commander un PMV depuis un LT.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TPMVA_commander_PMVA_LT(format type_PMVA va_PMV,va_NomMachine)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_PMV			:	etat du PMV à piloter
+*		va_NomMachine	:	Nom de la machine
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TPM_pilotage_PMV_LT
+*
+* FONCTION :
+*	Permet de commander un PMV depuis un LT.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_sep
+
+	ALL_WINDOWS_BUSY@()
+
+	/*A trace de l'appel de procedure */
+	vl_text = " --> XZEP04_Commande_PMVA "
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEP04 
+
+	/*B arguments */
+	vl_sep = MTAR_CAR_SEPAR
+	vl_cmd[3]= va_PMV.NumEqt++vl_sep++va_PMV.message1++vl_sep++va_PMV.message2++vl_sep++va_PMV.message3 ++vl_sep++ va_PMV.message4 ++vl_sep++va_PMV.message5 ++vl_sep++va_PMV.alternat1 ++vl_sep++va_PMV.alternat2 ++vl_sep++ va_PMV.alternat3 ++vl_sep++va_PMV.alternat4 ++vl_sep ++ va_PMV.alternat5 ++vl_sep ++va_PMV.Clignotement1 ++vl_sep++ va_PMV.Clignotement2++vl_sep++va_PMV.Clignotement3 ++vl_sep++va_PMV.Clignotement4++vl_sep++va_PMV.Clignotement5 ++vl_sep++va_PMV.Flash++vl_sep++ "0"++vl_sep++va_NomMachine
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de commander un PMV depuis un LT.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TPMVA_arret_PMVA_LT(format type_PMVA va_PMV,va_NomMachine)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_PMV			:	etat du PMV à piloter
+*		va_NomMachine	:	Nom de la machine
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TPM_pilotage_PMV_LT
+*
+* FONCTION :
+*	Permet de commander un PMV depuis un LT.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_sep
+
+	ALL_WINDOWS_BUSY@()
+
+	/*A trace de l'appel de procedure */
+	vl_text = " --> XZEP04_Commande_PMVA (en mode arret)"
+	COM01_Trace(0,vl_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEP01_ARRET  
+
+	/*B arguments */
+	vl_sep = MTAR_CAR_SEPAR
+	vl_cmd[3]= va_PMV.NumEqt ++vl_sep++ " " ++vl_sep++ " " ++vl_sep++ " " ++vl_sep++ " " ++vl_sep++ " " ++vl_sep++ " " ++vl_sep++ " " ++vl_sep++ " " ++vl_sep++ " " ++vl_sep ++ " " ++vl_sep ++ XDC_PMV_PASCLIGNO ++vl_sep++ XDC_PMV_PASCLIGNO  ++vl_sep++ XDC_PMV_PASCLIGNO ++vl_sep++ XDC_PMV_PASCLIGNO ++vl_sep++ XDC_PMV_PASCLIGNO ++vl_sep++ XDC_PMV_FLASHABSENT ++vl_sep++ "0" ++vl_sep++ va_NomMachine
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	COM01_Trace(0," ")
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+
+

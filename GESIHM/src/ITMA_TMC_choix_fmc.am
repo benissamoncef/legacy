@@ -1,0 +1,132 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_choix_fmc.am,v 1.3 2009/05/28 16:35:06 gesconf Exp $        Release : $Revision: 1.3 $        Date : $Date: 2009/05/28 16:35:06 $
+-------------------------------------------------------------------------------
+* ESCOTA *  PROJET MIGRAZUR PASTRE
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Fonctions communes
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Hilmarcher	03/03/05: Creation v1.1 - v1.2
+* JPL		27/05/09 : Generalisation, ergonomie, controles de saisie 1.3
+*
+-------------------------------------------------------------------------------
+*/
+
+INCLUDE "dbase_.am"
+
+INCLUDE "../inc/ITMA_COM.h"
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*
+* Affichage de la fenetre de saisie d'un identifiant de FMC
+* puis execute une macro en lui indiquant cet identifiant.
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_choix_fmc (va_appelant, va_macro_a_appeler,
+                             va_1, va_2, va_3, va_4, va_5, va_6, va_7, va_8, va_9, va_10)
+
+/*
+* ARGUMENTS EN ENTREE : aucun
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* FONCTION :
+*
+* Affiche la fenetre de saisie des numero et cle de FMC,
+* puis sur action "Valider" execute la macro specifiee
+* en tant que nouvelle tache, en fournissant l'identifiant FMC saisi.
+*
+----------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre
+    VAR     vl_objet_selecte                    ' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes            ' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+    VAR	    vl_numeroFMC, vl_cleFMC             ' numero et cle FMC  saisis
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+	ERROR_BOX@
+	RETURN
+}
+
+
+/*! Precaution contre un appel invalide */
+IF (va_macro_a_appeler = NULL)
+{
+	BEEP@ ()
+	INFO_MESSAGE@ ("Choix FMC : Appel invalide")
+	RETURN
+}
+
+
+/*A
+ * Charger la fenetre de saisie de l'identifiant FMC
+ * -------------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TMC_choix_fmc")
+
+DB_XPOS@ (vl_fenetre, 400)
+DB_YPOS@ (vl_fenetre, 260)
+
+
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_num_FMC", COM_CHIFFRES)
+DB_CTRL_VALID_CHARS@ (vl_fenetre, "BS_cle", COM_CHIFFRES)
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+	DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+	DB_DISPLAY@ (vl_fenetre)
+	DB_DISPLAY_ONLY@(vl_fenetre,TRUE) 
+	
+	/*Attente d'un evenement */
+	vl_objet_selecte = DB_EXIT_CTRL@(vl_fenetre)
+
+	CASE OF vl_objet_selecte
+		CASE "BP_valider"
+			/* Recupere les donnees saisies */
+			vl_numeroFMC  = DB_CTRL_GET_VALUE@(vl_fenetre, "BS_num_FMC")
+			vl_cleFMC = DB_CTRL_GET_VALUE@(vl_fenetre, "BS_cle")
+
+			IF (vl_numeroFMC <> NULL)  AND  (vl_cleFMC <> NULL)
+			{
+				NEW_TASK@ (va_macro_a_appeler, va_appelant, vl_numeroFMC, vl_cleFMC,
+				              va_1, va_2, va_3, va_4, va_5, va_6, va_7, va_8, va_9, va_10)
+				RETURN
+			}
+			
+		CASE "BP_annuler"
+			RETURN
+
+	ENDCASE
+WEND
+
+ENDMACRO

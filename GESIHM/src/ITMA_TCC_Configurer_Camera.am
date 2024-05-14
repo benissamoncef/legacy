@@ -1,0 +1,560 @@
+/*E*/
+/* Fichier :    $Id: ITMA_TCC_Configurer_Camera.am,v 1.1 1995/04/08 22:56:43 lecrivain Exp $ 	 Release :  $Revision: 1.1 $      Date : $Date: 1995/04/08 22:56:43 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TFS * FICHIER ITMA_TCC_Configurer_Camera.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Configuration des canaux de cameras associes aux LT
+*
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Noel 08 Avr 1995 : Creation                                          V1.1
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TFC.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE "../inc/xzao307sp.h"
+INCLUDE "../inc/xzao308sp.h"
+INCLUDE "../inc/xzao309sp.h"
+INCLUDE "../inc/xzao202sp.h"
+INCLUDE "../inc/xzat01sp.h"
+
+
+
+DEFINE	C_MODULE	"MTCC"			' Nom du module
+
+
+
+
+VAR	vm_l_LT_video	
+VAR 	vm_l_canaux
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TCC_Configurer_Camera (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTLS
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+   VAR     vl_fenetre		' Nom de la fenetre du module
+   VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+	VAR	vl_les_messages_acceptes
+	VAR	vl_num_LT
+	VAR	vl_index
+	VAR	vl_code
+	VAR	vl_nom
+	VAR	vl_t_canaux
+	VAR	vl_code_nom
+	VAR	vl_site
+
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+/*A si on est pas sur le site du CI, on sort */
+vl_site = SYSTEM_VAR@(vg_site)
+if vl_site <> XDC_CI
+	RETURN(COM_OK)
+
+
+/*A
+ * Charger la fenetre et les autres fonctions du module
+ * -----------------------------------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TCC_Configurer_Camera")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@(vl_fenetre, 0)
+DB_YPOS@(vl_fenetre, 93)
+DB_WIDTH@(vl_fenetre, 1264)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TCC_Configurer_Camera")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+
+DB_CTRL_VALUE@ (vl_fenetre, "BL_LT_video", -1)
+DB_CTRL_VALUE@ (vl_fenetre, "BL_canaux", -1)
+
+
+/*A
+ * Initialiser les donnees a visualiser
+ * ------------------------------------
+ */
+
+IF TCC_Init_Visualisation (vl_fenetre) <> COM_OK
+    RETURN
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre, "BL_LT_video", TRUE)
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_NON_SAISI AND
+	   ERROR_NUMBER@() <> COM_ERR_VAL_INVAL
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+
+    /*A
+     * Sur choix "Ajouter " verifier que un code et un nom
+	* ont ete renseignes     * -----------------------------------------------------
+     */
+
+    CASE "BP_ajouter_canal"
+
+	/* recuperer le code du canal */
+	vl_code = DB_CTRL_GET_VALUE@(vl_fenetre, "BS_code")
+	if vl_code = ""
+		    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "code du canal")
+
+
+	/* recuperer le nom du canal */
+	vl_nom = DB_CTRL_GET_VALUE@(vl_fenetre, "BS_nom")
+	if vl_code = ""
+		    ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "nom du canal")
+
+	/* ajouter le canal */
+	TCC_ajouter_canal(vl_num_LT, vl_code, vl_nom)
+
+	/* reinitialiser la liste des canaux */
+	TCC_init_liste_canaux(vl_fenetre, vl_num_LT)
+
+	/* reinitialiser les champs de saisie */
+	DB_CTRL_VALUE@(vl_fenetre, "BS_nom", "")
+	DB_CTRL_VALUE@(vl_fenetre, "BS_code", "")
+
+    /*A
+     * Sur choix "Supprimer" verifier qu'une association a ete selectionnee
+     * --------------------------------------------------------------
+     */
+
+   	CASE "BP_supprimer_canal"
+		vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_canaux")
+		IF vl_index < 0
+	    	ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "canal video")
+
+		/* recuperer le canal selectionnee */
+		vl_t_canaux = DB_CTRL_GET_STRINGS@(vl_fenetre, "BL_canaux")
+		vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_canaux")
+		IF vl_index < 0
+	    	ERROR@ (COM_ERR_NON_SAISI, COM_LIB_NON_SAISI, "canal")
+		vl_code_nom = vl_t_canaux[vl_index]
+		vl_code = SUBSTRING@(vl_code_nom,1, 3)
+		vl_nom   = SUBSTRING@(vl_code_nom, 5)
+		vl_nom    = TRIM@(vl_nom)
+
+
+		/* supprimer le canal */
+
+		TCC_supprimer_canal (vl_num_LT, vl_nom, vl_code)
+
+		/* reinitialiser la liste des canaux */
+		TCC_init_liste_canaux(vl_fenetre, vl_num_LT)
+		DB_CTRL_VALUE@ (vl_fenetre, "BL_canaux", -1)
+
+
+	/*A
+	 * Selectionner un local technique video
+	 * ------------------------------------
+	*/
+
+	CASE "BL_LT_video"
+		vl_index = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_LT_video")
+		vl_num_LT = vm_l_LT_video[vl_index]
+
+		/* recuperer le numero de LT selectionne */
+
+		TCC_init_liste_canaux(vl_fenetre, vl_num_LT)
+
+
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les donnees de la fiche (Liste des LT.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCC_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets a initialiser ;
+*
+
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCC_Configurer_Camera
+*
+* FONCTION
+*   Initialise la liste des LT ;
+*
+---------------------------------------------------------------------------- */
+
+
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR		vl_l_LT_video_nom
+    VAR     vl_indice				'indice de boucle
+	VAR		vl_taille
+	VAR		vl_liste_select
+	VAR FORMAT COM_Localisation vl_localisation
+
+	vl_parametres[0].type	= SYB#INT1_
+	vl_parametres[0].data	= XDC_EQT_LTV
+	vl_parametres[0].output	= FALSE
+	
+	vl_parametres[1].type	= SYB#INT1_
+	vl_parametres[1].data	= 0
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT4_			' Conditions
+	vl_parametres[2].data	= XDC_EQT_MINEUR
+	vl_parametres[2].output	= FALSE
+
+	vl_parametres[3].type	= SYB#INT4_			' Conditions niees
+	vl_parametres[3].data	= XDC_EQT_MINEUR
+	vl_parametres[3].output	= FALSE
+
+	vl_parametres[4].type	= SYB#INT4_			' Exclusions
+	vl_parametres[4].data	= 0
+ 	vl_parametres[4].output	= FALSE
+
+	vl_parametres[5].type	= SYB#INT4_			' Exclusions niees
+	vl_parametres[5].data	= 0
+	vl_parametres[5].output	= FALSE
+
+	IF COM05_SQL_Procedure 
+		(XZAT01_Liste_Eqt_Dispo,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+	{
+		COM01_Trace
+			(0,COM09_Date_Courante()++" --> Pb avec XZAT01_Liste_Eqt_Dispo")
+    		RETURN (COM_NOK)
+	}
+
+
+	/*A récuperation de la liste des LT */
+	vl_Liste_select = vl_resultats.select_results[0]
+	vl_taille = ARRAY_SIZE@(vl_Liste_select) - 1	
+
+	/*A Construction de la liste des équipements */
+	if vl_taille>0 
+	{
+		vl_l_LT_video_nom = null
+		vm_l_LT_video = null	
+
+	  for vl_indice = 0 to vl_taille	
+
+		vl_localisation.NumAuto = vl_Liste_select[vl_indice,3]
+		vl_localisation.PR = vl_Liste_select[vl_indice,4]
+		vl_localisation.sens_circulation = vl_Liste_select[vl_indice,5]
+
+		vl_l_LT_video_nom[vl_indice] = COM10_Localisation(vl_localisation)
+		vm_l_LT_video[vl_indice] = vl_Liste_select [vl_indice,1]
+
+	  next vl_indice
+	}
+
+	 DB_CTRL_STRINGS@ (va_fenetre, "BL_LT_video", vl_l_LT_video_nom)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la liste des canaux associés a un LT
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCC_init_liste_canaux (va_fenetre, va_num_LT)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_fenetre         : Id. de la fenetre contenant les objets a initialiser ;
+*  va_num_LT		: Numero du local technique Video
+
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCC_Configurer_Camera
+*
+* FONCTION
+*   Initialise la liste des canaux video associes a un LT.
+*
+---------------------------------------------------------------------------- */
+
+
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+    VAR     vl_indice				'indice de boucle
+	VAR		vl_taille
+	VAR		vl_liste_select
+	VAR FORMAT COM_Localisation vl_localisation
+
+	vl_parametres[0].type	= SYB#INT4_
+	vl_parametres[0].data	= va_num_LT
+	vl_parametres[0].output	= FALSE
+	
+	IF COM05_SQL_Procedure 
+		(XZAO309_Liste_Canaux_LTV, vl_parametres, vl_resultats,C_MODULE) <> COM_OK
+	{
+		COM01_Trace
+			(0,COM09_Date_Courante()++" --> Pb avec XZAO309_Liste_Canaux_LTV")
+    		RETURN (COM_NOK)
+	}
+
+
+	/*A récuperation de la liste des canaux */
+	vl_Liste_select = vl_resultats.select_results[0]
+	vl_taille = ARRAY_SIZE@(vl_Liste_select) - 1	
+	/*A Construction de la liste des canaux avec leur code associe */
+	vm_l_canaux = null	
+	if vl_taille>= 0
+	{
+
+	  for vl_indice = 0 to vl_taille	
+
+		vm_l_canaux[vl_indice] = vl_Liste_select[vl_indice,1] ++ "  " ++ vl_Liste_select[vl_indice,0]
+
+	  next vl_indice
+	}
+
+	 DB_CTRL_STRINGS@ (va_fenetre, "BL_canaux", vm_l_canaux)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Ajoute un canal a un LT
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCC_ajouter_canal (va_num_LT, va_code, va_nom)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_code	code du canal
+*  va_nom		nom du canal
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCC_Configurer_Camera
+*
+* FONCTION
+*   .
+*
+---------------------------------------------------------------------------- */
+
+
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	vl_parametres[0].type	= SYB#INT4_
+	vl_parametres[0].data	= va_num_LT
+	vl_parametres[0].output	= FALSE
+	
+	vl_parametres[1].type	= SYB#CHAR_
+	vl_parametres[1].data	= va_nom
+	vl_parametres[1].output	= FALSE
+	
+	vl_parametres[2].type	= SYB#CHAR_
+	vl_parametres[2].data	= va_code
+	vl_parametres[2].output	= FALSE
+	IF COM05_SQL_Procedure 
+		(XZAO307_Ecrire_CanalVideo, vl_parametres, vl_resultats,C_MODULE) <> COM_OK
+	{
+		COM01_Trace
+			(0,COM09_Date_Courante()++" --> Pb avec XZAO307_Ecrire_CanalVideo")
+    		RETURN (COM_NOK)
+	}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Ajoute un canal a un LT
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TCC_supprimer_canal (va_num_LT, va_nom, va_code)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_num_LT	numero du local technique video
+*  va_canal	numero du canal video
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TCC_Configurer_Camera
+*
+* FONCTION
+*   .
+*
+---------------------------------------------------------------------------- */
+
+
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	vl_parametres[0].type	= SYB#INT4_
+	vl_parametres[0].data	= va_num_LT
+	vl_parametres[0].output	= FALSE
+	
+	vl_parametres[1].type	= SYB#CHAR_
+	vl_parametres[1].data	= va_nom
+	vl_parametres[1].output	= FALSE
+	
+	vl_parametres[2].type	= SYB#CHAR_
+	vl_parametres[2].data	= va_code
+	vl_parametres[2].output	= FALSE
+	IF COM05_SQL_Procedure 
+		(XZAO308_Supprimer_CanalVideo, vl_parametres, vl_resultats,C_MODULE) <> COM_OK
+	{
+		COM01_Trace
+			(0,COM09_Date_Courante()++" --> Pb avec XZAO307_Ecrire_CanalVideo")
+    		RETURN (COM_NOK)
+	}
+
+RETURN (COM_OK)
+
+ENDMACRO
+

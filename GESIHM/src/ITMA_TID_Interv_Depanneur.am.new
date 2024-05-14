@@ -1,0 +1,3577 @@
+/*E*/
+/* Fichier : $Id: ITMA_TID_Interv_Depanneur.am,v 1.43 2018/01/11 14:31:42 pc2dpdy Exp $      Release : $Revision: 1.43 $        Date : $Date: 2018/01/11 14:31:42 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TID * FICHIER ITMA_TID_Interv_Depanneur.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Description d'une intervention de depanneur.
+*
+* Non decrit dans le DCG
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Lecrivain	01 Dec 1994	: Creation
+* Lecrivain 15 Dec 1994	: Fonctions de traitements de dates, appel MSOP    V1.2
+* Noel B.		16 Dec 1994	: Mise à jour de l'interface TMC et MSOP	V1.3
+* Guilhou		27 dec 1994	: aide composition horodates				V1.5
+* Torregrossa 11 Sep 1995	: Ajout controle sur dates V1.7
+* Torregrossa 04 Oct 1995	: Ajout controle sur date de debut / date courante V1.8
+* Torregrossa 08 Nov 1995	: Modif horohelp pour version Applix 4.1	V1.9 
+*  Verdier     18 Jul 1996	: Modif pour DEM76 (V1.10)
+* Guilhou	09 Sep 1996 	: modif pour RADT (V1.11)
+* Niepceron	13 Sep 1996	: Correction inversion depart arrivee dans TIP_Action (1.11)
+*				  modif gestion lien cause pour applix 4.2
+* Guilhou	24 sep 1996	: suppression modif gestion lien cause pour un patch sur SAE V3.3.0 (1.12)
+* Guilhou	15 oct 1996	: rajout modif gestion lien cause (1.13)
+* Guilhou	05 nov 1996	: passer horodate debut prevu si FMC prevue pour recherche garages (DEM/1281) (1.14)
+* Guilhou 	12 nov 1996 	: gestion appel depuis l'historique de l'exploitation pour modifier fiche vehicule achevee (DEM/1207) 1.15
+* Guilhou	04 dec 1996	: gestion du numero de fiche d'appel (DEM/1256) 1.16
+* Guilhou	10 dec 1996	: remise gestion des erreurs (DEM/1256) 1.17
+* Guilhou	11 dec 1996 : filtrer la liste des garages 1.18
+* Guilhou	11 dec 1996 : mieux filtrer la liste des garages 1.19 (DEM/1319)
+* Guilhou	16 dec 1996 : plus d'association automatique 1.20
+*			      correction numero interlocuteur envoye a ITMA_TFX
+* Guilhou	19 dec 1996 : grisage des boutons associer/dissocier (DEM/1357) 1.21
+* Guilhou	19 dec 1996 : re-grisage des boutons associer/dissocier (DEM/1357) 1.22
+* Guilhou	13 jan 1997 : gestion du droit d'enrichir de la FMC associee (DEM/1358) 1.23
+* Guilhou		03 oct 1997	: liste FMC cause a le m look que liste des FMC a traiter (ana/65) 1.24
+* Niepceron	19 Mai 1998	: Correction impression veh roulant dem/1560 1.25
+* Niepceron	19 Aou 1998	: Correction bt Valide veh grise dem/1358 1.26
+* Niepceron     02 Oct 1998	: Maj du sit lors de la validation du veh dem/1378 1.27
+* Niepceron     22 Jan 1999	: largeur fen. 1250 dem/1727  1.28
+* Guilhou	27 avr 2000	: ajout localisation point caracteristique (SAE 22) 1.29
+* Hilmarcher    14/02/2005      : rendre possible l'impression d'une fiche a depanneur associee ou non DEM416 v1.30
+*
+* JPL		27/04/07 : Ajout FMC "Vehicule en Marche Arriere" (DEM 643) 1.32
+* JPL		27/04/07 : Gestion des secondes pour toutes les dates (DEM 679) 1.33
+* PNI		10/03/09 : Bt valider pour CI & PC niv2 (DEM871) 1.34
+* JPL		26/05/09 : Recherche des donnees anciennes en base historique (DEM 882) 1.35 1.36
+* JMG           29/09/09 : SECTO DEM 887  1.37
+* JMG		22/09/11 : appel client DEM 1000  1.38
+* JPL		11/10/11 : Donnees Fmc globales au module; transmission a MTFX (DEM 995)  1.39
+* JPL		22/08/12 : Simple renommage de constantes  1.40
+* JMG		06/03/17 : regionalisation code region  DEM1220  1.41
+* JPL		08/03/17 : Ajout du numero de rappel client au document imprime ou envoye par mail (DEM 1192)  1.42
+* JMG		10/01/17 : ajout Valider SMS 1.43
+* PNI		04/04/18 : délais dépanneur variable suivant VL/PL 1.44
+--------------------------------------------------------------------------- */
+
+INCLUDE		"dbase_.am"
+
+INCLUDE		"XDMICG/inc/xdc_ax.h"
+INCLUDE		"XDMICG/inc/xzaec_ax.h"
+INCLUDE		"XDMICG/inc/xzic_ax.h"
+
+INCLUDE		"GESIHM/inc/xzac15sp.h"
+INCLUDE		"GESIHM/inc/xzac35sp.h"
+INCLUDE 	"GESIHM/inc/xzan15sp.h"
+INCLUDE 	"GESIHM/inc/xzan19sp.h"
+INCLUDE 	"GESIHM/inc/xzan25sp.h"
+INCLUDE 	"GESIHM/inc/xzae95sp.h"
+INCLUDE 	"GESIHM/inc/xzae96sp.h"
+INCLUDE 	"GESIHM/inc/xzae98sp.h"
+
+INCLUDE		"GESIHM/inc/ITMA_COM.h"
+INCLUDE		"GESIHM/inc/ITMA_TDO.h"
+INCLUDE		"GESIHM/inc/ITMA_TAR.h"
+
+
+
+DEFINE	C_MODULE	"MTID"				' Nom du module
+
+DEFINE      C_SOUS_REP_MODELES      COM_SOUS_REP_IHM        ' Repertoire des modeles
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_LIER_FMC		1
+DEFINE	C_LIB_LIER_FMC		"Lier d'abord un événement à l'intervention"
+
+DEFINE	C_ERR_SAISIR_DATE	2
+DEFINE	C_LIB_SAISIR_DATE	"Indiquer l'horodate de départ pour le site ou d'arrivée sur site"
+
+DEFINE  	ACCES_PAR_ACTIONS_REALISEES_DE_FMC 0
+
+/*A definition des numeros de colonnes des tables */
+DEFINE 	NUM_COL_CATEG		0
+DEFINE	NUM_COL_PASSAGER	1
+DEFINE	NUM_COL_BEBE		35
+DEFINE	NUM_COL_PERS_AGEE	36
+DEFINE	NUM_COL_ANIMAUX	4
+DEFINE	NUM_COL_VEH_ESCOTA	5
+DEFINE	NUM_COL_CHARGEMENT	6
+DEFINE	NUM_COL_CODE_MAT	7
+DEFINE	NUM_COL_DEP		8
+DEFINE	NUM_COL_SITE_DEP	9
+DEFINE	NUM_COL_TEXTE		10
+DEFINE	NUM_COL_MARQUE		11
+DEFINE	NUM_COL_TYPE		12
+DEFINE	NUM_COL_COULEUR	13
+DEFINE	NUM_COL_IMMAT		14
+DEFINE	NUM_COL_CODE_PAYS	15
+DEFINE	NUM_COL_PAYS		16
+DEFINE	NUM_COL_NOM		17
+DEFINE	NUM_COL_VILLE		18
+DEFINE	NUM_COL_ADRESSE	19
+DEFINE	NUM_COL_CODE_DANGER	20
+DEFINE	NUM_COL_CODE_NATURE_PANNE	21
+DEFINE	NUM_COL_NATURE_PANNE		22
+DEFINE	NUM_COL_POSITION	23
+DEFINE	NUM_COL_VEH_ROULANT	24
+DEFINE	NUM_COL_ENLEV		25
+DEFINE 	NUM_COL_NUM_APPEL 	26
+DEFINE	NUM_COL_PRES_MAT_DANG		27
+DEFINE	NUM_COL_FAX_ENVOYE	28
+DEFINE	NUM_COL_CODE_MARQUE	29
+DEFINE	NUM_COL_CODE_COULEUR		30
+DEFINE	NUM_COL_CODE_ENLEV	31
+DEFINE	NUM_COL_NUM_VEH	32
+DEFINE	NUM_COL_SIT		33
+DEFINE	NUM_COL_SIT_CREATION		34
+
+DEFINE	NUM_COL_TYPE_RAPPEL		38
+DEFINE	NUM_COL_COMPL_RAPPEL		39
+
+DEFINE 	NUM_COL_NOM_DEP	8
+DEFINE	NUM_COL_NOM_AST	1
+DEFINE	COL_TYP_LIB		3
+DEFINE	COL_LIB			3
+DEFINE	COL_EXP			4
+DEFINE	COL_CODE			1
+
+DEFINE	COL_SIT_NOM		1
+DEFINE	COL_SIT_COD		0
+
+
+/*A definition des pictogrammes */
+DEFINE 	C_PICTO_VERT		"pix_vert"
+DEFINE 	C_PICTO_GRIS		"pix_gris"
+DEFINE 	C_PICTO_ROUGE		"pix_rouge"
+
+DEFINE C_SCRIPT_SMS	"/produits/migrazur/appliSD/exec/genere_sms.ksh"
+
+/*A
+ * Description du format des donnees action
+ * ----------------------------------------
+ */
+
+FORMAT	TIP_Action
+	nom,					' Nom patrouille
+	resultat,				' Resultat intervention
+	horo_appel,				' Horodate debut
+	horo_arrivee,				' Horodate de fin
+	operateur,				' Identifiant operateur
+	horo_depart,				' Horodate d'arrivee sur site
+	horo_annul,
+	renfort,
+	patrouille_presente,
+	garag_contact_pc,
+	annul_interv,
+	code_type_astreinte,
+	interlocuteur,
+	flag_fmc_purgee,
+	site_responsable
+
+/* Description des formats pour l'impression de la fiche depanneur */
+format WP_FLAGGED_TEXT_ATTRS@
+	format WP_TEXT_ATTRS_FLAGS@ SETFLAGS,
+	format WP_TEXT_ATTRS_FLAGS@ INHERITFLAGS,
+	format WP_TEXT_ATTRS@ ATTRS
+
+format WP_TEXT_ATTRS_FLAGS@
+	BOLD,
+	ITALIC,
+	STRIKETHRU,
+	HIDDEN,
+	CAPITALS,
+	UNDERLINE,
+	POSITION,
+	HYPHENATE,
+	COLOR,
+	FACE,
+	SIZE,
+	TAG
+
+format WP_TEXT_ATTRS@
+	BOLD,
+	ITALIC,
+	STRIKETHRU,
+	HIDDEN,
+	CAPITALS,
+	UNDERLINE,
+	POSITION,
+	HYPHENATE,
+	COLOR,
+	FACE,
+	SIZE,
+	TAG
+
+
+
+VAR FORMAT TIP_Action vm_action				' Infos de l'action traitee
+
+VAR     vm_num_action				' Identifiant de l'action
+VAR     vm_num_site_action			' Cle action (site de creation)
+VAR	vm_typ_ast
+VAR FORMAT COM_Identifiant_FMC vm_FMC		' Identifiant FMC liee
+VAR FORMAT COM_Intitule_FMC vm_info_FMC		' Donnees FMC liee
+VAR 	vm_nom_depanneur
+VAR	vm_numero_depanneur
+VAR	vm_type_astreinte
+VAR	vm_interlocuteur
+VAR 	tm_categorie, tm_marques, tm_couleurs, tm_code_matiere, tm_code_danger
+VAR 	tm_categorie_valide, tm_marques_valide, tm_couleurs_valide, tm_code_matiere_valide, tm_code_danger_valide
+VAR	tm_pays, tm_nature_panne, tm_dem_enlev, tm_sites, tm_sites_ini
+VAR	tm_pays_valide, tm_nature_panne_valide, tm_dem_enlev_valide
+VAR 	vm_num_pays, vm_num_code_danger, vm_num_code_matiere
+VAR 	vm_picto, vm_liste_vehicule
+var	vm_mode_formation		' Mode Formation
+VAR	vm_libelle_fmc
+VAR	tm_liste_causes
+VAR     vm_mode_achevee         'mode de modification d une fiche vehicule achevee
+VAR		vm_fmc_purgee
+VAR	vm_enrichir
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Creation, modification ou visualisation d'une fiche d'intervention depanneur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TID_Interv_Depanneur (va_appelant, va_arg1, va_arg2)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*
+* . Si activation depuis MSOP ou MTMC:
+*   va_arg1[]         : Liste d'arguments :
+*    va_num_FMC       : Identifiant de la FMC liee a l'action ;
+*    va_cle_FMC       : Cle de la FMC liee a l'action.
+*    va_num_action    : Numero de l'action a visualiser ou modifier ;
+*    va_num_site      : Identifiant du site de creation de l'action ;
+*    va_arg2 	      : droit d'enrichir
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Nombre de vehicules
+*
+* CONDITION D'UTILISATION
+*   Selection de l'option "Decrire -> Intervention -> Depanneur" dans MTMT ;
+*   Selection d'une action dans MTMC ;
+*   Selection d'un vehicule d'intervenant dans MSOP.
+*
+* FONCTION
+*   Permet a l'operateur de creer une fiche d'intervention depanneur.
+*   Permet de visualiser une fiche deja creee et de la modifier (uniquement
+*   sur le site de creation).
+*
+---------------------------------------------------------------------------- */
+
+	VAR     va_num_action, va_num_site, va_num_FMC, va_cle_FMC, va_lib_FMC, va_date
+
+	VAR     vl_fenetre				' Nom de la fenetre du module
+	VAR     vl_objet_selecte			' L'objet courant de la fenetre
+	VAR     vl_les_messages_acceptes		' Pour reception de signaux
+	VAR     vl_la_fenetre_est_active
+	VAR     vl_installer_traitement_erreur
+
+	VAR     vl_liste, i
+	VAR tl_titres,tl_data,tl_retour, tl_dep1, tl_dep2, tl_dep3, tl_dep
+	VAR FORMAT TDO_Horo_Eclatee	vl_date
+	VAR	vl_Status,vl_selection, vl_annul, vl_val, vm_action_out, vl_arg
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	VAR vl_veh_sel, vl_veh, vl_str, vl_texte, tl_a_traiter, vl_num_fax, vl_res, vl_delais
+	VAR FORMAT TDO_Type_Astreinte vl_type_astreinte
+	VAR vl_prem_valid
+	VAR tl_message, vl_retour
+	VAR vl_indice
+	VAR vl_precedent
+	VAR vl_cr
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Intervention Depanneur"
+ * -------------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TID")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 400)
+DB_WIDTH@ (vl_fenetre,1450)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TID_Interv_Depanneur")
+
+
+MACRO_WINS_BUSY@()
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+vl_liste = {
+	"BS_Jour_appel", "BS_Mois_appel",
+	"BS_Annee_appel", "BS_Heure_appel",
+	"BS_Minute_appel", "BS_Seconde_appel",
+	"BS_Jour_arrivee", "BS_Mois_arrivee",
+	"BS_Annee_arrivee", "BS_Heure_arrivee",
+	"BS_Minute_arrivee", "BS_Seconde_arrivee",
+	"BS_Jour_depart", "BS_Mois_depart",
+	"BS_Annee_depart", "BS_Heure_depart",
+	"BS_Minute_depart", "BS_Seconde_depart",
+	"BS_Jour_annul", "BS_Mois_annul",
+	"BS_Annee_annul", "BS_Heure_annul",
+	"BS_Minute_annul", "BS_Seconde_annul"
+}
+
+FOR i = 0  TO ARRAY_SIZE@ (vl_liste) - 1
+    DB_CTRL_VALID_CHARS@ (vl_fenetre, vl_liste[i], COM_CHIFFRES)
+NEXT i
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BA_Annulation_intervention",TRUE)
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"BA_Produit_dangereux",TRUE)
+
+
+
+/*A
+ * Initialiser les donnees a visualiser
+ * ------------------------------------
+ */
+
+IF (SUBSTRING@ (va_appelant, 6, 3) = "SOP") OR 
+	(SUBSTRING@ (va_appelant, 6, 3) = "TMC")	
+{
+    va_num_action = va_arg1[2]
+    va_num_site = va_arg1[3]
+    va_num_FMC = va_arg1[0]
+    va_cle_FMC = va_arg1[1]
+    va_lib_FMC = va_arg1[4]
+    va_date= va_arg1[5]
+    vm_enrichir = va_arg2
+    vm_libelle_fmc = va_lib_FMC
+    if  (COM50_DateHistorique( COM18_Date_SGBD_Formatee(va_date )))
+	vm_mode_achevee = TRUE
+    else
+	vm_mode_achevee = FALSE
+} 
+else if (SUBSTRING@ (va_appelant, 6, 3) = "THE") {
+    va_num_action = va_arg1[0]
+    va_num_site = va_arg1[1]
+    vm_mode_achevee = TRUE
+    va_num_FMC = va_arg1[3]
+    va_cle_FMC = va_arg1[4]
+    va_lib_FMC = null
+    vm_libelle_fmc = va_lib_FMC
+    vm_enrichir = va_arg2
+}
+
+TID_Init_Affichage_Vehicule (FALSE,vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*A Initialisation des tables des libelles predefinis */
+TID_Init_Libelles (vl_fenetre)
+IF TID_Init_Interv_Depanneur (vl_fenetre, va_num_action, va_num_site,
+				 va_num_FMC, va_cle_FMC, va_lib_FMC) <> COM_OK
+    RETURN(COM_NOK)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+/* Initialisation des variables */
+vm_num_pays = null
+vm_num_code_danger = null
+vm_num_code_matiere = null
+vl_veh_sel = null
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> C_ERR_SAISIR_DATE  AND
+	   ERROR_NUMBER@() <> C_ERR_LIER_FMC
+	    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+
+WEND
+
+
+vm_mode_formation = (SYSTEM_VAR@(vg_formation))
+IF vm_mode_formation
+{
+	DB_CTRL_DISPLAY@(vl_fenetre,"BP_Valider_vehicule",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"BP_Valider_SMS",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"BP_Valider_action",FALSE)
+	DB_CTRL_DISPLAY@(vl_fenetre,"BP_Supprimer",FALSE)
+}	
+
+/*si je modifie une fiche vehicule achevee*/
+if (vm_mode_achevee)
+  /*impossible de modifier l'action associee*/
+  DB_CTRL_GRAYED@(vl_fenetre,"BP_Valider_action",TRUE)
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    /*A bouton aide a la composition de l'horodate appel a depanneur*/
+    CASE "BP_Horodate_appel"
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(TRUE), vl_fenetre,
+	                            "BS_Jour_appel", "BS_Mois_appel",
+	                            "BS_Annee_appel", "BS_Heure_appel",
+	                            "BS_Minute_appel", "BS_Seconde_appel")
+
+      /*A bouton aide a la composition de l'horodate arrivee sur le site*/
+    CASE "BP_Horodate_arrivee"
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(TRUE), vl_fenetre,
+	                            "BS_Jour_arrivee", "BS_Mois_arrivee",
+	                            "BS_Annee_arrivee", "BS_Heure_arrivee",
+	                            "BS_Minute_arrivee", "BS_Seconde_arrivee")
+
+    /*A bouton aide a la composition de l'horodate depart du site*/
+    CASE "BP_Horodate_depart"
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(TRUE), vl_fenetre,
+	                            "BS_Jour_depart", "BS_Mois_depart",
+	                            "BS_Annee_depart", "BS_Heure_depart",
+	                            "BS_Minute_depart", "BS_Seconde_depart")
+
+    /*A bouton aide a la composition de l'horodate annulation*/
+    CASE "BP_Horodate_annul"
+	/*A recupere l'heure courante et la formate*/
+	COM24_Afficher_Horodate (COM09_Date_Courante(TRUE), vl_fenetre,
+	                            "BS_Jour_annul", "BS_Mois_annul",
+	                            "BS_Annee_annul", "BS_Heure_annul",
+	                            "BS_Minute_annul", "BS_Seconde_annul")
+
+	/*A Sur choix annulation intervention ou non */
+	CASE "BA_Annulation_intervention"
+		/*B Grise ou non l'horodate d'annulation */
+		vl_annul=not (DB_CTRL_GET_VALUE@(vl_fenetre,"BA_Annulation_intervention"))
+ 		DB_CTRL_GRAYED@(vl_fenetre,"BS_Jour_annul",vl_annul)
+		DB_CTRL_GRAYED@(vl_fenetre,"BS_Mois_annul",vl_annul)
+  		DB_CTRL_GRAYED@(vl_fenetre,"BS_Annee_annul",vl_annul)
+  		DB_CTRL_GRAYED@(vl_fenetre,"BS_Heure_annul",vl_annul)
+  		DB_CTRL_GRAYED@(vl_fenetre,"BS_Minute_annul",vl_annul)
+  		DB_CTRL_GRAYED@(vl_fenetre,"BS_Seconde_annul",vl_annul)
+  		DB_CTRL_GRAYED@(vl_fenetre,"BP_Horodate_annul",vl_annul)
+ 		DB_CTRL_VALUE@(vl_fenetre,"BS_Jour_annul",null)
+		DB_CTRL_VALUE@(vl_fenetre,"BS_Mois_annul",null)
+  		DB_CTRL_VALUE@(vl_fenetre,"BS_Annee_annul",null)
+  		DB_CTRL_VALUE@(vl_fenetre,"BS_Heure_annul",null)
+  		DB_CTRL_VALUE@(vl_fenetre,"BS_Minute_annul",null)
+  		DB_CTRL_VALUE@(vl_fenetre,"BS_Seconde_annul",null)
+  		DB_CTRL_VALUE@(vl_fenetre,"BP_Horodate_annul",null)
+
+	/*A Sur choix produits dangereux ou non */
+	CASE "BA_Produit_dangereux"
+		/*B Grise ou non les codes danger et matiees dangereuses */
+		vl_annul=not (DB_CTRL_GET_VALUE@(vl_fenetre,"BA_Produit_dangereux"))
+ 		DB_CTRL_GRAYED@(vl_fenetre,"BP_Code_matiere",vl_annul)
+ 		DB_CTRL_GRAYED@(vl_fenetre,"LI_Code_matiere",vl_annul)
+ 		DB_CTRL_GRAYED@(vl_fenetre,"BP_Code_danger",vl_annul)
+ 		DB_CTRL_GRAYED@(vl_fenetre,"LI_Code_danger",vl_annul)
+
+
+	/*A Sur choix du bouton BP_Pays */
+	CASE "BP_Pays"
+		TID_Init_Affichage_Table (vl_fenetre, FALSE)
+		DB_CTRL_DISPLAY@(vl_fenetre,"TA_Pays",TRUE)
+	
+	/*A Sur choix d'un pays */
+	CASE "TA_Pays"
+		i=DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_Pays")
+		i=i[0]
+		vm_num_pays = i
+    		DB_CTRL_TITLE@ (vl_fenetre, "LI_Pays", tm_pays_valide[i][COL_LIB])
+		TID_Init_Affichage_Table (vl_fenetre, FALSE)
+		
+	/*A Sur choix du bouton BP_Code_matiere */
+	CASE "BP_Code_matiere"
+		TID_Init_Affichage_Table (vl_fenetre, FALSE)
+		DB_CTRL_DISPLAY@(vl_fenetre,"TA_Code_matiere",TRUE)
+	
+	/*A Sur choix d'un code_matiere */
+	CASE "TA_Code_matiere"
+		i=DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_Code_matiere")
+		i=i[0]
+		vm_num_code_matiere = i
+    		DB_CTRL_TITLE@(vl_fenetre,"LI_Code_matiere",tm_code_matiere_valide[i][COL_LIB])
+		TID_Init_Affichage_Table (vl_fenetre, FALSE)
+
+	/*A Sur choix du bouton BP_Code_danger */
+	CASE "BP_Code_danger"
+		TID_Init_Affichage_Table (vl_fenetre, FALSE)
+		DB_CTRL_DISPLAY@(vl_fenetre,"TA_Code_danger",TRUE)
+	
+	/*A Sur choix d'un code_danger */
+	CASE "TA_Code_danger"
+		i=DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_Code_danger")
+		i=i[0]
+		vm_num_code_danger = i
+    		DB_CTRL_TITLE@(vl_fenetre,"LI_Code_danger",tm_code_danger_valide[i][COL_LIB])
+		TID_Init_Affichage_Table (vl_fenetre, FALSE)
+
+	/*A Sur choix du bouton BP_Quitter */
+	 CASE "BP_Quitter"
+		vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur choix "FMC liee", activer MTLV pour choisir une FMC
+     * -------------------------------------------------------
+     */
+
+   	/*B appui sur le bouton lier fmc*/
+	CASE "BP_FMC_liee"
+		TID_Init_Affichage_Table (vl_fenetre, FALSE)
+		TID_Init_Affichage_Vehicule (FALSE,vl_fenetre)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_Fiche_vehicule",TRUE)
+		MACRO_WINS_BUSY@()
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes",
+							"ITMA_TID_Interv_Depanneur")
+
+		/*B affiche la liste des evts a traiter*/
+		tm_liste_causes=tl_data[0]
+
+		DB_CTRL_DISPLAY@(vl_fenetre,"TA_FMC_liee",TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_FMC_liee",TRUE)
+		DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre, "TA_FMC_liee", 25)
+		tl_titres[0] = { COM_CAUSE_NUMERO, COM_CAUSE_LONG_NUMERO }
+		tl_titres[1] = { COM_CAUSE_CLE, COM_CAUSE_LONG_CLE }
+		tl_titres[2] = { COM_CAUSE_TYPE, COM_CAUSE_LONG_TYPE }
+		tl_titres[3] = { COM_CAUSE_DATE, 150 }
+		tl_titres[4] = { COM_CAUSE_LOCALISATION, COM_CAUSE_LONG_LOCALISATION }
+		DB_TABLE_SET_DATA@(vl_fenetre,"TA_FMC_liee",tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vl_fenetre, "TA_FMC_liee", 0, tl_data[2])
+
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_FMC_liee"
+		MACRO_WINS_BUSY@()
+		i=DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_FMC_liee")
+		i=i[0]
+		vl_selection=tl_data[1][i]
+		vm_FMC.numero=vl_selection[0]
+		vm_FMC.cle=vl_selection[1]
+		vm_enrichir=tm_liste_causes[i][6]
+
+		/* Recherche des parametres de la FMC */
+		vm_info_FMC = { }
+		TID_Maj_Donnees_FMC ()
+		IF (vm_info_FMC.IdFMC.numero <> NULL)
+			DB_CTRL_TITLE@ (vl_fenetre, "LI_Libelle_FMC",
+			                   COM11_Libelle_FMC(vm_info_FMC))
+			DB_CTRL_TITLE@ (vl_fenetre, "LI_Libelle_FMC", NULL)
+
+		DB_CTRL_DISPLAY@(vl_fenetre,"TA_FMC_liee",FALSE)
+		DB_CTRL_DISPLAY@(vl_fenetre,"BP_Garage",TRUE)
+		DB_CTRL_GRAYED@(vl_fenetre,"BP_Valider_action",FALSE)
+
+		/* Mise a jour de la liste des vehicules */
+		ITMA_TID_charge_vehicules(vl_fenetre,vm_FMC.numero,vm_FMC.cle,
+				XDC_DATE_NULLE)
+		vl_veh_sel = null
+
+		/* suivant le type de FMC, on grise Creer et Supprimer */
+		TID_Init_Boutons_FMC(vl_fenetre,vl_veh_sel)
+
+		
+	/*B choix du garage : affichage de la liste des depanneurs/astreintes */
+	CASE "BP_Garage"
+		/*B on lance la tache de recherche des garages*/
+	  IF vm_FMC.numero = null or vm_FMC.numero = 0
+			INFO_MESSAGE@("D'abord lier une FMC")
+	   ELSE
+	   {	
+		TID_Init_Affichage_Table (vl_fenetre, FALSE)
+		MACRO_WINS_BUSY@()
+		TID_Maj_Donnees_FMC ()
+		IF (vm_info_FMC.IdFMC.numero <> NULL)
+		{
+			/* Lecture des depanneurs d'astreinte pour les 3 types d'astreinte
+			 * depanneurs : VL, PL, LEVAGE
+			 */
+			vl_parametres[0].type = SYB#DATETIME_
+			if (vm_info_FMC.date<>null)
+				vl_parametres[0].data = vm_info_FMC.date
+			else
+				vl_parametres[0].data = vm_info_FMC.date_prevu
+			vl_parametres[0].output = FALSE
+
+			vl_parametres[1].type = SYB#INT4_
+			vl_parametres[1].data = XDC_AST_DEP_VL
+			vl_parametres[1].output = FALSE
+
+			vl_parametres[2].type = SYB#INT4_
+			vl_parametres[2].data = null
+			vl_parametres[2].output = FALSE
+
+			vl_parametres[3].type = SYB#INT4_
+			vl_parametres[3].data = vm_info_FMC.localisation.NumAuto
+			vl_parametres[3].output = FALSE
+
+			vl_parametres[4].type = SYB#INT4_
+			vl_parametres[4].data = vm_info_FMC.localisation.PR
+			vl_parametres[4].output = FALSE
+
+			IF COM05_SQL_Procedure (XZAN25_Liste_Astreintes,
+			   		vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    						RETURN (COM_NOK)
+
+			tl_dep1 = vl_resultats.select_results[0]
+			for i=0 to ARRAY_SIZE@(tl_dep1)-1
+				tl_dep1[i][10] = XDC_AST_DEP_VL
+			next i
+
+
+			vl_parametres[1].data = XDC_AST_DEP_PL
+
+			IF COM05_SQL_Procedure (XZAN25_Liste_Astreintes,
+			   		vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    						RETURN (COM_NOK)
+
+			tl_dep2 = vl_resultats.select_results[0]
+			for i=0 to ARRAY_SIZE@(tl_dep2)-1
+				tl_dep2[i][10] = XDC_AST_DEP_PL
+			next i
+			tl_dep = ARRAY_APPEND@(tl_dep1, tl_dep2)
+
+			vl_parametres[1].data = XDC_AST_DEP_LEVAGE
+
+			IF COM05_SQL_Procedure (XZAN25_Liste_Astreintes,
+			   		vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    						RETURN (COM_NOK)
+
+			tl_dep3 = vl_resultats.select_results[0]
+			for i=0 to ARRAY_SIZE@(tl_dep3)-1
+				tl_dep3[i][10] = XDC_AST_DEP_LEVAGE
+			next i
+			tl_dep = ARRAY_APPEND@(tl_dep, tl_dep3)
+
+			/*B affiche la liste des garages d'astreintes*/
+			tl_data = null
+			vl_indice=0
+			for i=0 to ARRAY_SIZE@(tl_dep)-1
+				if (tl_dep[i][NUM_COL_NOM_DEP]<>null) and 
+					(tl_dep[i][NUM_COL_NOM_DEP]++""<>"") {
+				  tl_data[vl_indice] = tl_dep[i]
+				  vl_indice=vl_indice+1
+				}
+			next i
+
+			tl_dep=null
+			tl_dep=tl_data
+
+			for i=0 to ARRAY_SIZE@(tl_dep)-1
+				tl_data[i][0]=tl_dep[i][NUM_COL_NOM_DEP]
+				tl_data[i][1]=tl_dep[i][NUM_COL_NOM_AST]
+			next i
+
+			DB_CTRL_DISPLAY@(vl_fenetre,"TA_Garage",TRUE)
+			DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_Garage",TRUE)
+			tl_titres = null
+			tl_titres[0] = "Nom de dépanneur",300
+			tl_titres[1] = "Type d'astreinte",300
+			DB_TABLE_SET_DATA@(vl_fenetre,"TA_Garage",tl_data,tl_titres)
+		}
+	   }
+
+	/*B selection d'un element dans la liste des garagistes*/	
+  	CASE "TA_Garage"
+		MACRO_WINS_BUSY@()
+		i=DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_Garage")
+		i=i[0]
+		vm_type_astreinte = tl_dep[i][10]
+		vm_nom_depanneur = tl_dep[i][NUM_COL_NOM_DEP]
+		vm_interlocuteur = tl_dep[i][9]
+
+    		DB_CTRL_TITLE@ (vl_fenetre, "LI_Nom_depanneur",
+									 TRIM@(tl_dep[i][NUM_COL_NOM_DEP])
+									++" / "++tl_dep[i][NUM_COL_NOM_AST])
+
+		DB_CTRL_DISPLAY@(vl_fenetre,"TA_Garage",FALSE)
+
+	/*B selection d'un element dans la liste des vehicules*/	
+  	CASE "TA_Fiche_vehicule"
+		DB_CTRL_GRAYED@(vl_fenetre,"BP_Ouvrir",FALSE)
+		DB_CTRL_GRAYED@(vl_fenetre,"BP_Imprimer",FALSE)
+		if (vm_fmc_purgee<>XDC_VRAI) {	
+			DB_CTRL_GRAYED@(vl_fenetre,"BP_Associer",FALSE)
+			DB_CTRL_GRAYED@(vl_fenetre,"BP_Dissocier",FALSE)
+		}	
+
+		/*au PC simplifie*/
+		if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) OR (vm_mode_achevee=TRUE)
+		  /*on ne peut jamais faxer*/
+		  DB_CTRL_GRAYED@(vl_fenetre,"BP_Faxer",TRUE)
+
+		i=DB_TABLE_GET_SELECTIONS@(vl_fenetre, "TA_Fiche_vehicule")
+		i=i[0]
+		/* suivant le type de FMC, on grise Creer et Supprimer */
+		TID_Init_Boutons_FMC(vl_fenetre,i)
+		/* suivant les pictos, on grise ou non les boutons */
+		TID_Init_Boutons_Pictos(vl_fenetre,i)
+		vl_veh_sel = i
+			
+
+   /*A
+     * Sur choix "Valider action", verifier la validite des donnees saisies
+     * et la presence de la date de debut ou de succes et d'une FMC liee
+     * -----------------------------------------------------------------
+     */
+
+    CASE "BP_Valider_action"
+	MACRO_WINS_BUSY@()
+	
+	if (vm_num_action+0=0)
+	  vl_prem_valid = TRUE
+	else
+	  vl_prem_valid = FALSE
+
+	/* Lecture des parametres de l'action */
+	IF vm_FMC.numero = NULL
+	    ERROR@ (C_ERR_LIER_FMC, C_LIB_LIER_FMC)
+
+	vm_action.horo_appel = COM23_Horodate (vl_fenetre,
+						  "BS_Jour_appel",
+						  "BS_Mois_appel",
+						  "BS_Annee_appel",
+						  "BS_Heure_appel",
+						  "BS_Minute_appel",
+						  "BS_Seconde_appel")
+
+	vm_action.horo_arrivee = COM23_Horodate (vl_fenetre,
+						   "BS_Jour_arrivee",
+						   "BS_Mois_arrivee",
+						   "BS_Annee_arrivee",
+						   "BS_Heure_arrivee",
+						   "BS_Minute_arrivee",
+						   "BS_Seconde_arrivee")
+
+	vm_action.horo_depart = COM23_Horodate (vl_fenetre,
+						"BS_Jour_depart",
+						"BS_Mois_depart",
+						"BS_Annee_depart",
+						"BS_Heure_depart",
+						"BS_Minute_depart",
+						"BS_Seconde_depart")
+
+	vm_action.horo_annul = COM23_Horodate (vl_fenetre,
+						"BS_Jour_annul",
+						"BS_Mois_annul",
+						"BS_Annee_annul",
+						"BS_Heure_annul",
+						"BS_Minute_annul",
+						"BS_Seconde_annul")
+
+	vl_val = DB_CTRL_GET_VALUE@(vl_fenetre,"BA_Annulation_intervention")
+	if vl_val=0 
+		vm_action.annul_interv = 0
+	else vm_action.annul_interv = 1
+
+	/*A
+	 * controle la coherence des dates et garage
+	 * -----------------------------------------
+	 */
+	vl_Status = COM_OK
+
+	IF (IS_NULL@(vm_nom_depanneur) or IS_NULL@(vm_type_astreinte))
+	{
+		INFO_MESSAGE@("Le garage doit être selectionné")
+		vl_Status = COM_NOK
+	}	
+
+	IF ( IS_NULL@(vm_action.horo_appel)) 
+	{
+		INFO_MESSAGE@("L'horodate d'appel doit être renseignée")
+		vl_Status = COM_NOK
+	}
+	ELSE IF (not is_null@(vm_action.horo_arrivee))
+	{
+	  if (COM17_Difference_Dates(vm_action.horo_appel, vm_action.horo_arrivee)>0)
+		{
+			INFO_MESSAGE@("L'horodate d'arrivée sur site doit être supérieure à la date d'appel")
+			vl_Status = COM_NOK
+		}
+	}
+
+
+	IF (NOT IS_NULL@(vm_action.horo_depart) 
+						and not is_null@(vm_action.horo_arrivee))
+	{
+	    IF (COM17_Difference_Dates(vm_action.horo_depart,vm_action.horo_arrivee)<0)
+		{
+		INFO_MESSAGE@("L'horodate d'arrivée sur site doit être inférieure à l'horodate de départ du site")
+		vl_Status = COM_NOK
+		}
+	}
+	IF ((vm_action.annul_interv = 1 ) and (IS_NULL@(vm_action.horo_annul)))
+		{
+		  INFO_MESSAGE@("Dans le cas d'une annulation, l'horodate d'annulation doit être renseignée")
+		  vl_Status = COM_NOK
+		}
+
+	IF (vm_action.annul_interv = 1) and (NOT IS_NULL@(vm_action.horo_annul))
+		{
+		 IF NOT IS_NULL@(vm_action.horo_appel)
+		  {
+		    IF (COM17_Difference_Dates(vm_action.horo_annul, vm_action.horo_appel)<0)
+			{
+			  INFO_MESSAGE@("L'horodate d'annulation doit être superieure à l'horodate d'appel")
+			vl_Status = COM_NOK
+			}
+		   }
+		}
+
+
+	/*A
+	 * puis archiver les (nouvelles) donnees intervention et terminer
+	 * --------------------------------------------------------------
+	 */
+	IF vl_Status = COM_OK
+	{
+		vm_action.nom = vm_nom_depanneur
+
+		vm_action.resultat = DB_CTRL_GET_VALUE@ (vl_fenetre, "BS_Resultat")
+
+		vm_action.operateur = SYSTEM_VAR@ (vg_numero_operateur)
+
+		vl_val = DB_CTRL_GET_VALUE@ (vl_fenetre, "BA_Renfort")
+		if vl_val = 0
+			vm_action.renfort = 0
+		else vm_action.renfort = 1
+
+		vl_val = DB_CTRL_GET_VALUE@ (vl_fenetre,"BA_Patrouille")
+		if vl_val = 0
+			vm_action.patrouille_presente = 0
+		else vm_action.patrouille_presente = 1
+
+		vl_val = DB_CTRL_GET_VALUE@ (vl_fenetre,"BA_Garagiste")
+		if vl_val = 0
+			vm_action.garag_contact_pc = 0
+		else vm_action.garag_contact_pc = 1
+
+		vm_action.code_type_astreinte = vm_type_astreinte
+		vm_action.interlocuteur = vm_interlocuteur
+		
+		vl_val=DB_CTRL_GET_VALUE@(vl_fenetre,"BO_Site_creation")
+		vm_action.site_responsable=tm_sites[vl_val][COL_SIT_COD]
+		
+		IF TID_Ecrire_Interv_Depanneur (vm_num_action, vm_num_site_action,
+					   vm_FMC, vm_action, vm_action_out) <> COM_OK
+		{
+                	INFO_MESSAGE@("Impossible d'écrire les donnees d'intervention depanneur en base")
+                	RETURN (COM_NOK)
+		}
+
+  		DB_CTRL_GRAYED@(vl_fenetre,"BP_FMC_liee",TRUE)
+  		DB_CTRL_GRAYED@(vl_fenetre,"BP_Garage",TRUE)
+
+		if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+		  vm_num_site_action = XDC_CI
+/*PNI		else
+		  vm_num_site_action = SYSTEM_VAR@ (vg_site)*/
+
+ 		vm_num_action = vm_action_out[0]
+
+   		DB_CTRL_TITLE@ (vl_fenetre, "LI_Ref_action", vm_num_site_action ++ " - "
+ 									++ vm_action_out[0])
+
+		/*site responsable*/
+		vl_val=ARRAY_INDEX@(ARRAY_COLUMN@(tm_sites_ini, COL_SIT_COD), 
+						vm_action.site_responsable)
+		if vl_val=-1
+		  vl_val=0
+		tl_data=null
+		tl_data[0]=tm_sites_ini[vl_val]
+		tm_sites=tl_data
+		DB_CTRL_STRINGS@(vl_fenetre, "BO_Site_creation", 
+					ARRAY_COLUMN@(tm_sites, COL_SIT_NOM))
+		DB_CTRL_VALUE@(vl_fenetre, "BO_Site_creation", 0)	
+
+		/* On associe toutes les fiches vehicules sans action a cette action 
+		 */
+		vl_prem_valid=FALSE
+		if vl_prem_valid=TRUE {
+		for i=0 to ARRAY_SIZE@(vm_liste_vehicule)-1
+				vl_veh = vm_liste_vehicule[i]
+				IF ((IS_NULL@(vl_veh[NUM_COL_DEP])) OR (vl_veh[NUM_COL_DEP]=0)
+					OR (vl_veh[NUM_COL_DEP]=null))
+				{
+					vl_veh[NUM_COL_DEP] = vm_num_action
+					vl_veh[NUM_COL_SITE_DEP] = vm_action.site_responsable
+					vl_veh[NUM_COL_SIT_CREATION] = vm_action.site_responsable
+					vl_veh[NUM_COL_FAX_ENVOYE] = 0
+					TID_Ecrire_vehicule(vl_veh, vm_FMC,0,XDC_VRAI)
+				}
+		next i
+		}
+
+		/* Mise a jour de la liste des vehicules */
+		ITMA_TID_charge_vehicules(vl_fenetre,vm_FMC.numero,vm_FMC.cle,
+						XDC_DATE_NULLE)
+		vl_veh_sel = null
+	}
+
+	/*B clic sur Imprimer*/	
+	CASE "BP_Imprimer"
+		/*Rendre possible l'impression de la fiche associee ou non DEM416*/
+		/*IF (IS_NULL@(vm_num_action) or IS_NULL@(vl_veh_sel))*/
+		IF IS_NULL@(vl_veh_sel)
+			INFO_MESSAGE@("Une fiche véhicule doit être selectionnée.")
+		ELSE
+			{
+				TID_Genere_texte(vl_texte,vm_liste_vehicule[vl_veh_sel],
+											vl_fenetre,TRUE,FALSE)
+				DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_Fiche_vehicule",TRUE)
+			}
+
+	CASE "BP_Faxer"
+		TID_Maj_Donnees_FMC ()
+		IF (IS_NULL@(vm_num_action) or IS_NULL@(vl_veh_sel))
+			INFO_MESSAGE@("Une action doit être choisie et une fiche véhicule doit être selectionnée.")
+		ELSE IF (vm_info_FMC.IdFMC.numero = NULL)
+			INFO_MESSAGE@("FMC inconnue.")
+		ELSE
+		{
+			IF vm_liste_vehicule[vl_veh_sel][NUM_COL_FAX_ENVOYE] = 1
+			{
+			   INFO_MESSAGE@("Il existe déjà une action envoi de fax pour cette fiche véhicule.")
+			}
+
+			TID_Genere_texte(vl_texte,vm_liste_vehicule[vl_veh_sel],
+											vl_fenetre,FALSE,TRUE)
+
+			/* Lecture du numero de fax du depanneur contacte */
+			vl_parametres[0].type = SYB#CHAR_
+			vl_parametres[0].data = TRIM@(vm_nom_depanneur)
+			vl_parametres[0].output = FALSE
+
+			IF COM05_SQL_Procedure (XZAN15_Rechercher_Annuaire,
+			   		vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    						RETURN (COM_NOK)
+
+			vl_num_fax = vl_resultats.select_results[0]
+
+			/* Mise en place des parametres d'appel de l'envoi de fax*/
+			vl_arg[0] = vl_num_fax[0][2]
+			vl_arg[1] = vm_interlocuteur
+			vl_arg[2] = vm_nom_depanneur
+
+			vl_type_astreinte.numero = vm_type_astreinte
+			i = ARRAY_INDEX@(ARRAY_COLUMN@(vm_typ_ast,0),vm_type_astreinte)
+			IF i<0 
+				vl_type_astreinte.nom = null
+			ELSE
+				vl_type_astreinte.nom = vm_typ_ast[i][1]
+			vl_arg[3] = vl_type_astreinte
+			vl_arg[4] = vm_info_FMC
+			vl_arg[5] = DB_CTRL_GET_TITLE@(vl_fenetre,"LI_Libelle_FMC")
+			vl_arg[6] = vl_texte
+
+			/* Appel a la fenetre d'envoi de fax */
+			vl_res = PEND_FOR_NEW_TASK@("ITMA_TFX_Envoi_Fax",
+							"ITMA_TID_Interv_Depanneur",vl_arg)
+			IF vl_res=COM_VALIDE
+			{
+				vl_veh = vm_liste_vehicule[vl_veh_sel]
+				vl_veh[NUM_COL_FAX_ENVOYE] = 1
+				TID_Ecrire_vehicule(vl_veh, vm_FMC,0,XDC_FAUX)
+				ITMA_TID_charge_vehicules(vl_fenetre,vm_FMC.numero,vm_FMC.cle,
+							XDC_DATE_NULLE)
+				vl_veh_sel = null
+				TID_Init_Affichage_Boutons(vl_fenetre,TRUE)
+				TID_Init_Boutons_FMC(vl_fenetre,vl_veh_sel)
+			}
+			DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_Fiche_vehicule",TRUE)
+		}
+
+			
+	/*B clic sur Créer*/	
+	CASE "BP_Creer"
+		vl_precedent=DB_CTRL_GET_GRAYED@ (vl_fenetre, "BP_Valider_action")
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider_vehicule", FALSE)
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider_SMS", FALSE)
+		DB_CTRL_DISPLAY@ (vl_fenetre, "BO_Site_creation", TRUE)
+		TID_Init_Affichage_Vehicule (TRUE,vl_fenetre)
+		TID_Init_Affichage_Boutons(vl_fenetre,TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_Fiche_vehicule",FALSE)
+		TID_Init_Vehicules(vl_fenetre,null)
+		vl_veh_sel=null
+
+		/*si pas de droit d'enrichir*/
+		if vm_enrichir=0 {
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider_vehicule", TRUE)
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider_SMS", TRUE)
+		}
+
+	/*B clic sur Ouvrir*/	
+	CASE "BP_Ouvrir"
+		IF (IS_NULL@(vl_veh_sel))
+		{	
+			INFO_MESSAGE@("D'abord choisir une fiche vehicule de la liste")
+		}
+		ELSE
+		{
+			TID_Init_Affichage_Vehicule (TRUE,vl_fenetre)
+			TID_Init_Affichage_Boutons(vl_fenetre,TRUE)
+			DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_Fiche_vehicule",FALSE)
+			vl_precedent=DB_CTRL_GET_GRAYED@ (vl_fenetre, "BP_Valider_action")
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider_action", TRUE)
+			if vm_enrichir=0 {
+				DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider_vehicule", TRUE)
+				DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider_SMS", TRUE)
+
+			}
+			TID_Init_Vehicules(vl_fenetre,vm_liste_vehicule[vl_veh_sel])
+		}
+	
+	/*B clic sur Quitter_vehicule*/	
+	CASE "BP_Quitter_vehicule"
+		TID_Init_Affichage_Table (vl_fenetre, FALSE)
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_Fiche_vehicule",TRUE)
+		TID_Init_Affichage_Vehicule (FALSE,vl_fenetre)
+		DB_TABLE_SET_SELECTIONS@(vl_fenetre, "TA_Fiche_vehicule", null)
+		vl_veh_sel=null
+		TID_Init_Boutons_FMC(vl_fenetre,vl_veh_sel)
+	 
+		DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider_action", vl_precedent)
+
+	/*B clic sur Associer*/	
+	CASE "BP_Associer"
+		IF ((vm_num_action = 0) or IS_NULL@(vm_num_action) 
+										or IS_NULL@(vl_veh_sel))
+			INFO_MESSAGE@("Une action doit être choisie et une fiche véhicule doit être selectionnée.")
+		ELSE
+		{
+			/* Cas ou une action est affichee */
+			vl_veh = vm_liste_vehicule[vl_veh_sel]
+			vl_veh[NUM_COL_DEP] = vm_num_action
+			vl_veh[NUM_COL_SITE_DEP] = vm_action.site_responsable
+			vl_veh[NUM_COL_SIT_CREATION] = vm_action.site_responsable
+			vl_veh[NUM_COL_FAX_ENVOYE] = 0
+			TID_Ecrire_vehicule(vl_veh, vm_FMC,0,XDC_VRAI)
+			ITMA_TID_charge_vehicules(vl_fenetre,vm_FMC.numero,vm_FMC.cle,
+						XDC_DATE_NULLE)
+			vl_veh_sel = null
+			TID_Init_Affichage_Boutons(vl_fenetre,TRUE)
+			TID_Init_Boutons_FMC(vl_fenetre,vl_veh_sel)
+		}
+			
+	/*B clic sur Dissocier*/	
+	CASE "BP_Dissocier"
+		vl_veh = vm_liste_vehicule[vl_veh_sel]
+		vl_veh[NUM_COL_DEP] = null
+		vl_veh[NUM_COL_SITE_DEP] = null
+		vl_veh[NUM_COL_FAX_ENVOYE] = 0
+		TID_Ecrire_vehicule(vl_veh, vm_FMC,1,XDC_FAUX)
+		ITMA_TID_charge_vehicules(vl_fenetre,vm_FMC.numero,vm_FMC.cle,
+						XDC_DATE_NULLE)
+		vl_veh_sel = null
+		TID_Init_Affichage_Boutons(vl_fenetre,TRUE)
+		TID_Init_Boutons_FMC(vl_fenetre,vl_veh_sel)
+
+	/*B clic sur Supprimer*/	
+	CASE "BP_Supprimer"
+	  if IS_NULL@(vl_veh_sel)
+		INFO_MESSAGE@("D'abord choisir un vehicule.")
+	  else
+		{
+			IF (PEND_FOR_NEW_TASK@( "ITMA_TCF_Demande_Confirmation", "Voulez- vous vraiment supprimer le véhicule ?") = XDC_OK)
+			{
+				/* Suppression du vehicule selectionne dans la liste */
+				vl_parametres[0].type = COM_Numero_Evenement
+				vl_parametres[0].data = vm_FMC.numero
+				vl_parametres[0].output = FALSE
+
+				vl_parametres[1].type = COM_Cle_Evenement
+				vl_parametres[1].data = vm_FMC.cle
+				vl_parametres[1].output = FALSE
+
+				vl_parametres[2].type = SYB#INT4_
+				vl_parametres[2].data = vm_liste_vehicule[vl_veh_sel]
+													[NUM_COL_NUM_VEH]
+				vl_parametres[2].output = FALSE
+
+				/*si je modifie une fiche achevee, je dois executer au CI*/
+				IF (vm_mode_achevee) {
+				  IF COM41_SQL_Procedure_Distante (XDC_CI,XZAE98_Supprime_Vehicule,
+						     vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+				     RETURN (COM_NOK)
+			     	}
+			     	else {
+				  IF COM05_SQL_Procedure (XZAE98_Supprime_Vehicule,
+					   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    					RETURN (COM_NOK)
+				}
+
+				ITMA_TID_charge_vehicules(vl_fenetre,vm_FMC.numero,vm_FMC.cle,
+						XDC_DATE_NULLE)
+				vl_veh_sel = null
+				TID_Init_Affichage_Boutons(vl_fenetre,TRUE)
+				TID_Init_Boutons_FMC(vl_fenetre,vl_veh_sel)
+			}
+		}
+
+
+	/*B clic sur Valider de la zone de saisie des fiches vehicules */	
+	CASE "BP_Valider_vehicule"
+	CASE "BP_Valider_SMS"
+		MACRO_WINS_BUSY@()
+
+		/* Lecture des parametres d'une fiche vehicule */
+		vl_Status = COM_OK
+		i = DB_CTRL_GET_VALUE@(vl_fenetre, "BO_Categorie")
+		vl_veh[NUM_COL_CATEG] = tm_categorie_valide[i][COL_CODE]
+
+		i = DB_CTRL_GET_VALUE@(vl_fenetre,"BS_Nombre_passagers")
+		vl_val = i + 0
+		vl_veh[NUM_COL_PASSAGER] = vl_val
+
+		IF ((vl_veh[NUM_COL_PASSAGER]>=100)
+			or (int@ (vl_veh[NUM_COL_PASSAGER])<>vl_veh[NUM_COL_PASSAGER]))
+		{
+			INFO_MESSAGE@("Le nombre de passagers est un entier inferieur à 100.")
+			vl_Status = COM_NOK
+		}
+
+		vl_veh[NUM_COL_BEBE] = DB_CTRL_GET_VALUE@(vl_fenetre, "BS_Bebes")
+
+		vl_veh[NUM_COL_PERS_AGEE] = DB_CTRL_GET_VALUE@(vl_fenetre, 
+											"BS_Personnes_agees")
+
+		vl_veh[NUM_COL_ANIMAUX] = DB_CTRL_GET_VALUE@(vl_fenetre, "BA_Animaux")
+
+		vl_veh[NUM_COL_VEH_ESCOTA] = DB_CTRL_GET_VALUE@(vl_fenetre,
+											"BA_Vehicule_ESCOTA")
+
+		vl_veh[NUM_COL_CHARGEMENT] = DB_CTRL_GET_VALUE@(vl_fenetre, 
+											"BS_Masse")
+		IF vl_veh[NUM_COL_CHARGEMENT]>=1000
+		{
+			INFO_MESSAGE@("La masse du chargement doit être inferieure à 1000 t.")
+			vl_Status = COM_NOK
+		}
+
+		vl_veh[NUM_COL_CODE_MAT] = DB_CTRL_GET_TITLE@(vl_fenetre,
+											"LI_Code_matiere")
+		IF (IS_NULL@(vl_veh_sel))
+		{
+			vl_veh[NUM_COL_DEP] = null
+			vl_veh[NUM_COL_SITE_DEP] = null
+			vl_veh[NUM_COL_SIT] = null
+		}
+		ELSE
+		{
+			vl_veh[NUM_COL_DEP] = vm_liste_vehicule[vl_veh_sel][NUM_COL_DEP]
+			vl_veh[NUM_COL_SITE_DEP] = vm_liste_vehicule[vl_veh_sel][NUM_COL_SITE_DEP]
+			vl_veh[NUM_COL_SIT] = vm_liste_vehicule[vl_veh_sel][NUM_COL_SIT]
+		}
+
+
+		vl_str = null
+		vl_val = null
+		vl_val = DB_CTRL_GET_VALUE@(vl_fenetre,"BE_Commentaire")
+		vl_str = vl_val[0]
+		for i=1 to ARRAY_SIZE@(vl_val)-1
+			vl_str = vl_str ++ " " ++ vl_val[i]
+		next i
+		vl_veh[NUM_COL_TEXTE] = vl_str
+		IF SUBSTRING@(vl_str, 151)<>""
+		{
+			INFO_MESSAGE@("Le commentaire doit contenir au plus 150 caractères.")
+			vl_Status = COM_NOK
+		}
+
+		i = DB_CTRL_GET_VALUE@(vl_fenetre, "BO_Marque")
+		vl_veh[NUM_COL_MARQUE] = tm_marques_valide[i][COL_LIB]
+		vl_veh[NUM_COL_CODE_MARQUE] = tm_marques_valide[i][COL_CODE]
+
+		vl_veh[NUM_COL_TYPE] = DB_CTRL_GET_VALUE@(vl_fenetre,"BS_Type")
+
+		i = DB_CTRL_GET_VALUE@(vl_fenetre, "BO_Couleur")
+		vl_veh[NUM_COL_COULEUR] = tm_couleurs_valide[i][COL_LIB]
+		vl_veh[NUM_COL_CODE_COULEUR] = tm_couleurs_valide[i][COL_CODE]
+
+		vl_veh[NUM_COL_IMMAT] = DB_CTRL_GET_VALUE@(vl_fenetre,"BS_Immatric")
+
+		vl_veh[NUM_COL_CODE_PAYS] = vm_num_pays
+
+		vl_veh[NUM_COL_PAYS] = DB_CTRL_GET_TITLE@(vl_fenetre,"LI_Pays")
+
+		vl_veh[NUM_COL_NOM] = DB_CTRL_GET_VALUE@(vl_fenetre,"BS_Nom")
+		vl_veh[NUM_COL_VILLE] = DB_CTRL_GET_VALUE@(vl_fenetre,"BS_Ville")
+		vl_veh[NUM_COL_ADRESSE] = DB_CTRL_GET_VALUE@(vl_fenetre,"BS_Adresse")
+
+		vl_veh[NUM_COL_CODE_DANGER] = DB_CTRL_GET_TITLE@(vl_fenetre, 
+										"LI_Code_danger")
+
+		i = DB_CTRL_GET_VALUE@(vl_fenetre, "BO_Nature_panne")
+		vl_veh[NUM_COL_CODE_NATURE_PANNE] = tm_nature_panne_valide[i][COL_CODE]
+		vl_veh[NUM_COL_NATURE_PANNE] = tm_nature_panne_valide[i][COL_LIB]
+
+		vl_veh[NUM_COL_POSITION] = DB_CTRL_GET_VALUE@(vl_fenetre, 
+											"BS_Positionnement")
+
+		i = DB_CTRL_GET_VALUE@(vl_fenetre, "BA_Vehicule_roulant")
+		IF i=0 
+			vl_veh[NUM_COL_VEH_ROULANT] = 0
+		ELSE
+			vl_veh[NUM_COL_VEH_ROULANT] = 1
+
+		i = DB_CTRL_GET_VALUE@(vl_fenetre, "BO_Enlev_dem_par")
+		vl_veh[NUM_COL_CODE_ENLEV] = tm_dem_enlev_valide[i][COL_CODE]
+		vl_veh[NUM_COL_ENLEV] = tm_dem_enlev_valide[i][COL_LIB]
+
+		IF (IS_NULL@(vl_veh_sel))
+			vl_veh[NUM_COL_NUM_APPEL] = null
+		ELSE
+			vl_veh[NUM_COL_NUM_APPEL] = vm_liste_vehicule[vl_veh_sel] 
+													[NUM_COL_NUM_APPEL]
+
+
+		i = DB_CTRL_GET_VALUE@(vl_fenetre, "BA_Produit_dangereux")
+		IF i=0 
+			vl_veh[NUM_COL_PRES_MAT_DANG] = 0
+		ELSE
+			vl_veh[NUM_COL_PRES_MAT_DANG] = 1
+
+		IF (IS_NULL@(vl_veh_sel))
+			vl_val = null
+		ELSE
+			vl_val = vm_liste_vehicule[vl_veh_sel][NUM_COL_FAX_ENVOYE]
+		IF (IS_NULL@(vl_val))
+			vl_veh[NUM_COL_FAX_ENVOYE] = 0
+		ELSE
+			vl_veh[NUM_COL_FAX_ENVOYE] = vl_val
+
+		vl_val = DB_CTRL_GET_TITLE@(vl_fenetre,"LI_Numero_vehicule")
+		i = vl_val
+		vl_veh[NUM_COL_NUM_VEH] = i
+	
+			vl_veh[NUM_COL_SIT_CREATION]=vm_action.site_responsable
+		DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_Fiche_vehicule",TRUE)
+		
+		IF vl_Status = COM_OK
+		{
+			TID_Ecrire_vehicule(vl_veh, vm_FMC,0,XDC_FAUX)
+
+			/*
+			goto POS_END
+
+
+			IF ((vm_num_action = 0) or IS_NULL@(vm_num_action))
+				TID_Ecrire_vehicule(vl_veh, vm_FMC,0,XDC_FAUX)
+			ELSE {
+				if (vl_veh[NUM_COL_SIT_CREATION]+0=0)
+					vl_veh[NUM_COL_SIT_CREATION]=vm_action.site_responsable
+
+				if (vl_veh[NUM_COL_DEP]= vm_num_action) 
+					TID_Ecrire_vehicule(vl_veh, vm_FMC,0,XDC_FAUX)
+				else {
+					vl_veh[NUM_COL_DEP] = vm_num_action
+					vl_veh[NUM_COL_SITE_DEP] = vm_action.site_responsable
+					TID_Ecrire_vehicule(vl_veh, vm_FMC,0,XDC_VRAI)
+				}
+			}*/
+
+		if (vl_objet_selecte = "BP_Valider_SMS") {
+			/*recup du tel du depanneur*/
+			vl_parametres[0].type = SYB#CHAR_
+			vl_parametres[0].data = TRIM@(vm_nom_depanneur)
+			vl_parametres[0].output = FALSE
+			IF COM05_SQL_Procedure (XZAN19_Rechercher_Tel,
+                                        vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+                              RETURN (COM_NOK)
+                        vm_numero_depanneur = vl_resultats.select_results[0][0][2]
+
+			vm_numero_depanneur = SUBSTRING@(vm_numero_depanneur, 2)
+			vl_delais=30
+			IF vm_type_astreinte=XDC_AST_DEP_PL
+				vl_delais=60
+
+			/*appel du script de generation du fichier texte SMS*/
+                        SHELL_COMMAND@(C_SCRIPT_SMS ++ " '" ++ TRIM@(vm_nom_depanneur) ++ "' " ++ vm_numero_depanneur ++ " " ++ 
+				DB_CTRL_GET_VALUE@(vl_fenetre,"BS_Numero_Rappel") ++ " "++ vl_delais) 
+
+			/*envoi du mail a SFR pour envoi du SMS*/
+			/* Mise en place des parametres d'appel de l'envoi de fax*/
+			vl_parametres[0].type = SYB#CHAR_
+			vl_parametres[0].type = SYB#CHAR_
+			vl_parametres[0].data = TRIM@("SMS CLIENT")
+			vl_parametres[0].output = FALSE
+			IF COM05_SQL_Procedure (XZAN15_Rechercher_Annuaire,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+					RETURN (COM_NOK)
+			vl_arg[0] = vl_resultats.select_results[0][0][2]
+			vl_arg[1] = vl_resultats.select_results[0][0][0]
+			vl_arg[2] = vl_resultats.select_results[0][0][1]
+
+			vl_texte = READ_ASCII_FILE@("/tmp/smsok.txt")
+
+			vl_type_astreinte.numero = vm_type_astreinte
+			i = ARRAY_INDEX@(ARRAY_COLUMN@(vm_typ_ast,0),vm_type_astreinte)
+			IF i<0 
+				vl_type_astreinte.nom = null
+			ELSE
+				vl_type_astreinte.nom = vm_typ_ast[i][1]
+			vl_arg[3] = vl_type_astreinte
+			vl_arg[4] = vm_info_FMC
+			vl_arg[5] = DB_CTRL_GET_TITLE@(vl_fenetre,"LI_Libelle_FMC")
+			vl_arg[6] = vl_texte
+
+			/* Appel a la fenetre d'envoi de fax */
+			vl_res = PEND_FOR_NEW_TASK@("ITMA_TFX_Envoi_Fax",
+					"ITMA_SMS",vl_arg)
+
+		}
+POS_END:
+			DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_Fiche_vehicule",TRUE)
+			ITMA_TID_charge_vehicules(vl_fenetre,vm_FMC.numero,vm_FMC.cle,
+						XDC_DATE_NULLE)
+			vl_veh_sel = null
+			TID_Init_Affichage_Vehicule (FALSE,vl_fenetre)
+			TID_Init_Boutons_FMC(vl_fenetre,vl_veh_sel)
+			TID_Init_Boutons_Pictos(vl_fenetre,vl_veh_sel)
+			DB_CTRL_GRAYED@ (vl_fenetre, "BP_Valider_action", vl_precedent)
+		}
+    ENDCASE
+WEND
+
+tl_message = null
+tl_message[0] = vm_FMC.numero
+tl_message[1] = vm_FMC.cle
+tl_message[2] = ARRAY_SIZE@(vm_liste_vehicule)
+DB_SEND_POKE@(COM_CANAL_VEH_FINI,tl_message)
+RETURN(ARRAY_SIZE@(vm_liste_vehicule))
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les informations visualisees sur l'intervention.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Init_Interv_Depanneur (va_fenetre, va_num_action, va_num_site,
+				    va_num_FMC, va_cle_FMC, va_lib_FMC)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_num_action     : Numero de l'action a visualiser ou modifier ;
+*   va_num_site       : Identifiant du site de creation de l'action ;
+*   va_num_FMC        : Identifiant de la FMC liee a l'action ;
+*   va_cle_FMC        : Cle de la FMC liee a l'action ;
+*   va_lib_FMC        : Libelle de la fiche main courante liee ;
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TID_Interv_Depanneur
+*
+* FONCTION
+*   Si une action est fournie en entree, lit en base de donnees et affiche les
+*   informations sur l'intervention et sur l'evenement associe ;
+*   En creation, initialise a l'ecran l'horodate de debut d'intervention
+*   avec l'horodate courante.
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_type_astreinte, vl_annul, vl_val
+	VAR tl_titres, tl_data
+	VAR vl_lib_FMC
+	VAR vl_cr
+
+MACRO_WINS_BUSY@()
+
+/*A initialisation des zones d'affichage */
+
+vm_typ_ast = SYSTEM_VAR@(vg_les_types_astreintes)
+vm_type_astreinte = null
+vm_nom_depanneur = null
+vm_interlocuteur = null
+
+TID_Init_Affichage_Vehicule (FALSE,va_fenetre)
+
+TID_Init_Affichage_Table (va_fenetre, FALSE)
+TID_Init_Affichage_Boutons(va_fenetre,TRUE)
+
+DB_TABLE_ALLOW_COLUMN_RESIZING@(va_fenetre,"TA_Fiche_vehicule",FALSE)
+DB_CTRL_HORIZ_SCROLL@(va_fenetre,"TA_Fiche_vehicule",FALSE)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"TA_Fiche_vehicule",TRUE)
+tl_titres = null
+tl_titres[0] = "Appel n°",60
+tl_titres[1] = "Catég.",50
+tl_titres[2] = "Marque",100
+tl_titres[3] = "Type",100
+tl_titres[4] = "Couleur",90
+tl_titres[5] = "Immatric.",80
+DB_TABLE_SET_DATA@(va_fenetre,"TA_Fiche_vehicule",null,tl_titres)
+
+DB_CTRL_VALID_CHARS@(va_fenetre, "BS_Masse", "0123456789")
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Pays", null)
+DB_CTRL_TITLE@ (va_fenetre, "LI_Code_matiere", null)
+DB_CTRL_TITLE@ (va_fenetre, "LI_Code_danger", null)
+DB_CTRL_TITLE@ (va_fenetre, "LI_Numero_vehicule", null)
+DB_CTRL_TITLE@ (va_fenetre, "LI_Numero_appel", null)
+DB_CTRL_TITLE@ (va_fenetre, "LI_Nom_depanneur", null)
+DB_CTRL_TITLE@ (va_fenetre, "LI_Ref_action", null)
+/*A initialisation de l'action intervention selon le cas d'appel */
+
+IF ((va_num_action = NULL) and (va_num_FMC = NULL)) {
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Libelle_FMC", NULL)
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Nom_depanneur", NULL)
+    DB_CTRL_TITLE@ (va_fenetre, "LI_Ref_action", NULL)
+
+} ELSE  {
+
+	/* Lecture des parametres de l'action intervention choisie */
+	vm_FMC.numero = va_num_FMC + 0
+	vm_FMC.cle = va_cle_FMC + 0
+
+	vm_type_astreinte = vm_action.code_type_astreinte + 0
+	vm_nom_depanneur = vm_action.nom
+	vm_interlocuteur = vm_action.interlocuteur + 0
+
+	DB_CTRL_GRAYED@(va_fenetre, "BP_FMC_liee", TRUE)
+
+ 	DB_CTRL_GRAYED@(va_fenetre, "BP_Valider_action", FALSE)
+ 
+	IF va_num_action <> NULL
+   {	
+ 	/*A
+     	* sinon lire en base les donnees de l'intervention,
+     	* -------------------------------------------------
+     	*/
+		
+		DB_CTRL_GRAYED@(va_fenetre, "BP_Garage", TRUE)
+		vm_num_action = va_num_action + 0
+		vm_num_site_action = va_num_site + 0
+    		IF TID_Lire_Interv_Depanneur (vm_num_action,vm_num_site_action)
+		 		 <> COM_OK
+			RETURN (COM_NOK)
+
+		/*si la fmc est vieille de + d'1mois*/
+		if vm_action.flag_fmc_purgee=XDC_VRAI
+		{
+			INFO_MESSAGE@("La FMC est vieille de plus d'1 mois. Impossible de modifier les fiches vehicules")
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Valider_vehicule",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Valider_SMS",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Valider_action",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Supprimer",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Valider_action",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Supprimer",TRUE)
+			vm_fmc_purgee=XDC_VRAI
+		}	
+		else
+			vm_fmc_purgee=XDC_FAUX
+
+		vm_type_astreinte = vm_action.code_type_astreinte + 0
+		vm_nom_depanneur = vm_action.nom
+		vm_interlocuteur = vm_action.interlocuteur + 0
+
+		if vm_type_astreinte <> 0
+		{
+			vl_type_astreinte = ARRAY_INDEX@(ARRAY_COLUMN@(vm_typ_ast,0),
+									vm_type_astreinte)
+			IF vl_type_astreinte < 0
+				vl_type_astreinte = 0
+			DB_CTRL_TITLE@ (va_fenetre, "LI_Nom_depanneur",TRIM@(vm_action.nom) 
+							++" / "++ vm_typ_ast[vl_type_astreinte][1])
+
+		}	
+		else DB_CTRL_TITLE@ (va_fenetre, "LI_Nom_depanneur",TRIM@(vm_action.nom))
+
+  	  	DB_CTRL_TITLE@ (va_fenetre, "LI_Ref_action", vm_num_site_action ++ " - " 
+						++vm_num_action)
+
+		/*site responsable*/
+		vl_val=ARRAY_INDEX@(ARRAY_COLUMN@(tm_sites_ini, COL_SIT_COD), 
+						vm_action.site_responsable)
+		if vl_val=-1
+		  vl_val=0
+		tl_data=null
+		tl_data[0]=tm_sites_ini[vl_val]
+		tm_sites=tl_data
+		DB_CTRL_STRINGS@(va_fenetre, "BO_Site_creation", 
+					ARRAY_COLUMN@(tm_sites, COL_SIT_NOM))
+		DB_CTRL_VALUE@(va_fenetre, "BO_Site_creation", 0)	
+
+  	  	DB_CTRL_VALUE@ (va_fenetre, "BS_Resultat", TRIM@(vm_action.resultat))
+    		COM24_Afficher_Horodate (COM18_Date_SGBD_Formatee (vm_action.horo_appel),
+				va_fenetre,
+				"BS_Jour_appel",
+				"BS_Mois_appel",
+				"BS_Annee_appel",
+				"BS_Heure_appel",
+				"BS_Minute_appel",
+				"BS_Seconde_appel")
+
+    		COM24_Afficher_Horodate(COM18_Date_SGBD_Formatee (vm_action.horo_arrivee),
+				va_fenetre,
+				"BS_Jour_arrivee",
+				"BS_Mois_arrivee",
+				"BS_Annee_arrivee",
+				"BS_Heure_arrivee",
+				"BS_Minute_arrivee",
+				"BS_Seconde_arrivee")
+
+    		COM24_Afficher_Horodate (COM18_Date_SGBD_Formatee (vm_action.horo_depart),
+				va_fenetre,
+				"BS_Jour_depart",
+				"BS_Mois_depart",
+				"BS_Annee_depart",
+				"BS_Heure_depart",
+				"BS_Minute_depart",
+				"BS_Seconde_depart")
+    
+    		COM24_Afficher_Horodate (COM18_Date_SGBD_Formatee (vm_action.horo_annul),
+				va_fenetre,
+				"BS_Jour_annul",
+				"BS_Mois_annul",
+				"BS_Annee_annul",
+				"BS_Heure_annul",
+				"BS_Minute_annul",
+				"BS_Seconde_annul")
+
+		if vm_action.renfort = 0 
+		     vl_val = FALSE
+		else vl_val = TRUE
+		DB_CTRL_VALUE@ (va_fenetre, "BA_Renfort", vl_val)
+
+		if vm_action.patrouille_presente = 0 
+		     vl_val = FALSE
+		else vl_val = TRUE
+		DB_CTRL_VALUE@ (va_fenetre, "BA_Patrouille", vl_val)
+
+		if vm_action.garag_contact_pc = 0 
+		     vl_val = FALSE
+		else vl_val = TRUE
+		DB_CTRL_VALUE@ (va_fenetre, "BA_Garagiste", vl_val)
+
+		if vm_action.annul_interv = 0 
+		     vl_val = FALSE
+		else vl_val = TRUE
+		DB_CTRL_VALUE@ (va_fenetre, "BA_Annulation_intervention", vl_val)
+		vl_annul=not (vl_val)
+
+		DB_CTRL_GRAYED@(va_fenetre,"BS_Jour_annul",vl_annul)
+		DB_CTRL_GRAYED@(va_fenetre,"BS_Mois_annul",vl_annul)
+  		DB_CTRL_GRAYED@(va_fenetre,"BS_Annee_annul",vl_annul)
+ 		DB_CTRL_GRAYED@(va_fenetre,"BS_Heure_annul",vl_annul)
+ 		DB_CTRL_GRAYED@(va_fenetre,"BS_Minute_annul",vl_annul)
+ 		DB_CTRL_GRAYED@(va_fenetre,"BS_Seconde_annul",vl_annul)
+ 		DB_CTRL_GRAYED@(va_fenetre,"BP_Horodate_annul",vl_annul)
+
+		vm_type_astreinte = vm_action.code_type_astreinte
+		vm_nom_depanneur = vm_action.nom
+		vm_interlocuteur = vm_action.interlocuteur
+   	}
+
+    /*A
+     * puis si le libelle de la FMC associee n'est pas
+     * fourni, lire en base les donnees de l'evenement
+     * -----------------------------------------------
+     */
+
+	vl_lib_FMC = va_lib_FMC
+	IF (vl_lib_FMC = NULL)
+	{
+		TID_Maj_Donnees_FMC ()
+		IF (vm_info_FMC.IdFMC.numero <> NULL)
+		{
+			vl_lib_FMC = COM11_Libelle_FMC (vm_info_FMC)
+		}
+	}
+	DB_CTRL_TITLE@ (va_fenetre, "LI_Libelle_FMC", vl_lib_FMC)
+
+
+    /*A
+     * si le site de creation de l'action n'est
+     * pas le site local, interdire toute modification
+     * -----------------------------------------------
+     */
+/* DEM871 */
+    IF (vm_num_site_action <> SYSTEM_VAR@ (vg_site)) and (SYSTEM_VAR@ (vg_site)<>XDC_CI) and  (vm_num_site_action <> XDC_CI)
+	{
+		DB_CTRL_GRAYED@ (va_fenetre, "BP_FMC_liee", TRUE)
+		DB_CTRL_GRAYED@ (va_fenetre, "BP_Valider_action", TRUE)
+	}
+
+    /*au PC simplifie*/
+    if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+      /*je peux modifier l'action*/
+      DB_CTRL_GRAYED@ (va_fenetre,"BP_Valider_action",FALSE)
+
+	IF IS_NULL@(vm_num_site_action)
+		DB_CTRL_GRAYED@ (va_fenetre, "BP_Valider_action", FALSE)
+		
+
+	ITMA_TID_charge_vehicules(va_fenetre,vm_FMC.numero,vm_FMC.cle,XDC_DATE_NULLE)
+
+	/* suivant le type de FMC, on grise Creer et Supprimer */
+	TID_Init_Boutons_FMC(va_fenetre,null)
+}
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit en base de donnees les informations sur l'intervention indiquee.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Lire_Interv_Depanneur (va_num_action, va_num_site)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_action     : Numero de l'action a lire ;
+*   va_num_site       : Identifiant du site de l'action.
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_action         : Informations concernant l'action.
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TID_Init_Interv_Depanneur
+*
+* FONCTION
+*   Execute la requete SGBD adequate pour lire les donnees de l'action indiquee.
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = COM_Identifiant_Action
+vl_parametres[0].data = va_num_action
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Identifiant_Site_Action
+vl_parametres[1].data = va_num_site
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#CHAR_			    ' Nom patrouille
+vl_parametres[2].output = TRUE
+
+vl_parametres[3].type = SYB#CHAR_			    ' Resultat
+vl_parametres[3].output = TRUE
+
+vl_parametres[4].type = SYB#DATETIME_			    ' Horodate appel
+vl_parametres[4].output = TRUE
+
+vl_parametres[5].type = SYB#DATETIME_			    ' Horodate arrivee
+vl_parametres[5].output = TRUE
+
+vl_parametres[6].type = COM_Identifiant_Operateur	    ' Operateur
+vl_parametres[6].output = TRUE
+
+vl_parametres[7].type = SYB#DATETIME_			    ' Horodate depart
+vl_parametres[7].output = TRUE
+
+vl_parametres[8].type = SYB#DATETIME_			    ' Horodate annul
+vl_parametres[8].output = TRUE
+
+vl_parametres[9].type = SYB#INT2_				' Renfort
+vl_parametres[9].output = TRUE
+
+vl_parametres[10].type = SYB#INT2_				' Patrouille presente
+vl_parametres[10].output = TRUE
+
+vl_parametres[11].type = SYB#INT2_				' Garagiste doit contacter PC
+vl_parametres[11].output = TRUE
+
+vl_parametres[12].type = SYB#INT2_				' Annulation intervention
+vl_parametres[12].output = TRUE
+
+vl_parametres[13].type = SYB#INT4_				' Code astreinte
+vl_parametres[13].output = TRUE
+
+vl_parametres[14].type = SYB#INT4_				' Code interlocuteur
+vl_parametres[14].output = TRUE
+
+vl_parametres[15].type = SYB#INT2_				' fmc purgee
+vl_parametres[15].output = TRUE
+
+vl_parametres[16].type = COM_Identifiant_Site_Action		' site responsable 
+vl_parametres[16].output = TRUE
+
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) {
+  if COM39_SQL_Procedure_PCS(XZAC35_Lire_Interv_Depanneur,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+}
+ELSE {
+  /*je dois parfois executer au CI sur mode acheve*/
+  if (vm_mode_achevee) {
+	  IF COM41_SQL_Procedure_Distante (XDC_CI,XZAC35_Lire_Interv_Depanneur,
+		     vl_parametres, vl_resultats, C_MODULE) <> COM_OK{
+	     RETURN (COM_NOK)
+  }
+  }
+  else {
+	IF COM05_SQL_Procedure (XZAC35_Lire_Interv_Depanneur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    		RETURN (COM_NOK)
+  }
+}
+vm_action = vl_resultats.return_parameters
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Cree ou modifie une action d'intervention.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Ecrire_Interv_Depanneur (va_num_action, va_num_site,
+				      FORMAT COM_Identifiant_FMC va_FMC,
+				      FORMAT TIP_Action va_action, va_action_out)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_num_action     : Numero de l'action a archiver ;
+*   va_num_site       : Identifiant du site de l'action ;
+*   va_FMC            : Evenement associe a l'action ;
+*   va_action         : Informations concernant l'action.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TID_Interv_Depanneur
+*
+* FONCTION
+*   Execute la requete SGBD adequate pour archiver les donnees de l'action
+*   de numero et site indiques (numero et site NULLs en cas de creation).
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = COM_Numero_Evenement
+vl_parametres[0].data = va_FMC.numero
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Cle_Evenement
+vl_parametres[1].data = va_FMC.cle
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = COM_Identifiant_Action
+vl_parametres[2].data = va_num_action
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = COM_Identifiant_Site_Action
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+  vl_parametres[3].data = XDC_CI
+else /*PNI*/
+  {
+if (va_num_site+0)=0
+	vl_parametres[3].data = SYSTEM_VAR@ (vg_site)
+  else
+  	vl_parametres[3].data = va_num_site
+  }
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#CHAR_			    ' Nom patrouille
+vl_parametres[4].data = va_action.nom
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = SYB#CHAR_			    ' Resultat
+vl_parametres[5].data = va_action.resultat
+vl_parametres[5].output = FALSE
+
+vl_parametres[6].type = SYB#DATETIME_			    ' Horodate appel
+vl_parametres[6].data = va_action.horo_appel
+vl_parametres[6].output = FALSE
+
+vl_parametres[7].type = SYB#DATETIME_			    ' Horodate arrivee
+vl_parametres[7].data = va_action.horo_arrivee
+vl_parametres[7].output = FALSE
+
+vl_parametres[8].type = COM_Identifiant_Operateur	    ' Operateur
+vl_parametres[8].data = va_action.operateur
+vl_parametres[8].output = FALSE
+
+vl_parametres[9].type = SYB#DATETIME_			    ' Horodate depart
+vl_parametres[9].data = va_action.horo_depart
+vl_parametres[9].output = FALSE
+
+vl_parametres[10].type = SYB#DATETIME_				' Horodate annulation
+vl_parametres[10].data = va_action.horo_annul
+vl_parametres[10].output = FALSE
+
+vl_parametres[11].type = SYB#INT2_				' Renfort
+vl_parametres[11].data = va_action.renfort
+vl_parametres[11].output = FALSE
+
+vl_parametres[12].type = SYB#INT2_				' Patrouille presente
+vl_parametres[12].data = va_action.patrouille_presente
+vl_parametres[12].output = FALSE
+
+vl_parametres[13].type = SYB#INT2_				' Garagiste doit contacter PC
+vl_parametres[13].data = va_action.garag_contact_pc
+vl_parametres[13].output = FALSE
+
+vl_parametres[14].type = SYB#INT2_				' Annulation intervention
+vl_parametres[14].data = va_action.annul_interv
+vl_parametres[14].output = FALSE
+
+vl_parametres[15].type = SYB#INT4_				' Code astreinte
+vl_parametres[15].data = va_action.code_type_astreinte
+vl_parametres[15].output = FALSE
+
+vl_parametres[16].type = SYB#INT4_				' Code interlocuteur
+vl_parametres[16].data = va_action.interlocuteur
+vl_parametres[16].output = FALSE
+
+vl_parametres[17].type = SYB#INT4_				' Code interlocuteur
+vl_parametres[17].data = va_action.site_responsable
+vl_parametres[17].output = FALSE
+
+vl_parametres[18].type = SYB#INT4_				' Numero action
+vl_parametres[18].output = TRUE
+
+if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) {
+IF COM39_SQL_Procedure_PCS (XZAC15_Ecrire_Interv_Depanneur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    RETURN (COM_NOK)
+}
+else {
+IF COM05_SQL_Procedure (XZAC15_Ecrire_Interv_Depanneur,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+       RETURN (COM_NOK)
+}
+va_action_out = vl_resultats.return_parameters
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise l'affichage de la zone concernant la fiche vehicule.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Init_Affichage_Vehicule (va_aff,va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_aff		 : booleen permettent l'afichage ou non
+*   va_fenetre		 : fenetre de travail
+*
+*
+* ARGUMENTS EN SORTIE :
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TID_Init_Interv_Depanneur
+*
+* FONCTION
+*   
+*
+---------------------------------------------------------------------------- */
+
+DB_CTRL_DISPLAY@(va_fenetre, "LI_Titre_vehicule", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "LI_Numero_vehicule", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "LI_Titre_appel", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "LI_Numero_appel", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "LI_Lib4", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "LI_Lib5", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "LI_Lib6", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "LI_Pays", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "LI_Code_matiere", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "LI_Code_danger", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "Tableau_vehicule", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BO_Categorie", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BO_Marque", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BO_Couleur", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BO_Nature_panne", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BO_Enlev_dem_par", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BS_Type", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BS_Immatric", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BS_Nom", FALSE)
+DB_CTRL_DISPLAY@(va_fenetre, "BS_Ville", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BS_Adresse", FALSE)
+DB_CTRL_DISPLAY@(va_fenetre, "BS_Masse", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BS_Nombre_passagers", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BS_Positionnement", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BS_Numero_Rappel", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BP_Pays", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BP_Code_matiere", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BP_Code_danger", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BP_Valider_vehicule", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BP_Valider_SMS", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BP_Quitter_vehicule", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BA_Vehicule_ESCOTA", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BA_Produit_dangereux", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BS_Bebes", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BS_Personnes_agees", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BA_Animaux", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BA_Vehicule_roulant", va_aff)
+DB_CTRL_DISPLAY@(va_fenetre, "BE_Commentaire", va_aff)
+
+
+IF vm_mode_formation
+{
+	DB_CTRL_DISPLAY@(va_fenetre,"BP_Valider_vehicule",FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre,"BP_Valider_SMS",FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre,"BP_Valider_action",FALSE)
+	DB_CTRL_DISPLAY@(va_fenetre,"BP_Supprimer",FALSE)
+}	
+
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise l'affichage de la zone concernant la fiche vehicule.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Init_Affichage_Table (va_fenetre, va_aff)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_aff		 : booleen permettent l'afichage ou non
+*   va_fenetre		 : fenetre de travail
+*
+*
+* ARGUMENTS EN SORTIE :
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TID_Init_Interv_Depanneur
+*
+* FONCTION
+*   
+*
+---------------------------------------------------------------------------- */
+
+DB_CTRL_DISPLAY@(va_fenetre,"TA_FMC_liee",va_aff)
+DB_CTRL_DISPLAY@(va_fenetre,"TA_Garage",va_aff)
+DB_CTRL_DISPLAY@(va_fenetre,"TA_Pays",va_aff)
+DB_CTRL_DISPLAY@(va_fenetre,"TA_Code_matiere",va_aff)
+DB_CTRL_DISPLAY@(va_fenetre,"TA_Code_danger",va_aff)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise l'affichage des boutons de la liste des vehicules.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Init_Affichage_Boutons (va_fenetre, va_aff)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_aff		 : booleen permettent l'afichage ou non
+*   va_fenetre		 : fenetre de travail
+*
+*
+* ARGUMENTS EN SORTIE :
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TID_Init_Interv_Depanneur
+*
+* FONCTION
+*   
+*
+---------------------------------------------------------------------------- */
+
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Creer", va_aff)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Ouvrir", va_aff)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Supprimer", va_aff)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Associer", va_aff)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Dissocier", va_aff)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Imprimer", va_aff)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Faxer", va_aff)
+
+	/*en modification de fiche vehicule achevee*/
+	if (vm_mode_achevee)
+	  DB_CTRL_GRAYED@(va_fenetre, "BP_Faxer", TRUE)
+
+	/*si pas de droit d'enrichir*/
+	if vm_enrichir=0 {
+		DB_CTRL_GRAYED@(va_fenetre, "BP_Supprimer", TRUE)
+		DB_CTRL_GRAYED@(va_fenetre, "BP_Associer", TRUE)
+		DB_CTRL_GRAYED@(va_fenetre, "BP_Dissocier", TRUE)
+	}
+ENDMACRO
+
+
+
+/*X*/
+/* -----------------------------------------------------------------------
+* SERVICE RENDU :
+* charge les vehicules associes a l'evenement
+*
+-----------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION  ITMA_TID_charge_vehicules(va_fenetre,va_numero_evt,va_cle_evt,
+                                                        va_horodate)
+
+/*
+* ARGUMENTS EN ENTREE :
+* numero d'evenement
+* cle d'evenement
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+--------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR vl_indice, i, j, tl_data
+
+	vm_liste_vehicule = null
+
+	/*A preparation de la requete*/
+	vl_indice=0
+	vl_parametres[vl_indice].type = SYB#DATETIME_
+	vl_parametres[vl_indice].data=va_horodate
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_numero_evt
+	vl_parametres[vl_indice].output = FALSE
+	vl_indice=vl_indice+1
+
+	vl_parametres[vl_indice].type = SYB#INT4_
+	vl_parametres[vl_indice].data = va_cle_evt
+	vl_parametres[vl_indice].output = FALSE
+
+	IF (vm_fmc_purgee = XDC_VRAI) {
+		IF (COM41_SQL_Procedure_HIS (XZAE95_Lire_Liste_Vehicule,
+		                             vl_parametres, vl_resultats, C_MODULE) <> COM_OK) {
+                	INFO_MESSAGE@("Impossible de lire la liste des véhicules")
+                	RETURN (COM_NOK)
+        	}
+        }
+	ELSE {
+	    IF (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) {
+		IF (COM39_SQL_Procedure_PCS (XZAE95_Lire_Liste_Vehicule,
+		                             vl_parametres, vl_resultats, C_MODULE) <> COM_OK) {
+			INFO_MESSAGE@("Impossible de lire la liste des véhicules")
+			RETURN (COM_NOK)
+		}
+            }
+	    ELSE {
+		/* si je suis en mode acheve, je dois executer au CI*/
+	  	IF (vm_mode_achevee) {
+		    IF (COM41_SQL_Procedure_Distante (XDC_CI,XZAE95_Lire_Liste_Vehicule,
+						     vl_parametres, vl_resultats, C_MODULE) <> COM_OK) {
+			     INFO_MESSAGE@("Impossible de lire la liste des véhicules")
+			     RETURN (COM_NOK)
+		    }
+		}
+		ELSE {
+		    IF (COM05_SQL_Procedure (XZAE95_Lire_Liste_Vehicule,
+                           vl_parametres, vl_resultats, C_MODULE) <> COM_OK) {
+			INFO_MESSAGE@("Impossible de lire la liste des véhicules")
+			RETURN (COM_NOK)
+		    }
+		}
+	    }
+	}
+	vm_liste_vehicule = vl_resultats.select_results[0]
+
+	tl_data = null
+	vm_picto = null
+	for i=0 to ARRAY_SIZE@(vm_liste_vehicule)-1
+		if vm_liste_vehicule[i][NUM_COL_NUM_APPEL]=0
+			vm_liste_vehicule[i][NUM_COL_NUM_APPEL]=null
+		tl_data[i][0] = vm_liste_vehicule[i][NUM_COL_NUM_APPEL]
+		j = ARRAY_INDEX@(ARRAY_COLUMN@(tm_categorie, COL_CODE)
+							 ,vm_liste_vehicule[i][NUM_COL_CATEG])
+
+		IF j<0 then
+			tl_data[i][1] = null
+		else
+			tl_data[i][1] = tm_categorie[j][COL_LIB]
+		tl_data[i][2] = vm_liste_vehicule[i][NUM_COL_MARQUE]
+		tl_data[i][3] = vm_liste_vehicule[i][NUM_COL_TYPE]
+		tl_data[i][4] = vm_liste_vehicule[i][NUM_COL_COULEUR]
+		tl_data[i][5] = vm_liste_vehicule[i][NUM_COL_IMMAT]
+		IF ((vm_liste_vehicule[i][8]=0) or (vm_liste_vehicule[i][8]=null))
+		{	vm_picto[i] = C_PICTO_GRIS, NULL }	
+		ELSE
+		{
+			IF ((vm_num_action=vm_liste_vehicule[i][8]) 
+							and (vm_num_site_action=vm_liste_vehicule[i][9]))
+				{	vm_picto[i] = C_PICTO_VERT, NULL  }
+			ELSE
+				{	vm_picto[i] = C_PICTO_ROUGE, NULL }
+		}
+		
+	next i
+	DB_TABLE_CLEAR_DATA@(va_fenetre,"TA_Fiche_vehicule", 0, -1)
+	DB_TABLE_SET_NEW_DATA@(va_fenetre,"TA_Fiche_vehicule",tl_data,0)
+	DB_TABLE_SET_MARKER_WIDTH@(va_fenetre, "TA_Fiche_vehicule", 25)
+	DB_TABLE_MARKER_PIXMAPS@ (va_fenetre, "TA_Fiche_vehicule", 0, vm_picto)
+	DB_TABLE_SET_SELECTIONS@(va_fenetre, "TA_Fiche_vehicule", null)
+
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Ouvrir", TRUE)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Supprimer", TRUE)       
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Associer", TRUE)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Dissocier", TRUE)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Imprimer", TRUE)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Faxer", TRUE)
+        RETURN (COM_OK)
+
+ENDFUNCTION
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Cree ou modifie une fiche vehicule.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Ecrire_vehicule (va_veh, FORMAT COM_Identifiant_FMC va_FMC,va_dissoc,
+				va_flag_association)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_veh     : Detail des informations sur le vehicule a sauver.
+*	va_FMC	: Detail de la FMC
+*	va_dissoc	: Si =1 : cas d'une dissociation : il faut mettre a null depannage et
+*								site_depannage
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TID_Interv_Depanneur
+*
+* FONCTION
+*   Execute la requete SGBD adequate pour archiver les donnees de la fiche vehicule 
+*
+---------------------------------------------------------------------------- */
+
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+
+vl_parametres[0].type = COM_Numero_Evenement
+vl_parametres[0].data = va_FMC.numero
+vl_parametres[0].output = FALSE
+
+vl_parametres[1].type = COM_Cle_Evenement
+vl_parametres[1].data = va_FMC.cle
+vl_parametres[1].output = FALSE
+
+vl_parametres[2].type = SYB#INT2_
+vl_parametres[2].data = va_veh[NUM_COL_CATEG]
+vl_parametres[2].output = FALSE
+
+vl_parametres[3].type = SYB#INT2_
+vl_parametres[3].data = va_veh[NUM_COL_PASSAGER]
+vl_parametres[3].output = FALSE
+
+vl_parametres[4].type = SYB#BIT_			    
+vl_parametres[4].data = 0
+vl_parametres[4].output = FALSE
+
+vl_parametres[5].type = SYB#BIT_			    
+vl_parametres[5].data = 0
+vl_parametres[5].output = FALSE
+
+vl_parametres[6].type = SYB#BIT_			 
+vl_parametres[6].data = va_veh[NUM_COL_ANIMAUX]
+vl_parametres[6].output = FALSE
+
+vl_parametres[7].type = SYB#BIT_		
+vl_parametres[7].data = va_veh[NUM_COL_VEH_ESCOTA]
+vl_parametres[7].output = FALSE
+
+vl_parametres[8].type = SYB#INT2_
+vl_parametres[8].data = va_veh[NUM_COL_CHARGEMENT]
+vl_parametres[8].output = FALSE
+
+vl_parametres[9].type = SYB#CHAR_			
+vl_parametres[9].data = va_veh[NUM_COL_CODE_MAT]
+vl_parametres[9].output = FALSE
+
+vl_parametres[10].type = SYB#INT4_	
+IF IS_NULL@(va_veh[NUM_COL_DEP])
+	vl_parametres[10].data = vm_num_action
+ELSE
+	vl_parametres[10].data = va_veh[NUM_COL_DEP]
+vl_parametres[10].data = va_veh[NUM_COL_DEP]
+IF va_dissoc=1
+	vl_parametres[10].data = null
+vl_parametres[10].output = FALSE
+
+vl_parametres[11].type = SYB#INT4_	
+IF IS_NULL@(vl_parametres[10].data)		
+	vl_parametres[11].data = null
+ELSE
+	vl_parametres[11].data = vm_num_site_action
+vl_parametres[11].data = vm_num_site_action
+IF va_dissoc=1
+	vl_parametres[11].data = null
+vl_parametres[11].output = FALSE
+
+vl_parametres[12].type = SYB#CHAR_			
+vl_parametres[12].data = va_veh[NUM_COL_TEXTE]
+vl_parametres[12].output = FALSE
+
+vl_parametres[13].type = SYB#INT4_			
+
+if va_veh[NUM_COL_NUM_VEH]=""
+{
+	vl_parametres[13].data = XZAEC_VEH_INCONNU
+}
+else
+{
+	vl_parametres[13].data = va_veh[NUM_COL_NUM_VEH]
+}
+
+vl_parametres[13].output = FALSE
+
+vl_parametres[14].type = SYB#INT4_			
+IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+		vl_parametres[14].data=SYSTEM_VAR@(vg_numero_poste_surcharge)
+	ELSE
+		vl_parametres[14].data=SYSTEM_VAR@(vg_numero_poste)
+vl_parametres[14].output = FALSE
+
+vl_parametres[15].type = SYB#CHAR_		
+vl_parametres[15].data = va_veh[NUM_COL_MARQUE]
+vl_parametres[15].output = FALSE
+
+vl_parametres[16].type = SYB#CHAR_		
+vl_parametres[16].data = va_veh[NUM_COL_TYPE]
+vl_parametres[16].output = FALSE
+
+vl_parametres[17].type = SYB#CHAR_			
+vl_parametres[17].data = va_veh[NUM_COL_COULEUR]
+vl_parametres[17].output = FALSE
+
+vl_parametres[18].type = SYB#CHAR_			
+vl_parametres[18].data = va_veh[NUM_COL_IMMAT]
+vl_parametres[18].output = FALSE
+
+vl_parametres[19].type = SYB#INT4_			
+vl_parametres[19].data = va_veh[NUM_COL_CODE_PAYS]
+vl_parametres[19].output = FALSE
+
+vl_parametres[20].type = SYB#CHAR_			
+vl_parametres[20].data = va_veh[NUM_COL_PAYS]
+vl_parametres[20].output = FALSE
+
+vl_parametres[21].type = SYB#CHAR_		
+vl_parametres[21].data = va_veh[NUM_COL_NOM]
+vl_parametres[21].output = FALSE
+
+vl_parametres[22].type = SYB#CHAR_		
+vl_parametres[22].data = va_veh[NUM_COL_VILLE]
+vl_parametres[22].output = FALSE
+
+vl_parametres[23].type = SYB#CHAR_			
+vl_parametres[23].data = va_veh[NUM_COL_ADRESSE]
+vl_parametres[23].output = FALSE
+
+vl_parametres[24].type = SYB#CHAR_			
+vl_parametres[24].data = va_veh[NUM_COL_CODE_DANGER]
+vl_parametres[24].output = FALSE
+
+vl_parametres[25].type = SYB#INT4_			
+vl_parametres[25].data = va_veh[NUM_COL_CODE_NATURE_PANNE]
+vl_parametres[25].output = FALSE
+
+vl_parametres[26].type = SYB#CHAR_			
+vl_parametres[26].data = va_veh[NUM_COL_NATURE_PANNE]
+vl_parametres[26].output = FALSE
+
+vl_parametres[27].type = SYB#CHAR_		
+vl_parametres[27].data = va_veh[NUM_COL_POSITION]
+vl_parametres[27].output = FALSE
+
+vl_parametres[28].type = SYB#INT2_		
+vl_parametres[28].data = va_veh[NUM_COL_VEH_ROULANT]
+vl_parametres[28].output = FALSE
+
+vl_parametres[29].type = SYB#CHAR_			
+vl_parametres[29].data = va_veh[NUM_COL_ENLEV]
+vl_parametres[29].output = FALSE
+
+vl_parametres[30].type = SYB#INT4_			
+vl_parametres[30].data = va_veh[NUM_COL_NUM_APPEL]
+vl_parametres[30].output = FALSE
+
+vl_parametres[31].type = SYB#INT2_			
+vl_parametres[31].data = va_veh[NUM_COL_PRES_MAT_DANG]
+vl_parametres[31].output = FALSE
+
+vl_parametres[32].type = SYB#INT2_			
+vl_parametres[32].data = va_veh[NUM_COL_FAX_ENVOYE]
+vl_parametres[32].output = FALSE
+
+vl_parametres[33].type = SYB#INT4_		
+vl_parametres[33].data = va_veh[NUM_COL_CODE_MARQUE]
+vl_parametres[33].output = FALSE
+
+vl_parametres[34].type = SYB#INT4_		
+vl_parametres[34].data = va_veh[NUM_COL_CODE_COULEUR]
+vl_parametres[34].output = FALSE
+
+vl_parametres[35].type = SYB#INT4_		
+vl_parametres[35].data = va_veh[NUM_COL_CODE_ENLEV]
+vl_parametres[35].output = FALSE
+
+vl_parametres[36].type = SYB#INT4_		
+vl_parametres[36].data = va_veh[NUM_COL_SIT]
+vl_parametres[36].output = FALSE
+
+vl_parametres[37].type = SYB#INT2_		
+vl_parametres[37].data = va_veh[NUM_COL_SIT_CREATION]
+vl_parametres[37].output = FALSE
+
+vl_parametres[38].type = SYB#INT4_			    
+vl_parametres[38].data = va_veh[NUM_COL_BEBE]
+vl_parametres[38].output = FALSE
+
+vl_parametres[39].type = SYB#INT4_			    
+vl_parametres[39].data = va_veh[NUM_COL_PERS_AGEE]
+vl_parametres[39].output = FALSE
+
+vl_parametres[40].type = SYB#INT2_
+vl_parametres[40].data = va_flag_association
+vl_parametres[40].output = FALSE
+
+IF (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS) {
+	IF COM39_SQL_Procedure_PCS(XZAE96_Ecrire_Fiche_Vehicule_Site,
+				vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		RETURN (COM_NOK)
+}
+else 
+{
+        /*si je suis en mode acheve, j'execute au CI*/
+	if (vm_mode_achevee) {
+		IF COM41_SQL_Procedure_Distante (XDC_CI,XZAE96_Ecrire_Fiche_Vehicule_Site,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+		   RETURN (COM_NOK)
+   	}
+	else {
+		IF COM05_SQL_Procedure (XZAE96_Ecrire_Fiche_Vehicule_Site,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    			RETURN (COM_NOK)
+	}
+}
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise les tableaux des libelles predefinis par categorie.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Init_Libelles (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TID_Interv_Depanneur
+*
+* FONCTION
+*   Lit les libelles predefinis par types de libelles
+---------------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR tl_titres, tl_data, i, j, tl_val, tl_lib
+
+/*A
+ *  initialisation des tables contenant les libelles predefinis par types 
+ */
+
+COM37_Lit_Libelles_Predefinis(XDC_LIB_VEH_CATEGORIE, tm_categorie, tm_categorie_valide)
+
+COM37_Lit_Libelles_Predefinis(XDC_LIB_VEH_MARQUE, tm_marques, tm_marques_valide)
+
+COM37_Lit_Libelles_Predefinis(XDC_LIB_VEH_COULEUR, tm_couleurs, tm_couleurs_valide)
+
+COM37_Lit_Libelles_Predefinis(XDC_LIB_CODE_MAT_DANG, tm_code_matiere, tm_code_matiere_valide)
+
+COM37_Lit_Libelles_Predefinis(XDC_LIB_CODE_DANGER, tm_code_danger, tm_code_danger_valide)
+
+COM37_Lit_Libelles_Predefinis(XDC_LIB_PAYS, tm_pays, tm_pays_valide)
+
+COM37_Lit_Libelles_Predefinis(XDC_LIB_VEH_NATURE_PANNE, tm_nature_panne, tm_nature_panne_valide)
+
+COM37_Lit_Libelles_Predefinis(XDC_LIB_VEH_DEM_ENLEV, tm_dem_enlev, tm_dem_enlev_valide)
+
+
+/*A 
+ *  initialisation des champs permettant l'affichage des libelles predefinis 
+ */
+
+tl_titres = null
+tl_titres[0] = "Libelle",250
+tl_titres[1] = "Explication",450
+
+tl_data = null
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"TA_Pays",TRUE)
+for i=0 to ARRAY_SIZE@(tm_pays_valide)-1
+	tl_data[i][0] = tm_pays_valide[i][COL_LIB]
+	tl_data[i][1] = tm_pays_valide[i][COL_EXP]
+next i
+DB_TABLE_SET_DATA@(va_fenetre,"TA_Pays",tl_data,tl_titres,null)
+
+tl_data = null
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"TA_Code_matiere",TRUE)
+for i=0 to ARRAY_SIZE@(tm_code_matiere_valide)-1
+	tl_data[i][0] = tm_code_matiere_valide[i][COL_LIB]
+	tl_data[i][1] = tm_code_matiere_valide[i][COL_EXP]
+next i
+DB_TABLE_SET_DATA@(va_fenetre,"TA_Code_matiere",tl_data,tl_titres,null)
+
+tl_data = null
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"TA_Code_danger",TRUE)
+for i=0 to ARRAY_SIZE@(tm_code_danger_valide)-1
+	tl_data[i][0] = tm_code_danger_valide[i][COL_LIB]
+	tl_data[i][1] = tm_code_danger_valide[i][COL_EXP]
+next i
+DB_TABLE_SET_DATA@(va_fenetre,"TA_Code_danger",tl_data,tl_titres,null)
+
+DB_CTRL_STRINGS@(va_fenetre,"BO_Categorie",ARRAY_COLUMN@(tm_categorie_valide, COL_TYP_LIB))
+DB_CTRL_STRINGS@(va_fenetre,"BO_Marque",ARRAY_COLUMN@(tm_marques_valide, COL_TYP_LIB))
+DB_CTRL_STRINGS@(va_fenetre,"BO_Couleur",ARRAY_COLUMN@(tm_couleurs_valide, COL_TYP_LIB))
+DB_CTRL_STRINGS@(va_fenetre,"BO_Nature_panne",ARRAY_COLUMN@(tm_nature_panne_valide,COL_TYP_LIB))
+DB_CTRL_STRINGS@(va_fenetre,"BO_Enlev_dem_par",ARRAY_COLUMN@(tm_dem_enlev_valide,COL_TYP_LIB))
+
+/* initialisation de liste des districts selon le site ou l'on se trouve */
+tm_sites = SYSTEM_VAR@ (vg_les_districts)
+tm_sites_ini = tm_sites
+IF SYSTEM_VAR@(vg_site)=XDC_CI{
+
+	/* Au CI, on a la liste des districts sauf Nice et Mandelieu */
+	tm_sites=ARRAY_DELETE@(tm_sites, 0)
+	tm_sites=ARRAY_DELETE@(tm_sites, 0)
+}
+ELSE {
+	/* A Nice et Mandelieu, on ne peut choisir le district de creation */
+	i=ARRAY_INDEX@(ARRAY_COLUMN@(tm_sites,COL_SIT_COD),SYSTEM_VAR@(vg_site))
+	tl_data=null
+	tl_data[0]=tm_sites[i]
+	tm_sites=null
+	tm_sites=tl_data
+}
+
+DB_CTRL_STRINGS@(va_fenetre,"BO_Site_creation",
+			ARRAY_COLUMN@(tm_sites, COL_SIT_NOM))
+DB_CTRL_VALUE@(va_fenetre,"BO_Site_creation",0)
+
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la zone de saisie des fiches vehicules.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Init_Vehicules (va_fenetre,va_veh)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_veh	: description de la fiche vehicule
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TID_Interv_Depanneur
+*
+* FONCTION
+*   Affecte les valeurs passées en parametres aux champs de la zone fiche vehicule
+---------------------------------------------------------------------------- */
+VAR 	vl_val,i
+
+
+
+IF va_veh[NUM_COL_CATEG] = null
+	i=0
+ELSE
+	i=ARRAY_INDEX@(ARRAY_COLUMN@(tm_categorie_valide, COL_CODE),va_veh[NUM_COL_CATEG])
+if i=-1 
+then	i=0
+DB_CTRL_VALUE@(va_fenetre, "BO_Categorie", i)
+
+vl_val = va_veh[NUM_COL_PASSAGER]
+IF vl_val = null
+	vl_val = 0
+DB_CTRL_VALUE@(va_fenetre, "BS_Nombre_passagers", vl_val)
+
+DB_CTRL_VALUE@(va_fenetre, "BS_Bebes", va_veh[NUM_COL_BEBE])
+
+DB_CTRL_VALUE@(va_fenetre, "BS_Personnes_agees", va_veh[NUM_COL_PERS_AGEE])
+
+IF va_veh[NUM_COL_ANIMAUX] = 0 
+	vl_val=FALSE
+ELSE vl_val=TRUE
+DB_CTRL_VALUE@(va_fenetre, "BA_Animaux", vl_val)
+
+IF va_veh[NUM_COL_VEH_ESCOTA] = 0 
+	vl_val=FALSE
+ELSE vl_val=TRUE
+DB_CTRL_VALUE@(va_fenetre, "BA_Vehicule_ESCOTA", vl_val)
+
+vl_val = va_veh[NUM_COL_CHARGEMENT]
+IF vl_val = null then vl_val = 0
+DB_CTRL_VALUE@(va_fenetre, "BS_Masse", vl_val)
+
+DB_CTRL_TITLE@(va_fenetre, "LI_Code_matiere", va_veh[NUM_COL_CODE_MAT])
+
+IF va_veh[NUM_COL_TEXTE] = null
+	vl_val = ""
+ELSE
+	vl_val = va_veh[NUM_COL_TEXTE]
+DB_CTRL_VALUE@(va_fenetre, "BE_Commentaire", vl_val)
+
+IF va_veh[NUM_COL_CODE_MARQUE] = null
+	i=0
+ELSE
+	i=ARRAY_INDEX@(ARRAY_COLUMN@(tm_marques_valide, COL_CODE),va_veh[NUM_COL_CODE_MARQUE])
+if i=-1 then	i=0
+DB_CTRL_VALUE@(va_fenetre, "BO_Marque", i)
+
+DB_CTRL_VALUE@(va_fenetre, "BS_Type", va_veh[NUM_COL_TYPE])
+
+IF va_veh[NUM_COL_CODE_COULEUR] = null
+	i=0
+ELSE
+	i=ARRAY_INDEX@(ARRAY_COLUMN@(tm_couleurs_valide, COL_CODE),
+							va_veh[NUM_COL_CODE_COULEUR])
+if i=-1 then	i=0
+DB_CTRL_VALUE@(va_fenetre, "BO_Couleur", i)
+
+DB_CTRL_VALUE@(va_fenetre, "BS_Immatric", va_veh[NUM_COL_IMMAT])
+vm_num_pays = va_veh[NUM_COL_CODE_PAYS]
+DB_CTRL_TITLE@(va_fenetre, "LI_Pays", va_veh[NUM_COL_PAYS])
+DB_CTRL_VALUE@(va_fenetre, "BS_Nom", va_veh[NUM_COL_NOM])
+DB_CTRL_VALUE@(va_fenetre, "BS_Ville", va_veh[NUM_COL_VILLE])
+DB_CTRL_VALUE@(va_fenetre, "BS_Adresse", va_veh[NUM_COL_ADRESSE])
+DB_CTRL_TITLE@(va_fenetre, "LI_Code_danger", va_veh[NUM_COL_CODE_DANGER])
+
+IF va_veh[NUM_COL_NATURE_PANNE] = null
+	DB_CTRL_VALUE@(va_fenetre, "BO_Nature_panne", 0)
+ELSE
+	i=ARRAY_INDEX@(ARRAY_COLUMN@(tm_nature_panne_valide, COL_CODE),
+									va_veh[NUM_COL_CODE_NATURE_PANNE])
+if i=-1 then	i=0	
+DB_CTRL_VALUE@(va_fenetre, "BO_Nature_panne",i)
+
+DB_CTRL_VALUE@(va_fenetre, "BS_Positionnement", va_veh[NUM_COL_POSITION])
+
+IF va_veh[NUM_COL_VEH_ROULANT] = 0 
+	vl_val=FALSE
+ELSE vl_val=TRUE
+DB_CTRL_VALUE@(va_fenetre, "BA_Vehicule_roulant", vl_val)
+
+IF va_veh[NUM_COL_CODE_ENLEV] = null
+	i=0
+ELSE
+	i=ARRAY_INDEX@(ARRAY_COLUMN@(tm_dem_enlev_valide,COL_CODE),va_veh[NUM_COL_CODE_ENLEV])
+if i=-1 
+then	i=0
+DB_CTRL_VALUE@(va_fenetre, "BO_Enlev_dem_par", i)
+
+DB_CTRL_VALUE@(va_fenetre, "BS_Numero_Rappel", va_veh[NUM_COL_COMPL_RAPPEL])
+
+IF ((IS_NULL@(va_veh[NUM_COL_NUM_APPEL])) or (va_veh[NUM_COL_NUM_APPEL]=null))
+{
+	vl_val = null
+}
+ELSE
+{
+	IF ((IS_NULL@(va_veh[NUM_COL_SIT_CREATION])) or 
+									(va_veh[NUM_COL_SIT_CREATION]=0))
+	{
+		vl_val = va_veh[NUM_COL_NUM_APPEL]
+	}
+	ELSE
+	{
+		i = ARRAY_INDEX@(ARRAY_COLUMN@(tm_sites_ini,COL_SIT_COD),
+										va_veh[NUM_COL_SIT_CREATION])
+		IF i<0
+			vl_val = va_veh[NUM_COL_NUM_APPEL]
+		ELSE
+			vl_val = tm_sites_ini[i][COL_SIT_NOM]++
+						" / "++va_veh[NUM_COL_NUM_APPEL]
+	}
+}
+DB_CTRL_TITLE@ (va_fenetre, "LI_Numero_appel", vl_val)
+
+IF ((va_veh[NUM_COL_PRES_MAT_DANG] = 0) or (va_veh[NUM_COL_PRES_MAT_DANG] = null))
+	vl_val=FALSE
+ELSE vl_val=TRUE
+DB_CTRL_VALUE@(va_fenetre, "BA_Produit_dangereux", vl_val)
+IF vl_val=FALSE
+{
+	DB_CTRL_GRAYED@(va_fenetre, "LI_Code_danger", TRUE)
+	DB_CTRL_GRAYED@(va_fenetre, "LI_Code_matiere", TRUE)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Code_danger", TRUE)
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Code_matiere", TRUE)
+}
+
+DB_CTRL_TITLE@ (va_fenetre, "LI_Numero_vehicule", va_veh[NUM_COL_NUM_VEH])
+
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise l'affichage des boutons de la liste des vehicules en fonction du 
+*  type de FMC.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Init_Boutons_FMC(va_fenetre,va_veh_sel)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre		 : fenetre de travail
+*
+*
+* ARGUMENTS EN SORTIE :
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TID_Init_Interv_Depanneur
+*
+* FONCTION
+*   
+*
+---------------------------------------------------------------------------- */
+
+	/*au PC simplifie*/
+	if (SYSTEM_VAR@(vg_type_machine)=XDC_TYPEM_PCS)
+	{
+	 	DB_CTRL_GRAYED@(va_fenetre, "BP_Supprimer", TRUE)       
+	  	DB_CTRL_GRAYED@(va_fenetre, "BP_Creer", TRUE)
+		RETURN
+	}
+
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Supprimer", TRUE)       
+	DB_CTRL_GRAYED@(va_fenetre, "BP_Creer", TRUE)
+
+	TID_Maj_Donnees_FMC ()
+	IF (vm_info_FMC.IdFMC.numero <> NULL)
+	{
+		IF (vm_info_FMC.NumType = XZAEC_FMC_Accident)
+		{
+			IF IS_NULL@(va_veh_sel)
+			{
+				DB_CTRL_GRAYED@(va_fenetre, "BP_Supprimer", TRUE)
+			}
+			ELSE
+			{
+				DB_CTRL_GRAYED@(va_fenetre, "BP_Supprimer", FALSE)
+			}
+			DB_CTRL_GRAYED@(va_fenetre, "BP_Creer", FALSE)
+		}
+	}
+
+	/*si pas de droit d'enrichir*/
+	if vm_enrichir=0
+	{
+		DB_CTRL_GRAYED@(va_fenetre, "BP_Valider_vehicule",FALSE)
+		DB_CTRL_GRAYED@(va_fenetre, "BP_Valider_SMS",FALSE)
+		DB_CTRL_GRAYED@(va_fenetre, "BP_Supprimer", TRUE)
+	}
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise l'affichage des boutons de la liste des vehicules en fonction des 
+*  pictos de la fiche selectionnee dans la liste de fiches vehicules.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Init_Boutons_Pictos(va_fenetre,va_veh)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_aff		 : booleen permettent l'afichage ou non
+*   va_fenetre		 : fenetre de travail
+*
+*
+* ARGUMENTS EN SORTIE :
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TID_Init_Interv_Depanneur
+*
+* FONCTION
+*   
+*
+---------------------------------------------------------------------------- */
+
+		IF vm_picto[va_veh][0]=C_PICTO_VERT
+		{
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Associer",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Supprimer",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Faxer",FALSE)
+		}
+		
+		IF vm_picto[va_veh][0]=C_PICTO_ROUGE
+		{
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Supprimer",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Dissocier",TRUE)
+			/*Rendre possible l'impression d'une fiche a depanneur associee ou non DEM416 */
+			/*DB_CTRL_GRAYED@(va_fenetre,"BP_Imprimer",TRUE)*/
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Faxer",TRUE)
+		}
+				
+		IF vm_picto[va_veh][0]=C_PICTO_GRIS
+		{
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Dissocier",TRUE)
+			/*Rendre possible l'impression d'une fiche a depanneur associee ou non DEM416 */
+			/*DB_CTRL_GRAYED@(va_fenetre,"BP_Imprimer",TRUE)*/
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Faxer",TRUE)
+		}
+		IF ((vm_num_action = 0) or IS_NULL@(vm_num_action))
+		{
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Dissocier",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Associer",TRUE)
+		}
+
+		if (vm_fmc_purgee=XDC_VRAI) or (vm_mode_achevee) {	
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Associer",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Dissocier",TRUE)
+		}	
+	
+		if (SYSTEM_VAR@(vg_site)<>vm_action.site_responsable) and (SYSTEM_VAR@(vg_site)<>XDC_CI){
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Associer",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Dissocier",TRUE)
+		}
+
+		if (SYSTEM_VAR@(vg_site)=XDC_CI) and (vm_action.site_responsable=XDC_DN or vm_action.site_responsable=XDC_VC) {
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Associer",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Dissocier",TRUE)
+		}
+
+		/*si pas de droit d'enrichir*/
+		if vm_enrichir=0 {
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Associer",TRUE)
+			DB_CTRL_GRAYED@(va_fenetre,"BP_Dissocier",TRUE)
+		}
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Lit en base de donnees les informations concernant la Fmc liee
+*  a l'intervent ion depanneur, si elles ne sont pas connues.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Maj_Donnees_FMC ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE :
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   Toute macro du module
+*
+* FONCTION
+*   Si les donnees de la Fmc ne sont pas connues alors effectue
+*   leur lecture en base de donnees.
+*
+---------------------------------------------------------------------------- */
+
+VAR FORMAT COM_Intitule_FMC	vl_FMC
+
+	IF (vm_info_FMC.IdFMC.numero = NULL)
+	{
+		IF ITMA_COM_Lire_Evenement (vm_FMC.numero, vm_FMC.cle,
+		                               vl_FMC, C_MODULE) = COM_OK
+		{
+			vm_info_FMC = vl_FMC
+		}
+	}
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Genere le texte de la fiche d'appel à depanneur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Genere_texte(va_texte,va_veh,va_fenetre,va_imprim,va_fax)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_veh	: detail de la fiche vehicule concernee
+*   va_fenetre	: fenetre courante de travail
+*	va_imprim	: si=TRUE alors formatage et impression du fichier
+*	va_fax	: si=TRUE alors generation du texte du fax
+*
+*
+* ARGUMENTS EN SORTIE :
+*   va_texte	: texte de la fiche d'appel à depanneur
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TID_Init_Interv_Depanneur
+*
+* FONCTION
+*   
+*
+---------------------------------------------------------------------------- */
+
+VAR tl_texte, tl_autoroutes, vl_val, vl_ind, vl_a_traiter
+VAR i, vl_nb
+VAR tl_les_points_car
+VAR tl_les_aires
+VAR tl_les_echangeurs
+VAR tl_les_gares
+VAR tl_les_lits
+VAR vl_indice
+
+tl_les_points_car = SYSTEM_VAR@(vg_les_points_car)
+tl_les_lits = SYSTEM_VAR@(vg_les_lits_arret)
+tl_les_gares = SYSTEM_VAR@(vg_les_gares)
+tl_les_echangeurs = SYSTEM_VAR@(vg_les_echangeurs)
+tl_les_aires = SYSTEM_VAR@(vg_les_aires)
+
+vl_ind=0
+
+tl_autoroutes = SYSTEM_VAR@ (vg_les_autoroutes)
+
+i = ARRAY_INDEX@(ARRAY_COLUMN@(tm_sites,COL_SIT_COD),va_veh[NUM_COL_SIT_CREATION])
+IF i<0
+	vl_a_traiter[vl_ind] = " "
+ELSE
+	vl_a_traiter[vl_ind] = tm_sites[i][COL_SIT_NOM]
+
+tl_texte[0] = "PC ESCOTA : " ++ vl_a_traiter[vl_ind]
+
+vl_ind=vl_ind+1
+IF (IS_NULL@(va_veh[NUM_COL_NUM_APPEL]))
+{
+	vl_a_traiter[vl_ind] = " "
+}
+ELSE
+{
+	vl_a_traiter[vl_ind] = va_veh[NUM_COL_NUM_APPEL]
+}
+tl_texte[0] = tl_texte[0]++"          FICHE D'APPEL N° : "++vl_a_traiter[vl_ind]++" "
+
+tl_texte[1] = " "
+
+tl_texte[2] = "\n            "
+
+IF va_fax=TRUE
+	tl_texte[3] = ""
+	
+ELSE
+	tl_texte[3] = "                        "
+tl_texte[3] = tl_texte[3]++"                         APPEL A DEPANNEUR"
+
+tl_texte[4] = "\n"
+
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=vm_FMC.numero ++ "/" ++ vm_FMC.cle
+tl_texte[5] = "EVENEMENT N° : " ++ vl_a_traiter[vl_ind]
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=vm_num_action
+tl_texte[5] = tl_texte[5] ++ "    ACTION N° : " ++ vm_num_action
+
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=vm_info_FMC.date
+tl_texte[6] = "DATE : "++vl_a_traiter[vl_ind]
+
+i = vm_info_FMC.NumType
+IF i=XZAEC_FMC_Contresens
+THEN vl_val="Véhicule à contresens"
+IF i=XZAEC_FMC_VehMarcheArr
+THEN vl_val="Véhicule en marche arrière"
+IF i=XZAEC_FMC_VehArrete
+THEN vl_val="Véhicule arrêté"
+IF i=XZAEC_FMC_VehPanne
+THEN vl_val="Véhicule en panne"
+IF i=XZAEC_FMC_VehFeu
+THEN vl_val="Véhicule en feu"
+IF i=XZAEC_FMC_ACCIDENT
+THEN vl_val="ACCIDENT"
+tl_texte[7] = "MOTIF : "++vl_val
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=vl_val
+
+i = ARRAY_INDEX@(ARRAY_COLUMN@(tl_autoroutes, 0) , vm_info_FMC.localisation.NumAuto)
+vl_ind=vl_ind+1
+
+vl_a_traiter[vl_ind]=COM10_Localisation(vm_info_FMC.localisation)
+tl_texte[8] = "LOCALISATION : "++vl_a_traiter[vl_ind]
+
+/*traitement du point caracteristique*/
+
+CASE OF vm_info_FMC.localisation.type_point_caract
+  CASE XDC_POINT_CARACT_AIRE
+	vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tl_les_aires,0),
+				vm_info_FMC.localisation.point_caract)
+	if (vl_indice <> -1) {
+		vl_a_traiter[vl_ind] = vl_a_traiter[vl_ind] ++ " sur aire : " ++ tl_les_aires[vl_indice][1]
+		tl_texte[8] = tl_texte[8] ++ " sur aire " ++ tl_les_aires[vl_indice][1]
+	}
+
+  CASE XDC_POINT_CARACT_ECHANGEUR
+	vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tl_les_echangeurs,0),
+				vm_info_FMC.localisation.point_caract)
+	if (vl_indice <> -1) {
+		vl_a_traiter[vl_ind] = vl_a_traiter[vl_ind] ++
+				" sur echangeur : " ++ tl_les_echangeurs[vl_indice][1]
+		tl_texte[8] = tl_texte[8] ++ " sur echangeur " ++ tl_les_echangeurs[vl_indice][1]
+	}
+
+  CASE XDC_POINT_CARACT_LIT_ARRET
+	vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tl_les_lits,0),
+				vm_info_FMC.localisation.point_caract)
+	if (vl_indice <> -1) {
+		vl_a_traiter[vl_ind] = vl_a_traiter[vl_ind] ++
+				" sur lit d'arret : " ++ tl_les_lits[vl_indice][1]
+		tl_texte[8] = tl_texte[8] ++ " sur lit d'arret " ++ tl_les_lits[vl_indice][1]
+	}
+
+  CASE XDC_POINT_CARACT_PEAGE
+	vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tl_les_gares,0),
+				vm_info_FMC.localisation.point_caract)
+	if (vl_indice <> -1) {
+		vl_a_traiter[vl_ind] = vl_a_traiter[vl_ind] ++
+				" au peage : " ++ tl_les_gares[vl_indice][1]	
+		tl_texte[8] = tl_texte[8] ++ " au peage " ++ tl_les_gares[vl_indice][1]
+	}
+ENDCASE
+
+
+i = ARRAY_INDEX@(ARRAY_COLUMN@(tm_categorie, COL_CODE) , va_veh[NUM_COL_CATEG])
+IF i<0
+	i=0
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=tm_categorie[i][COL_LIB]
+tl_texte[9] = "TYPE DE VEHICULE : "++vl_a_traiter[vl_ind]
+
+i = va_veh[NUM_COL_CHARGEMENT]
+tl_texte[10] = "VOLUME DE CHARGEMENT : "++i++" t "
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=i
+
+vl_ind=vl_ind+1
+tl_texte[11] = "PRODUITS DANGEREUX : "
+IF va_veh[NUM_COL_PRES_MAT_DANG] = 1
+	{
+		tl_texte[11] = tl_texte[11]++"oui   CODE MATIERE:"
+			++va_veh[NUM_COL_CODE_MAT]++"  CODE DANGER:"
+			++va_veh[NUM_COL_CODE_DANGER]
+		vl_a_traiter[vl_ind]="oui"
+		vl_ind=vl_ind+1
+		vl_a_traiter[vl_ind]=va_veh[NUM_COL_CODE_MAT]
+		vl_ind=vl_ind+1
+		vl_a_traiter[vl_ind]=va_veh[NUM_COL_CODE_DANGER]
+	}
+ELSE
+	{
+		tl_texte[11] = tl_texte[11]++"non"
+		vl_a_traiter[vl_ind]="non"
+		vl_ind=vl_ind+1
+		vl_a_traiter[vl_ind]=" "
+		vl_ind=vl_ind+1
+		vl_a_traiter[vl_ind]=" "
+	}
+
+IF va_veh[NUM_COL_PASSAGER]=null
+	then i=0
+	else i=va_veh[NUM_COL_PASSAGER]
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=i
+tl_texte[12] = "NOMBRE DE PERSONNES A BORD:"++i++"   BEBES:"
+IF va_veh[NUM_COL_BEBE]=null
+	vl_val="0"
+ELSE
+	vl_val=va_veh[NUM_COL_BEBE]
+tl_texte[12] = tl_texte[12]++vl_val
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=vl_val
+tl_texte[12] = tl_texte[12]++"   PERSONNES AGEES:"
+IF va_veh[NUM_COL_PERS_AGEE]=null
+	vl_val="0"
+ELSE
+	vl_val=va_veh[NUM_COL_PERS_AGEE]
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=vl_val
+tl_texte[12] = tl_texte[12]++vl_val
+
+tl_texte[13] = "POSITIONNEMENT : " ++ va_veh[NUM_COL_POSITION]
+vl_ind=vl_ind+1
+IF va_veh[NUM_COL_POSITION]=null
+	vl_a_traiter[vl_ind]=" "
+ELSE
+	vl_a_traiter[vl_ind]=va_veh[NUM_COL_POSITION]
+
+tl_texte[14] = "ENLEVEMENT DEMANDE PAR : "++ va_veh[NUM_COL_ENLEV]
+vl_ind=vl_ind+1
+IF va_veh[NUM_COL_ENLEV]=null
+	vl_a_traiter[vl_ind]=" "
+ELSE
+	vl_a_traiter[vl_ind]=va_veh[NUM_COL_ENLEV]
+
+tl_texte[15] = "PATROUILLE PRESENTE SUR LES LIEUX : "
+i = DB_CTRL_GET_VALUE@(va_fenetre, "BA_Patrouille")
+IF i=TRUE
+	vl_val="oui"
+ELSE
+	vl_val="non"
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=vl_val
+tl_texte[15] = tl_texte[15] ++ vl_val
+
+tl_texte[16] = "LE GARAGISTE DOIT PRENDRE CONTACT AVEC LE PC : "
+i = DB_CTRL_GET_VALUE@(va_fenetre, "BA_Garagiste")
+IF i=TRUE
+	vl_val="oui"
+ELSE
+	vl_val="non"
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=vl_val
+tl_texte[16] = tl_texte[16] ++ vl_val
+
+
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=va_veh[NUM_COL_MARQUE]++"/"
+					++va_veh[NUM_COL_TYPE]++"/"++va_veh[NUM_COL_COULEUR]
+tl_texte[17] = "MARQUE/TYPE/COULEUR : "++vl_a_traiter[vl_ind]
+
+vl_ind=vl_ind+1
+
+IF va_veh[NUM_COL_IMMAT]=null
+	vl_a_traiter[vl_ind]=" "
+ELSE
+	vl_a_traiter[vl_ind]=va_veh[NUM_COL_IMMAT]
+
+vl_ind=vl_ind+1
+IF va_veh[NUM_COL_PAYS]=null
+	vl_a_traiter[vl_ind]=" "
+ELSE
+	vl_a_traiter[vl_ind]=va_veh[NUM_COL_PAYS]
+
+tl_texte[18] = "IMMATRICULATION : "++va_veh[NUM_COL_IMMAT]
+IF va_fax=FALSE
+	tl_texte[18] = tl_texte[18]++"                            "
+tl_texte[18] = tl_texte[18]++"     PAYS (si étranger) : "++va_veh[NUM_COL_PAYS]
+
+vl_nb = 0
+FOR i = 1  TO LEN@ (va_veh[NUM_COL_COMPL_RAPPEL])
+	IF IS_NUMERIC_STRING@ (SUBSTRING@ (va_veh[NUM_COL_COMPL_RAPPEL], i, 1)) {
+		vl_nb = vl_nb + 1
+	}
+NEXT i
+vl_ind=vl_ind+1
+IF (vl_nb >= 6) {
+	tl_texte[19] = "TEL : "++va_veh[NUM_COL_COMPL_RAPPEL]
+	vl_a_traiter[vl_ind]=va_veh[NUM_COL_COMPL_RAPPEL]
+} ELSE {
+	tl_texte[19] = "TEL : "
+	vl_a_traiter[vl_ind]=" "
+}
+
+tl_texte[20] = "NOM : "++va_veh[NUM_COL_NOM]
+vl_ind=vl_ind+1
+IF va_veh[NUM_COL_NOM]=null
+	vl_a_traiter[vl_ind]=" "
+ELSE
+	vl_a_traiter[vl_ind]=va_veh[NUM_COL_NOM]
+
+tl_texte[21] = "ADRESSE : "++va_veh[NUM_COL_ADRESSE]
+vl_ind=vl_ind+1
+IF va_veh[NUM_COL_ADRESSE]=null
+	vl_a_traiter[vl_ind]=" "
+ELSE
+	vl_a_traiter[vl_ind]=va_veh[NUM_COL_ADRESSE]
+
+tl_texte[22] = "VILLE : "++va_veh[NUM_COL_VILLE]
+vl_ind=vl_ind+1
+IF va_veh[NUM_COL_VILLE]=""
+	vl_a_traiter[vl_ind]=" "
+ELSE
+	vl_a_traiter[vl_ind]=va_veh[NUM_COL_VILLE]
+
+tl_texte[23] = "NATURE DE LA PANNE : "++va_veh[NUM_COL_NATURE_PANNE]
+vl_ind=vl_ind+1
+IF va_veh[NUM_COL_NATURE_PANNE]=null
+	vl_a_traiter[vl_ind]=" "
+ELSE
+	vl_a_traiter[vl_ind]=va_veh[NUM_COL_NATURE_PANNE]
+
+tl_texte[24] = "VEHICULE ROULANT : "
+i = va_veh[NUM_COL_VEH_ROULANT]
+IF i=1
+	vl_val="oui"
+ELSE
+	vl_val="non"
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=vl_val
+tl_texte[24] = tl_texte[24] ++ vl_val
+
+tl_texte[25] = "OBSERVATIONS : "
+tl_texte[26] = va_veh[NUM_COL_TEXTE]++"\n"
+vl_ind=vl_ind+1
+If va_veh[NUM_COL_TEXTE]=null
+	vl_a_traiter[vl_ind]=" "
+ELSE
+	vl_a_traiter[vl_ind]=va_veh[NUM_COL_TEXTE]
+
+tl_texte[27] = "GARAGE DESIGNE : "++vm_nom_depanneur
+IF va_fax=FALSE
+	tl_texte[27] = tl_texte[27]++"                       "
+tl_texte[27] = tl_texte[27]++"  RENFORT : "
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=vm_nom_depanneur
+i = DB_CTRL_GET_VALUE@(va_fenetre,"BA_Renfort")
+IF i=TRUE
+	vl_val="oui"
+ELSE
+	vl_val="non"
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=vl_val
+tl_texte[27] = tl_texte[27] ++ vl_val
+
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=COM23_Horodate (va_fenetre,
+                                     "BS_Jour_appel","BS_Mois_appel","BS_Annee_appel",
+                                     "BS_Heure_appel","BS_Minute_appel","BS_Seconde_appel")
+tl_texte[28] = "HEURE D'APPEL : "++vl_a_traiter[vl_ind]
+
+
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=COM23_Horodate (va_fenetre,
+                                     "BS_Jour_arrivee","BS_Mois_arrivee","BS_Annee_arrivee",
+                                     "BS_Heure_arrivee","BS_Minute_arrivee","BS_Seconde_arrivee")
+tl_texte[29] = "HEURE D'ARRIVEE DU DEPANNEUR : "++vl_a_traiter[vl_ind]
+
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=COM23_Horodate (va_fenetre,
+                                        "BS_Jour_depart","BS_Mois_depart","BS_Annee_depart",
+                                        "BS_Heure_depart","BS_Minute_depart","BS_Seconde_depart")
+tl_texte[30] = "HEURE DE FIN D'INTERVENTION : "++vl_a_traiter[vl_ind]
+
+tl_texte[31] = "HEURE D'ANNULATION : "
+i = DB_CTRL_GET_VALUE@(va_fenetre,"BA_Annulation_intervention")
+vl_ind=vl_ind+1
+vl_a_traiter[vl_ind]=" "
+IF i=TRUE
+	{
+		IF DB_CTRL_GET_VALUE@(va_fenetre,"BS_Jour_annul")<>null
+		{
+			vl_a_traiter[vl_ind]=COM23_Horodate (va_fenetre,
+					"BS_Jour_annul","BS_Mois_annul","BS_Annee_annul",
+					"BS_Heure_annul","BS_Minute_annul","BS_Seconde_annul")
+			tl_texte[31] = tl_texte[31]++vl_a_traiter[vl_ind]
+		}
+	}
+
+
+va_texte = tl_texte
+
+IF va_imprim=TRUE
+	{
+		WP_APPLICATION_DLG@(null, TRUE)
+		WP_LOAD_FILE@(SYSTEM_VAR@ (vg_repertoire_migrazur) 
+							++C_SOUS_REP_MODELES++"ITMA_TID_Fax_dep.aw")
+		for i=1 to ARRAY_SIZE@(vl_a_traiter)
+			IF IS_NULL@(vl_a_traiter[i-1])
+				vl_a_traiter[i-1]=" "
+			WP_SET_DOC_VAR@ ("n"++i, vl_a_traiter[i-1])
+		next i
+		WP_SAVE_RENAME@("Fiche_depanneur.aw")
+		COM36_Imprimer_Texte("Fiche_depanneur.aw") 
+		DB_DISPLAY_ONLY@(va_fenetre, FALSE)
+	}
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Traite le texte (gras et italique) de la fiche d'appel à depanneur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Traite_texte(va_a_traiter)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_a_traiter	: tableau des chaines a formatter
+
+* ARGUMENTS EN SORTIE :
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   TID_Init_Interv_Depanneur
+*
+* FONCTION
+*   
+*
+---------------------------------------------------------------------------- */
+VAR vl_val, i, tl_autoroutes
+
+
+for i=ARRAY_SIZE@(va_a_traiter)-1 to 0 step -1
+	TID_Formate_Texte(va_a_traiter[i],-1)
+next i
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Affiche et formate un texte.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Formate_Texte (va_select,va_ital)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_select : texte a formatter
+*	va_ital	: italique ou non
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TID_Interv_Depanneur
+*
+* FONCTION
+*
+*---------------------------------------------------------------------------- */
+
+var format WP_FLAGGED_TEXT_ATTRS@ FATTS
+
+	WP_FIND_PATTERN@(va_select, FALSE)
+
+
+	FATTS.SETFLAGS.BOLD = -1
+	FATTS.SETFLAGS.ITALIC = va_ital
+	FATTS.SETFLAGS.STRIKETHRU = 0
+	FATTS.SETFLAGS.HIDDEN = 0
+	FATTS.SETFLAGS.CAPITALS = 0
+	FATTS.SETFLAGS.UNDERLINE = 0
+	FATTS.SETFLAGS.POSITION = 0
+	FATTS.SETFLAGS.HYPHENATE = 0
+	FATTS.SETFLAGS.COLOR = 0
+	FATTS.SETFLAGS.FACE = 0
+	FATTS.SETFLAGS.SIZE = 0
+	FATTS.ATTRS.BOLD = -1
+	FATTS.ATTRS.ITALIC = va_ital
+	FATTS.ATTRS.STRIKETHRU = 0
+	FATTS.ATTRS.UNDERLINE = 0
+	FATTS.ATTRS.POSITION = 0
+	FATTS.ATTRS.HYPHENATE = -1
+	FATTS.ATTRS.COLOR = "Noir"
+	FATTS.ATTRS.FACE = "Times"
+	FATTS.ATTRS.SIZE = 12
+	WP_SET_FLAGGED_TEXT_ATTRS@(FATTS)
+
+	FATTS = null	' clear from prior usage
+	FATTS.SETFLAGS.BOLD = 0
+	FATTS.SETFLAGS.ITALIC = 0
+	FATTS.SETFLAGS.STRIKETHRU = 0
+	FATTS.SETFLAGS.HIDDEN = 0
+	FATTS.SETFLAGS.CAPITALS = 0
+	FATTS.SETFLAGS.UNDERLINE = 0
+	FATTS.SETFLAGS.POSITION = 0
+	FATTS.SETFLAGS.HYPHENATE = 0
+	FATTS.SETFLAGS.COLOR = 0
+	FATTS.SETFLAGS.FACE = 0
+	FATTS.SETFLAGS.SIZE = 0
+	FATTS.ATTRS.BOLD = -1
+	FATTS.ATTRS.ITALIC = va_ital
+	FATTS.ATTRS.STRIKETHRU = 0
+	FATTS.ATTRS.UNDERLINE = 0
+	FATTS.ATTRS.POSITION = 0
+	FATTS.ATTRS.HYPHENATE = -1
+	FATTS.ATTRS.COLOR = "Noir"
+	FATTS.ATTRS.FACE = "Times"
+	FATTS.ATTRS.SIZE = 12
+	WP_SET_FLAGGED_TEXT_ATTRS@(FATTS)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Encadre le texte de la fiche d'appel a depanneur.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TID_Encadre_Texte ()
+
+/*
+* ARGUMENTS EN ENTREE : 
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TID_Interv_Depanneur
+*
+* FONCTION
+*
+*---------------------------------------------------------------------------- */
+	var STYLE
+	var COLOR
+	var TYPE
+	var SHADINGSTYLE
+	var FGCOLOR
+	var BGCOLOR
+	var FILLNAME
+	var HORIZONTALMARGIN
+	var VERTICALMARGIN
+
+
+	WP_SELECT_ALL@
+
+	STYLE = 1
+	COLOR = "Noir"
+	WP_BORDER_OUTLINE_STYLE@(STYLE,COLOR)
+
+	TYPE = 0
+	WP_BORDER_SHADOW@(TYPE)
+
+	STYLE = 0
+	COLOR = null
+	WP_BORDER_HORIZONTAL_STYLE@(STYLE,COLOR)
+
+	SHADINGSTYLE = 18
+	FGCOLOR = null
+	BGCOLOR = null
+	FILLNAME = null
+	WP_SHADING@(SHADINGSTYLE,FGCOLOR,BGCOLOR,FILLNAME)
+
+	HORIZONTALMARGIN = 196
+	WP_BORDER_HORIZONTAL_MARGIN@(HORIZONTALMARGIN)
+
+	VERTICALMARGIN = 196
+	WP_BORDER_VERTICAL_MARGIN@(VERTICALMARGIN)
+
+
+ENDMACRO

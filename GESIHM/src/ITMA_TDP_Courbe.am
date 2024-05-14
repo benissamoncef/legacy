@@ -1,0 +1,495 @@
+/*E*/
+/* Fichier : $Id: ITMA_TDP_Courbe.am,v 1.6 2017/10/06 09:59:38 devgfi Exp $     Release : $Revision: 1.6 $        Date : $Date: 2017/10/06 09:59:38 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TDP * FICHIER ITMA_TDP_Courbe.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   graphe temps de parcours.
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou 16 mai 1997	: Creation                                        V1.1
+* Guilhou 29 mai 1997 : traiter le cas ou pas de donnees en base 	1.3
+* Cluchague 27/07/2000 : Remplacer COM05...(XZAS15...) par COM41...(XZAS15...)
+*                        pour interroger le serveur historique et non plus exploitation (1.4)
+* JPL	06/07/09 : Gestion des barres de menu personnalisees Applix et leur id. 1.5
+* JPL	06/10/17 : Appel de la procedure XZAO4001 a la place de XZAO400  1.6
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE "spsheet_.am"
+
+INCLUDE "xdc_ax.h"
+INCLUDE "xzic_ax.h"
+INCLUDE	"xzao4001sp.h"
+INCLUDE	"xzas15sp.h"
+
+INCLUDE	"ITMA_COM.h"
+INCLUDE	"ITMA_TDO.h"
+INCLUDE	"ITMA_TBR.h"
+
+
+format CHART_AXIS@
+	TYPE,
+	AUTO_MAX,
+	MAX_VALUE,
+	AUTO_MIN,
+	MIN_VALUE,
+	AUTO_BAS,
+	BAS_VALUE,
+	POSITION,
+	FLOATING_VALUE,
+	MINOR_TIK_TYPE,
+	MINOR_TIK_SIZE,
+	AUTO_N_MINOR_TIKS,
+	N_MINOR_TIKS,
+	MAJOR_TIK_TYPE,
+	MAJOR_TIK_SIZE,
+	AUTO_N_MAJOR_TIKS,
+	N_MAJOR_TIKS,
+	BAR_MARGIN,
+	BAR_OVERLAP,
+	USE_TIK_ATTRIBUTES,
+	BEHIND_DATA,
+	HIDDEN
+
+
+format chart_title@
+	title,
+	subtitle,
+	footer,
+	title_alignment,
+	subtitle_alignment,
+	footer_alignment
+
+DEFINE	C_MODULE	"MTDP"				' Nom du module
+DEFINE	VUE_COMMUN	"VUES_Commun.elo"
+DEFINE	VUE_APPLIX	"CVUEM_ApplixData.elo"
+
+
+/*A
+ * Definition des codes et des libelles
+ * d'erreurs specifiques au module
+ * ------------------------------------
+ */
+
+DEFINE	C_ERR_IHM		1
+
+DEFINE	C_LIB_DATE_INVAL	"La date doit être inférieure ou égale à la date courante"
+
+DEFINE	PATH_OUTILS	"/produits/migrazur/appliSD/fichiers/mbo"
+
+	
+VAR tm_zdp
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Definition des donnees d'une courbe temps de parcours.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TDP_Courbe (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente ;
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_fenetre				' Nom de la fenetre du module
+    VAR     vl_objet_selecte			' L'objet courant de la fenetre
+    VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    VAR     vl_la_fenetre_est_active
+    VAR     vl_installer_traitement_erreur
+ 	VAR 	vl_zdp
+
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Courbe a visualiser"
+ * ----------------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TDP")
+DB_WINDOW_REMAIN@ (vl_fenetre, TRUE)
+
+DB_XPOS@ (vl_fenetre, 0)
+DB_YPOS@ (vl_fenetre, 93)
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TDP")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, vl_les_messages_acceptes)
+
+
+
+/*A
+ * Initialiser la visualisation (liste des zdp)
+ * ------------------------------------------------------------------
+ */
+
+IF TDP_Init_Visualisation (vl_fenetre) <> COM_OK
+    RETURN
+
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+	   ERROR_NUMBER@() <> C_ERR_IHM
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+/*A
+ * Tant que la fenetre n'est pas desactivee, la visualiser
+ * -------------------------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+WHILE vl_la_fenetre_est_active
+
+    DB_DISPLAY@ (vl_fenetre)
+    vl_objet_selecte = DB_EXIT_CTRL@ (vl_fenetre)
+    IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+	vl_objet_selecte = NULL
+
+    CASE OF vl_objet_selecte
+
+    CASE "poke_"
+        CASE OF  DB_GET_POKE@ (vl_fenetre)
+        CASE COM_CANAL_FIN
+            vl_la_fenetre_est_active = FALSE
+        ENDCASE
+
+
+    CASE "BP_Quitter"
+	vl_la_fenetre_est_active = FALSE
+
+
+    /*A
+     * Sur choix "Valider", verifier la validite des criteres saisis
+     * -------------------------------------------------------------
+     */
+
+    CASE "BP_Valider"
+	MACRO_WINS_BUSY@()
+	  	vl_zdp = DB_CTRL_GET_VALUE@ (vl_fenetre, "BL_zdp")
+    		IF vl_zdp < 0
+		ERROR@ (C_ERR_IHM, COM_LIB_NON_SAISI, "zdp ")
+
+
+		IF TDP_Requete_Visualisation (vl_fenetre, vl_zdp) = COM_OK
+	    		vl_la_fenetre_est_active = FALSE
+ 
+    CASE "BP_horohelp"
+    CASE "BP_horodeb"
+	COM24_Afficher_Horodate (COM09_Date_Courante(), vl_fenetre,
+			       "BS_Jour_Debut","BS_Mois_Debut","BS_Annee_Debut",
+				 "BS_Heure_Debut", "BS_Minute_Debut")
+    ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation (listes zdp, ...)
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TDP_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les objets a initialiser ;
+*   va_type_courbe    : Identifiant du type de courbe a visualiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TDP_Courbe
+*
+* FONCTION
+*   Initialise les valeurs des objets graphiques : listes des stations de
+*   comptage, liste des echangeurs, valeurs des boutons options et bascules.
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_liste
+    VAR     vl_indice
+    VAR     i
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+/*A
+ * Lire et afficher la liste des zdp
+ * ------------------------------------------------------------------
+ */
+		vl_parametres[0].type = SYB#CHAR_
+		vl_parametres[0].data = XDC_BASE_CFG
+		vl_parametres[0].output = FALSE
+
+/* execution requete base*/
+IF COM05_SQL_Procedure (XZAO4001_Liste_ZDP,
+	  vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+
+   			RETURN (COM_NOK)
+}	
+tm_zdp=vl_resultats.select_results[0]
+
+    DB_CTRL_RETURN_ON_CHANGE@ (va_fenetre, "BL_zdp", TRUE)
+    DB_CTRL_STRINGS@ (va_fenetre, "BL_zdp",
+ 					ARRAY_COLUMN@(tm_zdp, 2))
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Recupere les valeurs des criteres saisis et demande la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TDP_Requete_Visualisation (va_fenetre, va_indice)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre contenant les valeurs saisies ;
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TDP_Courbe
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+    VAR     vl_date_debut
+    VAR FORMAT SQL_Procedure_Params@ vl_parametres
+    VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+    VAR vl_indice		/* indice des donnees passes a la requete BDD */
+	VAR vl_maintenant
+
+
+vl_maintenant = COM09_Date_Courante ()
+
+
+/*A
+ * Lire l'horodate de debut et la fenetre d'affichage
+ * --------------------------------------------------
+ */
+
+ 	vl_date_debut = COM23_Horodate(va_fenetre, "BS_Jour_Debut", 
+					"BS_Mois_Debut",
+				     "BS_Annee_Debut",
+				     "BS_Heure_Debut", "BS_Minute_Debut")
+	IF IS_NULL@ (vl_date_debut) 
+		ERROR@ (COM_ERR_DATE_INVAL, COM_LIB_DATE_INVAL)
+
+	/*B Recuperer les donnees des courbes et les transmettre via le
+		presse papier au speadsheet */
+
+		/* Numero de la station*/
+		vl_indice = 0
+		vl_parametres[vl_indice].type = SYB#INT4_
+		vl_parametres[vl_indice].data = tm_zdp[va_indice][0]
+		vl_parametres[vl_indice].output = FALSE
+
+		/* l'horodate de debut */
+		vl_indice = vl_indice + 1
+		vl_parametres[vl_indice].type = SYB#DATETIME_
+		vl_parametres[vl_indice].data = vl_date_debut ++ ":00"
+		vl_parametres[vl_indice].output = FALSE
+
+		/* l'horodate de debut des mesures */
+		vl_indice = vl_indice + 1
+		vl_parametres[vl_indice].type = SYB#DATETIME_
+		vl_parametres[vl_indice].output = TRUE
+
+		/* execution requete base*/
+		IF COM41_SQL_Procedure_HIS (XZAS15_Courbe_TDP_6MIN_Applix,
+				   vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+{
+
+   			RETURN (COM_NOK)
+}	
+		
+		vl_date_debut=COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[0])
+
+		TDP_Courbe_SS(tm_zdp[va_indice][2]++ " " ++ tm_zdp[va_indice][4]++ " "++  tm_zdp[va_indice][6]++", " ++ tm_zdp[va_indice][7] ++ ", Sens " ++ tm_zdp[va_indice][8],
+				vl_date_debut,
+				vl_resultats.select_results[0],
+				tm_zdp[va_indice][9]*tm_zdp[va_indice][11],
+				tm_zdp[va_indice][9]*tm_zdp[va_indice][12])
+		RETURN(COM_OK)
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Trace la courbe avec applix spreadsheet
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TDP_Courbe_SS (va_zdp_nom,va_date_debut,ta_data,va_tdp_min,va_tdp_max)
+
+/*
+* ARGUMENTS EN ENTREE :
+
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK en cas d'execution correcte, COM_NOK sinon
+*
+* CONDITION D'UTILISATION
+*   ITMA_TDP_Courbe
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_indice
+VAR vl_menu
+VAR vl_cellule
+VAR vl_annee,vl_jour,vl_mois,vl_heures,vl_min,vl_sec
+VAR vl_date
+       var OBJNAME
+       var NAME
+       var CHART_NAME
+       var GNAME
+       var RNGARR
+       var CHTYPE
+       var COLONNE
+       var LEGEND
+       var AXIS_NAME
+       var format CHART_AXIS@ CHART_AXIS
+       var format CHART_TITLE@ CHART_TITLE
+
+  /*A lancement du spreadsheet avec un menu sans * */
+  vl_menu = ITMA_TBR_Menu_Appli_Applix (TBR_MENU_SS_GEN)
+  SS_APPLICATION_DLG@(vl_menu,FALSE)
+  SS_LOAD_FILE@("ITMA_TDP_SS.as")
+  SS_SAVE_AS@("/tmp/ITMA_TDP_SS.as",1,2,2)
+
+  SS_CALC@(0,0,0,0) /* inhibe le calcul pendant la mise en forme */
+
+   /*horodate*/
+   if (va_date_debut="01/01/1900 00:00")
+     vl_date=COM09_Date_Courante()
+   else
+     vl_date=va_date_debut
+   COM14_Valeurs_Horodate(vl_date,vl_jour,vl_mois,vl_annee,vl_heures,vl_min,vl_sec)
+  vl_cellule=SS_COORDINATE@(0, 0, 0)
+  SS_PUT_CELL@(vl_cellule,vl_jour)
+  vl_cellule=SS_COORDINATE@(0, 1, 0)
+  SS_PUT_CELL@(vl_cellule,vl_mois)
+  vl_cellule=SS_COORDINATE@(0, 2, 0)
+  SS_PUT_CELL@(vl_cellule,vl_annee)
+  vl_cellule=SS_COORDINATE@(0, 3, 0)
+  SS_PUT_CELL@(vl_cellule,vl_heures)
+  vl_cellule=SS_COORDINATE@(0, 4, 0)
+  SS_PUT_CELL@(vl_cellule,vl_min)
+
+  vl_cellule=SS_COORDINATE@(4,0,0)
+  SS_PUT_CELL@(vl_cellule,"Date de debut : "
+					++vl_jour++"/"++vl_mois++"/"++vl_annee++" "++
+						vl_heures++":"++vl_min)
+
+  /*nom zdp*/
+  vl_cellule=SS_COORDINATE@(3,0,0)
+  SS_PUT_CELL@(vl_cellule,va_zdp_nom)
+
+  /*seuils min et max*/
+  vl_cellule=SS_COORDINATE@(3,1,0)
+  SS_PUT_CELL@(vl_cellule,va_tdp_min/100)
+  vl_cellule=SS_COORDINATE@(3,2,0)
+  SS_PUT_CELL@(vl_cellule,va_tdp_max/100)
+
+  for vl_indice=0 to (ARRAY_SIZE@(ta_data)-1)
+    vl_cellule=SS_COORDINATE@(4,vl_indice+6,0)
+     SS_PUT_CELL@(vl_cellule,ta_data[vl_indice][0])
+  next vl_indice
+
+
+  SS_CALC@(1,0,0,1) /* retablit le calcul apres la mise en forme */
+
+  SS_SET_SHEET@("Courbe")
+  SS_SAVE_AS@("/tmp/ITMA_TDP_SS.as",1,2,2)
+
+ENDMACRO

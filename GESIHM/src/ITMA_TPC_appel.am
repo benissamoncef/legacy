@@ -1,0 +1,186 @@
+/*E*/
+/* Fichier : @(#)ITMA_TPC_appel.am	1.2	Release : 1.2       Date : 09/18/95
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_RPC * FICHIER ITMA_TPC_appel.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*	Appel une fonction RPC située dans la tâche synoptique (TISYN) pour la
+* navigation dans les vues générales, districts et tronçon ainsi que pour le choix
+* des masques.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Noel	7 Nov 1994 	: Creation					V1.1
+* Noel	19 Dec 1994	: Suppression info_message		V1.2
+* Guilhou 19 Sep 1995	: Suppression boite erreur		V1.3
+* JMG	08/04/12 : linux V.1.4
+---------------------------------------------------------------------------- */
+
+INCLUDE   "../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+
+
+
+
+DEFINE	C_MODULE	"MRPC"			' Nom du module
+
+VAR		vm_canal_rpc				' numero du canal de communication RPC
+
+
+MACRO ITMA_TPC_appel
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Appel d'une fonction RPC dans TISYN
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TPC_appel_fct (va_rpc_type_msg, va_rpc_arg, va_rpc_retour)
+
+/*
+* ARGUMENTS EN ENTREE :
+* 	va_rpc_type_msg	Type du message transmis
+*	va_rpc_arg		Arguments pour exécution de la fonction appelée
+*	
+*
+* ARGUMENTS EN SORTIE : 
+*	va_rpc_retour		Valeurs retournées par la fonction rpc
+*
+*
+* CODE RETOUR         : XDC_OK ou XDC_NOK
+*
+* CONDITION D'UTILISATION
+*
+*	Appele depuis le menu principal ITMA_TMQ_masque
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+/*A
+ * Traitements en cas d'erreur :
+ * tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    COM01_Trace (COM_WARNING, "Probleme d'appel à RPC_CHANNEL_CALL@ dans ITMA_TPC_appel_fct" )
+    RETURN
+}
+IF (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+	/*A Envoyer la demande d'exécution */
+	va_rpc_retour = RPC_CHANNEL_CALL@(vm_canal_rpc, va_rpc_type_msg, va_rpc_arg)
+RETURN(XDC_OK)
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialisation d'une connection RPC avec TISYN
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ITMA_TPC_init_connection (va_nom_serveur, va_num_socket)
+
+/*
+* ARGUMENTS EN ENTREE :
+*	va_nom_serveur		Nom de la tâche serveur (de fonctions)
+*	va_num_socket		Numéro de la socket de communication
+*	va_hostname		Nom de la machine où s'exécute la tache serveur
+*
+* ARGUMENTS EN SORTIE : 
+*
+*	vg_canal_rpc		le numero du canal de communication RPC retourne en
+*					variable globale au module
+*
+* CODE RETOUR         : XDC_OK ou XDC_NOK
+*
+* CONDITION D'UTILISATION
+*
+*	Appele depuis le menu principal MTMT  
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR		va_hostname
+/*A
+ * Traitements en cas d'erreur :
+ * tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    COM01_Trace (COM_WARNING, "Probleme d'appel à RPC_CONNECT@ dans ITMA_TPC_init_connection")
+    RETURN(XDC_NOK)
+}
+
+/*A demander la connection */
+
+IF (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+	vm_canal_rpc = RPC_START_SERVER@(va_nom_serveur, va_num_socket, va_hostname)
+
+RETURN(XDC_OK)
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  arrete une connection RPC avec TISYN
+* 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ITMA_TPC_fin_connection ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*					aucun
+*
+* ARGUMENTS EN SORTIE : 
+*					aucun
+*
+*
+* CODE RETOUR         : XDC_OK ou XDC_NOK
+*
+* CONDITION D'UTILISATION
+*
+*	Appele depuis le menu principal MTMT  
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+/*A
+ * Traitements en cas d'erreur :
+ * tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    COM01_Trace (COM_WARNING, "Probleme d'appel à RPC_DISCONNECT@ dans ITMA_TPC_fin_connection")
+    RETURN(XDC_NOK)
+}
+
+/*A demander la deconnection */
+IF (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+	vm_canal_rpc = RPC_DISCONNECT@(vm_canal_rpc)
+
+RETURN(XDC_OK)
+ENDFUNCTION
+

@@ -1,0 +1,1 @@
+DEFINE	XZAP12_Lire_Prop_PMV		"XZAP;12"

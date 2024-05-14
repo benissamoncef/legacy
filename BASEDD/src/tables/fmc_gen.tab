@@ -1,0 +1,213 @@
+/*X  Fichier : $Id: fmc_gen.tab,v 1.16 2019/08/22 09:27:35 gesconf Exp $      Release : $Revision: 1.16 $        Date : $Date: 2019/08/22 09:27:35 $
+------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR 
+------------------------------------------------------
+* SOUS-SYSTEME  BASEDD
+------------------------------------------------------
+* FICHIER fmc_gen.tab
+------------------------------------------------------
+* DESCRIPTION DE LA PROCEDURE :
+*
+* creation de la table FMC_GEN
+*
+------------------------------------------------------
+* HISTORIQUE :
+*
+* C.T.	09/08/94	: Creation
+* C.T.	11/04/95	: Ajout de la description de la table
+* C.T.	25/09/96	: Ajout degats domaine (FMC10) V1.3
+* C.T.	01/10/96	: Ajout degats horodate_chgt_type (FMC3) V1.4
+* C.T.	04/11/96	: Ajout fausse_alerte (FMC18) V1.5
+* C.T.	09/12/97	: Ajout degrade, num_fmc_init, cle_fmc_init (PC niveau2) V1.9
+* C.T.	09/12/97	: Ajout sit_alerte (1532) V1.10 11
+* C.T.	02/03/98	: Ajout  com_fmc_init (1583) V1.12
+* P.N.	02/12/98	: Ajout datex (1724) v1.13
+* PNI	25/03/19	: Ajout index
+* JPC	24/08/23	: Changement de l'ordre des colonnes et ajout index comme en PROD
+-----------------------------------------------------*/
+
+
+/* ============================================================ */
+/*   Nom de la base   :  MIGRAZUR                               */
+/*   Nom de SGBD      :  SYBASE10                               */
+/*   Date de creation :  29/07/94                               */
+/* ============================================================ */
+
+/* ============================================================ */
+/*   Table : FMC_GEN                                            */
+/* ============================================================ */
+
+/* Suppression de la table si elle existe */
+/* ===========================*/
+if exists (select * from sysobjects where name = 'FMC_GEN' and type = 'U')
+	begin
+	drop table FMC_GEN
+	end
+go
+
+declare @nom_base varchar(10)
+
+/* nom de la base courante */
+select @nom_base = db_name()
+
+/*
+*  Fonctionalité de la table
+*  -------------------------
+*  Contient les caractéristiques générales des fiches main courante
+*
+*  Description des colonnes de la table
+*  ------------------------------------
+*        numero                  : numéro de la fiche main courante 
+*        cle                     : numéro de clé de la fiche main courante 
+*        cause                   : numéro de la fiche main courante cause de cette fmc
+*        cle_cause               : numéro de clé de la fiche main courante cause de cette fmc
+*        horodate_lien_cause     : date du lien avec la fmc cause
+*        alerte                  : numéro de l'alerte associée
+*        type                    : numéro du type de l'alerte
+*        debut_prevu             : date de dÅbut des travaux prévus
+*        debut                   : date de dÅbut de la fmc
+*        fin_prevue              : date de fin des travaux prévus de la fmc
+*        fin                     : date de fin de la fmc
+*        cloture                 : date de cloture
+*        origine_creation        : commentaire sur l'origine de la fmc
+*        sit                     : numéro du site de la fmc
+*        poste_enrichisseur      : numéro du poste enrichisseur
+*        zz                      : numéro de version de la fmc (interne au système)
+*        degats_domaine          : dégats sur le domaine
+*        horodate_chgt_type      : date du dernier changement de type de la fmc
+*        fausse_alerte           : si = 1 alors fausse alerte
+*        degrade                 : fmc de type degrade oui/non
+*        num_fmc_init            : numéro de la fiche main courante initiale (cas degrade)
+*        cle _fmc_init           : cle de la fiche main courante initiale (cas degrade)
+*        sit_alerte              : site de l'alerte associÅe
+*        com _fmc_init           : commentaire sur la fmc initiale (cas degrade)
+*        datex                   : FMC "DATEX" ou pas
+*
+*  Remarque
+*  --------
+*  Pour sélectionner une fmc, il faut préciser son numéro et sa clé car seul le couple
+*  (numéro, clé) est unique sur tous les sites.
+*  La localisation de la fmc et les états des voies sont historisées dans la table FMC_HIS.
+*
+*  Les fiches main courante sont regroupées par classe et par type.
+*  Toutes les fiches main courante de meme classe ont leurs caractéristiques complémentaires
+*  dans la meme table.
+*  Certaines de ces caractéristiques complémentaires sont historisées, les autres sont modifiées.
+*
+*      classe :  libéllé de la classe  :  table des caractéristiques complémentaires
+*      -------------------------------------------------------------------------------------------------
+*        0    :  accident              :  FMC_ACC + FMC_VEH (pour le descriptif des véhicules impliqués)
+*        1    :  délestage             :  FMC_DEL
+*        2    :  véhicule              :  FMC_VEH
+*        3    :  véhicule lent         :  FMC_VLN (historisation)
+*        4    :  météo                 :  FMC_MET (historisation)
+*        5    :  fermeture échangeur   :  FMC_ECH
+*        6    :  sous concessionnaire  :  FMC_CNC
+*        7    :  manifestation         :  FMC_MNF
+*        8    :  queue de bouchon      :  FMC_BOU (historisation)
+*        9    :  travaux               :  FMC_TRF + FMC_TRH (historisation)
+*        10   :  basculement           :  FMC_BAS
+*        11   :  poste opérateur       :  FMC_OPR
+*        12   :  autre                 :  néant
+*/
+
+
+create table FMC_GEN
+(
+    numero                          int                   not null,
+    cle                             tinyint               not null,
+    cle_cause                       tinyint               null,
+    cause                           int                   null    ,
+    horodate_lien_cause             datetime              null    ,
+    alerte                          int                   null    ,
+    type                            smallint              null    ,
+    debut_prevu                     datetime              null,
+    debut                           datetime              null,
+    fin_prevue                      datetime              null,
+    fin                             datetime              null,
+    cloture                         datetime              null,
+    origine_creation                T_NOM                 null    ,
+    sit                             T_SITE                not null,
+    poste_enrichisseur              smallint              null ,
+    zz                              int                   null,
+    degats_domaine                  tinyint               null    ,
+    horodate_chgt_type              datetime              null    ,
+    fausse_alerte                   tinyint 		  null    ,
+    degrade		            tinyint               null    ,
+    num_fmc_init                    int                   null,
+    cle_fmc_init                    tinyint               null,
+    sit_alerte                      tinyint               null,
+    com_fmc_init                    T_NOM              	  null,
+    datex			    tinyint		  null
+)
+/* ajout des droits a public*/
+grant all on FMC_GEN to public
+
+/* =============================================================== */
+/*   creation des cles primaires et des index en fonction de la base courante                     */
+/* =============================================================== */
+if @nom_base = 'HIS'
+	begin
+	/* ========================================================== */
+	/*   Cle primaire : numero, cle, cle_cause                                      */
+	/* ========================================================== */
+	execute sp_primarykey FMC_GEN, numero, cle
+
+	/* ========================================================== */
+	/*   Index : FMC_GEN_PK                                         */
+	/*   Index : FMC_GEN_FK1                                        */
+	/*   Index : FMC_GEN_FK2                                        */
+	/*   Index : FMC_GEN_FK3                                        */
+	/* ========================================================== */
+	create unique index FMC_GEN_PK on FMC_GEN (numero, cle)
+	create index FMC_GEN_FK1 on FMC_GEN (alerte, cle)
+	create index FMC_GEN_FK2 on FMC_GEN (cause, cle_cause)
+	create index FMC_GEN_FK3 on FMC_GEN (type)
+	create index FMC_GEN_FK4 ON FMC_GEN (debut, fin)
+	create index FMC_GEN_FK5 ON FMC_GEN (debut_prevu, fin_prevue)
+	end
+
+if @nom_base = 'SVG'
+	begin
+	/* ========================================================== */
+	/*   Cle primaire : numero, cle, cle_cause                                      */
+	/* ========================================================== */
+	execute sp_primarykey FMC_GEN, numero, cle
+
+	/* ========================================================== */
+	/*   Index : FMC_GEN_PK                                         */
+	/*   Index : FMC_GEN_FK1                                        */
+	/*   Index : FMC_GEN_FK2                                        */
+	/*   Index : FMC_GEN_FK3                                        */
+	/* ========================================================== */
+	create unique index FMC_GEN_PK on FMC_GEN (numero, cle)
+	create index FMC_GEN_FK1 on FMC_GEN (alerte, sit_alerte)
+	create index FMC_GEN_FK2 on FMC_GEN (cause, cle_cause)
+	create index FMC_GEN_FK3 on FMC_GEN (type)
+	create index FMC_GEN_FK4 on FMC_GEN (numero, cle,debut,fin,type)
+	end
+
+if @nom_base = 'EXP'
+	begin
+	/* ========================================================== */
+	/*   Cle primaire : numero, cle, cle_cause                                      */
+	/* ========================================================== */
+	execute sp_primarykey FMC_GEN, numero, cle
+
+	/* ========================================================== */
+	/*   Index : FMC_GEN_PK                                         */
+	/*   Index : FMC_GEN_FK1                                        */
+	/*   Index : FMC_GEN_FK2                                        */
+	/*   Index : FMC_GEN_FK3                                        */
+	/* ========================================================== */
+	create unique index FMC_GEN_PK on FMC_GEN (numero, cle)
+	create index FMC_GEN_FK1 on FMC_GEN (alerte, sit_alerte)
+	create index FMC_GEN_FK2 on FMC_GEN (cause, cle_cause)
+	create index FMC_GEN_FK3 on FMC_GEN (type)
+	create index FMC_GEN_FK4 on FMC_GEN (numero, cle,debut,fin,type)
+	create index FMC_GEN_FK5 on FMC_GEN (numero, cle,cloture,sit)
+	create index FMC_GEN_FK6 on FMC_GEN (numero, cle,cloture,origine_creation)
+	create index FMC_GEN_FK7 on FMC_GEN (numero, cle,sit)
+	end
+
+go

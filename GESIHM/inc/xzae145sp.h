@@ -1,0 +1,1 @@
+define XZAE145_Archive_Situation_Strada	"XZAE145"

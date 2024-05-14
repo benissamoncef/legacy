@@ -1,0 +1,224 @@
+/*E*/
+/* Fichier : $Id: dedi_ec5_bloquees.am,v 1.1 1995/05/24 10:15:35 gesconf Exp $	      Release : $Revision: 1.1 $        Date : $Date: 1995/05/24 10:15:35 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec5_bloquees.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* formulation element heure de bloquees pour message TFM
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	06 fev 1994	: Creation						V1.1
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+VAR		tm_var
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition de la formulation
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec5_bloquees ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice
+var vl_selection
+var tl_data
+var tl_pokes
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec5_bloquees")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,0)
+DB_YPOS@(vl_fenetre,57)
+DB_WIDTH@(vl_fenetre,1260)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec5_bloquees_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*A valide*/
+			ec5_bloquees_valide(vl_fenetre)
+			RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec5_bloquees_init(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A chargement des donnees depuis le fichier de config*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_BLOQUEES_TFM)
+
+	/*A affiche les textes*/
+	DB_CTRL_VALUE@(va_fenetre,"BS_accident_aucune",tl_data[0])
+	DB_CTRL_VALUE@(va_fenetre,"BS_incident_aucune",tl_data[1])
+	DB_CTRL_VALUE@(va_fenetre,"BS_accident",tl_data[2])
+	DB_CTRL_VALUE@(va_fenetre,"BS_incident",tl_data[3])
+	DB_CTRL_VALUE@(va_fenetre,"BS_fin",tl_data[19])
+
+	/*A voies*/
+	FOR vl_indice=4 TO 18
+		DB_CTRL_VALUE@(va_fenetre,"BS_"++(vl_indice-3),tl_data[vl_indice])
+	NEXT vl_indice
+
+	/*A sens inverse*/
+	DB_CTRL_VALUE@(va_fenetre,"BS_accident_inverse",tl_data[20])
+	DB_CTRL_VALUE@(va_fenetre,"BS_incident_inverse",tl_data[21])
+	DB_CTRL_VALUE@(va_fenetre,"BS_fin_inverse",tl_data[37])
+	DB_CTRL_VALUE@(va_fenetre,"BS_fin_inverse",tl_data[37])
+
+	/*A voies inverse*/
+	FOR vl_indice=22 TO 36
+		DB_CTRL_VALUE@(va_fenetre,"BS_"++(vl_indice-6)++"_inv",tl_data[vl_indice])
+	NEXT vl_indice
+
+ENDFUNCTION
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec5_bloquees_valide(va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR tl_infos
+
+	/*A affiche les textes*/
+	tl_data[0]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_accident_aucune")
+	tl_data[1]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_incident_aucune")
+	tl_data[2]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_accident")
+	tl_data[3]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_incident")
+	tl_data[19]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_fin")
+
+	/*A voies*/
+	FOR vl_indice=4 TO 18
+		tl_data[vl_indice]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_"++(vl_indice-3))
+	NEXT vl_indice
+
+	/*A sens inverse*/
+	tl_data[20]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_accident_inverse")
+	tl_data[21]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_incident_inverse")
+	tl_data[37]=DB_CTRL_GET_VALUE@(va_fenetre,"BS_fin_inverse")
+
+	/*A voies inverse*/
+	FOR vl_indice=22 TO 36
+		tl_data[vl_indice]=DB_CTRL_GET_VALUE@(va_fenetre,
+									"BS_"++(vl_indice-6)++"_inv")
+	NEXT vl_indice
+
+	/*A genere le fichier*/
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_BLOQUEES_TFM,tl_data)
+
+ENDFUNCTION

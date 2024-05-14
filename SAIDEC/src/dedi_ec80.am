@@ -1,0 +1,260 @@
+/*E*/
+/* Fichier : $Id: dedi_ec80.am,v 1.2 2000/12/11 14:36:49 gesconf Exp $	      Release : $Revision: 1.2 $        Date : $Date: 2000/12/11 14:36:49 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec80.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* definition des messages pmv de temps de parcours 
+*   non lie a un evenement sur et hors section courante
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	14 jan 1997	: Creation						V1.1
+* Guilhou	15 nov 2000	: inhibition qq fct PMV 1.2
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+VAR FORMAT dedi_tdp_pmv 	tm_msg
+VAR 				tm_pmv
+VAR FORMAT dedi_picto		tm_pictos
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* gerer la boite de definition des messages PMV de tdp non lie a un evt
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec80 ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_indice, vl_i
+var vl_selection
+var tl_data
+var vl_nom
+var vl_elt1
+var vl_nomInitial
+var tl_pokes
+var vl_pos
+var tl_pictos_interdits
+var vl_rang_picto
+
+/* initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec80")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,5)
+DB_YPOS@(vl_fenetre,72)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec80_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			ec80_valide(vl_fenetre)
+			RETURN
+			
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN
+	
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec80_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_titre_objs
+VAR tl_data
+VAR vl_indice
+
+	/*A affichage des variables autorisees pour le bandeau*/
+	tl_data[0]="DISTANCE"
+	DB_CTRL_STRINGS@(va_fenetre,"BL_var",tl_data)
+
+	/*A initialisation de la liste des pmv */
+	tm_pmv = "", "le premier PMV en amont", "le deuxieme PMV en amont", "le troisieme PMV en amont(inhibe)", "le PMV en amont de l'aire precedente", "le PMV en amont de la sortie precedente", "les PMV en amont", "le premier PMV en aval(inhibe)", "les 2 PMV eligibles en amont"
+
+	/*A affiche et active la liste des pmv*/
+	DB_CTRL_STRINGS@(va_fenetre, "BO_pmv_section", tm_pmv)
+	DB_CTRL_STRINGS@(va_fenetre, "BO_pmv_hors_section", tm_pmv)
+
+	/*A initialisation de la liste des pictos */
+	tm_pictos = SYSTEM_VAR@(vg_pictos)
+	DB_CTRL_STRINGS@(va_fenetre, "BO_picto_section", ARRAY_COLUMN@(tm_pictos, 1))
+	DB_CTRL_STRINGS@(va_fenetre, "BO_picto_hors_section",
+					 ARRAY_COLUMN@(tm_pictos, 1))
+
+	/*lecture du fichier de donnees*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_TDP_PMV)
+
+	for vl_indice=0 to 1
+		tm_msg[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],DEDI_CAR_SEPAR)
+	next vl_indice
+
+	/*affiche des caracteristiques des msg temps de parcours*/
+	vl_indice=ARRAY_INDEX@(tm_pmv,tm_msg[0].pmv)
+	DB_CTRL_VALUE@(va_fenetre,"BO_pmv_section",vl_indice)
+	vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_pictos,0),tm_msg[0].picto)
+	DB_CTRL_VALUE@(va_fenetre,"BO_picto_section",vl_indice)
+	DB_CTRL_VALUE@(va_fenetre,"BS_ligne_section",tm_msg[0].texte)
+	DB_CTRL_VALUE@(va_fenetre,"BS_priorite_section",tm_msg[0].priorite)
+	DB_CTRL_VALUE@(va_fenetre,"BS_bandeau_section",tm_msg[0].bandeau)
+
+	vl_indice=ARRAY_INDEX@(tm_pmv,tm_msg[1].pmv)
+	DB_CTRL_VALUE@(va_fenetre,"BO_pmv_hors_section",vl_indice)
+	vl_indice=ARRAY_INDEX@(ARRAY_COLUMN@(tm_pictos,0),tm_msg[1].picto)
+	DB_CTRL_VALUE@(va_fenetre,"BO_picto_hors_section",vl_indice)
+	DB_CTRL_VALUE@(va_fenetre,"BS_ligne_hors_section",tm_msg[1].texte)
+	DB_CTRL_VALUE@(va_fenetre,"BS_priorite_hors_section",tm_msg[1].priorite)
+	DB_CTRL_VALUE@(va_fenetre,"BS_bandeau_hors_section",tm_msg[1].bandeau)
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation des objectifs
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec80_valide (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* verifie que toutes les perturb ont un objectif au moins
+* verifie que tous les objectifs sont au moins associes a une perturbation
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice, vl_ok
+
+	/*A curseur devient une montre*/
+	MACRO_WINS_BUSY@()
+
+	/*recuperation de ce qui est dans la boite*/
+	vl_indice=DB_CTRL_GET_VALUE@(va_fenetre, "BO_pmv_section")
+	tm_msg[0].pmv=tm_pmv[vl_indice]
+	vl_indice=DB_CTRL_GET_VALUE@(va_fenetre,"BO_picto_section")
+	tm_msg[0].picto=tm_pictos[vl_indice][0]
+	tm_msg[0].priorite=DB_CTRL_GET_VALUE@(va_fenetre,"BS_priorite_section")
+	tm_msg[0].bandeau=DB_CTRL_GET_VALUE@(va_fenetre,"BS_bandeau_section")
+	tm_msg[0].texte=DB_CTRL_GET_VALUE@(va_fenetre,"BS_ligne_section")
+
+	vl_indice=DB_CTRL_GET_VALUE@(va_fenetre, "BO_pmv_hors_section")
+	tm_msg[1].pmv=tm_pmv[vl_indice]
+	vl_indice=DB_CTRL_GET_VALUE@(va_fenetre,"BO_picto_hors_section")
+	tm_msg[1].picto=tm_pictos[vl_indice][0]
+	tm_msg[1].priorite=DB_CTRL_GET_VALUE@(va_fenetre,"BS_priorite_hors_section")
+	tm_msg[1].bandeau=DB_CTRL_GET_VALUE@(va_fenetre,"BS_bandeau_hors_section")
+	tm_msg[1].texte=DB_CTRL_GET_VALUE@(va_fenetre,"BS_ligne_hors_section")
+
+
+	/*A on genere le fichier de config*/
+	FOR vl_indice=0 TO 1	
+		/*A transforme la ligne de donnees en une chaine*/
+		tl_data[vl_indice]=ARRAY_TO_STRING@(tm_msg[vl_indice],
+								DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_TDP_PMV,tl_data)
+
+	RETURN (vl_ok)
+ENDMACRO
+
+
+

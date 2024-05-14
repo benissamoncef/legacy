@@ -1,0 +1,799 @@
+/*E*/
+/* Fichier : $Id: ITMA_TSAGA_Lecture_Etat_SAGA.am,v 1.1 2017/03/31 18:02:51 pc2dpdy Exp $    Release : $Revision: 1.1 $       Date : $Date: 2017/03/31 18:02:51 $
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_COM * FICHIER ITMA_TSAGA_Lecture_Etat_SAGA.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Fonctions communes au module MTPM.
+*
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* JMG	16/06/05	: Creation                              V1.1
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TAR.h"
+INCLUDE "../inc/ITMA_TDO.h"
+INCLUDE "../inc/ITMA_PMV_format.h"
+INCLUDE "../inc/ITMA_TSAGA_pilotage_PMV.h"
+INCLUDE "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE "../inc/xzat150sp.h"
+INCLUDE "../inc/xzac182sp.h"
+INCLUDE "../inc/xzac185sp.h"
+INCLUDE "../inc/xzac683sp.h"
+INCLUDE "../inc/xzap34sp.h"
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture en base de l'état d'un eqt SAGA
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TSAGA_Lecture_Etat_SAGA (va_mode_formation,
+				 FORMAT  T_commande va_pmv,va_maj_etat,
+				 va_module)
+
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*   aucun
+*
+*
+* ARGUMENTS EN SORTIE	: 
+*	va_PMV	: Etat d'affichage du PMV
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   Appel XZAT05_Utilisation_PMV.
+*
+---------------------------------------------------------------------------- */
+
+
+	VAR	vl_lib_fmc		' libellé fmc
+	var	vl_tptext			' zone de text tampon
+	VAR	vl_horodate
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+	va_pmv.Horodate = COM09_Date_Courante()
+
+	/*A Définition de vl_parametres */
+	vl_parametres[0].type	= SYB#DATETIME_
+	if NOT va_mode_formation
+		vl_parametres[0].data	= NULL
+	else
+	{
+		vl_horodate = SYSTEM_VAR@(vg_Horodate_Formation)
+		vl_parametres[0].data	= vl_horodate
+	}
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type	= SYB#INT1_
+	vl_parametres[1].data	= va_pmv.numero_eqt+0
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT2_
+	vl_parametres[2].data	= 0			' Dispo PMV
+	vl_parametres[2].output	= TRUE
+
+	vl_parametres[3].type	= SYB#CHAR_
+	vl_parametres[3].data	= 0			' Message Ligne 1
+	vl_parametres[3].output	= TRUE
+
+	vl_parametres[4].type	= SYB#CHAR_
+	vl_parametres[4].data	= 0			' Message Ligne 2
+	vl_parametres[4].output	= TRUE
+
+	vl_parametres[5].type	= SYB#CHAR_
+	vl_parametres[5].data	= 0			' Message Ligne 3
+	vl_parametres[5].output	= TRUE
+
+	vl_parametres[6].type	= SYB#CHAR_
+	vl_parametres[6].data	= 0			' Message Ligne 4
+	vl_parametres[6].output	= TRUE
+
+	vl_parametres[7].type	= SYB#CHAR_
+	vl_parametres[7].data	= 0			' Message Ligne 5
+	vl_parametres[7].output	= TRUE
+
+	vl_parametres[8].type	= SYB#CHAR_
+	vl_parametres[8].data	= 0			' Message Alternat 1
+	vl_parametres[8].output	= TRUE
+
+	vl_parametres[9].type	= SYB#CHAR_
+	vl_parametres[9].data	= 0			' Message Alternat 2
+	vl_parametres[9].output	= TRUE
+
+	vl_parametres[10].type	= SYB#CHAR_
+	vl_parametres[10].data	= 0			' Message Alternat 3
+	vl_parametres[10].output	= TRUE
+
+	vl_parametres[11].type	= SYB#CHAR_
+	vl_parametres[11].data	= 0			' Message Alternat 4
+	vl_parametres[11].output	= TRUE
+
+	vl_parametres[12].type	= SYB#CHAR_
+	vl_parametres[12].data	= 0			' Message Alternat 5
+	vl_parametres[12].output	= TRUE
+
+	vl_parametres[13].type	= SYB#BIT_
+	vl_parametres[13].data	= 0			' Clignot 
+	vl_parametres[13].output	= TRUE
+
+	vl_parametres[14].type	= SYB#CHAR_
+	vl_parametres[14].data	= 0			' picto 
+	vl_parametres[14].output	= TRUE
+
+	vl_parametres[15].type	= SYB#INT2_
+	vl_parametres[15].data	= 0			' luminosite
+	vl_parametres[15].output	= TRUE
+
+	vl_parametres[16].type	= SYB#CHAR_
+	vl_parametres[16].data	= 0			'  bandeau
+	vl_parametres[16].output	= TRUE
+
+	vl_parametres[17].type	= SYB#INT2_
+	vl_parametres[17].data	= 0			'  barriere
+	vl_parametres[17].output	= TRUE
+
+	vl_parametres[18].type	= SYB#INT2_
+	vl_parametres[18].data	= 0			' scenario
+	vl_parametres[18].output	= TRUE
+
+
+	vl_parametres[19].type	= SYB#INT4_
+	vl_parametres[19].data	= 0			' N° Evt
+	vl_parametres[19].output	= TRUE
+
+	vl_parametres[20].type	= SYB#INT2_
+	vl_parametres[20].data	= 0			' Clé Evt
+	vl_parametres[20].output	= TRUE
+
+	vl_parametres[21].type	= SYB#INT2_
+	vl_parametres[21].data	= 0			' Priorité
+	vl_parametres[21].output	= TRUE
+
+	vl_parametres[22].type	= SYB#INT4_
+	vl_parametres[22].data	= 0			' Distance Evt
+	vl_parametres[22].output	= TRUE
+
+	vl_parametres[23].type	= SYB#INT4_
+	vl_parametres[23].data	= 0			' N° Action
+	vl_parametres[23].output	= TRUE
+
+	vl_parametres[24].type	= SYB#INT1_
+	vl_parametres[24].data	= 0			' N° Site Action
+	vl_parametres[24].output	= TRUE
+'dump_array@(vl_parametres,3)
+	/*A Exécution de la procedure XZAT150_Utilisation_Eqt_SAGA */
+	IF COM05_SQL_Procedure 
+			(XZAT150_Utilisation_Eqt_SAGA,vl_parametres,vl_resultats,va_module)
+			 <> COM_OK
+    			RETURN (COM_NOK)
+
+	/*A MAJ de la table PMV avec les arguments de sorties */
+	va_PMV.Dispo=	vl_resultats.return_parameters[0]
+
+	/*A si va_PMV.NumeroAction : MAJ avec lecture base */
+	if (va_maj_etat) 
+	{
+		va_PMV.ligne1	= SUBSTRING@(vl_resultats.return_parameters[1],1,18)
+	  	va_PMV.ligne2 	= SUBSTRING@(vl_resultats.return_parameters[2],1,18)
+	  	va_PMV.ligne3 	= SUBSTRING@(vl_resultats.return_parameters[3],1,18)
+	  	va_PMV.ligne4 	= SUBSTRING@(vl_resultats.return_parameters[4],1,18)
+	  	va_PMV.ligne5 	= SUBSTRING@(vl_resultats.return_parameters[5],1,18)
+	  	va_PMV.Alternat1 	= SUBSTRING@(vl_resultats.return_parameters[6],1,18)
+	  	va_PMV.Alternat2 	= SUBSTRING@(vl_resultats.return_parameters[7],1,18)
+	  	va_PMV.Alternat3 	= SUBSTRING@(vl_resultats.return_parameters[8],1,18)
+	  	va_PMV.Alternat4 	= SUBSTRING@(vl_resultats.return_parameters[9],1,18)
+	  	va_PMV.Alternat5 	= SUBSTRING@(vl_resultats.return_parameters[10],1,18)
+  	 	va_PMV.Clignotement	= vl_resultats.return_parameters[11] + 0
+	  	va_PMV.Picto 	= SUBSTRING@(vl_resultats.return_parameters[12],1,10)
+  	 	va_PMV.Luminosite	= vl_resultats.return_parameters[13] + 0
+	  	va_PMV.Bandeau 	= SUBSTRING@(vl_resultats.return_parameters[14],1,10)
+		 va_PMV.Barriere       = vl_resultats.return_parameters[15] + 0
+		  va_PMV.Scenario       = vl_resultats.return_parameters[16] + 0
+	}
+
+	/*A MAJ avec base du n° Evt + Clé & NumAction */
+	va_PMV.Numero_Evt		=	vl_resultats.return_parameters[17]+0
+	va_PMV.Cle_Evt			=	vl_resultats.return_parameters[18]+0
+	va_PMV.Priorite		=	vl_resultats.return_parameters[19]
+	va_PMV.Distance		=	vl_resultats.return_parameters[20]
+	va_PMV.NumeroAction		=	vl_resultats.return_parameters[21]
+
+	if va_PMV.Numero_Evt<>0 and  va_PMV.Cle_Evt<>0
+	{
+		/*A MAJ du libellé fmc */
+		ITMA_COM_Lire_Evenement ( 
+					va_PMV.Numero_Evt,
+					va_PMV.Cle_Evt, 
+					vl_lib_fmc, 
+					va_module)
+		va_PMV.fmc_liee = COM11_Libelle_FMC(vl_lib_fmc)
+	}
+	else	va_PMV.fmc_liee = "Pas de libellé F.M.C"
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+ 
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner �  l'état des PMV et des PICTO.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TSAGA_Abt_Etat_SAGA( va_NomSite )
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomSite		:	Nom du site
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TPM
+*
+* FONCTION :
+*	Permet de s'abonner �  l'état des PMV et des PICTO.
+* ------------------------------------------------------------------------------- */
+
+	VAR	vl_cmd
+
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=1			
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA180  
+
+	/*B arguments */
+	vl_cmd[3]= XDC_DEBUT_ABONNEMENT_EQUEXT ++ MTAR_CAR_SEPAR ++ va_NomSite
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+
+/*B code retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+FUNCTION ITMA_TSAGA_init_commande()
+VAR FORMAT T_commande vl_cmd
+	
+	vl_cmd.horodate=NULL
+	vl_cmd.numero_evt= 0
+	vl_cmd.cle_evt = 0
+	vl_cmd.operateur = 0
+	vl_cmd.numero_eqt = 0
+	vl_cmd.site = SYSTEM_VAR@(vg_site)
+	vl_cmd.ligne1=NULL
+	vl_cmd.ligne2=NULL
+	vl_cmd.ligne3=NULL
+	vl_cmd.ligne4=NULL
+	vl_cmd.ligne5=NULL
+	vl_cmd.alternat1=NULL
+	vl_cmd.alternat2=NULL
+	vl_cmd.alternat3=NULL
+	vl_cmd.alternat4=NULL
+	vl_cmd.alternat5=NULL
+	vl_cmd.clignotement = XDC_FAUX
+	vl_cmd.picto = 0
+	vl_cmd.luminosite = 0
+	vl_cmd.bandeau=NULL
+	vl_cmd.barriere = 0
+	vl_cmd.scenario = 0
+	vl_cmd.priorite = 0
+	vl_cmd.distance= 0
+	vl_cmd.site_origine = SYSTEM_VAR@(vg_site)
+	vl_cmd.numeroaction=0
+  return (vl_cmd)
+ENDFUNCTION
+
+
+
+FUNCTION ITMA_TSAGA_commander(FORMAT T_commande va_commande)
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR FORMAT T_commande vl_cmd
+
+	vl_cmd = va_commande
+	vl_cmd.horodate = COM09_Date_Courante()
+	vl_cmd.operateur = SYSTEM_VAR@("vg_numero_poste")
+
+
+	vl_parametres[0].type	= SYB#DATETIME_
+	vl_parametres[0].data	= vl_cmd.Horodate
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type	= SYB#INT4_
+	vl_parametres[1].data	= vl_cmd.Numero_Evt
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT1_
+	vl_parametres[2].data	= vl_cmd.Cle_Evt
+	vl_parametres[2].output	= FALSE
+
+	vl_parametres[3].type	= SYB#INT2_
+	vl_parametres[3].data	= vl_cmd.Operateur
+	vl_parametres[3].output	= FALSE
+
+	vl_parametres[4].type	= SYB#INT2_
+	vl_parametres[4].data	= vl_cmd.Numero_Eqt
+	vl_parametres[4].output	= FALSE
+
+	vl_parametres[5].type	= SYB#INT4_
+	vl_parametres[5].data	= XDC_DP
+	vl_parametres[5].output	= FALSE
+
+	vl_parametres[6].type	= SYB#CHAR_
+	vl_parametres[6].data	= vl_cmd.ligne1
+	vl_parametres[6].output	= FALSE
+
+	vl_parametres[7].type	= SYB#CHAR_
+	vl_parametres[7].data	= vl_cmd.ligne2
+	vl_parametres[7].output	= FALSE
+
+	vl_parametres[8].type	= SYB#CHAR_
+	vl_parametres[8].data	= vl_cmd.ligne3
+	vl_parametres[8].output	= FALSE
+
+	vl_parametres[9].type	= SYB#CHAR_
+	vl_parametres[9].data	= vl_cmd.ligne4
+	vl_parametres[9].output	= FALSE
+
+	vl_parametres[10].type	= SYB#CHAR_
+	vl_parametres[10].data	= vl_cmd.ligne5
+	vl_parametres[10].output	= FALSE
+
+	vl_parametres[11].type	= SYB#CHAR_
+	vl_parametres[11].data	= vl_cmd.Alternat1
+	vl_parametres[11].output	= FALSE
+
+	vl_parametres[12].type	= SYB#CHAR_
+	vl_parametres[12].data	= vl_cmd.Alternat2
+	vl_parametres[12].output	= FALSE
+
+	vl_parametres[13].type	= SYB#CHAR_
+	vl_parametres[13].data	= vl_cmd.Alternat3
+	vl_parametres[13].output	= FALSE
+
+	vl_parametres[14].type	= SYB#CHAR_
+	vl_parametres[14].data	= vl_cmd.Alternat4
+	vl_parametres[14].output	= FALSE
+
+	vl_parametres[15].type	= SYB#CHAR_
+	vl_parametres[15].data	= vl_cmd.Alternat5
+	vl_parametres[15].output	= FALSE
+
+	vl_parametres[16].type	= SYB#INT1_
+	vl_parametres[16].data	= vl_cmd.Clignotement
+	vl_parametres[16].output	= FALSE
+
+	vl_parametres[17].type	= SYB#CHAR_
+	vl_parametres[17].data	= vl_cmd.picto
+	vl_parametres[17].output	= FALSE
+
+	vl_parametres[18].type	= SYB#INT1_
+	vl_parametres[18].data	= vl_cmd.Luminosite
+	vl_parametres[18].output	= FALSE
+
+	vl_parametres[19].type	= SYB#CHAR_
+	vl_parametres[19].data	= vl_cmd.Bandeau
+	vl_parametres[19].output	= FALSE
+
+	vl_parametres[20].type	= SYB#INT2_
+	vl_parametres[20].data	= vl_cmd.barriere
+	vl_parametres[20].output	= FALSE
+
+	vl_parametres[21].type	= SYB#INT1_
+	vl_parametres[21].data	= vl_cmd.scenario
+	vl_parametres[21].output	= FALSE
+
+	vl_parametres[22].type	= SYB#INT4_
+	vl_parametres[22].data	= vl_cmd.Priorite
+	vl_parametres[22].output	= FALSE
+
+
+	vl_parametres[23].type  = SYB#INT4_
+	vl_parametres[23].data  = vl_cmd.Distance
+	vl_parametres[23].output        = FALSE
+
+
+	vl_parametres[24].type  = SYB#INT4_
+	vl_parametres[24].data  = SYSTEM_VAR@(vg_site)
+	vl_parametres[24].output        = FALSE
+
+	IF COM05_SQL_Procedure
+		(XZAC182_Commande_Eqt_SAGA,vl_parametres,vl_resultats,"ITMA_SAGA") <> COM_OK
+		{
+				RETURN (COM_NOK)
+		}
+
+	vl_cmd.NumeroAction = vl_resultats.return_parameters[0]
+
+
+	va_commande = vl_cmd
+
+	RETURN (COM_OK)
+
+
+
+ENDFUNCTION
+
+
+
+
+FUNCTION ITMA_TSAGA_commander_fin(FORMAT T_commande va_commande)
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR FORMAT T_commande vl_cmd
+
+	vl_cmd = va_commande
+	vl_cmd.horodate = COM09_Date_Courante()
+	vl_cmd.operateur = SYSTEM_VAR@("vg_numero_poste")
+
+
+	vl_parametres[0].type	= SYB#DATETIME_
+	vl_parametres[0].data	= vl_cmd.Horodate
+	vl_parametres[0].output	= FALSE
+
+	vl_parametres[1].type	= SYB#INT4_
+	vl_parametres[1].data	= vl_cmd.Numero_Evt
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT1_
+	vl_parametres[2].data	= vl_cmd.Cle_Evt
+	vl_parametres[2].output	= FALSE
+
+	vl_parametres[3].type	= SYB#INT2_
+	vl_parametres[3].data	= vl_cmd.Operateur
+	vl_parametres[3].output	= FALSE
+
+	vl_parametres[4].type	= SYB#INT2_
+	vl_parametres[4].data	= vl_cmd.Numero_Eqt
+	vl_parametres[4].output	= FALSE
+
+	vl_parametres[5].type	= SYB#INT4_
+	vl_parametres[5].data	= XDC_DP
+	vl_parametres[5].output	= FALSE
+
+	vl_parametres[6].type	= SYB#CHAR_
+	vl_parametres[6].data	= vl_cmd.ligne1
+	vl_parametres[6].output	= FALSE
+
+	vl_parametres[7].type	= SYB#CHAR_
+	vl_parametres[7].data	= vl_cmd.ligne2
+	vl_parametres[7].output	= FALSE
+
+	vl_parametres[8].type	= SYB#CHAR_
+	vl_parametres[8].data	= vl_cmd.ligne3
+	vl_parametres[8].output	= FALSE
+
+	vl_parametres[9].type	= SYB#CHAR_
+	vl_parametres[9].data	= vl_cmd.ligne4
+	vl_parametres[9].output	= FALSE
+
+	vl_parametres[10].type	= SYB#CHAR_
+	vl_parametres[10].data	= vl_cmd.ligne5
+	vl_parametres[10].output	= FALSE
+
+	vl_parametres[11].type	= SYB#CHAR_
+	vl_parametres[11].data	= vl_cmd.Alternat1
+	vl_parametres[11].output	= FALSE
+
+	vl_parametres[12].type	= SYB#CHAR_
+	vl_parametres[12].data	= vl_cmd.Alternat2
+	vl_parametres[12].output	= FALSE
+
+	vl_parametres[13].type	= SYB#CHAR_
+	vl_parametres[13].data	= vl_cmd.Alternat3
+	vl_parametres[13].output	= FALSE
+
+	vl_parametres[14].type	= SYB#CHAR_
+	vl_parametres[14].data	= vl_cmd.Alternat4
+	vl_parametres[14].output	= FALSE
+
+	vl_parametres[15].type	= SYB#CHAR_
+	vl_parametres[15].data	= vl_cmd.Alternat5
+	vl_parametres[15].output	= FALSE
+
+	vl_parametres[16].type	= SYB#INT1_
+	vl_parametres[16].data	= vl_cmd.Clignotement
+	vl_parametres[16].output	= FALSE
+
+	vl_parametres[17].type	= SYB#CHAR_
+	vl_parametres[17].data	= vl_cmd.picto
+	vl_parametres[17].output	= FALSE
+
+	vl_parametres[18].type	= SYB#INT1_
+	vl_parametres[18].data	= vl_cmd.Luminosite
+	vl_parametres[18].output	= FALSE
+
+	vl_parametres[19].type	= SYB#CHAR_
+	vl_parametres[19].data	= vl_cmd.Bandeau
+	vl_parametres[19].output	= FALSE
+
+	vl_parametres[20].type	= SYB#INT2_
+	vl_parametres[20].data	= vl_cmd.barriere
+	vl_parametres[20].output	= FALSE
+
+	vl_parametres[21].type	= SYB#INT1_
+	vl_parametres[21].data	= vl_cmd.Scenario
+	vl_parametres[21].output	= FALSE
+
+	vl_parametres[22].type	= SYB#INT4_
+	vl_parametres[22].data	= vl_cmd.Priorite
+	vl_parametres[22].output	= FALSE
+
+
+	vl_parametres[23].type  = SYB#INT4_
+	vl_parametres[23].data  = vl_cmd.Distance
+	vl_parametres[23].output        = FALSE
+
+	vl_parametres[24].type  = SYB#INT4_
+	vl_parametres[24].data  = SYSTEM_VAR@(vg_site)
+	vl_parametres[24].output        = FALSE
+
+	IF COM05_SQL_Procedure
+		(XZAC683_Commande_Fin_Eqt_SAGA,vl_parametres,vl_resultats,"ITMA_SAGA") <> COM_OK
+		{
+				RETURN (COM_NOK)
+		}
+
+	RETURN (COM_OK)
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Lecture en base de l'état d'un eqt SAGA
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TSAGA_Lecture_Commande (va_numero, va_sit,
+				 FORMAT  T_commande va_pmv,
+				 va_module)
+
+
+/*
+* ARGUMENTS EN ENTREE 	:
+*   aucun
+*
+*
+* ARGUMENTS EN SORTIE	: 
+*	va_PMV	: Etat d'affichage du PMV
+*
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+*
+* CONDITION D'UTILISATION
+*   ITMA_PMV
+*
+*
+* FONCTION
+*   Appel XZAT05_Utilisation_PMV.
+*
+---------------------------------------------------------------------------- */
+
+
+	VAR	vl_lib_fmc		' libellé fmc
+	var	vl_tptext			' zone de text tampon
+	VAR	vl_horodate
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	vl_parametres[0].type	= SYB#INT4_
+	vl_parametres[0].output	= FALSE
+	vl_parametres[0].data	= va_numero
+
+	vl_parametres[1].type	= SYB#INT1_
+	vl_parametres[1].data	= va_sit
+	vl_parametres[1].output	= FALSE
+
+	vl_parametres[2].type	= SYB#INT2_
+	vl_parametres[2].data	= 0			'  num eqt
+	vl_parametres[2].output	= TRUE
+
+	vl_parametres[3].type	= SYB#CHAR_
+	vl_parametres[3].data	= 0			' Message Ligne 1
+	vl_parametres[3].output	= TRUE
+
+	vl_parametres[4].type	= SYB#CHAR_
+	vl_parametres[4].data	= 0			' Message Ligne 2
+	vl_parametres[4].output	= TRUE
+
+	vl_parametres[5].type	= SYB#CHAR_
+	vl_parametres[5].data	= 0			' Message Ligne 3
+	vl_parametres[5].output	= TRUE
+
+	vl_parametres[6].type	= SYB#CHAR_
+	vl_parametres[6].data	= 0			' Message Ligne 4
+	vl_parametres[6].output	= TRUE
+
+	vl_parametres[7].type	= SYB#CHAR_
+	vl_parametres[7].data	= 0			' Message Ligne 5
+	vl_parametres[7].output	= TRUE
+
+	vl_parametres[8].type	= SYB#CHAR_
+	vl_parametres[8].data	= 0			' Message Alternat 1
+	vl_parametres[8].output	= TRUE
+
+	vl_parametres[9].type	= SYB#CHAR_
+	vl_parametres[9].data	= 0			' Message Alternat 2
+	vl_parametres[9].output	= TRUE
+
+	vl_parametres[10].type	= SYB#CHAR_
+	vl_parametres[10].data	= 0			' Message Alternat 3
+	vl_parametres[10].output	= TRUE
+
+	vl_parametres[11].type	= SYB#CHAR_
+	vl_parametres[11].data	= 0			' Message Alternat 4
+	vl_parametres[11].output	= TRUE
+
+	vl_parametres[12].type	= SYB#CHAR_
+	vl_parametres[12].data	= 0			' Message Alternat 5
+	vl_parametres[12].output	= TRUE
+
+	vl_parametres[13].type	= SYB#BIT_
+	vl_parametres[13].data	= 0			' Clignot 
+	vl_parametres[13].output	= TRUE
+
+	vl_parametres[14].type	= SYB#CHAR_
+	vl_parametres[14].data	= 0			' picto 
+	vl_parametres[14].output	= TRUE
+
+	vl_parametres[15].type	= SYB#INT2_
+	vl_parametres[15].data	= 0			' luminosite
+	vl_parametres[15].output	= TRUE
+
+	vl_parametres[16].type	= SYB#CHAR_
+	vl_parametres[16].data	= 0			'  bandeau
+	vl_parametres[16].output	= TRUE
+
+	vl_parametres[17].type	= SYB#INT2_
+	vl_parametres[17].data	= 0			'  barriere
+	vl_parametres[17].output	= TRUE
+
+	vl_parametres[18].type	= SYB#INT2_
+	vl_parametres[18].data	= 0			' scenario
+	vl_parametres[18].output	= TRUE
+
+
+	vl_parametres[19].type	= SYB#DATETIME_ 
+	vl_parametres[19].data	= 0			'  lancement
+	vl_parametres[19].output	= TRUE
+
+	vl_parametres[20].type	= SYB#DATETIME_
+	vl_parametres[20].data	= 0			'  lancement fin
+	vl_parametres[20].output	= TRUE
+
+	vl_parametres[21].type	= SYB#DATETIME_
+	vl_parametres[21].data	= 0			' succes
+	vl_parametres[21].output	= TRUE
+
+	vl_parametres[22].type	= SYB#DATETIME_
+	vl_parametres[22].data	= 0			'  ecehc
+	vl_parametres[22].output	= TRUE
+
+	vl_parametres[23].type	= SYB#DATETIME_
+	vl_parametres[23].data	= 0			' fin
+	vl_parametres[23].output	= TRUE
+
+'dump_array@(vl_parametres,3)
+	/*A Exécution de la procedure XZAT150_Utilisation_Eqt_SAGA */
+	IF COM05_SQL_Procedure 
+			(XZAC185_lire_Commande_eqt_SAGA,vl_parametres,vl_resultats,va_module)
+			 <> COM_OK
+    			RETURN (COM_NOK)
+
+	/*A si va_PMV.NumeroAction : MAJ avec lecture base */
+		va_PMV.Numero_Eqt = vl_resultats.return_parameters[0]+0
+		va_PMV.ligne1	= SUBSTRING@(vl_resultats.return_parameters[1],1,18)
+	  	va_PMV.ligne2 	= SUBSTRING@(vl_resultats.return_parameters[2],1,18)
+	  	va_PMV.ligne3 	= SUBSTRING@(vl_resultats.return_parameters[3],1,18)
+	  	va_PMV.ligne4 	= SUBSTRING@(vl_resultats.return_parameters[4],1,18)
+	  	va_PMV.ligne5 	= SUBSTRING@(vl_resultats.return_parameters[5],1,18)
+	  	va_PMV.Alternat1 	= SUBSTRING@(vl_resultats.return_parameters[6],1,18)
+	  	va_PMV.Alternat2 	= SUBSTRING@(vl_resultats.return_parameters[7],1,18)
+	  	va_PMV.Alternat3 	= SUBSTRING@(vl_resultats.return_parameters[8],1,18)
+	  	va_PMV.Alternat4 	= SUBSTRING@(vl_resultats.return_parameters[9],1,18)
+	  	va_PMV.Alternat5 	= SUBSTRING@(vl_resultats.return_parameters[10],1,18)
+  	 	va_PMV.Clignotement	= vl_resultats.return_parameters[11] + 0
+	  	va_PMV.Picto 	= SUBSTRING@(vl_resultats.return_parameters[12],1,10)
+  	 	va_PMV.Luminosite	= vl_resultats.return_parameters[13] + 0
+	  	va_PMV.Bandeau 	= SUBSTRING@(vl_resultats.return_parameters[14],1,10)
+		 va_PMV.Barriere       = vl_resultats.return_parameters[15] + 0
+		  va_PMV.Scenario       = vl_resultats.return_parameters[16] + 0
+		va_PMV.lancement = COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[17])
+		va_PMV.lancement_fin = COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[18])
+		va_PMV.succes = COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[19])
+		va_PMV.echec = COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[20])
+		va_PMV.fin = COM18_Date_SGBD_Formatee(vl_resultats.return_parameters[21])
+	
+
+
+RETURN (COM_OK)
+
+endmacro
+
+macro ITMA_TSAGA_Lire_Prop_PA(va_NumPA,va_Ordre, FORMAT  T_commande va_eqt)
+        VAR     FORMAT SQL_Procedure_Params@ vl_parametres
+        VAR     FORMAT SQL_Procedure_Result@ vl_resultats
+        VAR     vl_select
+        VAR     vl_objet
+	VAR vl_indice
+
+	vl_indice = 0
+
+        vl_parametres[vl_indice].type   = SYB#INT4_
+        vl_parametres[vl_indice].data   = va_NumPA+0
+        vl_parametres[vl_indice].output = FALSE
+
+        vl_indice = vl_indice +1
+
+        vl_parametres[vl_indice].type   = SYB#INT2_
+        vl_parametres[vl_indice].data   = va_Ordre+0
+        vl_parametres[vl_indice].output = FALSE
+
+	IF COM05_SQL_Procedure
+                        (XZAP34_Lire_Prop_SAGA,vl_parametres,vl_resultats,"TSAGA") <> COM_OK
+        {RETURN (COM_NOK)}
+	
+	vl_select = vl_resultats.select_results[0,0]
+        va_eqt.Remarque = vl_select[0]
+        va_eqt.Numero_Eqt   = vl_select[1]+0
+        va_eqt.Explication      = vl_select[2]
+
+	va_eqt.ligne1 = SUBSTRING@(vl_select[3],1,18)
+	va_eqt.ligne2 = SUBSTRING@(vl_select[4],1,18)
+	va_eqt.ligne3 = SUBSTRING@(vl_select[5],1,18)
+	va_eqt.ligne4 = SUBSTRING@(vl_select[6],1,18)
+	va_eqt.ligne5 = SUBSTRING@(vl_select[7],1,18)
+	va_eqt.alternat1 = SUBSTRING@(vl_select[8],1,18)
+	va_eqt.alternat2 = SUBSTRING@(vl_select[9],1,18)
+	va_eqt.alternat3 = SUBSTRING@(vl_select[10],1,18)
+	va_eqt.alternat4 = SUBSTRING@(vl_select[11],1,18)
+	va_eqt.alternat5 = SUBSTRING@(vl_select[12],1,18)
+	va_eqt.clignotement =vl_select[13]
+	va_eqt.picto = TRIM@(vl_select[14])
+	va_eqt.luminosite = vl_select[15]
+	va_eqt.bandeau = SUBSTRING@(vl_select[16],1,6)
+	va_eqt.barriere = vl_select[17]
+	va_eqt.scenario = vl_select[18]
+	va_eqt.priorite = vl_select[19]
+	va_eqt.distance = vl_select[20]
+	va_eqt.type_saga= vl_select[21]
+endmacro

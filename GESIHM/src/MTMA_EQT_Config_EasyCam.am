@@ -1,0 +1,637 @@
+/* Fichier : @(#)MTMA_EQT_Config_EasyCam.am	1.2  Release :1.2     Date : 12/05/96
+------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+------------------------------------------------------------------------
+* SOUS-SYSTEME  MAINTE
+------------------------------------------------------------------------
+* MODULE * FICHIER MTMA_EQT_Config_EasyCam.am
+------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Configuration des equipements dans la base de donnees INFORMIX a 
+*   partir de la base de donnees SYBASE.
+*
+*   INTERFACE entre les SGBDR SYBASE et INFORMIX.
+*
+*   Cf. DCG 2.7
+*
+-----------------------------------------------------------------------
+* HISTORIQUE :
+*
+* B.Gaborit  10 Aout 1995 : creation    V1.1
+* P.Niepceron  05 Dec 1996 : Ajout des equipements METEO et SISMIQUE (DEM/1232) V1.2
+* P.Niepceron  17 Dec 1996 : Correction sur site pour bon fonct V1.3
+* C.Torregrossa 29 Avr 1998 : Ajout des equipements TDP, ZDP, PAL, FAU et FAC V1.4
+* RGR 24/05/19 : Correction is_null
+-------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+
+/*A Description des constantes generales
+ * ------------------------------------- */
+DEFINE	C_MODULE			"MEQT"	' Nom du module
+
+
+/* Parametres de la Connexion SGBDR INFORMIX */
+/* 
+Le vendeur est "Informix", la base de donnees EASYCAM est "isicam'
+et la machine sur laquelle se situe le SE (moteur Informix) est "POCMA"
+*/
+
+DEFINE	COM_NOM_SGBD_IFX	"Informix"
+DEFINE	COM_USER_IFX		""
+DEFINE	COM_MOT_PASSE_IFX	""
+DEFINE	COM_BASE_IFX		"isicam"
+DEFINE	COM_HOTE_IFX		"POCMA"			
+DEFINE	COM_SERVEUR_IFX	""
+
+DEFINE	NOM_ZONE			"SAE"	'Nom de la zone INFORMIX 
+
+/* Fichiers d'inclusion globaux */
+INCLUDE	"../../GESIHM/inc/ITMA_COM.h"
+INCLUDE	"../../GESIHM/inc/ITMA_TDO.h"
+
+/* Variables globales */
+var	vg_canal_SGBD_IFX		'Canal de communication INFORMIX
+var	vg_canal_SGBD_SYB		'Canal de communication SYBASE
+			
+var	vg_Text				'Texte Trace
+
+/*X*/
+/*----------------------------------------------------------------------
+* SERVICE RENDU :	Gestion de la demande creation d'un equipement
+*				 Tache principale 
+*------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO MTMA_EQT_Config_EasyCam()
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant       : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+
+*
+* CODE RETOUR         : XDC_OK en cas d'execution correcte
+*			        XDC_NOK sinon.
+*
+* CONDITION D'UTILISATION
+* Lance par la tache principale APLIX du module GESIHM lors de
+* la demande de config EASY CAM. 
+*
+* FONCTION
+* Interface entre SYBASE et INFORMIX pour la creation des equipements
+* dans le SGBD INFORMIX a partir des equipements de la base de donnees
+* SYBASE (MIGRAZUR).
+*--------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+var	vl_indice			'Compteur de boucle 
+var	vl_Nb_EQT			'Nombre d equipements obtenues
+    VAR					vl_canal_SGBD
+	/*A
+ 	** Traitements en cas d'erreur durant l'initialisation :
+ 	** informer l'operateur, tracer l'erreur et abandonner
+ 	** -----------------------------------------------------
+ 	*/
+	ON ERROR {
+    		ERROR_BOX@
+    		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+			SQL_DISCONNECT@(vg_canal_SGBD_IFX)
+    		RETURN (XDC_NOK)
+	}
+
+	/*A trace debut de macro */
+	vg_text = COM09_Date_Courante() ++ " MEQT()"
+	COM01_Trace(COM_INFO,vg_text)
+
+
+
+
+	/*A
+	* Etablir une connexion SGBD INFORMIX.
+	* ------------------------------------
+	*/
+	vg_canal_SGBD_IFX = SQL_CONNECT@ (COM_NOM_SGBD_IFX,
+							COM_USER_IFX,
+	 						COM_MOT_PASSE_IFX,
+				 			COM_BASE_IFX, 
+							COM_HOTE_IFX, 
+							COM_SERVEUR_IFX)
+	/* Test de la demande de connexion */
+info_message@("apres connect1")
+	if (is_null@(vg_canal_SGBD_IFX) = TRUE)
+	begin
+		vg_text = COM09_Date_Courante() ++ 
+				" MEQT() : Connection Informix impossible ..."
+		COM01_Trace(COM_WARNING,vg_text)
+		return(XDC_NOK)
+	end
+
+	SQL_CHANNEL_MASTER@ (vg_canal_SGBD_IFX, 0)
+
+	/*A trace connexion SGBD */
+	vg_text = COM09_Date_Courante() ++
+		 " MEQT(): Connexion Sybase/Informix faite..."
+	COM01_Trace(COM_DEBUG1,vg_text)
+
+
+	/*A
+	** Recherche de la liste des equipements connus de sybase et pas de informix
+	*/
+
+	/*B
+	** appel de XZMM;01 
+	*/
+IF SYSTEM_VAR@ (vg_canal_SGBD) = NULL {
+    vl_canal_SGBD = SQL_CONNECT@ (COM_NOM_SGBD, COM_USER, COM_MOT_PASSE,
+				 COM_BASE, COM_HOTE, COM_SERVEUR ++ "CI")
+    SQL_CHANNEL_MASTER@ (vl_canal_SGBD, 0)
+    SET_SYSTEM_VAR@ (vg_canal_SGBD, vl_canal_SGBD)
+}
+
+
+	IF (COM05_SQL_Procedure ("XZMM;01",
+			   vl_parametres, vl_resultats,C_MODULE ) <> COM_OK)
+    		RETURN (COM_NOK)
+
+
+	/*A
+	** Boucle sur chaque equipement retourne
+	*/
+
+
+	/* Nombre d'equipements recuperes */
+	if (IS_ARRAY@(vl_resultats.select_results[0]))
+		vl_Nb_EQT = ARRAY_SIZE@(vl_resultats.select_results[0])
+	else vl_Nb_EQT = 0
+
+	/*A S'il exite des equipements */
+	if (vl_Nb_EQT >0 )
+	{		
+		/*A
+		** Pour chaque equipement obtenu.
+		*/
+		for vl_indice = 0 to (vl_Nb_EQT -1)
+
+			MTMA_EQT_Creer( vl_resultats.select_results[0][vl_indice][0],
+						vl_resultats.select_results[0][vl_indice][1])
+
+		next vl_indice	
+	} 	
+	else	/* Il n'existe pas d'equipements */
+	{
+		/* Trace existance equipements */
+		vg_text = COM09_Date_Courante() ++
+			" MTMA_EQT_Config_EasyCam() : Tous les Equipements sont deja configures"
+		COM01_Trace(COM_DEBUG1,vg_text)	
+	}	
+
+	INFO_MESSAGE@("Fin de la configuration Easycam")
+
+	/**************************/
+	/*A Deconnection INFORMIX */
+	SQL_DISCONNECT@(vg_canal_SGBD_IFX)
+
+	/* Trace Fin de tache MEQT */
+	vg_text = COM09_Date_Courante() ++
+		 " MTMA_EQT_Config_Easy_CAM() : Fin de la tache"
+	COM01_Trace(COM_DEBUG1,vg_text)
+
+	/*A Fin du module */
+	RETURN (XDC_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Cree un equipement dans Easycam
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+
+
+MACRO MTMA_EQT_Creer(va_NumeroEqt,va_TypeEqt)
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+
+*
+* CODE RETOUR         : XDC_OK en cas d'execution correcte
+*			        XDC_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+* Interface entre SYBASE et INFORMIX pour la creation des equipements
+* dans le SGBD INFORMIX a partir des equipements de la base de donnees
+* SYBASE (MIGRAZUR).
+*--------------------------------------------------------------------- */
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+var format COM_Localisation vl_localisation	'Tableau localisation SAE
+var	vl_Result_IFX		'Resultat requete INFORMIX
+var	vl_indice			'Compteur de boucle 
+var	vl_Nb_EQT			'Nombre d equipements obtenues
+var	vl_requete		'Requete SQL a construire (Informix ou SYBASE)
+var	vl_Libelle_SAE		'Libelle de l equipement (homogene SAE)
+var	vl_Libelle_IFX		'Libelle de l equipement BD INFORMIX
+var 	vl_IdEqt			'Identifiant interne equipement BD INFORMIX
+var 	vl_CodeZO			'Identifiant interne zone BD INFORMIX
+var 	vl_NumZO			'Identifiant interne zone BD INFORMIX
+var 	vl_CodeSIT		'Identifiant interne site BD INFORMIX
+var 	vl_NumSIT			'Identifiant interne site BD INFORMIX
+var	vl_CodeAP			'Identifiant interne site BD INFORMIX
+var	vl_NumAP			'Identifiant interne site BD INFORMIX
+var 	vl_Nom,vl_Autoroute,vl_PR,vl_Sens,vl_District,vl_Type
+
+
+	/*A
+ 	** Traitements en cas d'erreur durant l'initialisation :
+ 	** informer l'operateur, tracer l'erreur et abandonner
+ 	** -----------------------------------------------------
+ 	*/
+	ON ERROR {
+    		ERROR_BOX@
+    		COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+			SQL_DISCONNECT@(vg_canal_SGBD_IFX)
+    		RETURN (XDC_NOK)
+	}
+
+	/*A trace debut de macro */
+	vg_text = COM09_Date_Courante() ++ " MTMA_EQT_Creer()"
+	COM01_Trace(COM_INFO,vg_text)
+
+
+	/*A
+	** Lire en base de donnees les caracteristique de l'equipement
+	** ------------------------------------------------------------
+	**/
+
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = va_NumeroEqt
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#INT4_
+	vl_parametres[1].data = va_TypeEqt
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type = 	SYB#CHAR_     ' Nom
+	vl_parametres[2].data = ""
+	vl_parametres[2].output = TRUE
+
+	vl_parametres[3].type = SYB#CHAR_	      ' Autoroute
+	vl_parametres[3].data = ""
+	vl_parametres[3].output = TRUE
+
+	vl_parametres[4].type = SYB#INT4_	      ' PR
+	vl_parametres[4].data = 0
+	vl_parametres[4].output = TRUE
+
+	vl_parametres[5].type = SYB#INT4_	      ' Sens
+	vl_parametres[5].data = 0
+	vl_parametres[5].output = TRUE
+
+	vl_parametres[6].type = SYB#INT4_	      ' District
+	vl_parametres[6].data = 0
+	vl_parametres[6].output = TRUE
+
+	IF COM05_SQL_Procedure ("XZMM;02",
+			   vl_parametres, vl_resultats,C_MODULE ) <> COM_OK
+	    RETURN (COM_NOK)
+
+
+	vl_Nom = vl_resultats.return_parameters[0]
+	vl_Autoroute = vl_resultats.return_parameters[1]
+	if ((is_null@(vl_Autoroute)=TRUE) OR (vl_Autoroute="    "))  vl_Autoroute=""
+	vl_Autoroute = UPPERCASE@(vl_Autoroute)
+	vl_PR = vl_resultats.return_parameters[2]
+	vl_Sens = vl_resultats.return_parameters[3]
+	vl_District = vl_resultats.return_parameters[4]
+
+			/* Trace info d'equipement traite */
+			COM01_Trace(COM_DEBUG1,
+				"------------------------------------------------")
+			vg_text = COM09_Date_Courante() ++
+				" MTMA_EQT_Creer() : L'equipement traite est" ++
+				" Autoroute: " ++ vl_Autoroute ++
+				" PR: " ++ vl_PR ++
+				" Sens: " ++ vl_Sens ++
+				" Nom: " ++ vl_Nom
+			COM01_Trace(COM_DEBUG1,vg_text)
+
+			/*A
+			** Construction du libelle equipement type SAE.
+			*/
+
+			vl_Libelle_SAE = vl_Autoroute ++ " pr " ++ (vl_PR/1000) ++ " , "++ vl_Sens
+
+			if (vl_Autoroute = "") /* si nul, on prend le nom base */
+			{
+				vl_Libelle_SAE = vl_Nom
+			}
+						
+
+
+
+			/*B
+			** Consultation de T_AP_ZO (1er niveau topo fonctionel).
+			** Recheche de l'ID interne INFORMIX 
+			*/
+
+			/* Construction de la requete INFORMIX */
+			vl_Result_IFX = null
+
+			vl_requete = "select NUM_ZO,ZO_ZO from T_AP_ZO where ZO_ZO like 'SAE" ++ vl_District ++ "-%'"
+	
+			/* Interrogation de la Base de donnees */
+			vl_Result_IFX=sql_select@(vg_canal_SGBD_IFX,vl_requete)
+
+			/*
+			** Test du nombre d'enregistrements retournes :
+			** Il ne doit y avoir qu'une seule zone, sinon, on affine
+			*/
+			if  (array_size@(vl_Result_IFX) <> 1)
+			{
+				/*B Recherche plus fine dans la table T_AP_ZO 	*/
+
+				/* Construction de la requete INFORMIX */
+				vl_Result_IFX = null
+
+				if (vl_Autoroute <> "")
+					vl_requete = "select NUM_ZO,ZO_ZO from T_AP_ZO where ZO_ZO = 'SAE" ++ vl_District ++ "-" ++ vl_Autoroute ++ "'"
+
+				else
+				if (substring@(vl_Nom,1,4)="A800") 'a modifier 
+
+					vl_requete = "select NUM_ZO,ZO_ZO from T_AP_ZO where ZO_ZO = 'SAE" ++ vl_District ++ "-A800'"
+				else
+					vl_requete = "select NUM_ZO,ZO_ZO from T_AP_ZO where ZO_ZO like 'SAE" ++ vl_District ++ "-%'"
+
+				/* Interrogation de la Base de donnees */
+				vl_Result_IFX=sql_select@(vg_canal_SGBD_IFX,vl_requete)
+
+				/*
+				** Test du nombre d'enregistrements retournes :
+				** il doit y avoir au moins un enregistrement 
+				** la requete.
+				*/
+				if  (array_size@(vl_Result_IFX) = 1	/* Pas de resultat */
+					and (is_null@(vl_Result_IFX[0][0]) = TRUE))
+					or (array_size@(vl_Result_IFX) = 0)
+				{
+					/* trace test equipement */
+					vg_text = COM09_Date_Courante() ++ 
+						" MTMA_EQT_Creer()" ++
+						"pas de zone pour requete EASYCAM : " ++ vl_requete
+						COM01_Trace(COM_WARNING,vg_text)
+
+					return (XDC_NOK)
+				}
+			}		
+			vl_CodeZO = vl_Result_IFX[0][1]
+			vl_NumZO = vl_Result_IFX[0][0]
+
+
+			/*B 
+			** Recherche num site (vl_NumSIT) table T_AP_SIT 
+			*/
+
+			vl_CodeAP=""
+
+			case of va_TypeEqt
+			
+			case XDC_EQT_NAV
+				vl_Type="BRA"
+
+			case XDC_EQT_PMV
+				vl_Type="PMV"
+
+			case XDC_EQT_TUBE
+				vl_Type="TUB"
+
+			case XDC_EQT_DAI
+				vl_Type="DAI"
+
+			case XDC_EQT_SYV
+				vl_Type="SYV"
+				vl_CodeAP="SYV" ++ SUBSTRING@(vl_Nom,4,3)
+
+			case XDC_EQT_LTV
+				vl_Type="LTV"
+
+			case XDC_EQT_CAM
+				vl_Type="CAM"
+
+			case XDC_EQT_MAA
+				vl_Type="MAA"
+				vl_CodeAP=vl_Nom
+
+			case XDC_EQT_MNT
+				vl_Type="MON"
+				vl_CodeAP="MON" ++ SUBSTRING@(vl_Nom,4,7)
+
+			case XDC_EQT_MAG
+				vl_Type="MAG"
+				vl_CodeAP="MAG" ++ SUBSTRING@(vl_Nom,4,5)
+
+			case XDC_EQT_ECHANGEUR
+				vl_Type="ECH"
+
+			case XDC_EQT_RAU
+				vl_Type="PIRAU"
+				vl_CodeAP="PIRAU" ++ SUBSTRING@(vl_Nom,4,3)
+
+			case XDC_EQT_MAC
+				vl_Type="STATION"
+				vl_CodeAP=vl_Nom
+
+			case XDC_EQT_PAU
+				vl_Type="PAU"
+
+			case XDC_EQT_NIC
+				vl_Type="GTCNICE"
+				vl_CodeAP="GTCNICE190"
+
+			case XDC_EQT_PAN
+				vl_Type="PAN"
+
+			case XDC_EQT_MOD
+				vl_Type="MOD"
+
+			case XDC_EQT_SRV
+				vl_Type="TRANSERVER"
+				vl_CodeAP=vl_Nom
+
+			case XDC_EQT_GTC
+				vl_Type="AUT"
+
+			case XDC_EQT_TOR
+				vl_Type="TOR"
+				vl_CodeAP="TOR" ++ SUBSTRING@(vl_Nom,4,5)
+
+			case XDC_EQT_PCT
+				vl_Type="PCT"
+
+			case XDC_EQT_RAD
+				vl_Type="RAD"
+
+			case XDC_EQT_ANA
+				vl_Type="ANA"
+
+			case XDC_EQT_LIT
+				vl_Type="LIT"
+
+			case XDC_EQT_EXT
+				vl_Type="EXT"
+
+			case XDC_EQT_CCO
+				vl_Type="CCO"
+
+			case XDC_EQT_OPA
+				vl_Type="OPA"
+
+			case XDC_EQT_SAT
+				vl_Type="SATIR"
+				vl_CodeAP="SATIR157"
+
+			case XDC_EQT_MET
+				vl_Type="MET"
+
+			case XDC_EQT_GTC_SIS
+				vl_Type="SIS"
+
+			case XDC_EQT_FAX
+				vl_Type="FAX"
+
+			case XDC_EQT_ZDP
+				vl_Type="ZDP"
+
+			case XDC_EQT_TDP
+				vl_Type="UGTP"
+
+			case XDC_EQT_PAL
+				vl_Type="PAL"
+
+			case XDC_EQT_FAU
+				vl_Type="FAU"
+
+			case XDC_EQT_FAC
+				vl_Type="FAC"
+
+			default
+				return (XDC_NOK)
+
+			endcase
+
+			/* Construction de la requete INFORMIX */
+			vl_Result_IFX = null
+
+			vl_requete =
+					"select NUM_SIT from T_AP_SIT where SIT_SIT = '" ++ vl_Type ++ "' and CODZO_SIT = " ++ vl_NumZo
+			
+				/* Interrogation de la Base de donnees */
+				vl_Result_IFX=sql_select@(vg_canal_SGBD_IFX,vl_requete)
+
+				/*
+				** Test du nombre d'enregistrements retournes :
+				** Il ne doit y avoir qu'un seul enregistrement qui satisfasse a 				
+				** la requete.
+				*/
+				if  (array_size@(vl_Result_IFX) = 1	/* Pas de resultat */
+					and (is_null@(vl_Result_IFX[0][0]) = TRUE))
+					or (array_size@(vl_Result_IFX) = 0)
+				{
+					/* trace test equipement */
+					vg_text = COM09_Date_Courante() ++ 
+						" MTMA_EQT_Creer()" ++
+						"type inconnu dans EASYCAM : " ++ vl_Type
+						COM01_Trace(COM_WARNING,vg_text)
+INFO_MESSAGE@("type="++vl_Type++" zone="++vl_NumZo++"dis="++vl_District++"aut="++vl_Autoroute++"nom:"++vl_Nom++"eqt="++va_NumeroEqt++" type="++va_TypeEqt)
+					return (XDC_NOK)
+				}	
+				vl_NumSit = vl_Result_IFX[0][0]
+				vl_CodeSit = vl_Type
+
+				if (vl_CodeAP="") ' il s agit d'un eqt avec autoroute pr
+				{
+					vl_CodeAP=vl_Type ++ SUBSTRING@("000"++INT@(vl_PR/100) , LEN@(INT@(vl_PR/100))) ++ "-" ++ vl_Sens
+
+					/* on regarde s'il existe deja un eqt avec le meme nom */
+					vl_Result_IFX = null
+					vl_requete="select * from T_AP_AP where AP_AP like '" ++ vl_CodeAP ++ "%'"
+					vl_Result_IFX=sql@(vg_canal_SGBD_IFX,vl_requete)
+					/* on ajoute le rang */
+					vl_CodeAP=vl_CodeAP ++  NUM_TO_STRING@(65+array_size@(vl_Result_IFX))
+				}
+
+				/*B
+				** Ajout de l'equipement dans la table T_AP_AP 
+				** d'INFORMIX.
+				*/
+				/* Construction de la requete INFORMIX (insert 11 champs) */
+				vl_Result_IFX = null
+
+				vl_requete = "insert into T_AP_AP values (0," ++ vl_NumZO ++ "," ++ vl_NumSIT ++ ",0,'" ++ vl_CodeAP ++ "','" ++ vl_Libelle_SAE ++ "','" ++ vl_CodeZO ++ "','" ++ vl_CodeSIT ++ "','','','n')"
+														
+
+				vg_text = COM09_Date_Courante() ++
+					" MTMA_EQT_Creer() : " ++ 
+					"Requete d'insertion : " ++ vl_requete
+				COM01_Trace(COM_DEBUG1,vg_text)
+
+
+				/* Interrogation de la Base de donnees */
+				vl_Result_IFX=sql@(vg_canal_SGBD_IFX,vl_requete)
+
+
+				/*B recherche le numero de l'equipement cree */
+
+				vl_Result_IFX = null
+				
+				vl_requete = "select NUM_AP from T_AP_AP where AP_AP='" ++ vl_CodeAP ++ "'"
+				
+				vl_Result_IFX=sql@(vg_canal_SGBD_IFX,vl_requete)
+				
+				if  (array_size@(vl_Result_IFX) = 1	/* Pas de resultat */
+					and (is_null@(vl_Result_IFX[0][0]) = TRUE))
+					or (array_size@(vl_Result_IFX) = 0)
+				{
+					info_message@("probleme pour lire le numero de " ++ vl_CodeAP)
+					return (XDC_NOK)
+				}
+
+/* met a jour la table EQT_ISI dans sybase */
+
+	vl_parametres=null
+								
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = va_NumeroEqt
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#INT4_
+	vl_parametres[1].data = va_TypeEqt
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type = 	SYB#INT4_     ' Nom
+	vl_parametres[2].data = vl_Result_IFX[0][0]
+	vl_parametres[2].output = FALSE
+
+
+	IF COM05_SQL_Procedure ("XZMM;03",
+			   vl_parametres, vl_resultats,C_MODULE ) <> COM_OK
+	    RETURN (COM_NOK)
+
+
+	RETURN (XDC_OK)
+
+ENDMACRO
+

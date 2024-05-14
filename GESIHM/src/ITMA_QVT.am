@@ -1,0 +1,357 @@
+/*E*/
+/* Fichier : $Id: ITMA_QVT.am,v 1.14 2009/07/08 18:08:24 gesconf Exp $      Release : $Revision: 1.14 $        Date : $Date: 2009/07/08 18:08:24 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_QVT * FICHIER ITMA_QVT.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Trace une courbe QVTO avec le spreadsheet
+* Doit evoluer en meme temps que ITMA_QVT_SS.as
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+* BG	29/05/95	:	creation
+* BG 27/09/95	:	adaptation (echelle fixe) (1.3)
+* CT  07/12/95  :     definir menu spreadsheet (fait en 1.4 et supp en 1.5) (1.6)
+* JMG 28/03/96  :	presentation des graphiques (DEM 872) 1.8
+* JMG 09/05/96  :	ajout nombre de voies pour la station (DEM 867) 1.9
+* JMG 30/05/96 : 	calcul jusqu'a TO=100% (DEM 870) 1.10
+* JMG 03/07/96 : 	modif format va_donnes (DEM 866) 1.11
+* C.P. 16/06/98 : modif pour calcul des graphes 1.13
+* JPL	06/07/09 : Gestion des barres de menu personnalisees Applix et leur id. 1.14
+*---------------------------------------------------------------------------- */
+
+INCLUDE "../inc/ITMA_COM.h"
+INCLUDE "../inc/ITMA_TDO.h"
+INCLUDE "../inc/ITMA_TBR.h"
+
+
+format chart_title@
+title,	
+subtitle,
+footer,
+title_alignment,
+subtitle_alignment,
+footer_alignment
+
+
+format SS_OBJ_INFO@
+	NAME,
+	TYPE,
+	PROPERTY,
+	HIDDEN,
+	LOCKED,
+	EXTLINK,
+	PRINT,
+	PATH,
+	MACRO_TO_RUN,
+	NO_BORDER,
+	TITLE
+
+
+
+macro ITMA_QVT (va_appelant, va_donnees,va_station,va_debut,va_fin,va_voies)
+VAR	vl_indice, vl_indice2	/* indices de boucles */
+VAR	vl_cellule		/* cellule de copie des donnees */
+VAR	vl_donnees
+VAR	vl_donnee_station   /* tableau de valeurs passées au ss */
+VAR	vl_decalage		/* decalage de mise en tableau dans le ss */
+VAR     vl_menu
+
+	var OBJNAME
+	var NAME
+	var CHART_NAME
+	var GNAME
+	var RNGARR
+	var CHTYPE
+	var COLONNE
+	var format chart_title@ TITRE
+
+/*A lancement du spreadsheet avec un menu sans * */
+vl_menu = ITMA_TBR_Menu_Appli_Applix (TBR_MENU_SS_GEN)
+SS_APPLICATION_DLG@(vl_menu, FALSE)
+SS_LOAD_FILE@("ITMA_QVT_SS.as")
+SS_SAVE_AS@("/tmp/ITMA_QVT_SS.as",1,2,2)
+SET_MENU_BAR_ID@ (101)
+
+'SS_CALC@(0,0,0,0) /* inhibe le calcul pendant la mise en forme */
+
+vl_donnees=va_donnees
+
+/*A boucle sur toutes les valeurs retournees par la base */
+
+FOR vl_indice = 0 TO (ARRAY_SIZE@(vl_donnees)-1)
+
+	FOR vl_indice2=0 TO 7
+		vl_donnee_station[vl_indice2] = null
+	NEXT vl_indice2
+
+	/*B Si toutes les donnees sont valides mettre en partie haute du tableau */
+	IF  ((vl_donnees[vl_indice][2]=1) AND
+		(vl_donnees[vl_indice][4]=1) AND
+		(vl_donnees[vl_indice][6]=1))
+			vl_decalage = 0
+	ELSE
+		/*B sinon mettre en partie basse */
+			vl_decalage = 4
+
+		vl_donnee_station[0+vl_decalage] = vl_donnees[vl_indice][0] 'horo. 
+		vl_donnee_station[1+vl_decalage] = vl_donnees[vl_indice][1] 'vitesse 
+		vl_donnee_station[2+vl_decalage] = vl_donnees[vl_indice][3] 'TO 
+		vl_donnee_station[3+vl_decalage] = vl_donnees[vl_indice][5] 'Q 
+
+	ELF_SET_CLIPBOARD@(vl_donnee_station)
+	vl_cellule = SS_COORDINATE@(vl_indice+1,0)
+	SS_PASTE@(vl_cellule,  TRUE)
+
+NEXT vl_indice
+/*B on positionne un indicateur apres la derniere valeure */
+
+SS_PUT_CELL@(SS_COORDINATE@(ARRAY_SIZE@(vl_donnees)+1),"**FIN**")
+
+/*B on remplit le nombre de voies*/
+SS_PUT_CELL@(SS_COORDINATE@(8,8),va_voies)
+
+/*A Fin de la mise dans le tableur du nuage de points */
+/* redefinition du nuage de point du graphique */
+	COLONNE=SS_COL_STRING@ (ARRAY_SIZE@(vl_donnees))
+/*__________________________________________*/
+/*	OBJNAME = "GraphiqueQTO"
+	SS_GET_OBJECT_INFO@(OBJNAME)
+
+	NAME = "GraphiqueQTO"
+	SET_CHART_AS_MACRO_PARENT_TASK@(NAME)
+
+	BG_RESTORE_HOST_ */
+
+	CHART_NAME = "GraphiqueQTO"
+	GNAME = "data 0"
+	RNGARR[0] = "B3.."++COLONNE++"3"
+	RNGARR[1] = "B4.."++COLONNE++"4"
+	CHTYPE = "X-Y Marker"
+	SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+	GNAME = "data 1"
+	RNGARR[0] = "B7.."++COLONNE++"7"
+	RNGARR[1] = "B8.."++COLONNE++"8"
+	CHTYPE = "X-Y Marker"
+	SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+	TITRE.title="Q(T0)"++" "++va_station
+	GR_CHART_SET_TITLE@(CHART_NAME,TITRE)
+
+/*__________________________________________*/
+
+/*	OBJNAME = "VTO"
+	SS_GET_OBJECT_INFO@(OBJNAME)
+
+	NAME = "VTO"
+	SET_CHART_AS_MACRO_PARENT_TASK@(NAME)
+
+	BG_RESTORE_HOST_ */
+
+	CHART_NAME = "VTO"
+	GNAME = "data 0"
+	RNGARR[0] = "B3.."++COLONNE++"3"
+	RNGARR[1] = "B2.."++COLONNE++"2"
+	CHTYPE = "X-Y Marker"
+	SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+	GNAME = "data 1"
+	RNGARR[0] = "B7.."++COLONNE++"7"
+	RNGARR[1] = "B6.."++COLONNE++"6"
+	CHTYPE = "X-Y Marker"
+	SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+	TITRE.title="V(T0)"++" "++va_station
+	GR_CHART_SET_TITLE@(CHART_NAME,TITRE)
+/*__________________________________________*/
+
+/*	OBJNAME = "VQ"
+	SS_GET_OBJECT_INFO@(OBJNAME)
+
+	NAME = "VQ"
+	SET_CHART_AS_MACRO_PARENT_TASK@(NAME)
+
+	BG_RESTORE_HOST_ */
+
+	CHART_NAME = "VQ"
+	GNAME = "data 0"
+	RNGARR[0] = "B4.."++COLONNE++"4"
+	RNGARR[1] = "B2.."++COLONNE++"2"
+	CHTYPE = "X-Y Marker"
+	SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+	GNAME = "data 1"
+	RNGARR[0] = "B8.."++COLONNE++"8"
+	RNGARR[1] = "B6.."++COLONNE++"6"
+	CHTYPE = "X-Y Marker"
+	SS_CHART_DEFINE_DATA_GROUP@(CHART_NAME,GNAME,RNGARR,CHTYPE)
+
+	/*titre du graphique*/
+	TITRE.title="V(Q)"++" "++va_station
+	GR_CHART_SET_TITLE@(CHART_NAME,TITRE)
+/*-------------------------------------------*/
+
+	vl_cellule=SS_COORDINATE@(7,8)
+	SS_PUT_CELl@(vl_cellule,va_debut++" - "++va_fin)
+
+	'SS_CALC@(1,0,0,1) /* retablit le calcul apres la mise en forme */
+	ITMA_QVT_courbe_lissee()
+
+ENDMACRO
+
+MACRO ITMA_QVT_courbe_lissee()
+
+VAR	vl_indice
+VAR	vl_indice_regression
+VAR	vl_donnee_regression
+VAR	vl_minimaxi		/* tableau des valeurs mini et maxi de Q et V	*/
+					/* pour chaque valeur de TO					*/
+					/* 0=Qmin 1=Qmax 2=Vmin 3=Vmax				*/
+VAR	vl_nbminimaxi		/* compte le nombre de minimaxi non nuls		*/
+VAR	vl_donneesminmax
+VAR	vitesse,debit,t_o
+VAR	vl_cellule		/* cellule de copie des donnees */
+VAR	COLONNE
+
+var format SS_OBJ_INFO@ OBJ
+
+
+SS_GET_OBJ_INFO@("BP_COURBE_LISSE")
+OBJ.TITLE = "Calcul des courbes en cours"
+OBJ.MACRO_TO_RUN = "ITMA_QVT_courbe_lissee"
+SS_SET_OBJ_INFO@("BP_COURBE_LISSE",OBJ)
+
+
+'SS_CALC@(0,0,0,0) /* inhibe le calcul pendant la mise en forme */
+
+
+vl_indice = 1
+vl_indice_regression=0
+vl_minimaxi[0][0]=null
+
+WHILE SS_GET_CELL_VALUE@(vl_indice,0,0)<>"**FIN**"
+
+	vitesse=SS_GET_CELL_VALUE@(vl_indice, 1, 0)
+	IF IS_NUMBER@(vitesse) /* les donnees sont vraies */
+	{
+		debit =SS_GET_CELL_VALUE@(vl_indice, 3, 0)
+		t_o   =SS_GET_CELL_VALUE@(vl_indice, 2, 0)
+	}
+	ELSE /* les donnees sont reconstituees */
+	{
+		vitesse=SS_GET_CELL_VALUE@(vl_indice, 5, 0)
+		debit =SS_GET_CELL_VALUE@(vl_indice, 7, 0)
+		t_o   =SS_GET_CELL_VALUE@(vl_indice, 6, 0)
+	}
+	/*B remplit la zone pour le calcul de regression */
+	IF (vitesse*debit*t_o>0) /* aucune valeur nulle */
+	{
+		vl_donnee_regression[0] = LOG@(vitesse) 'ln(vitesse) 
+		vl_donnee_regression[1] = t_o 'TO 
+		vl_donnee_regression[2] = LOG@(debit/ t_o) 'ln(Q/TO)
+		ELF_SET_CLIPBOARD@(vl_donnee_regression)
+		vl_indice_regression=vl_indice_regression+1
+		vl_cellule = SS_COORDINATE@(vl_indice_regression,30)
+		SS_PASTE@(vl_cellule,  TRUE)
+
+	/*B remplit le tableau des mini et maxi pour enveloppe */
+		IF is_null@(vl_minimaxi[t_o][0])
+		/* la valeur n'est pas initialisee pour ce TO donc on	*/
+		/* initialise min=max=valeur						*/
+		{
+			vl_minimaxi[t_o][0]
+				=debit	'Q min
+			vl_minimaxi[t_o][1]
+				=debit	'Q max
+			vl_minimaxi[t_o][2]
+				=vitesse	'V min
+			vl_minimaxi[t_o][3]
+				=vitesse	'V max
+		}
+		ELSE
+		/* on compare Q et V avec Q et V min et max et on met a jour min et max */
+		{
+			vl_minimaxi[t_o][0]=min@(vl_minimaxi[t_o][0],debit )
+
+			vl_minimaxi[t_o][1]=max@(vl_minimaxi[t_o][1],debit )
+
+			vl_minimaxi[t_o][2]=min@(vl_minimaxi[t_o][2],vitesse )
+
+			vl_minimaxi[t_o][3]=max@(vl_minimaxi[t_o][3],vitesse )
+		}
+
+	}
+
+vl_indice=vl_indice+1
+WEND
+
+/*A Boucle pour remplir le tableur avec les valeur pour regression des min max */
+vl_nbminimaxi=0
+FOR vl_indice=1 TO 100 /* on travaille sur des TO < 100 */
+	IF not(is_null@(vl_minimaxi[vl_indice][0]))
+	{
+		vl_nbminimaxi=vl_nbminimaxi+1
+		vl_donneesminmax[0]=vl_indice
+		vl_donneesminmax[1]
+			=LOG@(vl_minimaxi[vl_indice][0]/vl_indice) 'ln(Qmin/TO)
+		vl_donneesminmax[2]
+			=LOG@(vl_minimaxi[vl_indice][1]/vl_indice) 'ln(Qmax/TO)
+		vl_donneesminmax[3]=LOG@(vl_minimaxi[vl_indice][2]) 'ln(Vmin)
+		vl_donneesminmax[4]=LOG@(vl_minimaxi[vl_indice][3]) 'ln(Vmax)
+
+		ELF_SET_CLIPBOARD@(vl_donneesminmax)
+		vl_cellule = SS_COORDINATE@(vl_nbminimaxi,35)
+		SS_PASTE@(vl_cellule,  TRUE)
+	}
+NEXT vl_indice
+
+/*A calcul de regression sur valeurs vraies */
+	COLONNE=SS_COL_STRING@(vl_indice_regression)
+/*B Q(to) */
+	SS_CHANGE_NAMED_RANGE@("LOG_Q_TO","LOG_Q_TO","$B$33..$"++COLONNE++"$33", null)
+
+/*B V(to) */
+	SS_CHANGE_NAMED_RANGE@("LOG_V","LOG_V","$B$31..$"++COLONNE++"$31", null)
+
+/*B TO reg */
+	SS_CHANGE_NAMED_RANGE@("TO_REG","TO_REG","$B$32..$"++COLONNE++"$32", null)
+
+/*A calcul de regression sur valeurs min et max */
+	COLONNE=SS_COL_STRING@(vl_nbminimaxi)
+/*B Qmin(to) */
+	SS_CHANGE_NAMED_RANGE@("LOG_Q_MIN_TO","LOG_Q_MIN_TO","$B$37..$"++COLONNE++"$37", null)
+
+/*B Qmax(to) */
+	SS_CHANGE_NAMED_RANGE@("LOG_Q_MAX_TO","LOG_Q_MAX_TO","$B$38..$"++COLONNE++"$38", null)
+
+/*B Vmin(to) */
+	SS_CHANGE_NAMED_RANGE@("LOG_V_MIN","LOG_V_MIN","$B$39..$"++COLONNE++"$39", null)
+
+/*B Vmax(to) */
+	SS_CHANGE_NAMED_RANGE@("LOG_V_MAX","LOG_V_MAX","$B$40..$"++COLONNE++"$40", null)
+
+/*B TO env */
+	SS_CHANGE_NAMED_RANGE@("TO_ENV","TO_ENV","$B$36..$"++COLONNE++"$36", null)
+
+/*A On recalcule la feuille */
+
+	'SS_CALC@(1,0,0,1) /* retablit le calcul apres la mise en forme */
+
+	SS_UPDATE_CHARTS@
+	
+	INFO_MESSAGE@("LE CALCUL DES COURBES LISSEES EST TERMINE")
+
+	OBJ.TITLE = "Lancement du calcul des courbes"
+	OBJ.MACRO_TO_RUN = "ITMA_QVT_courbe_lissee"
+	SS_SET_OBJ_INFO@("BP_COURBE_LISSE",OBJ)
+
+	'SS_CALC@(0,0,0,0) /* inhibe le calcul apres la mise en forme */
+	SS_SAVE_AS@("/tmp/ITMA_QVT_SS.as",1,2,2)
+	
+endmacro

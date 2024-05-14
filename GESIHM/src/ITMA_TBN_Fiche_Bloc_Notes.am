@@ -1,0 +1,647 @@
+/*E*/
+/* Fichier : $Id: ITMA_TBN_Fiche_Bloc_Notes.am,v 1.20 2019/05/28 10:06:27 devgtie Exp $      Release : $Revision: 1.20 $        Date : $Date: 2019/05/28 10:06:27 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TBN * FICHIER ITMA_TBN_Fiche_Bloc_Notes.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Afficher et recueillir les notes d'un operateur pour passage de poste
+*
+*   Cf. DCG 2.4.13
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou    27 Sep 1994 : Creation						V1.1
+* Guilhou    13 Oct 1994 : inclusion de xzic_ax.h				V1.3
+* Torregrossa 03 Jul 1995  : Modif repertoire de travail  et 
+*                            la liste des machines                   V 1.6
+* Torregrossa 03 Jul 1995  : Correction bug                          V 1.7
+* Torregrossa 25 Jan 1996  : Suppression le par defaut de quitter (car ne fonctionne
+*                            pas avec liste)                         V 1.8
+* Guilhou 	26 Mar 1996 : Ouverture automatique de la fiche BN de la machine quand
+*				appel sur la prise de poste	V1.9 (DEM 749)
+* Guilhou	28 Mar 1996 : Ajout montre sur ouverture automatique V1.10
+* Guilhou	19 sep 1996 : ajout pc simplifies (RADT)	V1.11
+* niepceron	26 mar 1997 : ajout POPAN1 (1359)	V1.12
+* Guilhou	13 jan 1998 : ajout PODA1, PODY1, PODP1 (dem/1533) 1.13
+* Torregrossa	05 mar 1998 : rechercher les alertes meteo traitees en l'abscence 
+*                             de l'operareur sur PC2 ou PC3 (dem/1606) 1.14
+* Torregrossa	13 mar 1998 : Correction suite a dem/1606 1.15
+* ???? v1.16
+* Hilmarcher    11/04/05: Ajout consignes recuurentes DEM455 v1.17 DEM455
+* JMG           29/09/09 : SECTO DEM 887
+* JMG			05/12/11 : linux
+* RGR			24/05/19 : Correction POCA1 => POVC1
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TFL.h"
+INCLUDE    "../../XDMICG/inc/xzic_ax.h"
+INCLUDE    "../../XDMICG/inc/xdc_ax.h"
+INCLUDE "../inc/xzat01sp.h"
+INCLUDE "../inc/xzaa07sp.h"
+
+
+
+DEFINE C_MODULE	"MTBN"		' Nom du module
+
+DEFINE PATH_BLOC_NOTE	"/produits/migrazur/appliSD/fichiers/dyn/bloc_note"
+DEFINE PATH_LECTURE	"/tmp/bloc_note"
+
+DEFINE CM_NomMachine	2	/* colonne du tableau correspondant au nom de la machine */
+DEFINE C_LIB	1	/* colonne du tableau correspondant au libelle d'une machine */
+
+
+DEFINE TBN_LIB_ALERTES_METEO		"****** Liste des alertes meteo traitees en votre absence ****** \n"
+DEFINE TBN_LIB_ALERTES_TITRE_COL	"Equipement |  Localisation    | Date de debut        | Qualification"
+DEFINE TBN_LIB_ALERTES_TITRE_TRAIT	""
+DEFINE TBN_LIB_ALERTES_METEO_FIN	"****** Fin de la liste des alertes meteo ********"
+
+
+DEFINE TBN_ALERTE_FAUSSE	"fausse"
+DEFINE TBN_ALERTE_VRAIE		"vraie"
+DEFINE TBN_ALERTE_EXPLOITATION	"exploitation"
+
+DEFINE TBN_ALERTE_VRAIE_EVT	"vraie avec FMC creee"
+
+DEFINE C_NOM_MACHINES	XDC_POVC1, XDC_POCA2, XDC_POCA3, XDC_POCI1, XDC_POCI2, XDC_POCI3, XDC_POTFM, XDC_POTFM2, XDC_PODFA, XDC_PODFA2, XDC_POCC, XDC_POGT, XDC_POCMA, XDC_PODMA1, XDC_PODMA2,XDC_PODMA3, XDC_POCDCA1, XDC_POCDCA2, XDC_POCDCA3, XDC_PODR, XDC_POVE1, XDC_POVE2, XDC_POPR1, XDC_POPR2, XDC_POVD1, XDC_POVD2, XDC_POAT, XDC_POCDPR, XDC_POCDVD, XDC_POCDVE
+
+DEFINE C_LIB_MACHINES	XDC_LIB_POVC1, XDC_LIB_POCA2, XDC_LIB_POCA3, XDC_LIB_POCI1, XDC_LIB_POCI2, XDC_LIB_POCI3, XDC_LIB_POTFM, XDC_LIB_POTFM2, XDC_LIB_PODFA, XDC_LIB_PODFA2, XDC_LIB_POCC, XDC_LIB_POGT, XDC_LIB_POCMA, XDC_LIB_PODMA1, XDC_LIB_PODMA2, XDC_LIB_PODMA3, XDC_LIB_POCDCA1, XDC_LIB_POCDCA2, XDC_LIB_POCDCA3, XDC_LIB_PODR, XDC_LIB_POVE1, XDC_LIB_POVE2, XDC_LIB_POPR1, XDC_LIB_POPR2, XDC_LIB_POVD1, XDC_LIB_POVD2, XDC_LIB_POAT, XDC_LIB_POCDPR, XDC_LIB_POCDVD, XDC_LIB_POCDVE
+
+FORMAT Liste_Machines
+	nom,
+	libelle
+
+
+VAR FORMAT Liste_Machines vm_liste_machines	' liste des machines proposees
+VAR			vm_appelPoste		' appel pour creation de poste
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* afficher et recueiller les notes d'un operateur
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBN_Fiche_Bloc_Notes (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_installer_traitement_erreur
+	VAR vl_bloc_ouvert
+	VAR vl_sel,vl_choix_machine,tl_strings
+	VAR vl_path_bloc,vl_cr
+	VAR vl_type_machine
+	VAR vl_index
+	VAR vl_texte
+	VAR vl_day,i, j, vl_debut_ligne,vl_taille_message
+	VAR vl_separateur_consigne,tl_strings_nouveau
+	VAR vl_postes_admin
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Lier ..."
+ * ----------------------------------
+ */
+
+vl_fenetre = DB_LOAD@ ("ITMA_TBN")
+
+DB_XPOS@ (vl_fenetre, 0)
+if (GET_ENV_VAR@("RTARCH")="hp700_hpux")
+	DB_YPOS@ (vl_fenetre, 93)
+else
+	DB_YPOS@ (vl_fenetre, 104)
+
+
+COM02_Attacher_Aide (vl_fenetre, "ITMA_TBN_Fiche_Bloc_Notes")
+COM27_Agrandir_Fenetre (vl_fenetre, COM_LARGEUR_MAX, COM_HAUTEUR_MAX)
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+tl_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre, tl_messages_acceptes)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*A
+* memoriser l'appelant
+*/
+IF (SUBSTRING@(va_appelant,6,3) = "TLU")
+  vm_appelPoste=TRUE
+else
+  vm_appelPoste=FALSE
+
+/*A
+ * afficher la liste des machines
+ */
+MACRO_WINS_BUSY@()
+ITMA_TBN_aff_machines_site (vl_fenetre)
+vl_choix_machine=vm_liste_machines[0].nom
+DB_CTRL_VALUE@ (vl_fenetre, "BL_machines", -1)
+DB_CTRL_GRAYED@(vl_fenetre,"BP_ouvrir",TRUE)
+
+vl_postes_admin = 0
+
+/*Les operateurs ne peuvent pas modifier le fichier bloc notes
+**seuls les admins ont le droit */
+IF ((SYSTEM_VAR@(vg_poste)= XDC_PODFA) OR
+(SYSTEM_VAR@(vg_poste)= XDC_POCC) OR
+(SYSTEM_VAR@(vg_poste)= XDC_POGT) OR
+(SYSTEM_VAR@(vg_poste)= XDC_POCDCA1) OR
+(SYSTEM_VAR@(vg_poste)= XDC_POCDCA2) OR
+(SYSTEM_VAR@(vg_poste)= XDC_POCDCA3) OR
+(SYSTEM_VAR@(vg_poste)= XDC_POCDVE) OR
+(SYSTEM_VAR@(vg_poste)= XDC_POCDVD) OR
+(SYSTEM_VAR@(vg_poste)= XDC_POCDPR) OR
+(SYSTEM_VAR@(vg_poste)= XDC_PODFA2))
+{vl_postes_admin = 1}
+
+/*A
+ * si appel en creation de poste, ouvrir la fiche bloc notes de la machine
+ */
+if (vm_appelPoste) {
+  /*recherche de ma machine dans la liste*/
+  vl_index=ARRAY_INDEX@(ARRAY_COLUMN@(vm_liste_machines,0),
+			SYSTEM_VAR@(vg_poste))
+
+  /*si je trouve ma machine*/
+  if (vl_index<>-1) {
+    	/*je la selectionne*/
+    	DB_CTRL_VALUE@ (vl_fenetre, "BL_machines", vl_index)
+
+	/*A 
+	* met a jour le titre du fichier*/
+	vl_choix_machine = vm_liste_machines[vl_index].nom
+	vl_path_bloc = vl_choix_machine++":"++PATH_BLOC_NOTE
+
+	/*A
+	* remote copy du fichier bloc note sur la machine choisie
+	*/
+	vl_cr=SHELL_COMMAND@("rcp "++vl_path_bloc++
+				" "++PATH_LECTURE)
+	/*si tout s'est bien passe*/
+	IF (vl_cr[0]=0)
+	{
+		tl_strings=READ_ASCII_FILE@(PATH_LECTURE,"r")
+
+		/*filtrer les consignes pour les postes operateurs*/
+	        IF (vl_postes_admin = 0)        
+		{
+			vl_day = DATE_FORMAT@(CURRENT_TIME@(),3000)
+			if (vl_day = "lundi") {vl_day ="1:"}
+			if (vl_day = "mardi") {vl_day ="2:"}
+			if (vl_day = "mercredi") {vl_day ="3:"}
+			if (vl_day = "jeudi") {vl_day ="4:"}
+			if (vl_day = "vendredi") {vl_day ="5:"}
+			if (vl_day = "samedi") {vl_day ="6:"}
+			if (vl_day = "dimanche") {vl_day ="7:"}
+
+			j=0
+			tl_strings_nouveau = null
+			FOR i=0 TO ARRAY_SIZE@(tl_strings) -1
+				vl_debut_ligne = TRIM@(SUBSTRING@(tl_strings[i],1,2)) 
+				vl_separateur_consigne = TRIM@(SUBSTRING@(tl_strings[i],2,1))
+				if ((vl_debut_ligne = vl_day) OR (vl_separateur_consigne <> ":")) 
+					{
+						if (vl_debut_ligne = vl_day)
+						{
+							tl_strings_nouveau[j] = SUBSTRING@(tl_strings[i],3)
+						}
+						else if (vl_separateur_consigne <> ":")
+						{
+							tl_strings_nouveau[j] = tl_strings[i]
+						}
+						j = j + 1
+					}
+			NEXT i
+	                
+			/* rechercher les alertes meteo apparues et traitees en l'absence de l'operateur */
+			vl_type_machine = SYSTEM_VAR@(vg_type_machine)
+			IF (vl_type_machine = XDC_TYPE_PCNIVEAU2) or
+			   (vl_type_machine = XDC_TYPE_PCNIVEAU3)
+			   	tl_strings_nouveau = TBN_AjouterAlertesTraitees(tl_strings_nouveau)
+
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_bloc_note",tl_strings_nouveau)
+			DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",FALSE)
+		}
+		ELSE
+		{
+	                /* rechercher les alertes meteo apparues et traitees en l'absence de l'operateur */
+			vl_type_machine = SYSTEM_VAR@(vg_type_machine)
+			IF (vl_type_machine = XDC_TYPE_PCNIVEAU2) or
+			   (vl_type_machine = XDC_TYPE_PCNIVEAU3)
+				   tl_strings = TBN_AjouterAlertesTraitees(tl_strings)
+
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_bloc_note",tl_strings)
+			DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",FALSE)
+		}	
+
+		/* rechercher les alertes meteo apparues et traitees en l'absence de l'operateur */
+		/*vl_type_machine = SYSTEM_VAR@(vg_type_machine)
+		IF (vl_type_machine = XDC_TYPE_PCNIVEAU2) or
+		   (vl_type_machine = XDC_TYPE_PCNIVEAU3)
+			tl_strings = TBN_AjouterAlertesTraitees(tl_strings)
+
+		DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_bloc_note",tl_strings)
+		DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",FALSE)*/
+	}
+	ELSE	{
+		DB_EDITBOX_CLEAR@(vl_fenetre,"BE_bloc_note")
+		DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",TRUE)
+	}
+  }
+}
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur et selon la nature et la gravite
+ * de l'erreur la tracer ou non, continuer ou abandonner
+ * -----------------------------------------------------
+ */
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+vl_bloc_ouvert=0
+
+/*A
+* boucle infinie de traitement des evenements*/
+WHILE 1
+	/*A
+	* afficher la fenetre*/
+	DB_DISPLAY@(vl_fenetre)
+
+	/*A
+	* attente d'un evenement*/
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A
+	* suivant l'evenement */
+	CASE OF vl_exit_value
+		/* A
+		* choix d'une machine dans la liste*/
+		CASE "BL_machines"
+			vl_sel=db_ctrl_get_value@ (vl_fenetre,"BL_machines")
+			vl_choix_machine=vm_liste_machines[vl_sel].nom
+			DB_CTRL_GRAYED@(vl_fenetre,"BP_ouvrir",FALSE)
+
+		/*A
+		* appui sur le bouton quitter*/
+		CASE "BP_quitter"
+			/*A Bye*/
+			RETURN (COM_QUITTE)
+
+		/*A
+		* appui sur le bouton valider->on sauve le fichier bloc_note*/
+		CASE "BP_valider"
+			IF (vl_postes_admin = 1)
+			{
+				tl_strings=DB_EDITBOX_GET_DATA@(vl_fenetre,"BE_bloc_note")
+				WRITE_ASCII_FILE@(PATH_LECTURE,tl_strings)
+
+				/*A
+				* remote copy du fichier bloc note sur sa station initiale*/
+				vl_cr=SHELL_COMMAND@("rcp "++PATH_LECTURE++" "++vl_path_bloc)
+				IF (vl_cr[0]=0)
+					RETURN (COM_VALIDE)
+				ELSE
+					INFO_MESSAGE@("La sauvegarde du fichier bloc note a echoue")
+			}
+			ELSE
+			{
+				RETURN (COM_QUITTE)
+			}
+
+		CASE "BP_ouvrir"
+			/*A 
+			* met a jour le titre du fichier*/
+			vl_path_bloc=vl_choix_machine++":"++PATH_BLOC_NOTE
+			
+			/*A
+			* remote copy du fichier bloc note sur la machine choisie
+			*/
+			vl_cr=SHELL_COMMAND@("rcp "++vl_path_bloc++
+					" "++PATH_LECTURE)
+			
+			/*si tout s'est bien passe*/
+			IF (vl_cr[0]=0)
+			{
+				tl_strings=READ_ASCII_FILE@(PATH_LECTURE,"r")
+				
+				/*filtrer les consignes pour les PO, afficher en brut pour le profil chef */
+			        IF (vl_postes_admin = 0)        
+				{
+					vl_day = DATE_FORMAT@(CURRENT_TIME@(),3000)
+					if (vl_day = "lundi") {vl_day ="1:"}
+					if (vl_day = "mardi") {vl_day ="2:"}
+					if (vl_day = "mercredi") {vl_day ="3:"}
+					if (vl_day = "jeudi") {vl_day ="4:"}
+					if (vl_day = "vendredi") {vl_day ="5:"}
+					if (vl_day = "samedi") {vl_day ="6:"}
+					if (vl_day = "dimanche") {vl_day ="7:"}
+
+					vl_taille_message = ARRAY_SIZE@(tl_strings)
+					j=0
+					tl_strings_nouveau = null 
+					FOR i=0 TO ARRAY_SIZE@(tl_strings) -1
+						vl_debut_ligne = TRIM@(SUBSTRING@(tl_strings[i],1,2)) 
+						vl_separateur_consigne = TRIM@(SUBSTRING@(tl_strings[i],2,1))
+						if ((vl_debut_ligne = vl_day) OR (vl_separateur_consigne <> ":")) 
+							{
+								if (vl_debut_ligne = vl_day)
+								{
+									tl_strings_nouveau[j] = SUBSTRING@(tl_strings[i],3)
+								}
+								else
+								{
+									tl_strings_nouveau[j] = tl_strings[i]
+								}
+								j = j + 1
+							}
+					NEXT i
+					DB_EDITBOX_CLEAR@(vl_fenetre,"BE_bloc_note")
+					DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_bloc_note",tl_strings_nouveau)
+					DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",FALSE)
+				   }
+				   ELSE
+				   {
+					DB_EDITBOX_CLEAR@(vl_fenetre,"BE_bloc_note")
+					DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_bloc_note",tl_strings)
+					DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",FALSE)
+				   }	
+			}
+			ELSE	{
+				DB_EDITBOX_CLEAR@(vl_fenetre,"BE_bloc_note")
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",TRUE)
+				INFO_MESSAGE@("Pas de fichier bloc note sur cette machine")
+
+				/*A
+				* degrise le bouton Valider
+				*/
+				DB_CTRL_GRAYED@(vl_fenetre,"BP_valider",TRUE)
+			}
+		
+		CASE "BP_Verif"
+			/*B Ouvrir une fenetre ApplixWord non visible et charger le modele */
+			tl_strings=DB_EDITBOX_GET_DATA@(vl_fenetre,"BE_bloc_note")
+			PEND_FOR_NEW_TASK@("ITMA_TBN_VerifOrtho",tl_strings)
+			tl_strings=READ_ASCII_FILE@("/tmp/bn.txt","r")
+			DB_EDITBOX_SET_DATA@(vl_fenetre,"BE_bloc_note",tl_strings)
+	ENDCASE
+WEND
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Recuperer et afficher la liste des machines du site disponibles
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TBN_aff_machines_site (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*		va_fenetre		Identifiant de la fenetre d'affichage.
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*	Afficher la liste des machines du site.
+*
+---------------------------------------------------------------------------- */
+
+ VAR	FORMAT	SQL_Procedure_Params@ vl_parametres
+ VAR	FORMAT	SQL_Procedure_Result@ vl_resultats
+ VAR	vl_NomMachines 
+ VAR	vl_LibelleMachines 
+ VAR	indice
+ VAR	i
+ VAR	j
+
+/*A Declaration des arguments d'appel a XZAT01_Liste_Eqt_Dispo */
+
+/*B Le type d'equipement */
+indice=0
+vl_parametres[indice].type = COM_Identifiant_Type_Equip
+vl_parametres[indice].data = XDC_EQT_MAC
+vl_parametres[indice].output = FALSE
+
+/*B Le district de recherche */
+indice=indice +1
+vl_parametres[indice].type = COM_Identifiant_District
+vl_parametres[indice].data = SYSTEM_VAR@ (vg_site)
+vl_parametres[indice].output = FALSE
+
+/*B Les etats de l'equipement souhaites */
+indice=indice+1
+vl_parametres[indice].type = COM_Identifiant_Critere_Equip       ' Conditions
+vl_parametres[indice].data = XDC_EQT_INHIBE
+vl_parametres[indice].output = FALSE
+
+/*B Les etats de l'equipement non souhaites */
+indice=indice+1
+vl_parametres[indice].type = COM_Identifiant_Critere_Equip       ' Conditions niees
+vl_parametres[indice].data = XDC_EQT_NON_INHIBE
+vl_parametres[indice].output = FALSE
+
+indice=indice+1
+vl_parametres[indice].type = COM_Identifiant_Critere_Equip       ' Exclusions
+vl_parametres[indice].data = XDC_EQT_HS
+vl_parametres[indice].output = FALSE
+
+indice=indice+1
+vl_parametres[indice].type = COM_Identifiant_Critere_Equip       ' Exclusions niees
+vl_parametres[indice].data = 0
+vl_parametres[indice].output = FALSE
+
+IF (COM05_SQL_Procedure (XZAT01_Liste_Eqt_Dispo,
+			   vl_parametres, vl_resultats, C_MODULE) <> COM_OK)
+			       RETURN (COM_NOK)
+
+
+/* rechercher la liste des postes commencant par PO */
+j = 0
+vl_NomMachines = C_NOM_MACHINES
+vl_LibelleMachines = C_LIB_MACHINES
+FOR i=0 TO ARRAY_SIZE@(vl_resultats.select_results[0]) - 1
+	indice = ARRAY_INDEX@(vl_NomMachines, 
+			vl_resultats.select_results[0][i][CM_NomMachine])
+	IF indice >= 0 {
+		vm_liste_machines[j].nom = vl_NomMachines[indice]
+		vm_liste_machines[j].libelle = vl_LibelleMachines[indice]
+		j = j + 1
+	}
+NEXT i
+
+DB_CTRL_STRINGS@ (va_fenetre,"BL_machines",ARRAY_COLUMN@(vm_liste_machines, C_LIB))
+DB_CTRL_VALUE@(va_fenetre,"BL_machines",0)
+DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"BL_machines",TRUE)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* Recuperer les alertes apparues et traitees en l'absence de l'operateur PC2 ou PC3
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION TBN_AjouterAlertesTraitees(va_Texte)
+
+/*
+* ARGUMENTS EN ENTREE :
+*		va_Texte :	texte du bloc note
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*		va_Texte_out :	texte du bloc note
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR	FORMAT	SQL_Procedure_Params@ vl_parametres
+VAR	FORMAT	SQL_Procedure_Result@ vl_resultats
+VAR	vl_indice, vl_nb_alrt, vl_nb_lignes,j
+VAR	FORMAT TFL_Donnees_Alerte_Traitee vl_ListeAlertes
+VAR	FORMAT COM_Localisation vl_local	' Localisation alerte
+VAR	vl_date_debut, vl_localisation, vl_qualif
+VAR	tl_Texte
+
+ON ERROR {
+	RETURN (va_Texte)
+}
+
+	/* chercher en base les alertes traitees en l'absence de l'operateur */
+	vl_indice = 0
+	vl_parametres[vl_indice].type = COM_Identifiant_Type_Equip
+	vl_parametres[vl_indice].data = XDC_EQT_MET
+	vl_parametres[vl_indice].output = FALSE
+
+	IF (COM05_SQL_Procedure (XZAA07_ListeAlertesTraiteesParCI,
+			   vl_parametres, vl_resultats, C_MODULE) = COM_OK)
+	{
+		vl_nb_alrt = ARRAY_SIZE@ (vl_resultats.select_results[0])
+		vl_ListeAlertes = vl_Resultats.select_results[0]
+	}
+	else	vl_nb_alrt = 0
+
+	IF vl_nb_alrt > 0
+	{
+		/* recopier le texte */
+		vl_nb_lignes = ARRAY_SIZE@(va_Texte)
+		FOR vl_Indice = 0 TO vl_nb_lignes - 1
+			tl_Texte[vl_Indice] = va_Texte[vl_Indice]
+		NEXT vl_Indice
+
+		/* titre */
+		j = 1
+		tl_Texte[vl_nb_lignes + j] = TBN_LIB_ALERTES_METEO
+		j = j + 1
+		tl_Texte[vl_nb_lignes + j] = TBN_LIB_ALERTES_TITRE_COL
+		j = j + 1
+		tl_Texte[vl_nb_lignes + j] = TBN_LIB_ALERTES_TITRE_TRAIT
+		j = j + 1
+
+
+		/* formatage des lignes a inserer */
+		FOR vl_Indice = 0 TO vl_nb_alrt - 1
+			vl_local.NumAuto = vl_ListeAlertes[vl_Indice].autoroute
+			vl_local.PR = vl_ListeAlertes[vl_Indice].PR
+			vl_local.sens_circulation = vl_ListeAlertes[vl_Indice].sens_circul
+
+			vl_date_debut = COM18_Date_SGBD_Formatee(vl_ListeAlertes[vl_Indice].date_debut)
+			vl_localisation = COM10_Localisation(vl_local)
+			IF vl_ListeAlertes[vl_Indice].qualif = XDC_ALT_FAUSSE
+				vl_qualif = TBN_ALERTE_FAUSSE
+			ELSE IF vl_ListeAlertes[vl_Indice].qualif = XDC_ALT_VRAIE
+				vl_qualif = TBN_ALERTE_VRAIE
+			ELSE IF vl_ListeAlertes[vl_Indice].qualif = XDC_ALT_EXPLOITATION
+				vl_qualif = TBN_ALERTE_EXPLOITATION
+			ELSE	vl_qualif = TBN_ALERTE_VRAIE_EVT
+
+			/* formatage des lignes a inserer */
+			tl_Texte[vl_Indice+vl_nb_lignes+j] = vl_ListeAlertes[vl_Indice].nom_equip ++
+						"    "++vl_localisation++
+						"   "++vl_date_debut++
+						"   "++vl_qualif 
+		NEXT vl_Indice
+		j = j + 1
+
+		/* fin des alertes */
+		tl_Texte[vl_Indice+vl_nb_lignes+j] = TBN_LIB_ALERTES_METEO_FIN
+	}
+
+	IF IS_NULL@(tl_Texte) 
+		RETURN(va_Texte)
+	ELSE
+		RETURN(tl_Texte)
+
+ENDMACRO

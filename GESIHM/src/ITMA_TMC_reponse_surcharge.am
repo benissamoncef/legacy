@@ -1,0 +1,322 @@
+/*E*/
+/* Fichier : $Id: ITMA_TMC_reponse_surcharge.am,v 1.8 1996/12/03 10:26:48 verdier Exp $     Release : $Revision: 1.8 $      Date : $Date: 1996/12/03 10:26:48 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTMC * FICHIER ITMA_TMC_reponse_surcharge.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* Demande de reponse de surcharge par le CI
+*
+*   Cf. DCG 2.4.66
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	27 dec 1994	: Creation						V1.1
+* Guilhou	05 nov 1996	: ajout date debut prevu dans interface XZAE72 (DEM/1281) 1.8
+---------------------------------------------------------------------------- */
+
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzae72sp.h"
+
+
+DEFINE	C_MODULE	"MTMC"			' Nom du module
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* permet de demander au CI d'accepter un evenement pour surcharge
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_reponse_surcharge (va_dgAppelant,ta_args)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	VAR vl_fenetre
+	VAR vl_exit_value
+	VAR tl_messages_acceptes
+	VAR vl_num,vl_cle,vl_lib,vl_nomSite,vl_numeroPoste,vl_enrichir,vl_site
+	VAR tl_args,tl_data
+
+	VAR vl_old_nom_site
+	VAR vl_old_canal_SGBD
+	VAR vl_old_numero_poste
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+   
+	/*! je reprends les valeurs des parametres de depart*/
+	SET_SYSTEM_VAR@(vg_canal_SGBD,vl_old_canal_SGBD)
+	SET_SYSTEM_VAR@(vg_numero_poste,vl_old_numero_poste)
+	SET_SYSTEM_VAR@(vg_nom_site,vl_old_nom_site)
+	SET_SYSTEM_VAR@(vg_surcharge,FALSE)
+    RETURN
+}
+
+/*! si je n'ai pas la famille exploitation*/
+IF (COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION)<>TRUE)
+	/*! je ne fais rien*/
+	RETURN
+
+/*! si une surcharge est deja en cours*/
+IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+{
+	/*B envoyer un message de refus a l'appelant*/
+	/* Construire les paramètres d'appel de la fonction relais */
+	tl_args[0]=va_dgAppelant
+	tl_args[1]=COM_NOK
+	PEND_FOR_NEW_TASK@("ITMA_TIR_EXEC",MTAR_FCT_REPONSESURCHARGE,
+								1,tl_args)
+	RETURN
+}
+
+/*A charge la fenetre*/
+vl_fenetre=DB_LOAD@("ITMA_TMC_reponse_surcharge")
+
+/*A messages recus*/
+tl_messages_acceptes[0]=COM_CANAL_FIN
+tl_messages_acceptes[1]=COM_CANAL_MTMC_SURCHARGE
+DB_ACCEPT_POKES@(vl_fenetre,tl_messages_acceptes)
+
+/*A mets de cote les parametres de la session*/
+vl_old_canal_SGBD=SYSTEM_VAR@(vg_canal_SGBD)
+vl_old_numero_poste=SYSTEM_VAR@(vg_numero_poste)
+vl_old_nom_site=SYSTEM_VAR@(vg_nom_site)
+
+/*A afficher les parametres d'entree*/
+vl_num=ta_args[0]
+vl_cle=ta_args[1]
+vl_lib=ta_args[2]
+vl_nomSite=ta_args[3]
+vl_numeroPoste=ta_args[4]
+vl_enrichir=ta_args[5]
+vl_site=ta_args[6]
+DB_CTRL_TITLE@(vl_fenetre,"LI_evt",vl_lib)
+
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)
+
+	vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	CASE OF vl_exit_value
+		/*B surcharge refusee*/
+		CASE "BP_refuser"
+			/*B envoyer un message de refus a l'appelant*/
+			/* Construire les paramètres d'appel de la fonction relais */
+			tl_args[0]=va_dgAppelant
+			tl_args[1]=COM_NOK
+			PEND_FOR_NEW_TASK@("ITMA_TIR_EXEC",MTAR_FCT_REPONSESURCHARGE,
+								1,tl_args)
+			SET_SYSTEM_VAR@(vg_surcharge,FALSE)
+			RETURN
+
+
+		/*B surcharge acceptee*/
+		CASE "BP_accepter"
+			SET_SYSTEM_VAR@(vg_surcharge,TRUE)
+			SET_SYSTEM_VAR@(vg_nom_site_surcharge,vl_nomSite)
+			SET_SYSTEM_VAR@(vg_numero_poste_surcharge,vl_numeroPoste)
+			SET_SYSTEM_VAR@(vg_site_surcharge,vl_site)
+	
+			/*B envoyer un message de refus a l'appelant*/
+			/* Construire les paramètres d'appel de la fonction relais */
+			tl_args[0]=va_dgAppelant
+			tl_args[1]=COM_OK
+			PEND_FOR_NEW_TASK@("ITMA_TIR_EXEC",MTAR_FCT_REPONSESURCHARGE,
+								1,tl_args)
+
+			NEW_TASK@("TMC_traite_surcharge",vl_num,
+							vl_cle,
+							vl_lib,
+							vl_nomSite,
+							vl_numeroPoste,
+							vl_enrichir,
+							vl_old_canal_SGBD,
+							vl_old_numero_poste,
+							vl_old_nom_site,
+							va_dgAppelant)
+
+			RETURN
+
+		CASE "poke_"
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				CASE COM_CANAL_FIN
+					SET_SYSTEM_VAR@(vg_surcharge,FALSE)
+					RETURN
+
+				CASE COM_CANAL_MTMC_SURCHARGE
+					tl_data=DB_GET_POKE_DATA@(vl_fenetre)
+					ITMA_TIR_LEAVEDG(tl_data[1])
+					RETURN
+			ENDCASE
+	ENDCASE
+
+WEND
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* ouvre la fmc comme si on etait au PC et que la fmc etait ouverte depuis la
+* liste des fmc a traiter
+*
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TMC_traite_surcharge (va_num,va_cle,va_lib,va_nomSite,va_numeroPoste,
+						va_enrichir,va_old_canal_SGBD,
+								va_old_numero_poste,
+								va_old_nom_site,va_dgAppelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : 
+*
+* CONDITION D'UTILISATION
+*   MTMC
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR vl_canal
+VAR FORMAT SQL_Procedure_Params@ vl_parametres
+VAR FORMAT SQL_Procedure_Result@ vl_resultats
+VAR vl_indice
+VAR FORMAT COM_Intitule_FMC vl_FMC
+VAR tl_args
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+   
+	SET_SYSTEM_VAR@(vg_surcharge,FALSE)
+    RETURN
+}
+
+/*A
+ * Etablir une connexion SGB
+ * -------------------------------------------------------
+ */
+   vl_canal = SQL_CONNECT@ (COM_NOM_SGBD, COM_USER, COM_MOT_PASSE,
+				 COM_BASE, COM_HOTE, COM_SERVEUR ++ va_nomSite)
+    SQL_CHANNEL_MASTER@ (vl_canal, 0)
+    SET_SYSTEM_VAR@ (vg_canal_SGBD_surcharge, vl_canal)
+
+/*A charge des infos sur la fiche*/
+vl_indice=0
+vl_parametres[vl_indice].data=va_num
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=false
+vl_indice=vl_indice+1
+vl_parametres[vl_indice].data=va_cle
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=false
+vl_indice=vl_indice+1
+
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=true
+vl_indice=vl_indice+1
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=true
+vl_indice=vl_indice+1
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=true
+vl_indice=vl_indice+1
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=true
+vl_indice=vl_indice+1
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=true
+vl_indice=vl_indice+1
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=true
+vl_indice=vl_indice+1
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=true
+vl_indice=vl_indice+1
+vl_parametres[vl_indice].type=SYB#INT4_
+vl_parametres[vl_indice].output=true
+vl_indice=vl_indice+1
+vl_parametres[vl_indice].type=SYB#DATETIME_
+vl_parametres[vl_indice].output=true
+
+    IF COM05_SQL_Procedure (XZAE72_Lire_Intitule_FMC,
+				  vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+    {
+	  INFO_MESSAGE@("Erreur dans la lecture de la fiche en base")
+	  RETURN (COM_NOK)
+     }
+
+vl_FMC.IdFMC.numero = va_num
+vl_FMC.IdFMC.cle = va_cle
+vl_FMC.Numtype = vl_resultats.return_parameters[0]
+vl_FMC.localisation.NumAuto = vl_resultats.return_parameters[2]
+vl_FMC.localisation.PR = vl_resultats.return_parameters[3]
+vl_FMC.localisation.sens_circulation = vl_resultats.return_parameters[4]
+vl_FMC.date = vl_resultats.return_parameters[1]
+vl_FMC.date_prevu = vl_resultats.return_parameters[8]
+
+	PEND_FOR_NEW_TASK@("ITMA_TMC_Fiche_Main_Courante",
+					"ITMA_TMC_reponse_surcharge",
+					vl_FMC,
+					va_enrichir,
+					XDC_FMC_ETAT_TRAI)
+
+	/*B envoyer un message de fin a l'appelant*/
+	/* Construire les paramètres d'appel de la fonction relais */
+	tl_args[0]=va_dgAppelant
+	tl_args[1]=va_num
+	tl_args[2]=va_cle
+	PEND_FOR_NEW_TASK@("ITMA_TIR_EXEC",MTAR_FCT_FINSURCHARGE,
+								1,tl_args)
+	SET_SYSTEM_VAR@(vg_surcharge,FALSE)
+	RETURN				
+
+ENDMACRO

@@ -1,0 +1,197 @@
+/*E*/
+/*Fichier :  $Id: ITMA_TMC_achever_fiche.am,v 1.20 2020/11/03 17:41:06 pc2dpdy Exp $      Release : $Revision: 1.20 $        Date : $Date: 2020/11/03 17:41:06 $
+------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------
+* MODULE MTMC * FICHIER ITMA_TMC_achever_fiche.am
+------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Achevenement des evenements.
+*
+*  Cf. DCG §2.4.52
+*
+------------------------------------------------------
+* HISTORIQUE :
+*
+* Torregrossa 19 dec 1997 : ajout gestion de fmc degrade (1531) V1.13
+* Guilhou	07 jan 1998 : gestion achevement FMC pc niveau 2 (dem/1535) 1.14
+* Torregrossa 30 Jan 1998 : Modif message d'erreur pour FMC degrade (dem/1531) V1.15
+* Lecrivain   15 fev 2007 : Verrou IHM levé par FMC en quittant (sur DEM/622) V1.17
+* JMG          29/09/09   : SECTO DEM 887
+* JPL		23/03/17 : Changement du terme Secteur en Region (DEM 1173)  1.19
+* LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+------------------------------------------------------*/
+
+include	"dbase_.am"
+include 	"../inc/ITMA_COM.h"
+include 	"../inc/ITMA_TDO.h"
+include	"../../XDMICG/inc/xdc_ax.h"
+include	"../inc/ITMA_TAR.h"
+include	"../../XDMICG/inc/xzic_ax.h"
+include	"../inc/xzae14sp.h"
+include	"../../XDMICG/inc/xzaec_ax.h"
+include	"../inc/ITMA_TMC.h"
+
+
+
+define 	C_MODULE	"MTMC"
+
+
+VAR FORMAT TMC_fmc			 vm_fiche
+VAR FORMAT COM_Identifiant_FMC tm_num_evt	'num et cle de l'evt 
+
+VAR vm_simplifie
+
+/*X*/
+/*------------------------------------------------------
+* SERVICE RENDU : 
+* acheve la fiche main courante
+*
+------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_achever_fiche(va_fiche,ta_num_evt,va_mode,va_appelant,va_poste_enrichisseur)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE :
+* aucun
+*
+* CODE RETOUR : 
+* aucun
+*
+*
+*
+---------------------------------------------------------*/
+VAR FORMAT sql_procedure_params@ param_in,vl_parametres
+var 	i
+var FORMAT sql_procedure_result@ vl_resultats
+var vl_msg
+var vl_retour
+
+	MACRO_WINS_BUSY@()
+	i=0
+	vm_fiche=va_fiche
+	tm_num_evt=ta_num_evt
+
+	/*A preparation des parametres de la requete*/
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = tm_num_evt.numero
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = tm_num_evt.cle
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+		vl_parametres[i].data = SYSTEM_VAR@(vg_numero_poste_surcharge)
+	ELSE
+		vl_parametres[i].data = SYSTEM_VAR@(vg_numero_poste)
+
+	/*si j'acheve au CI la FMC operateur d'un PC simplifie*/
+	if (va_mode=XDC_VRAI)
+		vl_parametres[i].data = null
+	/*si j'acheve au CI la FMC operateur d'un PC niveau 2*/
+	if (va_mode=XDC_VRAI) and (va_poste_enrichisseur<>NULL)
+		vl_parametres[i].data = va_poste_enrichisseur
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].output = TRUE
+	i=i+1
+
+	vl_parametres[i].type = SYB#CHAR_                       
+	vl_parametres[i].data = SYSTEM_VAR@(vg_nom_site)
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+
+
+	/*A execution de la requete sql*/
+	vl_retour=COM_OK
+
+	/*calcul sur PC simplifie*/
+	if (va_mode=XDC_VRAI)
+	  vl_retour= COM39_SQL_Procedure_PCS (XZAE14_Achever_Fiche_MC,
+			   vl_parametres, vl_resultats, C_MODULE)
+	else
+	  vl_retour = COM05_SQL_Procedure (XZAE14_Achever_Fiche_MC,
+			vl_parametres, vl_resultats, C_MODULE)
+
+	if (vl_retour<>COM_OK)
+	{
+		CASE OF (vl_resultats.status)
+			CASE XDC_NOK
+				vl_msg="Evénement inexistant,site inconnu, ...."
+
+			CASE XDC_ARG_INV
+				vl_msg="Arguments invalides"
+
+			CASE XDC_PRC_INC
+				vl_msg="Procédure stockée inexistante"
+
+			CASE XDC_REV_PB_DCL
+				vl_msg="Evénement achevé mais problème de réveil"
+		ENDCASE
+
+		INFO_MESSAGE@(vl_msg)
+		 vl_retour=COM_NOK
+	}
+	ELSE IF (vl_resultats.return_parameters[0]<>XDC_OK)
+	{
+		CASE OF vl_resultats.return_parameters[0]
+			CASE XZAEC_FMC_PAS_ENR
+				vl_msg="Evénement non modifiable par cet opérateur"
+
+			CASE XZAEC_FMC_ACT_NON_FIN
+				vl_msg="Actions relatives à l'événement non terminées"
+
+			CASE XZAEC_FMC_A_TRT
+				vl_msg="Evénement à traiter dans une région"
+
+			CASE XZAEC_FMC_NON_FIN
+				vl_msg="Evénement non terminé"
+
+			CASE XZAEC_FMC_INIT_INC
+				vl_msg="FMC initiale inexistante"
+
+			CASE XZAEC_FMC_INIT_DEG
+				vl_msg="FMC initiale liée : FMC incorrecte"
+
+			CASE XZAEC_FMC_DEG_ENCOURS
+				vl_msg="Evénement lié à une FMC dégradée en cours"
+
+			CASE XZAEC_FMC_INIT_INCOMP
+				vl_msg="FMC initiale incompatible avec cette FMC"
+
+			CASE XZAEC_FMC_INIT_PAS_ENR
+				vl_msg="Pas le droit d'enrichir la FMC initiale"
+		ENDCASE
+
+		INFO_MESSAGE@(vl_msg)
+		vl_retour=COM_NOK
+	}
+
+	/*au PC simplifie*/
+	if (vm_simplifie) {
+	  SQL_DISCONNECT@(SYSTEM_VAR@(vg_canal_SGBD_pcs))
+	  SET_SYSTEM_VAR@(vg_canal_SGBD_pcs,null)
+	}
+
+	RETURN  (vl_retour) 	
+	
+ENDMACRO
+
+
+
+

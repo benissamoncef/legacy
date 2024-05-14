@@ -1,0 +1,204 @@
+/*E*/
+/* Fichier : $Id: dedi_trace.am,v 1.2 1996/09/30 12:08:15 verdier Exp $	      Release : $Revision: 1.2 $        Date : $Date: 1996/09/30 12:08:15 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_genere.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* module de traces
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	30 jan 1994	: Creation						V1.1
+* Guilhou	11 sep 1996	: gestion du bouton quitter (DEM/1187)			V1.2
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* initialise les traces et ouvre la boite de tracage
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_trace ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+* dedi
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var tl_traces
+var tl_pokes
+
+/*A initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_trace")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+tl_pokes[1]=dedi_canal_trace
+tl_pokes[2]=dedi_canal_trace_point
+tl_pokes[3]=dedi_canal_trace_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,5)
+DB_YPOS@(vl_fenetre,72)
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	CASE OF vl_evt
+		/*bouton quitter*/
+		CASE "BP_quitter"
+			RETURN
+
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+				CASE dedi_canal_trace_fin
+					RETURN
+
+				/*A nouveau message de trace*/
+				CASE dedi_canal_trace
+					/*A ajoute ce message a la liste des messages existants*/
+					tl_traces=DB_CTRL_GET_STRINGS@(vl_fenetre,"BL_traces")
+					tl_traces[ARRAY_SIZE@(tl_traces)]=DB_GET_POKE_DATA@
+													(vl_fenetre)	
+					DB_CTRL_STRINGS@(vl_fenetre,"BL_traces",tl_traces)
+					DB_CTRL_VALUE@(vl_fenetre,"BL_traces",
+									ARRAY_SIZE@(tl_traces)-1)
+
+				/*A message de trace d'un point*/
+				CASE dedi_canal_trace_point
+					/*A ajoute ce point au dernier message*/
+					tl_traces=DB_CTRL_GET_STRINGS@(vl_fenetre,"BL_traces")
+					tl_traces[ARRAY_SIZE@(tl_traces)-1]=
+							tl_traces[ARRAY_SIZE@(tl_traces)-1]++"."
+					DB_CTRL_STRINGS@(vl_fenetre,"BL_traces",tl_traces)
+					DB_CTRL_VALUE@(vl_fenetre,"BL_traces",
+									ARRAY_SIZE@(tl_traces)-1)
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* demande de trace d'une chaine de caracteres
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO trace_chaine (va_chaine)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	/*A envoie un poke au module de traces*/
+	DB_SEND_POKE@(dedi_canal_trace,va_chaine)
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* demande de trace d'un point
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO trace_point ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	/*A envoie un poke au module de traces*/
+	DB_SEND_POKE@(dedi_canal_trace_point)
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* fin de trace 
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO trace_fin ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+
+	/*A envoie un poke au module de traces*/
+	DB_SEND_POKE@(dedi_canal_trace_fin)
+ENDMACRO
+
+

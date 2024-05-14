@@ -1,0 +1,292 @@
+/*E*/
+/* Fichier : $Id: dedi_ec5_autoroute.am,v 1.1 1995/05/24 10:15:32 gesconf Exp $	      Release : $Revision: 1.1 $        Date : $Date: 1995/05/24 10:15:32 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE dedi * FICHIER dedi_ec5_autoroute.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+* 
+* formulation des autoroutes
+*   
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* Guilhou	07 dec 1994	: Creation						V1.1
+---------------------------------------------------------------------------- */
+include "dedi_init.h"
+
+
+VAR	FORMAT dedi_autoroute			tm_autoroutes	
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* formulation des autoroutes
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO dedi_ec5_autoroute ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+var vl_fenetre
+var vl_evt
+var vl_selection
+var vl_indice
+var tl_pokes
+var vl_libelle,vl_sens1,vl_sens2
+
+/*A initialisation des parametres de la fenetre */
+vl_fenetre = DB_LOAD@("dedi_ec5_autoroute")
+
+/*A messages que je peux recevoir*/
+tl_pokes[0]=dedi_canal_fin
+DB_ACCEPT_POKES@(vl_fenetre,tl_pokes)
+
+/*A positionne la fenetre a l'ecran*/
+DB_XPOS@(vl_fenetre,5)
+DB_YPOS@(vl_fenetre,72)
+
+DB_DISPLAY_ONLY@(vl_fenetre, TRUE)
+DB_DISPLAY@(vl_fenetre)
+
+/*initialisation du module*/
+ec5_autoroute_init(vl_fenetre)
+
+DB_DISPLAY_ONLY@(vl_fenetre, FALSE)
+
+
+/*A boucle principale */
+WHILE 1
+	DB_DISPLAY@(vl_fenetre)	
+	vl_evt = DB_EXIT_CTRL@(vl_fenetre)
+
+	/*A suivant l'evenement*/
+	CASE  OF vl_evt
+		/*A appui sur le bouton modifier une autoroute*/
+		CASE "BP_modifier"
+			/*A lit les nouvelles caracteristiques*/
+			vl_libelle=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_auto")
+			vl_sens1=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_sens1")
+			vl_sens2=DB_CTRL_GET_VALUE@(vl_fenetre,"BS_sens2")
+
+			/*A si un de ces champs est nul*/
+			IF ( (vl_libelle=null) Or (vl_sens1=null) OR (vl_sens2=null))
+				INFO_MESSAGE@("Les champs doivent etre renseignes !")
+			ELSE
+			{
+				/*A modifie les caracteristiques de l'autoroute*/
+				tm_autoroutes[vl_selection].libelle=vl_libelle	
+				tm_autoroutes[vl_selection].sens1=vl_sens1	
+				tm_autoroutes[vl_selection].sens2=vl_sens2
+
+				/*A met a jour l'affichage*/	
+				DB_TABLE_SET_NEW_DATA@(vl_fenetre,"TA_auto",tm_autoroutes,0)
+				vl_indice[0]=vl_selection
+				DB_TABLE_SET_SELECTIONS@(vl_fenetre,"TA_auto",vl_indice)
+			}
+
+		/*A choix d'un element dans la liste*/
+		CASE "TA_auto"
+			/*A indice de l'autoroute selectionnee*/
+			vl_selection=DB_TABLE_GET_SELECTIONS@(vl_fenetre,vl_evt)
+			vl_selection=vl_selection[0]
+
+			/*A affiche les caracteristiques de l'autoroute*/
+			DB_CURSOR_IN_ENTRY@(vl_fenetre,"BS_auto")
+			DB_CTRL_TITLE@(vl_fenetre,"LI_auto",tm_autoroutes[vl_selection].nom)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_auto",
+									tm_autoroutes[vl_selection].libelle)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_sens1",
+									tm_autoroutes[vl_selection].sens1)
+			DB_CTRL_VALUE@(vl_fenetre,"BS_sens2",
+									tm_autoroutes[vl_selection].sens2)
+
+		/*A appui sur le bouton valider*/
+		CASE "BP_valider"
+			/*A curseur devient une montre*/
+			MACRO_WINS_BUSY@()
+
+			/*fonction de validation*/
+			IF (ec5_autoroute_valide()=TRUE)
+				RETURN
+
+		/*A appui sur le bouton annuler*/
+		CASE "BP_annuler"
+			RETURN	
+
+		/*A reception d'un poke*/
+		CASE "poke_"
+			/*A suivant le message recu*/
+			CASE OF (DB_GET_POKE@(vl_fenetre))
+				/*A message de fin*/
+				CASE dedi_canal_fin
+					RETURN
+
+			ENDCASE
+	ENDCASE
+WEND
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro d'initialisation du module
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec5_autoroute_init (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+VAR vl_position
+VAR tl_autoroutes
+VAR tl_titres
+
+	/*A chargement des autoroutes de la base*/
+	tl_autoroutes=SYSTEM_VAR@(vg_autoroutes)
+
+	/*A chargement des formulations depuis le fichier de config*/
+	tl_data=READ_ASCII_FILE@(AX_PATH++IE_FILE_FORMUL_AUTOROUTE)
+
+	/*A parcourt le tableau lu et extrait les champs*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_data)-1)
+		tl_data[vl_indice]=ARRAY_FROM_STRING@(tl_data[vl_indice],
+											DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+	/*A si une autoroute a ete creee, je dois l'ajouter a celles
+	* qui existent dans le fichier de config*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tl_autoroutes)-1)
+		vl_position=ARRAY_INDEX@(ARRAY_COLUMN@(tl_data,4),
+									tl_autoroutes[vl_indice][0])
+
+		/*A si elle existe*/
+		IF (vl_position<>-1)
+		{
+			/*A je recupere son libelle du fichier de config*/
+			tm_autoroutes[vl_indice].numero=tl_autoroutes[vl_indice][0]
+			tm_autoroutes[vl_indice].nom=tl_autoroutes[vl_indice][1]
+			tm_autoroutes[vl_indice].libelle=tl_data[vl_indice][1]
+			tm_autoroutes[vl_indice].sens1=tl_data[vl_indice][2]
+			tm_autoroutes[vl_indice].sens2=tl_data[vl_indice][3]
+		}		
+		/*A sinon je l'ajoute a la liste des autoroutes , sans libelle*/
+		ELSE
+		{
+			tm_autoroutes[vl_indice].numero=tl_autoroutes[vl_indice][0]
+			tm_autoroutes[vl_indice].nom=tl_autoroutes[vl_indice][1]
+			tm_autoroutes[vl_indice].libelle=null
+			tm_autoroutes[vl_indice].sens1=null
+			tm_autoroutes[vl_indice].sens2=null
+		}
+	NEXT vl_indice
+
+	/*! si la requete en base a echoue*/
+	IF (tl_autoroutes=null)
+		/*! je recupere les autoroutes du fichier de config*/
+		tm_autoroutes=tl_data
+
+	/*A affichage des donnees lues*/
+	tl_titres[0]="Autoroute",100
+	tl_titres[1]="Libellé",350
+	tl_titres[2]="Sens 1",250
+	tl_titres[3]="Sens 2",250
+	DB_TABLE_SET_DATA@(va_fenetre,"TA_auto",tm_autoroutes,tl_titres)
+
+	/*A active cette table*/
+	DB_CTRL_RETURN_ON_CHANGE@(va_fenetre,"TA_auto",TRUE)
+
+ENDFUNCTION
+
+
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+* macro de validation
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+FUNCTION ec5_autoroute_valide ()
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+---------------------------------------------------------------------------- */
+VAR tl_data
+VAR vl_indice
+
+	/*A formatte les donnees*/
+	FOR vl_indice=0 TO (ARRAY_SIZE@(tm_autoroutes)-1)
+		/*A si un des champs est nul*/
+		IF ( (tm_autoroutes[vl_indice].libelle=null) OR
+			(tm_autoroutes[vl_indice].sens1=null) OR
+			(tm_autoroutes[vl_indice].sens2=null) )
+		{
+			INFO_MESSAGE@("Les champs de l'autoroute "++
+			tm_autoroutes[vl_indice].nom++" doivent etre renseignes!")
+			RETURN (FALSE)
+		}
+
+		/*A transforme le tableau en une chaine*/
+		tl_data[vl_indice]=ARRAY_TO_STRING@(tm_autoroutes[vl_indice],
+											DEDI_CAR_SEPAR)
+	NEXT vl_indice
+
+	WRITE_ASCII_FILE@(AX_PATH++IE_FILE_FORMUL_AUTOROUTE,tl_data)	
+	RETURN (TRUE)
+ENDMACRO
+
+
+

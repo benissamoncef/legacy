@@ -1,0 +1,4700 @@
+/*Fichier :  @(#)ITMA_TTU_signalisation.am	1.15      Release : 1.15        Date : 03/24/14
+*/
+/*A Description des constantes générales
+ * ------------------------------------- */
+DEFINE	C_MODULE     "MTTU"	' Nom du module
+DEFINE	REP_CONFIG   "../fichiers/"
+DEFINE	REP_RENOVE   "../fichiers/renov/"
+
+DEFINE	POSX_BP_INDIVIDUEL	330
+DEFINE	POSY_BP_INDIVIDUEL	665
+
+
+/*A Description des modules à inclures 
+* ---------------------------------------*/
+INCLUDE	"dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE	"../inc/xzac100sp.h"
+INCLUDE	"../inc/xzac102sp.h"
+INCLUDE	"../inc/xzac110sp.h"
+INCLUDE	"../inc/xzac631sp.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+
+INCLUDE	"../inc/xzac102sp.h"
+
+/*A Description des variables globales
+ * ----------------------------------- */
+var		vm_NomSite				' Nom du site
+var		vm_District				' N° du district
+var		vm_statut				' Valeur de retour du module
+var   	vm_fenetre_TTU			' item de la fenetre du module
+var		vm_messages_acceptes
+var		vm_F_tunnel				' fichier de config des tunnels
+var		vm_Eqp_Signalisation	' fichier de config des eqp signalisation
+var		vm_Sce_Signalisation	' fichier de config des seq signalisation
+var		vm_Sce_Ventilation		' fichier de config des seq ventilation
+var		vm_Sce_Eclairage		' fichier de config des seq Eclairage
+var		vm_F_tube				' fichier des tunnels dispo en base
+var		vm_F_bouton				' fichier de config des boutons
+var		vm_dispo				' indice de disponibilité
+var		vm_NumSequence			' Numero de la sequence selectionné
+var		vm_NumTube				' Numero du tube selectionné
+var		vm_NumTube2
+var		vm_text					' text en edition
+var		vm_seq_select			' Nom de la sequence selectionné
+var		vm_resultat				' Flag de resultat de sequence
+var		vm_exe_seq_en_cours		' Flag d'execution d'une sequence selectionné
+var		vm_liste_tunnel			' Liste des tunnels depuis XZET01
+var		vm_index				' index du tunnel selectionné dans la liste
+var		vm_Titre_Fenetre
+var		vm_Nom_Fenetre
+var		vm_nom_tunnel
+var		vm_rep_fich
+var   	vl_trigramme
+var   	vl_trigramme_amont
+var   	vl_trigramme_aval
+var   	vl_trigramme_sens
+
+var		vl_erreur			' flag d'erreur
+var		vl_explication		' explication du PA
+var		tl_data,tl_retour	' param. table evenements
+var   	tm_liste_causes
+var		tl_titres			' titre evenements
+var		vm_NumEvt 			' N° d'evenement
+var		vm_CleEvt 			' Clé de l'evenement
+var		vm_NumAction		' Numero d'action
+var		vl_fmc				' libelle fmc à construire
+var		vl_lib_fmc			' libelle fmc à construire
+var		vm_mode_PA 			' mode de retour du plan d'action
+
+var		vm_mode_formation	' mode formation
+var 	my_array
+
+var vm_Appel
+
+FORMAT	PA_Tun
+			Remarque,		' remarque (50 char.)
+			NumEqt,			' equipement
+			Explication,	' explication du PA
+			Sequence,		' sequence
+			Priorite,		' Priorité
+			DistanceEvt,	' Distance de l'événement
+			NumEvt,			' N° d'evenement
+			CleEvt,			' clé de levenement
+			Dispo,			' disponibilité		
+			NumeroAction,	' numero d'action
+			NomSite,		' nom du site
+			fmc_liee		' libellé FMC
+
+FORMAT TMC_actionFiche
+	numero_fiche,
+	cle_fiche,
+	numero_action,
+	cle_action,
+	libelle_fiche,
+	heure_action,
+	etat_action,
+	domaine_action
+	
+var	FORMAT PA_Tun vm_tunnel
+
+VAR FORMAT 	TMC_actionFiche	vl_ficheAction
+
+' modif du 25-09-2019 : pour toulon on enleve les reperes equipement
+var		tm_affiche_repere
+
+var 	vm_num_vue
+' modif specifique Toulon ABE du 14-11-2019 : gestion commande double pour eqp similaires
+var 	vm_db_commande
+
+' modif du 14-11-2019 : Bloquage des commandes IHM incendie si incendie dans l'autre sens
+var tm_incendie_autre_sens
+
+/*************** FIN DECLARATIONS DONNEES GLOBALES ***********/
+
+/*E*/
+/*
+-------------------------------------------------------------------------------
+* GTIE *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE MTPM * FICHIER ITMA_TTU_signalisation.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* IHM de Commande des panneaux des tunnels.
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* A.Bertola 13/02/2007    : IHM supervision NICE en mode dégradé
+* A.Bertola 15/08/2008: correction FT 1712 : SAE MONACO S1,
+*     problème apparition BP sens opposé pour domaine autre que signalisation
+* A.Bertola 16/09/2008 : correction FT 1772: Problème de gestion des positions des 
+*    SAV avec position extinction en état et non en commande
+* A.Bertola 13/10/2008 : correction problème de remontée des états incendie
+* A.Bertola 20/10/2008 : correction FT 2007: affichage des boutons domaine éclairage
+* A.Bertola 06/11/2008 : correction cas particulier de ST Pierre Féric sans ventilation
+* A.Bertola 05/12/2008 : gestion generique des tubes sans ventilation
+* JMG 22/10/09 : pastun DEM895
+* A.Bertola 14/01/2010 : correction FT 3036 : Mauvaise gestion de l'affichage des scénarios en cours
+* A.Bertola 01/02/2010 : correction FT 3376: Changer le libellé du BP AUTO/individuel situé dans le bandeau du bas
+* A.Bertola 03/02/2010 : correction FT 3375: Systématiser le msg "Action possible seulement sur le domaine éclairage-ventilation" sur action BP domaine
+* A.Bertola 02/08/2013 : intégration BP HT Centrale La Turbie
+* A.Bertola 25/09/2019 : intégration ouvrage Toulon
+* A.Bertola 10/02/2021 : vue SIG entrée sud ouvrage Toulon ajout zone BRA pincement
+LCL   22/04/20        : MOVIS Ajout site local pilotage DEM-SAE93
+---------------------------------------------------------------------------- */
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commande le pilotage des tunnels
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_signalisation(va_appelant, va_1, va_2, va_3, va_4)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant		: Nom de la macro Applix ayant invoque la presente.
+*  va_1 			: nom du tube
+*  va_2             : code du tube
+*  va_3             : structure vm_tunnel si va_appelant = "ITMA_TPA"
+*                     vl_ficheAction si va_appelant = "ITMA_TMC"
+*  va_4				: gestion des vues signalisation (1=vue 1 / 2=vue 2 / 3=vue 3)
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Status OK ou NOK suivant résultat
+*
+* CONDITION D'UTILISATION
+*   Selection de Piloter -> Tunnel dans MTMT
+*
+* FONCTION
+*    Pilote les panneaux des tunnels
+*
+---------------------------------------------------------------------------- */
+/*A Déclaration des variables statiques */
+var vl_fenetre_active	' flag de fenetre active
+var vl_controle_sortie	' flag de sortie
+var i,j,k			' index de loop
+var vl_taille,vl_taille2 ' taille de tableau
+var vl_defaut			' flag de defaut alarmes
+var vl_rang			' rang selectionné dans une liste
+var vl_numero			' numero selectionné
+var vl_message,vl_mess,vl_messageDecoupe	' message affiché
+var vl_text			' text libre
+var vl_fermeture		' flag de fermeture de la fenetre par socket
+var vl_F_tpm			' tableau tampon
+var vl_ligne			' tableau d'une ligne
+var tl_tunnel			' echangeur selectionné dans la liste
+var vl_sequence		' sequence selectionné dans la liste
+var vl_panneau		' tableau des panneaux à commander
+var vl_etat			' tableau des etat des panneaux à commandes
+var vl_type_panneau		' tableau des types de panneaux à commander
+var vl_titre  		' titre du bouton
+var vl_defaut_sequence	' flag de defaut sequence
+var vl_indice       	' Indice de parcours des parametres 
+var vl_retour		 	' code retourne à l'appelant
+var vl_trouve
+var vl_index, vl_index2
+var vl_titre_fen
+var vl_sens, vl_sens_tunnel
+var vl_signalisation
+var vl_meme_sens
+var tl_param
+var vl_trigramme
+var vl_num_eqp
+var vl_tab
+var vl_cmd
+var vl_tube_amont, vl_tube_aval
+var vl_renove
+var vl_icon
+var x
+var vl_info_task
+var vl_libelle_tube
+var vl_scenario_en_cours
+var vl_presence_sce_desenfumage
+var vl_nb_poste_BT
+var vl_fichier
+var vl_color
+
+/* Controler si la tache est deja lancee */
+DELAY@(0.5)
+vl_info_task = TASK_LIST@(FALSE)
+x = 0
+FOR i = 0 TO ARRAY_SIZE@(vl_info_task) -1
+	IF	UPPERCASE@(vl_info_task[i][1]) = "ITMA_TTU_SIGNALISATION" or
+		UPPERCASE@(vl_info_task[i][1]) = "ITMA_TTU_ECLAIRAGE" or
+		UPPERCASE@(vl_info_task[i][1]) = "ITMA_TTU_VENTILATION" or
+		UPPERCASE@(vl_info_task[i][1]) = "ITMA_TTU_LT" or
+		UPPERCASE@(vl_info_task[i][1]) = "ITMA_TTU_BT" or
+		UPPERCASE@(vl_info_task[i][1]) = "ITMA_TTU_EXPLOITATION" or
+		UPPERCASE@(vl_info_task[i][1]) = "ITMA_TTU_PILOTAGE_TUNNEL" 
+	{
+		x = x+1
+	}
+NEXT i
+/* Si la tache est deja lancee on sort */
+IF x > 2 EXIT@()
+
+
+MACRO_WINS_BUSY@()
+
+vm_NomSite = SYSTEM_VAR@("vg_nom_site")
+vm_District = SYSTEM_VAR@("vg_site")
+
+
+/*A MAJ des variables statiques */
+vl_fermeture = FALSE
+vm_exe_seq_en_cours = False
+/*A Traitements en cas d'erreur durant l'initialisation :
+*   informer l'operateur, tracer l'erreur et abandonner
+* ------------------------------------------------------*/
+ON ERROR 
+{
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	RETURN(COM_NOK)
+}
+
+
+vm_Appel = SUBSTRING@(va_appelant,1,8)
+vm_nom_tunnel = va_1
+vl_trigramme = va_2
+
+COM01_Trace (COM_WARNING, "vm_Appel = " ++ vm_Appel)
+COM01_Trace (COM_WARNING, "vm_nom_tunnel = " ++ vm_nom_tunnel)
+COM01_Trace (COM_WARNING, "vl_trigramme = " ++ vl_trigramme)
+
+SET_SYSTEM_VAR@("vg_domaine_courant", "signalisation")
+
+
+'-- Appel de la fenetre depuis une FMC : récupération de la séquence à afficher
+if ( vm_Appel = "ITMA_TMC" )
+{
+	vl_FicheAction = va_3
+	vl_retour = ITMA_TTU_Lecture_PA_tunnel(vl_FicheAction.Numero_Action, vl_FicheAction.cle_action, vl_FicheAction.domaine_action)
+
+	vm_NumTube = vl_retour[0]+0
+	vm_NumSequence = vl_Retour[2]+0
+	
+	COM01_Trace(0, "Appel par ITMA_TMC : sequence = " ++ vm_NumSequence)
+	DB_HEIGHT@(vm_fenetre_TTU,300)
+	DB_XPOS@(vm_fenetre_TTU,50)
+	DB_YPOS@(vm_fenetre_TTU,200)
+	
+}
+
+'-- Appel de la fenetre dans le cadre d'un plan d'action : récupération de
+'-- la structure vm_tunnel
+if ( vm_Appel = "ITMA_TPA" )
+    vm_tunnel = va_3
+
+
+vl_fermeture = FALSE
+vm_exe_seq_en_cours = False
+vm_mode_formation = (SYSTEM_VAR@(vg_formation) <> NULL)
+vm_Mode_PA 	= COM_QUITTE
+
+vl_signalisation = TRUE
+while (vl_signalisation)
+
+/*A Tracer l'initialisation de la procedure :*/
+vm_text = "------------------------------------------------------------"
+COM01_Trace(0,vm_text)
+vm_text = COM09_Date_Courante() ++ " Start ITMA_TTU_signalisation "
+
+vm_text = "va_appelant : " ++ va_appelant
+COM01_Trace(0,vm_text)
+
+if NOT(IS_ARRAY@(vm_nom_tunnel))
+{
+    vm_text = "vm_nom_tunnel : " ++ vm_nom_tunnel
+    COM01_Trace(0,vm_text)
+}
+
+'vue generique A8-A500 ou vue Toulon 
+vl_fichier =  vl_trigramme ++ "/ConfigEqtSignalisation_" ++ vl_trigramme ++ ".cfg" 
+
+vm_num_vue = va_4
+if va_4 <> 1 and va_4 <> 2 and va_4 <> 3
+{
+	vm_num_vue = 1
+}
+
+if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") <> 0
+{ '' specifique TOULON
+	if vm_num_vue = 3
+	{
+		'vue Toulon tremie sud
+		vl_fichier =  vl_trigramme ++ "/ConfigEqtSignalisation3_" ++ vl_trigramme ++ ".cfg"
+	}
+	if vm_num_vue = 2
+	{
+		'vue Toulon 
+		vl_fichier =  vl_trigramme ++ "/ConfigEqtSignalisation2_" ++ vl_trigramme ++ ".cfg"
+	}
+}
+
+/*A Chargement du fichier de config equipement signalisation du tunnel */
+vm_Eqp_Signalisation = null
+vl_F_tpm = READ_ASCII_FILE@(REP_RENOVE ++ vl_fichier)
+vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+vl_index = 0
+for i = 0 to vl_taille
+  '' recherche sur la ligne 1 si "pas de repere" pour ne pas afficher les reperes eqp (type eqp - eqp)
+  if i=0 
+  {
+	if STRING_INDEX@(vl_F_tpm[i],  "pas de repere") <> 0
+		tm_affiche_repere = 0
+	else
+		tm_affiche_repere = 1
+  }
+  vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+  vl_tab = ARRAY_SIZE@(vl_ligne)
+  if substring@(vl_F_tpm[i],1,1) <> "#" and vl_tab > 1
+  {
+    vl_taille2 = ARRAY_SIZE@(vl_ligne) -1
+    for j = 0 to vl_taille2
+  
+      if STRING_INDEX@(vl_F_tpm[i],  "->") <> 0
+      {
+          vm_Eqp_Signalisation[0,j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+      }
+      else vm_Eqp_Signalisation[vl_index,j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+    next j
+    vl_index = vl_index + 1
+  }
+next i
+
+/*A Chargement du fichier de config sequence signalisation du tunnel */
+vl_F_tpm = READ_ASCII_FILE@(REP_RENOVE ++	vl_trigramme 
+			++ "/ConfigSceSignalisation_" ++ vl_trigramme ++ ".cfg")
+vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+vl_index = 0
+for i = 0 to vl_taille
+  vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+  vl_tab = ARRAY_SIZE@(vl_ligne)
+  if substring@(vl_F_tpm[i],1,1) <> "#"
+  {
+    vl_taille2 = ARRAY_SIZE@(vl_ligne) -1
+  	for j = 0 to vl_taille2
+  		vm_Sce_Signalisation[vl_index,j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+  	next j
+  	vl_index = vl_index + 1
+  }
+next i
+
+SET_SYSTEM_VAR@("Liste_Sequence",vm_Sce_Signalisation)
+
+/*A Chargement du fichier de config sequence eclairage du tunnel */
+vl_F_tpm = READ_ASCII_FILE@(REP_RENOVE ++ vl_trigramme ++ "/ConfigSceEclairage_" ++ vl_trigramme ++ ".cfg")
+vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+vl_index = 0
+for i = 0 to vl_taille
+  vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+  vl_tab = ARRAY_SIZE@(vl_ligne)
+  if substring@(vl_F_tpm[i],1,1) <> "#"
+  {
+
+    vl_taille2 = ARRAY_SIZE@(vl_ligne) -1
+    for j = 0 to vl_taille2
+        vm_Sce_Eclairage[vl_index,j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+    next j
+    vl_index = vl_index + 1
+  }
+next i
+
+/*A Chargement du fichier de config sequence ventilation du tunnel */
+vl_F_tpm = READ_ASCII_FILE@(REP_RENOVE ++ vl_trigramme ++ "/ConfigSceVentilation_" ++ vl_trigramme ++ ".cfg")
+vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+vl_index = 0
+for i = 0 to vl_taille
+  vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+  vl_tab = ARRAY_SIZE@(vl_ligne)
+  if substring@(vl_F_tpm[i],1,1) <> "#" and vl_tab > 1
+  {
+
+    vl_taille2 = ARRAY_SIZE@(vl_ligne) -1
+    for j = 0 to vl_taille2
+
+      if STRING_INDEX@(vl_F_tpm[i],  "->") <> 0
+      {
+        vm_Sce_Ventilation[0,j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+      }
+      else
+        vm_Sce_Ventilation[vl_index,j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+    next j
+    vl_index = vl_index + 1
+  }
+next i
+
+'' Chargement du fichier de config tunnels
+vm_F_tunnel = SYSTEM_VAR@ (vg_les_donnees_config_bd_tube)
+
+' recuperation du numero du tube
+vl_rang = STRING_INDEX@(vm_Eqp_Signalisation[0][0],">")
+if vl_rang >= 0
+    vm_NumTube = TRIM@(SUBSTRING@(vm_Eqp_Signalisation[0][0],vl_rang+1))
+else
+{
+    ERROR_BOX@(124,"Problème lecture paramétrage")
+    EXIT@()
+}
+
+tl_tunnel[0] = vm_NumTube
+tl_tunnel[1] = vm_Eqp_Signalisation[0][2]
+tl_tunnel[2] = vm_Eqp_Signalisation[0][3]
+
+/*B envoi du msg ouverture tunnel a la tache IHM principale */
+vl_libelle_tube = vm_Eqp_Signalisation[0][3]
+vl_cmd = vl_libelle_tube
+DB_SEND_POKE@(MTTU_MSG_OUV_FENETRE,vl_cmd)
+
+
+
+/*A Chargement de la fenetre & assignation des sockets 
+*   -------------------------------------------------- */
+vm_Nom_Fenetre = vm_Eqp_Signalisation[0][4]
+
+vm_fenetre_TTU = DB_LOAD@(vm_Nom_Fenetre)
+
+vm_messages_acceptes[0] = COM_CANAL_FIN
+
+if ( vm_Appel <> "ITMA_TMC" )
+{
+	vm_messages_acceptes[1] = COM_CANAL_MTTU_ALM
+	vm_messages_acceptes[2] = COM_CANAL_MTTU_PAN
+	vm_messages_acceptes[3] = COM_CANAL_MTTU_SEQ
+	vm_messages_acceptes[4] = COM_CANAL_MTTU_DOM_VEN
+	vm_messages_acceptes[5] = COM_CANAL_MTTU_DOM_ECL
+	vm_messages_acceptes[6] = COM_CANAL_MTTU_DOM_SIGT
+	vm_messages_acceptes[7] = COM_CANAL_MTTU_SEQ_ECL
+}
+DB_ACCEPT_POKES@ (vm_fenetre_TTU, vm_messages_acceptes)
+
+/* intégration tunnel Toulon ABE 25-09-2019 */
+if STRING_INDEX@(UPPERCASE@(tl_tunnel[2]),"TOULON") <> 0
+{
+	if STRING_INDEX@(vm_nom_tunnel,"S1") <> 0
+	{
+		ITMA_TTU_ajout_fdp_sig("S1", vm_num_vue)
+	}
+	else
+	{
+		ITMA_TTU_ajout_fdp_sig("S2", vm_num_vue)
+	}
+}
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(vm_fenetre_TTU, 0)
+DB_YPOS@(vm_fenetre_TTU, 115)
+DB_WIDTH@(vm_fenetre_TTU, 993)
+DB_HEIGHT@(vm_fenetre_TTU, 715)
+
+DEFINE_HELPFILE@("gerer_pilotage_tunnel", "./aid/ITMA_TTU_tunnel.aide")
+DB_HELP_TOPIC@(vm_fenetre_TTU,"gerer_pilotage_tunnel")
+
+
+/* charger le bandeau de navigation */
+ITMA_TTU_bandeau(vm_fenetre_TTU, vl_trigramme, "", vm_nom_tunnel)
+
+ 
+/*A affichage le titre de la boite 
+*   -------------------------------- */
+DB_TITLE@(vm_fenetre_TTU,"Signalisation Tunnel  " ++ vl_libelle_tube)
+vm_Titre_Fenetre = "Signalisation Tunnel  " ++ vl_libelle_tube
+
+DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_nom","Signalisation Tunnel  " ++ vl_libelle_tube)
+
+'' creation des equipements commande et etat
+ITMA_TTU_creation_eqp_signalisation
+
+DB_CTRL_DISPLAY@(vm_fenetre_TTU,"BP_defaut",False)
+
+
+/*A Boucle de capture des événements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+/*A appel de la liste des sequences */
+DB_DISPLAY_ONLY@(vm_fenetre_TTU,True)
+DB_DISPLAY@(vm_fenetre_TTU)
+DB_DISPLAY_ONLY@(vm_fenetre_TTU,False)
+
+DB_CTRL_DISPLAY@(vm_fenetre_TTU,"BP_lier",True)
+DB_CTRL_DISPLAY@(vm_fenetre_TTU,"LI_Evenements",False)
+DB_CTRL_DISPLAY@(vm_fenetre_TTU,"TA_Evenements",False)
+DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",True)
+DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_refuser",True)
+DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_ok",True)
+DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_nul",True)
+
+if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") <> 0
+{ '' specifique TOULON
+	'' griser le bouton 'BP_signalisation' ou  'BP_signalisation2' ou  'BP_signalisation3'
+	if vm_num_vue = 3
+	{
+		'vue transversale exploitation autres
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_signalisation3",True)
+	}
+	if vm_num_vue = 2
+	{
+		'vue transversale exploitation coté Est
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_signalisation2",True)
+	}
+	if vm_num_vue = 1
+	{
+		'vue longitudinale accélérateurs et injecteurs (exploitation coté Est pout Toulon)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_signalisation",True)
+	}
+}
+else
+{
+	DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_signalisation",True)
+}
+
+if ( vm_Appel<>"ITMA_TMC" ) vm_NumSequence = XDC_SIG_SEQ_HORS_SEQUENCE		' Sequence Hors Sequence
+
+
+'-- Appel de la fenetre dans le cadre d'un plan d'action
+'-- Choix de la séquence en automatique
+if ( vm_Appel="ITMA_TPA" )
+{
+    vm_NumEvt = vm_tunnel.NumEvt
+    vm_CleEvt = vm_tunnel.CleEvt
+    vm_NumSequence = vm_tunnel.Sequence
+	
+	if vm_NumSequence = XDC_TUB_ETEINT { vm_NumSequence = XDC_SIG_SEQ_RETOUR_NORMAL } ' gestion sequence 0 depuis le SAD
+    vl_sequence = ITMA_TTU_sequence_PA(vl_trigramme, vm_NumSequence)
+    
+    if vl_sequence[0] <> -1
+    {
+        vm_exe_seq_en_cours = False
+        vm_seq_select = SYSTEM_VAR@("sequence")
+
+        vl_text = "Scénario envisagé : " ++ vm_seq_select
+        DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status",vl_text)
+
+        DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",False)
+        DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_refuser",False)
+        DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_lier",True)
+        DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_sequence",True)
+
+        DB_CTRL_DISPLAY@(vm_fenetre_TTU,"BP_manuel",TRUE)
+        DB_DESTROY_CTRL@(vm_fenetre_TTU,"BP_manuel")
+        DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_manuel","pix_scenario",POSX_BP_INDIVIDUEL,POSY_BP_INDIVIDUEL,0)
+        DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_manuel",4)
+
+        for j = 1 to ARRAY_SIZE@(vm_F_bouton)-1  '27
+            for i = 0 to ARRAY_SIZE@(vl_sequence)-1 step 2   '49
+            if vm_F_bouton[j,1] = vl_sequence[i]  and vm_F_bouton[j,1]<>""
+                ITMA_TTU_pix_select_renov(j,vl_sequence[i+1])
+            next i
+        next j
+    }
+}
+
+'-- Appel de la fenetre depuis une fiche de main courante
+'-- Visualisation du tube sans action possible
+if ( vm_Appel="ITMA_TMC" )
+{
+	if STRING_INDEX@(UPPERCASE@(tl_tunnel[2]),"TOULON") <> 0
+	{
+		'' tunnel de toulon
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_signalisation2", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_signalisation3", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_Exploitation2", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_Exploitation3", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_mode_ventilation2", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_mode_eclairageRFEAUTO", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_mode_eclairageBASEAUTO", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Ta_regime_eclairage2", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_ventilation", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_mode_eclairageRFSAUTO", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Ta_regime_eclairage3", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_mode_ventilation", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_mode_ventilation2", False)
+		
+		if STRING_INDEX@(UPPERCASE@(tl_tunnel[2]),"S1") <> 0
+		{
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_mode_eclairageRFENOM", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_mode_eclairageBASENOM", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_mode_eclairageRFSNOM", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_eclairage_entree4", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_mode_eclairageTREAUTO", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_regime_eclairageT", False)	
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_eclairage2", False)			
+			
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_eclairage_entree", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_regime_eclairage", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_eclairage_entree2", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_regime_eclairage2", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_eclairage_entree3", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_regime_eclairage3", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_regime_eclairage4", False)			
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Ta_regime_eclairage4", False)			
+		}
+		else
+		{
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_regime_eclairageB", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_eclairage_entree2", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_regime_eclairage2", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_eclairage_entree", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_eclairage_entree3", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_regime_eclairage3", False)
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_regime_eclairageS", False)			
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_regime_eclairage", False)			
+		}
+	}
+	else
+	{
+		'' hors tunnel de toulon
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_gauche", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_droite", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_ltn", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_litarret", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_HT", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_HT_TU", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_mode_eclairage", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_regime_eclairage", False)
+		
+		DB_CTRL_TITLE@(vm_fenetre_TTU, "Li_titre_mode_eclairage", "")
+		DB_CTRL_TITLE@(vm_fenetre_TTU, "Li_titre_regime_eclairage", "")		
+	}
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_sens", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_signalisation", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_eclairage", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_ventilation", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_LT", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_Exploitation", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_BTOUEST", False)
+	vl_nb_poste_BT = SYSTEM_VAR@(vg_nb_poste_BT)
+	if vl_nb_poste_BT = 2
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_BTEST", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_systeme", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Tableau_haut", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Ta_ventilation", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_mode_ventilation", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_titre_mode_ventilation", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Ta_eclairage", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Ta_regime_eclairage", False)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_actuel", False)
+		
+	if STRING_INDEX@(UPPERCASE@(tl_tunnel[2]),"MONACO") <> 0
+	{
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_mode_eclairage_MC2", False)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_mode_eclairage_MC3", False)
+		if STRING_INDEX@(UPPERCASE@(tl_tunnel[2]),"S1") <> 0
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_ventilation2", False)
+		DB_CTRL_TITLE@(vm_fenetre_TTU, "Li_titre_ventilation", "")
+		DB_CTRL_TITLE@(vm_fenetre_TTU, "Li_titre_eclairage", "")
+	}	
+
+	vl_F_tpm = READ_ASCII_FILE@(REP_RENOVE ++ vl_trigramme ++ "/ConfigSceSignalisation_" ++ vl_trigramme ++ ".cfg")
+	vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+	
+	for i = 0 to vl_taille
+	  vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+	  if ( substring@(vl_F_tpm[i],1,1) <> "#" and vl_ligne[0] = vm_NumSequence)
+		i = vl_taille
+	next i
+	
+	DB_HEIGHT@(vm_fenetre_TTU,340)
+	DB_XPOS@(vm_fenetre_TTU,50)
+	DB_YPOS@(vm_fenetre_TTU,200)
+	
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "Li_statusTMC", True)
+	DB_CTRL_TITLE@(vm_fenetre_TTU, "Li_statusTMC",
+							"Signalisation Tunnel " ++
+							vl_libelle_tube ++
+							"   -   Séquence " ++
+							vl_ligne[1] ++
+							"   -   "++
+							vl_retour[3])
+	
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU, "BP_quitterTMC", True)
+	
+	my_array[0] = 0
+	my_array[1] = 0
+	my_array[2] = 0
+	my_array[3] = 0
+	my_array[5] = XDC_NORMAL
+	my_array[6] = 0
+	
+	for j = 1 to ARRAY_SIZE@(vm_F_bouton)-1
+		for i = 2 to ARRAY_SIZE@(vl_ligne)-1 step 2
+			if vm_F_bouton[j,1] = vl_ligne[i] and vm_F_bouton[j,1]<>""
+			{
+				my_array[4] = TRIM@(TABS_TO_SPACES@(vl_ligne[i+1]))
+				ITMA_TTU_MAJ_ID_renov(j,my_array)
+			}
+		next i
+	next j			
+}
+
+/*A Abonnement au differents services */
+if ( vm_Appel <> "ITMA_TMC" )
+{
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION)) and
+			 NOT vm_mode_formation
+	{
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_sequence",TRUE)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_lier",TRUE)
+	}
+
+	/*A Abonnement au differents services */ 
+	ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_DEBUT_ABONNEMENT_EQUEXT, vm_NumTube)
+	ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_DEBUT_ABONNEMENT_EQUEXT, vm_NumTube)
+	' cas particulier de Monaco sens 2 ou on a uniquement la signalisation à gérer
+	' il faut donc s'abonner aux sequences  de Monaco sens 1 
+	' pour visualiser les domaines ventilation et eclairage
+	if STRING_INDEX@(UPPERCASE@(tl_tunnel[2]),"MONACO S2") <> 0
+	{
+		for i = 0 to ARRAY_SIZE@(vm_F_tunnel)-1                    
+			if UPPERCASE@(vm_F_tunnel[i,2]) = "MONACO S1"          
+				{ vl_index = i }	                                         
+		next i      
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_DEBUT_ABONNEMENT_EQUEXT,
+											 vm_F_tunnel[vl_index,0])      
+		/* s'abonner aux séquences des domaines eclairage et ventilation */
+		ITMA_TTU_Abt_Etat_Eqp_eclairage(XDC_DEBUT_ABONNEMENT_EQUEXT,
+										vm_F_tunnel[vl_index,0], vm_NomSite)
+		ITMA_TTU_Abt_Etat_Eqp_ventilation(XDC_DEBUT_ABONNEMENT_EQUEXT,
+										vm_F_tunnel[vl_index,0], vm_NomSite)
+                            
+	vm_NumTube2 =   vm_F_tunnel[vl_index,0]
+	}
+}
+
+'' cas particulier des tunnels  sans ventilation
+vl_etat = SYSTEM_VAR@ ("vg_domaine_ventilation_existe")
+if vl_etat = false
+{
+	/* pas de ventilation pour le tube */
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,"BP_mode_ventilation",False)
+}
+
+/* recherche du sens du tunnel pour maj du texte du bouton sens */
+if STRING_INDEX@(vl_libelle_tube,"S1") <> 0
+{
+	vl_sens = "Sens 2"
+	vl_sens_tunnel = "Sens 1"
+	if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") <> 0
+	{
+		vl_color[0] = 1
+		vl_color[1] = 138, 43, 226
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens", "Sud->")	
+	}		
+}                         
+else
+{
+	vl_sens = "Sens 1"
+	vl_sens_tunnel = "Sens 2"
+	if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") <> 0
+	{
+		vl_color[0] = 1
+		vl_color[1] = 0, 0, 255
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens", "<-Nord")	
+	}	
+}
+
+if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") <> 0
+	DB_CTRL_TITLE@ (vm_fenetre_TTU, "BP_sens", "Opposé")	
+else
+	DB_CTRL_TITLE@ (vm_fenetre_TTU, "BP_sens", "Sens opposé")	
+	
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+	
+	/* affichage de la liste */
+	DB_DISPLAY@(vm_fenetre_TTU)
+	vl_titre_fen = DB_GET_TITLE@(vm_fenetre_TTU)
+	''PROMOTE_DIALOG@(vl_titre_fen)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vm_fenetre_TTU)
+
+	/*A si l'evenement n'est pas un poke & verrou=vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+	{
+		vl_controle_sortie = NULL	/*A reset de l'evenement */
+	}
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action aide */
+	CASE "BP_aide"
+		COM33_Aide_Renov("ITMA_TTU_signalisation")
+
+	/*A sur demande affichage IHM commande incendie */
+	CASE "BP_cde_incendie"
+		' modif du 14-11-2019 : Bloquage des commandes IHM incendie si incendie dans l'autre sens
+		if tm_incendie_autre_sens = 1
+		{
+			GOTO NON_INCENDIE
+		}
+        if ( vm_NumEvt<>0 and vm_CleEvt<>0 )
+        {    
+			/*A Demande de confirmation */
+			tl_param[0] = 1	'nombre de boutons
+			tl_param[1] = 0	'position X fenetre
+			tl_param[2] = 0	'position y fenetre
+			tl_param[3] = "Confirmation incendie"	'titre de la fenetre
+			vl_icon = DB_CTRL_GET_TITLE@(vm_fenetre_TTU, "BP_cde_incendie")
+			if vl_icon = "pix_incendie_debut_40_40" or vl_icon = "pix_incendie_presomp_40_40"
+				tl_param[4] = "VALIDER L'ARRET"	'titre bouton
+			else
+				tl_param[4] = "VALIDER LA PRESOMPTION"	'titre bouton
+			tl_param[5] = "BP_CONFIRME"	'nom bouton
+		
+			tl_param[24] = 220	'largeur bouton poussoir
+			tl_param[25] = 240	'largeur fenetre
+		
+			vl_retour = PEND_FOR_NEW_TASK@("ITMA_TTU_confirmation", tl_param)
+			if vl_retour = -1 or vl_retour = null
+			{
+				GOTO NON_INCENDIE
+			}
+		
+			vl_taille = ARRAY_SIZE@(vm_Sce_Ventilation) -1
+			vl_trouve = False
+			vl_presence_sce_desenfumage = FALSE
+			for i = 0 to vl_taille
+				 /* détecter si on a au moins un scénario de désenfumage */
+				 if STRING_INDEX@(UPPERCASE@(vm_Sce_Ventilation[i,1]),"DESENFUMAGE") <> 0
+					vl_presence_sce_desenfumage = TRUE
+						
+				  /* si on a l'icone debut incendie on envoie la trame de fin incendie */
+				 if (vl_icon = "pix_incendie_debut_40_40" and
+					STRING_INDEX@(UPPERCASE@(vm_Sce_Ventilation[i,1]),"FIN INCENDIE") <> 0) or
+					(vl_icon = "pix_incendie_presomp_40_40" and
+					STRING_INDEX@(UPPERCASE@(vm_Sce_Ventilation[i,1]),"FIN INCENDIE") <> 0)
+				 {
+					vm_NumSequence = vm_Sce_Ventilation[i,0]
+					vl_trouve = True
+				 }
+				  /* si on a l'icone fin incendie on envoie la trame de debut incendie */
+				 if vl_icon = "pix_incendie_fin_40_40" and STRING_INDEX@(UPPERCASE@(tl_tunnel[2]),"TOULON") = 0 and
+				  STRING_INDEX@(UPPERCASE@(vm_Sce_Ventilation[i,1]),"DEBUT INCENDIE") <> 0
+				 {
+					vm_NumSequence = vm_Sce_Ventilation[i,0]
+					vl_trouve = True
+				 }
+				if vl_icon = "pix_incendie_fin_40_40" and STRING_INDEX@(UPPERCASE@(tl_tunnel[2]),"TOULON") <> 0 and
+							STRING_INDEX@(UPPERCASE@(vm_Sce_Ventilation[i,1]),"PRESOMPTION INCENDIE") <> 0
+				{
+					vm_NumSequence = vm_Sce_Ventilation[i,0]
+					vl_trouve = True
+				}		 
+			next i
+		
+			if vl_trouve = True
+			{
+			  if NOT vm_mode_formation
+			  {
+				ITMA_TTU_Commande_Seq_Tunnel_ventilation (	
+								vm_NumTube, XDC_FAUX,
+								vm_NumSequence, vm_NumEvt, vm_CleEvt)
+		
+				/*AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+				  on filtre les tubes sans ventilation (donc sans désenfumage) 
+				/*AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA*/
+		
+				if vl_taille > 2 and (vl_presence_sce_desenfumage = TRUE or STRING_INDEX@(UPPERCASE@(tl_tunnel[2]),  "TOULON") <> 0)
+				{  
+					/* modif ABE du 20-10-2009 : 
+					on bascule directement dans la vue ventilation sans ouvrir auparavant
+					 la fenetre de commande desenfumage
+
+					if STRING_INDEX@(UPPERCASE@(tl_tunnel[2]),  "MONACO") <> 0
+						ITMA_TTU_Cde_Desenfumage_Monaco(vm_NumTube, vm_Sce_Ventilation,
+										vl_sens_tunnel, vm_NumEvt, vm_CleEvt)
+					else
+						ITMA_TTU_Commande_Desenfumage(vm_NumTube, vm_Sce_Ventilation,
+										vl_sens_tunnel, vm_NumEvt, vm_CleEvt)
+					*/
+					/*A affichage IHM commande ventilation */                            
+					NEW_TASK@("ITMA_TTU_ventilation", tl_tunnel, vm_F_tunnel)
+																					   
+					/*A la fenetre n'est plus active */                                  
+					vl_fenetre_active = FALSE                                            
+					vl_signalisation = FALSE
+				} 
+			 }
+			}
+			else
+			{
+				/*B trace de l'erreur */
+				vl_text = "ITMA_TTU_ventilation : numéro de séquence inexistant = " 
+											++ vm_NumSequence
+				COM01_Trace(0,vl_text)
+			}
+			' Demande spécifique Toulon pour la SIG uniquement : La dernière FMC doit être mémorisée
+			'vm_NumEvt = 0
+			'vm_CleEvt = 0
+			'DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status2","")          		
+
+        } else info_message@("Veuillez d'abord lier cette action a une F.M.C...")
+
+        NON_INCENDIE :
+            
+	/*A sur demande affichage IHM commande signalisation */
+	CASE "BP_signalisation"	
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+        DELAY@(1)
+		if ( vm_Appel="ITMA_TPA" )
+			New_task@("ITMA_TTU_signalisation", "ITMA_TPA", tl_tunnel[2], vl_trigramme, vm_tunnel, 1)
+		else
+			New_task@("ITMA_TTU_signalisation", "ITMA_TTU", tl_tunnel[2], vl_trigramme, "", 1)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande affichage IHM commande signalisation 2 */
+	CASE "BP_signalisation2"	
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+        DELAY@(1)
+		if ( vm_Appel="ITMA_TPA" )
+			New_task@("ITMA_TTU_signalisation", "ITMA_TPA", tl_tunnel[2], vl_trigramme, vm_tunnel, 2)
+		else
+			New_task@("ITMA_TTU_signalisation", "ITMA_TTU", tl_tunnel[2], vl_trigramme, "", 2)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande affichage IHM commande signalisation 3 */
+	CASE "BP_signalisation3"	
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+        DELAY@(1)
+		if ( vm_Appel="ITMA_TPA" )
+			New_task@("ITMA_TTU_signalisation", "ITMA_TPA", tl_tunnel[2], vl_trigramme, vm_tunnel, 3)
+		else
+			New_task@("ITMA_TTU_signalisation", "ITMA_TTU", tl_tunnel[2], vl_trigramme, "", 3)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+					
+    /*A sur demande affichage IHM commande eclairage */
+	CASE "BP_eclairage"	
+
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		
+		DELAY@(1)
+		
+		NEW_TASK@("ITMA_TTU_eclairage", tl_tunnel, vm_F_tunnel, "", "", 1)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+    /*A sur demande affichage IHM commande eclairage 2 */
+	CASE "BP_eclairage2"	
+
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		
+		DELAY@(1)
+		
+		NEW_TASK@("ITMA_TTU_eclairage", tl_tunnel, vm_F_tunnel, "", "", 2)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande affichage IHM commande ventilation */
+	CASE "BP_ventilation"	
+
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		
+		DELAY@(1)
+		
+		NEW_TASK@("ITMA_TTU_ventilation", tl_tunnel, vm_F_tunnel,"","",1)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande affichage IHM commande ventilation */
+	CASE "BP_ventilation2"	
+
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		
+		DELAY@(1)
+		
+		NEW_TASK@("ITMA_TTU_ventilation", tl_tunnel, vm_F_tunnel,"","",2)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande affichage IHM commande LT */
+	CASE "BP_LT"	
+
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		
+		DELAY@(1)
+		
+		NEW_TASK@("ITMA_TTU_LT", tl_tunnel, vm_F_tunnel)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+		
+	/*A sur demande affichage IHM commande BT */
+	CASE "BP_BTOUEST"	
+
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		
+		DELAY@(1)
+		
+		NEW_TASK@("ITMA_TTU_BT", tl_tunnel, vm_F_tunnel,1)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande affichage IHM commande BT */
+	CASE "BP_BTEST"	
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		
+		DELAY@(1)
+		
+		NEW_TASK@("ITMA_TTU_BT", tl_tunnel, vm_F_tunnel,2)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande affichage IHM commande HT */
+	CASE "BP_HT"	
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		
+		DELAY@(1)
+		
+		NEW_TASK@("ITMA_TTU_HT")
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande affichage IHM commande HT Centrale La Turbie */
+	CASE "BP_HT_TU"	
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		
+		DELAY@(1)
+		
+		NEW_TASK@("ITMA_TTU_HT_TURBIE")
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+		
+	/*A sur demande affichage IHM commande LTN */
+	CASE "BP_ltn"	
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		
+		DELAY@(1)
+		
+		NEW_TASK@("ITMA_TTU_liste_choix_LTN")
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande affichage IHM commande système */
+	CASE "BP_systeme"	
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		
+		DELAY@(1)
+		if STRING_INDEX@(UPPERCASE@(tl_tunnel[2]),"TOULON") = 0
+			New_task@("ITMA_TTU_systeme","ITMA_SYS", "A8A500")
+		else
+			New_task@("ITMA_TTU_systeme","ITMA_SYS", "TOULON")		
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande affichage IHM commande lit d'arret */
+	CASE "BP_litarret"	
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		
+		DELAY@(1)
+		
+		New_task@("ITMA_TTU_lits_arret","ITMA_LIT")
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande affichage IHM commande exploitation */
+	CASE "BP_Exploitation"
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		DELAY@(1)
+		NEW_TASK@("ITMA_TTU_exploitation", tl_tunnel, vm_F_tunnel,"","", 1)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+		
+	/*A sur demande affichage IHM commande exploitation 2 */
+	CASE "BP_Exploitation2"
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		DELAY@(1)
+		NEW_TASK@("ITMA_TTU_exploitation", tl_tunnel, vm_F_tunnel,"","", 2)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande affichage IHM commande exploitation 3 */
+	CASE "BP_Exploitation3"
+		ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+		DELAY@(1)
+		NEW_TASK@("ITMA_TTU_exploitation", tl_tunnel, vm_F_tunnel,"","", 3)
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+
+	/*A sur demande passage Auto/Manu pour mode ventilation */
+	CASE "BP_mode_ventilation"
+    	INFO_MESSAGE@("Ordre seulement possible sur la vue ventilation")
+	CASE "BP_mode_ventilation2"
+    	INFO_MESSAGE@("Ordre seulement possible sur la vue ventilation")
+		
+	/*A sur demande passage Auto (nominal) / Horaire / Manu pour mode eclairage */
+	CASE "BP_mode_eclairage"
+    	INFO_MESSAGE@("Ordre seulement possible sur la vue eclairage")
+	CASE "BP_mode_eclairageRFENOM"
+    	INFO_MESSAGE@("Ordre seulement possible sur la vue eclairage")
+	CASE "BP_mode_eclairageRFSNOM"
+    	INFO_MESSAGE@("Ordre seulement possible sur la vue eclairage")
+	CASE "BP_mode_eclairageBASENOM"
+    	INFO_MESSAGE@("Ordre seulement possible sur la vue eclairage")
+	CASE "BP_mode_eclairageRFEAUTO"
+    	INFO_MESSAGE@("Ordre seulement possible sur la vue eclairage")
+	CASE "BP_mode_eclairageRFSAUTO"
+    	INFO_MESSAGE@("Ordre seulement possible sur la vue eclairage")
+	CASE "BP_mode_eclairageBASEAUTO"
+    	INFO_MESSAGE@("Ordre seulement possible sur la vue eclairage")
+	CASE "BP_mode_eclairageTREAUTO"
+    	INFO_MESSAGE@("Ordre seulement possible sur la vue eclairage")
+		
+	/*A sur demande affichage IHM commande signalisation pour tube amont */
+	CASE "BP_gauche"	
+		if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") = 0
+		{	'' HORS TOULON		
+			vl_tube_amont = vm_Eqp_Signalisation[0,6]
+			vl_trigramme_amont =  ITMA_TTU_recuperer_trigramme(vl_tube_amont)
+
+			if ( vl_trigramme_amont <> null )
+			{
+				/*B envoi du msg fermeture tunnel a la tache IHM principale */
+				vl_cmd = tl_tunnel[2]
+				DB_SEND_POKE@(MTTU_MSG_FERM_FENETRE,vl_cmd)
+	  
+				for i = 0 to ARRAY_SIZE@(vm_F_tunnel)-1 
+					if vl_tube_amont = vm_F_tunnel[i,2]
+						vl_rang = i
+				next i
+
+				for i = 0 to ARRAY_SIZE@(vm_F_tunnel)-1 
+					tl_tunnel[i] = vm_F_tunnel[vl_rang,i]
+				next i
+	  
+				vl_signalisation = FALSE
+				vl_fenetre_active = FALSE
+
+				ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+				ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+				
+				DELAY@(1)
+			
+				New_task@("ITMA_TTU_pilotage_tunnel","ITMA_TTU",vm_F_tunnel[vl_rang,0])
+			}
+		}
+	/*A sur demande affichage IHM commande signalisation pour tube aval  */
+	CASE "BP_droite"	
+		if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") = 0
+		{	'' HORS TOULON		
+			vl_tube_aval = vm_Eqp_Signalisation[0,7]
+			vl_trigramme_aval = ITMA_TTU_recuperer_trigramme(vl_tube_aval)
+			
+			if ( vl_trigramme_aval <> null )
+			{
+
+				/*B envoi du msg fermeture tunnel a la tache IHM principale */
+				vl_cmd = tl_tunnel[2]
+				DB_SEND_POKE@(MTTU_MSG_FERM_FENETRE,vl_cmd)
+
+				for i = 0 to ARRAY_SIZE@(vm_F_tunnel)-1 
+					if vl_tube_aval = vm_F_tunnel[i,2]
+						vl_rang = i
+				next i
+	  
+				for i = 0 to ARRAY_SIZE@(vm_F_tunnel)-1 
+					tl_tunnel[i] = vm_F_tunnel[vl_rang,i]
+				next i
+	  
+				vl_signalisation = FALSE
+				vl_fenetre_active = FALSE
+
+				ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+				ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT, vm_NumTube)
+				
+				DELAY@(1)
+			
+				New_task@("ITMA_TTU_pilotage_tunnel","ITMA_TTU", vm_F_tunnel[vl_rang,0])
+			}
+		}
+	/*A sur demande affichage IHM commande signalisation tunnel autre sens */
+	CASE "BP_sens"
+
+		' On change de sens
+		if vl_sens = "Sens 2"
+			tl_tunnel[2] = REPLACE_SUBSTR@(tl_tunnel[2],"S1", "S2")
+		else
+			tl_tunnel[2] =	REPLACE_SUBSTR@(tl_tunnel[2],"S2", "S1")
+		vl_trigramme_sens = ITMA_TTU_recuperer_trigramme(tl_tunnel[2])
+		
+		if ( vl_trigramme_sens <> null )
+		{
+
+			/*B envoi du msg fermeture tunnel a la tache IHM principale */
+			vl_cmd = tl_tunnel[2]
+			DB_SEND_POKE@(MTTU_MSG_FERM_FENETRE,vl_cmd)
+
+			for i = 0 to ARRAY_SIZE@(vm_F_tunnel)-1 
+				if tl_tunnel[2] = vm_F_tunnel[i,2]
+					vl_rang = i
+			next i
+  
+			for i = 0 to ARRAY_SIZE@(vm_F_tunnel)-1 
+				tl_tunnel[i] = vm_F_tunnel[vl_rang,i]
+			next i
+  
+			vl_signalisation = FALSE
+			vl_fenetre_active = FALSE
+
+			ITMA_TTU_Abt_Etat_Panneaux_renov(XDC_FERMER_ABONNEMENT_EQUEXT)
+			ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(XDC_FERMER_ABONNEMENT_EQUEXT)
+			
+			DELAY@(1)
+						
+			if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") <> 0
+			{
+				'' sur toulon on veut retrouver la vue correspondante
+				if vm_num_vue = 1
+					New_task@("ITMA_TTU_pilotage_tunnel","ITMA_TU1", vm_F_tunnel[vl_rang,0])
+				if vm_num_vue = 2
+					New_task@("ITMA_TTU_pilotage_tunnel","ITMA_TU2", vm_F_tunnel[vl_rang,0])
+				if vm_num_vue = 3
+					New_task@("ITMA_TTU_pilotage_tunnel","ITMA_TU3", vm_F_tunnel[vl_rang,0])
+			}
+			else
+				New_task@("ITMA_TTU_pilotage_tunnel","ITMA_TTU", vm_F_tunnel[vl_rang,0])
+
+		}
+
+	/*A sur action quitter */
+	CASE "BP_quitter"
+
+		/*A la fenetre n'est plus active */
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+        
+        if ( vm_Appel = "ITMA_TPA" )
+			RETURN(vm_mode_PA)
+
+	/*A sur action quitter TMC*/
+	CASE "BP_quitterTMC"
+
+		/*A la fenetre n'est plus active */
+		vl_fenetre_active = FALSE
+		vl_signalisation = FALSE
+			
+	/*A sur action 'BP_sequence' */
+	CASE "BP_sequence"
+
+		/*A appel la liste des sequences */
+		vl_sequence = PEND_FOR_NEW_TASK@("ITMA_TTU_sequence_renov", vl_trigramme, vm_nom_tunnel, vm_num_vue)
+
+		/*A si retour d'une sequence */
+		if vl_sequence[0] <> -1
+		{
+
+			/*A Effacer le bouton de discordance séquence */
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU,"BP_defaut",FALSE)
+
+			/*A Reset du flag d'execution de sequence */
+			vm_exe_seq_en_cours = False
+
+			/*A MAJ du n° de sequence selectionné */
+			vm_NumSequence = SYSTEM_VAR@("NumSequence")+0
+
+			/*A MAJ du message status */
+			vm_seq_select = SYSTEM_VAR@("sequence")
+			vl_text = "Scénario envisagé : " ++ vm_seq_select
+			DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status",vl_text)
+
+			/*A dégriser le bouton d'execution */
+			DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",False) 
+ 
+			/*A MAJ du mode automatique sur le bouton 'BP_manuel' */
+			DB_CTRL_DISPLAY@(vm_fenetre_TTU,"BP_manuel",TRUE)
+			DB_DESTROY_CTRL@(vm_fenetre_TTU,"BP_manuel")
+			DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_manuel","pix_scenario",POSX_BP_INDIVIDUEL,POSY_BP_INDIVIDUEL,0)
+			DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_manuel",4)
+
+			/*A boucle sur les 27 boutons */
+			for j = 1 to ARRAY_SIZE@(vm_F_bouton)-1
+
+				/*A boucle sur la liste des etats dans la sequence */
+				for i = 0 to ARRAY_SIZE@(vl_sequence)-1 step 2
+				if vm_F_bouton[j,1] = vl_sequence[i]  and vm_F_bouton[j,1]<>""
+					ITMA_TTU_pix_select_renov(j,vl_sequence[i+1])
+				next i
+
+			next j
+		}
+
+	/*A sur action 'BP_manuel' */
+	CASE "BP_manuel"
+		if ( DB_CTRL_GET_TITLE@(vm_fenetre_TTU,"BP_manuel") = "pix_manu" )
+            INFO_MESSAGE@("Commande Individuelle.")
+		else
+            INFO_MESSAGE@("Commande Scenario Tunnel.")
+
+
+	/*A sur action executer */
+	CASE "BP_executer"
+
+    /* --- une liaison FMC doit exister */
+    if ( vm_NumEvt<>0 and vm_CleEvt<>0 )
+    {    	   
+  		/*A ----- Demande de confirmation */
+  		tl_param[0] = 1	'nombre de boutons
+  		tl_param[1] = 0	'position X fenetre
+  		tl_param[2] = 0	'position y fenetre
+  		tl_param[3] = "Confirmation"	'titre de la fenetre
+  		tl_param[4] = "CONFIRMER"	'titre bouton
+  		tl_param[5] = "BP_CONFIRME"	'nom bouton
+  
+  		tl_param[24] = 170	'largeur bouton poussoir
+  		tl_param[25] = 190	'largeur fenetre
+  
+        /*A ----- Effacer le bouton de discordance séquence */
+  		DB_CTRL_DISPLAY@(vm_fenetre_TTU,"BP_defaut",FALSE)
+  
+  		/*A ----- Pilotage en Manuel */
+  		if DB_CTRL_GET_TITLE@(vm_fenetre_TTU,"BP_manuel") = "pix_manu"
+        {
+  			vl_panneau = ""
+  			vl_etat = ""
+			vl_type_panneau = ""
+  
+  			for j = 1 to ARRAY_SIZE@(vm_F_bouton)-1
+  
+  				/*A construction des tableaux à envoyer à la tâche relais */
+  				if vm_F_bouton[j,1]<>""
+  				{
+  					if vm_F_bouton[j,0]>0 and vm_F_bouton[j,4]>0
+  					{
+                        vl_etat = vl_etat ++ vm_F_bouton[j,0] ++ ","
+  						vl_panneau = vl_panneau ++ vm_F_bouton[j,4] ++ ","
+						vl_type_panneau = vl_type_panneau ++ vm_F_bouton[j,12] ++ ","
+  					}
+  				}
+  			next j
+  			
+            vl_etat = vl_etat ++ "0"
+  			vl_panneau = vl_panneau ++ "0"
+			vl_type_panneau = vl_type_panneau ++ "0"
+  	
+  			/*A MAJ de la ligne de status */
+  			DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status", "Execution en manuel ( à confirmer ! )")	
+  			if NOT vm_mode_formation
+			{
+
+  			/*A Appel de la macro de pilotage */
+  			ITMA_TTU_pilote_panneau_renov(vm_NumTube, vl_type_panneau, vl_panneau, vl_etat)
+            
+			'-- lancement de la séquence hors sequence = récupérer un numero d'action ?
+            vm_NumAction = ITMA_TTU_Commande_Seq_Tunnel_renov (vm_NumTube, XDC_VRAI, XDC_SIG_SEQ_HORS_SEQUENCE)
+  			}
+  			DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",True)
+            DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_refuser",True)
+            DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_lier",True)
+            DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_sequence",True)
+            DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_ok",False)
+            DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_nul",False)
+			DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_quitter",True)
+			
+			ITMA_TTU_griser_bandeau(vm_fenetre_TTU, vm_nom_tunnel)
+
+        } 
+  		/*A ----- Pilotage en Automatique */
+        if DB_CTRL_GET_TITLE@(vm_fenetre_TTU,"BP_manuel") = "pix_scenario"
+  		{
+            /*A Sequence AUTRE interdite en pilotage automatique */
+  			if vm_NumSequence = XDC_SIG_SEQ_HORS_SEQUENCE
+  				INFO_MESSAGE@(" Choisissez une séquence connue de la GTC ...")
+  			else
+  			{
+  				/*A Set du flag d'execution de sequence */
+  				vm_exe_seq_en_cours = True
+  
+  				DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status", "Execution en automatique")
+  				DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",True)
+                DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_refuser",True)
+                DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_lier",False)
+                DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_sequence",False)
+  
+				if NOT vm_mode_formation
+				{
+					if ( vm_NumSequence = XDC_SIG_SEQ_RETOUR_NORMAL )
+						ITMA_TTU_Commande_Retour_Normal_SIG(vm_NumTube, XDC_FAUX)
+					else vm_NumAction = ITMA_TTU_Commande_Seq_Tunnel_renov (vm_NumTube, XDC_FAUX, vm_NumSequence)
+				}
+  			}
+        }
+
+        /*A ----- modif code retour pour PA */
+        if vm_Appel="ITMA_TPA" vm_mode_PA=COM_VALIDE 
+        else vm_mode_PA=COM_REFUSE
+        
+		' Demande spécifique Toulon pour la SIG uniquement : La dernière FMC doit être mémorisée
+        'vm_NumEvt = 0
+        'vm_CleEvt = 0
+		'DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status2","")          		
+        
+  		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",True)
+
+    } else info_message@("Veuillez d'abord lier cette action a une F.M.C...")
+
+'-- actions présentes sur les anciennes vues >>>
+
+	/*A sur action lier FMC */
+	CASE "BP_lier"
+
+        vl_text = "Status : appel lien FMC"
+ 		DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status", vl_text)
+
+		/*B on lance la tache de recherche d'evt cause*/
+		tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes","ITMA_TTU_eclairage")
+		tm_liste_causes=tl_data[0]
+
+		/*B affiche la liste des evts a traiter*/
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU,"LI_Evenements",TRUE)
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU,"TA_Evenements",TRUE)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"TA_Evenements",TRUE)
+		DB_TABLE_ALLOW_COLUMN_RESIZING@(vm_fenetre_TTU,"TA_Evenements",True)
+		DB_TABLE_SET_MARKER_WIDTH@(vm_fenetre_TTU, "TA_Evenements", 25)
+		tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+		tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+		tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+		tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+		tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+		DB_TABLE_SET_DATA@(vm_fenetre_TTU,"TA_Evenements",tl_data[1],tl_titres)
+		DB_TABLE_MARKER_PIXMAPS@(vm_fenetre_TTU, "TA_Evenements", 0, tl_data[2])
+
+	/*B selection d'un element dans la liste des fiches a traiter*/	
+  	CASE "TA_Evenements"
+ 		
+      vl_text = "Status : selection evenement"
+      DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status", vl_text)
+
+      tl_retour=ITMA_COM_Validite_Cause("ITMA_TTU_eclairage", vm_fenetre_TTU, tm_liste_causes)
+      vm_NumEvt = tl_retour[0][0]
+      vm_CleEvt = tl_retour[0][1]
+      vl_fmc = tl_retour[1]
+      vl_text=TRIM@(SUBSTRING@(vl_fmc,1,46))
+      vl_fmc=vl_text ++ "  " ++ TRIM@(SUBSTRING@(vl_fmc,60,18))
+      
+      DB_CTRL_DISPLAY@(vm_fenetre_TTU,"LI_Evenements",FALSE)
+      DB_CTRL_DISPLAY@(vm_fenetre_TTU,"TA_Evenements",FALSE)
+      DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status2",vl_fmc)
+      
+      if vm_NumEvt = 0 or vm_CleEvt = 0 
+        DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",True)
+      else
+        DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",False)
+
+
+	/*A sur action refuser */
+	CASE "BP_refuser"
+
+		vm_mode_PA = COM_REFUSE
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_refuser",True)
+
+		vl_text = "Status : Refus de la proposition de plan d'action !!!"
+		DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status",vl_text)
+
+
+	/*A sur action BP_explication */
+	CASE "BP_explication"
+		/* appel de MTEX avec passage en argument de l'explication */
+		vl_erreur = NEW_TASK@("ITMA_TEX_Explication_Propo","ITMA_TTU_pilotage_d_un_tunnel",vl_explication)
+
+
+	/*A sur action BP_ok */
+	CASE "BP_ok"
+		
+		vl_text = "Confirmation de l'operateur sur Succes ..."
+		DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status",vl_text)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_ok",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_nul",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_sequence",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_quitter",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_lier",False)	
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",True)	
+
+		ITMA_TTU_degriser_bandeau(vm_fenetre_TTU, vm_nom_tunnel, vm_num_vue)
+		/*A renvoi à la base du retour OK operateur */
+		if NOT vm_mode_formation
+		{
+			vl_erreur = ITMA_TTU_Fin_Cmd_Manu_Tunnel(vm_NumAction, XDC_VRAI, vm_NumSequence)
+		}
+		
+	/*A sur action BP_nul */
+	CASE "BP_nul"
+
+		/*A MAJ de l'IHM */
+		vl_text = "Confirmation de l'operateur sur Echec ..."
+		DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status",vl_text)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_ok",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_nul",True)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_sequence",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_quitter",False)
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_lier",False)	
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",True)	
+		ITMA_TTU_degriser_bandeau(vm_fenetre_TTU, vm_nom_tunnel, vm_num_vue)
+
+		/*A renvoi à la base du retour NUL operateur */
+		if NOT vm_mode_formation
+		{
+			vl_erreur = ITMA_TTU_Fin_Cmd_Manu_Tunnel(vm_NumAction, XDC_FAUX, vm_NumSequence)
+		}
+
+'-- <<< actions présentes sur les anciennes vues
+
+
+	/*A sur action BP_actuel */
+	CASE "BP_actuel"
+		info_message@("Zone correspondant à l'état actuel des panneaux ...")
+
+	/*A sur action BP_nouveau */
+	CASE "BP_nouveau"
+		info_message@("Zone de commande des panneaux ...")
+
+	/*A sur action panneau 1 */
+	CASE "BP_cmd1"
+		ITMA_TTU_pix_suivant_renov(1)
+
+	/*A sur action panneau 2 */
+	CASE "BP_cmd2"
+		ITMA_TTU_pix_suivant_renov(2)
+
+	/*A sur action panneau 3 */
+	CASE "BP_cmd3"
+		ITMA_TTU_pix_suivant_renov(3)
+
+	/*A sur action panneau 4 */
+	CASE "BP_cmd4"
+		ITMA_TTU_pix_suivant_renov(4)
+
+	/*A sur action panneau 5 */
+	CASE "BP_cmd5"
+		ITMA_TTU_pix_suivant_renov(5)
+
+	/*A sur action panneau 6 */
+	CASE "BP_cmd6"
+		ITMA_TTU_pix_suivant_renov(6)
+
+	/*A sur action panneau 7 */
+	CASE "BP_cmd7"
+		ITMA_TTU_pix_suivant_renov(7)
+
+	/*A sur action panneau 8 */
+	CASE "BP_cmd8"
+		ITMA_TTU_pix_suivant_renov(8)
+
+	/*A sur action panneau 9 */
+	CASE "BP_cmd9"
+		ITMA_TTU_pix_suivant_renov(9)
+
+	/*A sur action panneau 10 */
+	CASE "BP_cmd10"
+		ITMA_TTU_pix_suivant_renov(10)
+
+	/*A sur action panneau 11 */
+	CASE "BP_cmd11"
+		ITMA_TTU_pix_suivant_renov(11)
+
+	/*A sur action panneau 12 */
+	CASE "BP_cmd12"
+		ITMA_TTU_pix_suivant_renov(12)
+
+	/*A sur action panneau 13 */
+	CASE "BP_cmd13"
+		ITMA_TTU_pix_suivant_renov(13)
+
+	/*A sur action panneau 14 */
+	CASE "BP_cmd14"
+		ITMA_TTU_pix_suivant_renov(14)
+
+	/*A sur action panneau 15 */
+	CASE "BP_cmd15"
+		ITMA_TTU_pix_suivant_renov(15)
+
+	/*A sur action panneau 16 */
+	CASE "BP_cmd16"
+		ITMA_TTU_pix_suivant_renov(16)
+
+	/*A sur action panneau 17 */
+	CASE "BP_cmd17"
+		ITMA_TTU_pix_suivant_renov(17)
+
+	/*A sur action panneau 18 */
+	CASE "BP_cmd18"
+		ITMA_TTU_pix_suivant_renov(18)
+
+	/*A sur action panneau 19 */
+	CASE "BP_cmd19"
+		ITMA_TTU_pix_suivant_renov(19)
+
+	/*A sur action panneau 20 */
+	CASE "BP_cmd20"
+		ITMA_TTU_pix_suivant_renov(20)
+
+	/*A sur action panneau 21 */
+	CASE "BP_cmd21"
+		ITMA_TTU_pix_suivant_renov(21)
+
+	/*A sur action panneau 22 */
+	CASE "BP_cmd22"
+		ITMA_TTU_pix_suivant_renov(22)
+
+	/*A sur action panneau 23 */
+	CASE "BP_cmd23"
+		ITMA_TTU_pix_suivant_renov(23)
+
+	/*A sur action panneau 24 */
+	CASE "BP_cmd24"
+		ITMA_TTU_pix_suivant_renov(24)
+
+	/*A sur action panneau 25 */
+	CASE "BP_cmd25"
+		ITMA_TTU_pix_suivant_renov(25)
+
+	/*A sur action panneau 26 */
+	CASE "BP_cmd26"
+		ITMA_TTU_pix_suivant_renov(26)
+
+	/*A sur action panneau 27 */
+	CASE "BP_cmd27"
+		ITMA_TTU_pix_suivant_renov(27)
+
+	/*A sur action panneau 28 */
+	CASE "BP_cmd28"
+		ITMA_TTU_pix_suivant_renov(28)
+
+	/*A sur action panneau 29 */
+	CASE "BP_cmd29"
+		ITMA_TTU_pix_suivant_renov(29)
+
+	/*A sur action panneau 30 */
+	CASE "BP_cmd30"
+		ITMA_TTU_pix_suivant_renov(30)
+
+	/*A sur action panneau 31 */
+	CASE "BP_cmd31"
+		ITMA_TTU_pix_suivant_renov(31)
+
+	/*A sur action panneau 32 */
+	CASE "BP_cmd32"
+		ITMA_TTU_pix_suivant_renov(32)
+
+	/*A sur action panneau 33 */
+	CASE "BP_cmd33"
+		ITMA_TTU_pix_suivant_renov(33)
+
+	/*A sur action panneau 34 */
+	CASE "BP_cmd34"
+		ITMA_TTU_pix_suivant_renov(34)
+
+	/*A sur action panneau 35 */
+	CASE "BP_cmd35"
+		ITMA_TTU_pix_suivant_renov(35)
+
+	/*A sur action panneau 36 */
+	CASE "BP_cmd36"
+		ITMA_TTU_pix_suivant_renov(36)
+
+	/*A sur action panneau 37 */
+	CASE "BP_cmd37"
+		ITMA_TTU_pix_suivant_renov(37)
+
+	/*A sur action panneau 38 */
+	CASE "BP_cmd38"
+		ITMA_TTU_pix_suivant_renov(38)
+
+	/*A sur action panneau 39 */
+	CASE "BP_cmd39"
+		ITMA_TTU_pix_suivant_renov(39)
+
+	/*A sur action panneau 40 */
+	CASE "BP_cmd40"
+		ITMA_TTU_pix_suivant_renov(40)
+
+	/*A sur action panneau 41 */
+	CASE "BP_cmd41"
+		ITMA_TTU_pix_suivant_renov(41)
+
+	/*A sur action panneau 42 */
+	CASE "BP_cmd42"
+		ITMA_TTU_pix_suivant_renov(42)
+
+	/*A sur action panneau 43 */
+	CASE "BP_cmd43"
+		ITMA_TTU_pix_suivant_renov(43)
+
+	/*A sur action panneau 44 */
+	CASE "BP_cmd44"
+		ITMA_TTU_pix_suivant_renov(44)
+
+	/*A sur action panneau 45 */
+	CASE "BP_cmd45"
+		ITMA_TTU_pix_suivant_renov(45)
+
+	/*A sur action panneau 46 */
+	CASE "BP_cmd46"
+		ITMA_TTU_pix_suivant_renov(46)
+
+	/*A sur action panneau 47 */
+	CASE "BP_cmd47"
+		ITMA_TTU_pix_suivant_renov(47)
+		
+	/*A sur action panneau 48 */
+	CASE "BP_cmd48"
+		ITMA_TTU_pix_suivant_renov(48)
+
+	/*A sur action panneau 49 */
+	CASE "BP_cmd49"
+		ITMA_TTU_pix_suivant_renov(49)
+
+	/*A sur action panneau 50 */
+	CASE "BP_cmd50"
+		ITMA_TTU_pix_suivant_renov(50)
+
+	/*A sur action panneau 51 */
+	CASE "BP_cmd51"
+		ITMA_TTU_pix_suivant_renov(51)
+
+	/*A sur action panneau 52 */
+	CASE "BP_cmd52"
+		ITMA_TTU_pix_suivant_renov(52)
+
+	/*A sur action panneau 53 */
+	CASE "BP_cmd53"
+		ITMA_TTU_pix_suivant_renov(53)
+
+	/*A sur action panneau 54 */
+	CASE "BP_cmd54"
+		ITMA_TTU_pix_suivant_renov(54)
+
+	/*A sur action panneau 55 */
+	CASE "BP_cmd55"
+		ITMA_TTU_pix_suivant_renov(55)
+
+	/*A sur action panneau 56 */
+	CASE "BP_cmd56"
+		ITMA_TTU_pix_suivant_renov(56)
+
+	/*A sur action panneau 57 */
+	CASE "BP_cmd57"
+		ITMA_TTU_pix_suivant_renov(57)
+		
+	/*A sur action panneau 58 */
+	CASE "BP_cmd58"
+		ITMA_TTU_pix_suivant_renov(58)
+
+	/*A sur action panneau 59 */
+	CASE "BP_cmd59"
+		ITMA_TTU_pix_suivant_renov(59)
+		
+	/*A sur reception de poke */
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vm_fenetre_TTU)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			vl_fenetre_active = FALSE
+			return
+
+		/*A si poke de reception d'abonnement état panneau */
+		CASE COM_CANAL_MTTU_PAN	
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre_TTU)
+			vl_messageDecoupe = ARRAY_FROM_STRING@(vl_message[0],"|")
+			vl_taille2 = ARRAY_SIZE@(vl_messageDecoupe)
+
+			/*A trace de la reception du message */
+			vm_text = COM09_Date_Courante() ++ "   MsgPoke MTTU_PAN : "
+			for i = 0 to vl_taille2 - 1
+				vm_text = vm_text ++ vl_messageDecoupe[i] ++ " / "
+			next i
+			COM01_Trace(COM_WARNING,vm_text)
+
+			'-- parcours du tableau des messages
+			for i = 0 to vl_taille2 - 1
+			
+				/*A décomposition des messages en tableau */
+				vl_mess = ARRAY_FROM_STRING@(vl_messageDecoupe[i],",")
+		  
+				if  vl_mess[0] = XDC_EQT_TUBE and 
+				(vl_mess[1]+0 = vm_NumTube+0 or 
+				vl_mess[1]+0 = vm_NumTube2+0)
+				{				
+					/*A on  boucle sur tous les panneaux présents sur l'IHM */
+					if ( vl_mess[3] <> 0 )
+					{
+						vl_taille = ARRAY_SIZE@(vm_F_bouton)
+						for j = 0 to vl_taille-1
+							'-- comparaison avec type SAE et ID SAE au lieu de ID Intranet
+							if ( vm_F_bouton[j,12] = vl_mess[2] and vm_F_bouton[j,4] = vl_mess[3] )
+							{
+								'-- MAJ du panneau sur l'IHM (avec gestion defaut et mode)
+								ITMA_TTU_MAJ_ID_renov(j, vl_mess)
+								break j
+							}
+						next j
+					}
+				}
+				
+			next i
+
+		/*A si poke de reception d'abonnement état sequence */
+		CASE COM_CANAL_MTTU_SEQ	
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre_TTU)
+
+			/*A trace de la reception du message */
+			vm_text = COM09_Date_Courante() ++ "   MsgPoke MTTU_SEQ : "
+			vm_text =  vm_text ++ vl_message[0]
+			COM01_Trace(COM_WARNING,vm_text)
+
+			/*A décomposition du message reçu en tableau */
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+			/*A transfo. en numérique de variables */
+			vl_mess[2] = vl_mess[2] + 0		
+			vm_NumSequence = vm_NumSequence + 0
+			
+			if vl_mess[0] <> XDC_EQT_TUBE or vl_mess[1]+0 <> vm_NumTube+0
+			{
+				GOTO FIN_SEQ_SIG
+ 			}
+
+			if vl_mess[0] = XDC_EQT_TUBE and vl_mess[1] = vm_NumTube+0 and 
+				vl_mess[3] = XDC_DEFAUT 
+			{
+				DB_CTRL_DISPLAY@(vm_fenetre_TTU,"BP_defaut",TRUE)
+				vl_defaut_sequence = TRUE
+			}
+
+			if vl_mess[0] = XDC_EQT_TUBE and vl_mess[1] = vm_NumTube+0 and
+				 vl_mess[3] = XDC_NORMAL 
+			{
+				DB_CTRL_DISPLAY@(vm_fenetre_TTU,"BP_defaut",FALSE)
+				vl_defaut_sequence = FALSE
+			}
+
+			/* Recuperation du numero du scenario en cours */
+			vl_scenario_en_cours = vl_mess[2]
+			
+'vl_text = "COM_CANAL_MTTU_SEQ : vl_scenario_en_cours = <" ++ vl_scenario_en_cours ++ ">"
+'COM01_Trace(COM_WARNING,vl_text)
+			
+			/* A.Bertola 14/01/2010 : correction FT 3036 : Mauvaise gestion de l'affichage des scénarios en cours */
+			/* Affichage du scenario en cours ou fin scenario */
+			' remise en service pour toulon le 08-11-2019
+			if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") <> 0
+				ITMA_TTU_maj_scenario_sig(vl_scenario_en_cours)
+
+			FIN_SEQ_SIG :
+
+		/*A si poke de reception d'abonnement état domaine ventilation */
+		CASE COM_CANAL_MTTU_DOM_VEN	
+
+            vl_message = DB_GET_POKE_DATA@(vm_fenetre_TTU)
+            vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+   			if vl_mess[0] <> XDC_EQT_TUBE or vl_mess[1]+0 <> vm_NumTube+0
+			{
+				GOTO FIN_DOMAINE_VENT
+ 			}
+
+			if vl_mess[2] = -1
+			{
+				GOTO SCENARIO_VENT_EN_COURS
+ 			}
+
+            /*A trace de la reception du message */
+            vm_text = COM09_Date_Courante() ++ "   MsgPoke MTTU_VEN : " ++ vl_message[0]
+            COM01_Trace(COM_WARNING,vm_text)
+            
+			if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") = 0
+			/* Tunnel hors TOULON */
+			{
+				/*A décomposition des messages en tableau */
+				if vl_mess[2] = 1 '' mode MANU
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_ventilation","pix_manuel",3,4)
+				if vl_mess[2] = 0 '' mode AUTO
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_ventilation","pix_auto",3,4)
+			}
+			else
+			/********************** Tunnel TOULON *******************/
+			{
+				/* tableau des valeurs
+				Mode Manu Ventilation Accélérateur	1
+				Mode Auto Ventilation Accélérateur	2
+				Mode Manu Ventilation				3
+				Mode Auto Ventilation 				4
+				*/
+				
+				/*A décomposition des messages en tableau */
+				if vl_mess[2] = 1
+				{
+				ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_ventilation2", 		
+										"pix_manu_40_20",3,4)
+				}
+				if vl_mess[2] =  2
+				{
+				ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_ventilation2", 		
+										"pix_auto_40_20",3,4)
+				}
+				if vl_mess[2] = 3
+				{
+				ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_ventilation", 		
+										"pix_manu_40_20",3,4)
+				}
+				if vl_mess[2] =  4
+				{
+				ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_ventilation", 		
+										"pix_auto_40_20",3,4)
+				}
+			}			
+			'' Gestion de l'affichage du scénario en cours
+			SCENARIO_VENT_EN_COURS :
+
+			/* Recuperation du numero du scenario en cours */
+			vl_scenario_en_cours = vl_mess[3]
+			
+			/* Affichage du scenario en cours ou fin scenario */
+			''ITMA_TTU_maj_scenario_vent(vl_scenario_en_cours, 
+							''	vm_Sce_Ventilation, vm_fenetre_TTU)
+
+			FIN_DOMAINE_VENT :						
+			
+		/*A si poke de reception d'abonnement état domaine eclairage */
+		CASE COM_CANAL_MTTU_DOM_ECL	
+
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre_TTU)
+            vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+			/*A trace de la reception du message */
+			vm_text = COM09_Date_Courante() ++ "   MsgPoke MTTU_ECL : " ++ vl_message[0]
+			COM01_Trace(COM_WARNING,vm_text)
+
+			if vl_mess[0] <> XDC_EQT_TUBE or vl_mess[1]+0 <> vm_NumTube+0
+			{
+				GOTO FIN_DOMAINE_ECL
+ 			}
+			
+			if vl_mess[2] = -1
+			{
+				GOTO SCENARIO_EN_COURS
+ 			}
+
+			if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") <> 0
+			/************* Tunnel Toulon *******************/
+			{
+				/*
+				Mode Auto eclairage de base	1
+				Mode Manuel eclairage de base	2
+				Mode Horaire Eclairage de base	3
+				Mode Nominal Eclairage de base	4
+					
+				Mode Auto eclairage renforcement entree	5
+				Mode Manuel eclairage renforcement entree	6
+				Mode Horaire Eclairage renfort entrée	7
+				Mode Nominal Eclairage renfort entrée	8
+					
+				Mode Auto eclairage renforcement sortie	9
+				Mode Manuel eclairage renforcement sortie	10
+				Mode Horaire Eclairage renfort sortie	11
+				Mode Nominal Eclairage renfort sortie	12				
+				*/
+				if vl_mess[2] = 1
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageBASEAUTO", 		
+											"pix_auto_40_20",3,4)
+				}
+				if vl_mess[2] = 2
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageBASEAUTO", 		
+											"pix_manu_40_20",3,4)
+				}
+				if vl_mess[2] = 3
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageBASENOM", 		
+											"pix_horaire_40_20",3,4)
+				}
+				if vl_mess[2] = 4
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageBASENOM", 		
+											"pix_nominal_40_20",3,4)
+				}
+				if vl_mess[2] = 5
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFEAUTO", 		
+											"pix_auto_40_20",3,4)
+				}
+				if vl_mess[2] = 6
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFEAUTO", 		
+											"pix_manu_40_20",3,4)
+				}
+				if vl_mess[2] = 7
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFENOM", 		
+											"pix_horaire_40_20",3,4)
+				}
+				if vl_mess[2] = 8
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFENOM", 		
+											"pix_nominal_40_20",3,4)
+				}
+				if vl_mess[2] = 9
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFSAUTO", 		
+											"pix_auto_40_20",3,4)
+				}
+				if vl_mess[2] = 10
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFSAUTO", 		
+											"pix_manu_40_20",3,4)
+				}
+				if vl_mess[2] = 11
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFSNOM", 		
+											"pix_horaire_40_20",3,4)
+				}
+				if vl_mess[2] = 12
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFSNOM", 		
+											"pix_nominal_40_20",3,4)
+				}
+				if vl_mess[2] = 13
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageTREAUTO", 		
+											"pix_auto_40_20",3,4)
+				}
+				if vl_mess[2] = 14
+				{
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageTREAUTO", 		
+											"pix_manu_40_20",3,4)
+				}
+			}
+			
+			if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"MONACO") = 0 and
+				STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") = 0
+			/************* Tunnel générique hors Monaco et Toulon *******************/
+			{
+				/* Affichage du mode  MANU */
+				if vl_mess[2] = 1
+				{
+					'' mode MANU
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage", 		
+											"pix_manuel",3,4)
+				}
+				if vl_mess[2] = 0
+				{
+					'' mode AUTO/NOMINAL
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage", 		
+											"pix_nominal",3,4)
+				}
+				if vl_mess[2] = 2
+				{
+					'' mode AUTO/HORAIRE
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage", 		
+											"pix_horaire",3,4)
+				}
+			}
+			if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"MONACO") <> 0
+			/********************** Tunnel Monaco ***********************/
+			{
+				/* Affichage du mode AUTO */
+				if vl_mess[2] = 0
+				{
+					'' mode AUTO
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage", 		
+											"pix_auto",3,4)
+				}
+
+				/* Affichage du mode MANUEL */
+				if vl_mess[2] = 1
+				{
+					'' mode MANU
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage", 		
+											"pix_manuel",3,4)
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage_MC2", 		
+											"pix_aucun",3,4)
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage_MC3", 		
+											"pix_aucun",3,4)
+					DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_sequence",False)
+				}
+				if vl_mess[2] = 24
+				{
+					'' mode AUTO/HORAIRE NORD + AUTO/HORAIRE SUD
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage_MC2", 		
+											"pix_horaire_nord",3,4)
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage_MC3", 		
+											"pix_horaire_sud",3,4)
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage", 		
+											"pix_auto",3,4)
+				}
+				if vl_mess[2] = 25
+				{
+					'' mode AUTO/HORAIRE NORD + AUTO/NOMINAL SUD
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage_MC2", 		
+											"pix_horaire_nord",3,4)
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage_MC3", 		
+											"pix_nominal_sud",3,4)
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage", 		
+											"pix_auto",3,4)
+				}
+				if vl_mess[2] = 34
+				{
+					'' mode AUTO/NOMINAL NORD + AUTO/HORAIRE SUD
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage_MC2", 		
+											"pix_nominal_nord",3,4)
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage_MC3", 		
+											"pix_horaire_sud",3,4)
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage", 		
+											"pix_auto",3,4)
+				}
+				if vl_mess[2] = 35
+				{
+					'' mode AUTO/NOMINAL NORD + AUTO/NOMINAL SUD
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage_MC2", 		
+											"pix_nominal_nord",3,4)
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage_MC3", 		
+											"pix_nominal_sud",3,4)
+					ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairage", 		
+											"pix_auto",3,4)
+				}
+			}
+			if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") = 0
+			{
+				/************* Tunnels hors Toulon *******************/			
+				/* Affichage du regime d'eclairage */
+				ITMA_TTU_maj_regime_ecl(vm_fenetre_TTU, vl_mess, vm_Sce_Eclairage, vm_nom_tunnel)
+			}
+			'' Gestion de l'affichage du scénario en cours
+			SCENARIO_EN_COURS :
+
+			FIN_DOMAINE_ECL :
+
+		/*A si poke de reception d'abonnement état sequence */
+		CASE COM_CANAL_MTTU_SEQ_ECL	
+			
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre_TTU)
+			vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+			
+			/*A trace de la reception du message */
+			vm_text = COM09_Date_Courante() ++ "   MsgPoke MTTU_SEQ : "
+			vm_text =  vm_text ++ vl_message[0]
+			COM01_Trace(COM_WARNING,vm_text)
+
+			if vl_mess[0] = XDC_EQT_TUBE and vl_mess[1]+0 = vm_NumTube+0
+			{									
+				ITMA_TTU_maj_regime_ecl(vm_fenetre_TTU, vl_mess, vm_Sce_Eclairage, vm_nom_tunnel)									
+			}			
+			
+		/*A si poke de reception état domaine signalisation */
+		CASE COM_CANAL_MTTU_DOM_SIGT	
+
+			/*A capture du message */
+			vl_message = DB_GET_POKE_DATA@(vm_fenetre_TTU)
+            	vl_mess = ARRAY_FROM_STRING@(vl_message[0],",")
+
+			/*A trace de la reception du message */
+			vm_text = COM09_Date_Courante() ++ "   MsgPoke MTTU_SIG : "
+			vm_text =  vm_text ++ vl_message[0]
+			COM01_Trace(0,vm_text)
+
+			if vl_mess[0] <> XDC_EQT_TUBE or vl_mess[1]+0 <> vm_NumTube+0
+			{
+				GOTO FIN_DOMAINE_SIG
+ 			}
+
+			/* Recuperation du numero du scenario en cours */
+			vl_scenario_en_cours = vl_mess[3]
+
+'vl_text = "COM_CANAL_MTTU_DOM_SIGT : vl_scenario_en_cours = <" ++ vl_scenario_en_cours ++ ">"
+'COM01_Trace(COM_WARNING,vl_text)
+						
+			/* A.Bertola 14/01/2010 : correction FT 3036 : Mauvaise gestion de l'affichage des scénarios en cours */
+			/* Affichage du scenario en cours ou fin scenario */
+			ITMA_TTU_maj_scenario_sig(vl_scenario_en_cours)
+			FIN_DOMAINE_SIG :
+
+		ENDCASE
+	
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+
+/*B trace de la fin de traitement */
+vm_text = COM09_Date_Courante() ++ " Stop ITMA_TTU_pilotage_tunnel "
+
+/*A fin tant que */
+WEND
+
+RETURN
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Choisir une sequence de commande de panneaux pour le PA
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_sequence_PA(va_trig, va_NumSequence)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_trig	        : trigramme du tunnel
+*	va_NumSequence	: le n° de la sequence désirée
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : la liste des etats des panneaux
+*
+* CONDITION D'UTILISATION
+*   origine de l'appel : Plan d'action
+*
+* FONCTION
+*    Choisir une sequence de commande de panneaux pour le PA
+*
+---------------------------------------------------------------------------- */
+
+var		vl_liste_positions
+var		i,j
+var		vl_taille
+var 	vl_taille2
+var		vl_F_tpm
+var		vl_ligne
+
+vl_F_tpm = READ_ASCII_FILE@(REP_RENOVE ++ va_trig ++ "/ConfigSceSignalisation_" ++ va_trig ++ ".cfg")
+vl_taille = ARRAY_SIZE@(vl_F_tpm)-1
+
+for i = 0 to vl_taille
+    if ( substring@(vl_F_tpm[i],1,1) <> "#" )
+    {
+        vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+        if ( TRIM@(TABS_TO_SPACES@(vl_ligne[0])) = va_NumSequence )
+        {
+            vl_liste_positions = null
+            vl_taille2 = ARRAY_SIZE@(vl_ligne)-1
+            for j = 0 to vl_taille2
+                vl_liste_positions[j] = TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+            next j
+
+            SET_SYSTEM_VAR@("sequence", vl_liste_positions[1]) '-- nom sequence
+            
+            '--suppression des 2 premieres iterations
+            vl_liste_positions = ARRAY_DELETE@(vl_liste_positions,0)
+            vl_liste_positions = ARRAY_DELETE@(vl_liste_positions,0)
+            
+            RETURN(vl_liste_positions)
+        }
+    }
+next i
+
+info_message@("Séquence numero " ++ va_NumSequence ++ " non trouvée pour ce tunnel...")
+
+vl_liste_positions[0] = -1
+RETURN(vl_liste_positions)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Choisir une sequence de commande de panneaux
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_sequence_renov(va_trig, va_lib_tunnel, va_num_vue)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_trig		: trigramme du tunnel
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : la liste des etats des panneaux
+*
+* CONDITION D'UTILISATION
+*   Selectionner le bouton 'Appel sequence' dans la vue tunnel
+*
+* FONCTION
+*    Choisir une sequence de commande de panneaux
+*
+---------------------------------------------------------------------------- */
+
+
+/*A Déclaration des variables statiques */
+var		vl_fenetre_TEC
+var		vl_fenetre_active
+var		vl_controle_sortie
+var		i,j				/* index de loop */
+var		vl_taille		/* taille d'une table */
+var 	vl_taille2		/* taille d'une table */
+var		vl_rang			/* rang selectionné dans la liste */
+var		vl_text			/* text à afficher dans le status */
+
+var		vl_F_tpm		/* tableau tampon */
+var		vl_F_seq		/* tableau tampon avec sequence */
+var		vl_ligne		/* tableau d'une ligne */
+var		vl_F_sequence	/* fichier de config des sequences */
+var		vl_sequence		/* sequence selectionné dans la liste */
+
+var		vl_icon 		/* graph à afficher dans l'objet */
+var		vl_xpos 		/* position X de l'objet */
+var		vl_ypos 		/* position Y de l'objet */ 
+var		vl_pos
+var		vl_titre  		/* titre du bouton */
+var		vl_titre2  		/* titre de l'image digit */
+var		vl_trouve
+var		vl_longeur
+var		vl_titre_fen
+var		vl_tab
+var		vl_index
+var		vl_lib_tunnel
+
+vl_lib_tunnel = va_lib_tunnel
+
+/*A Chargement du fichier de config sequence signalisation du tunnel */
+vl_F_tpm = READ_ASCII_FILE@(REP_RENOVE ++	va_trig ++ "/ConfigSceSignalisation_" ++ va_trig ++ ".cfg")
+vl_taille = ARRAY_SIZE@(vl_F_tpm) -1
+vl_index = 0
+for i = 0 to vl_taille
+  vl_ligne = ARRAY_FROM_STRING@(vl_F_tpm[i],",")
+  vl_tab = ARRAY_SIZE@(vl_ligne)
+  if substring@(vl_F_tpm[i],1,1) <> "#"
+  {
+	if (STRING_INDEX@(UPPERCASE@(vl_lib_tunnel),"TOULON S2") <> 0 and ((va_num_vue <> 3 and STRING_INDEX@(UPPERCASE@(vl_ligne[1]),"BON RENCONTRE")=0) or
+		(va_num_vue = 3 and STRING_INDEX@(UPPERCASE@(vl_ligne[1]),"BON RENCONTRE")<>0) )
+		) or		
+		(STRING_INDEX@(UPPERCASE@(vl_lib_tunnel),"TOULON S1") <> 0 and ((va_num_vue <> 3 and STRING_INDEX@(UPPERCASE@(vl_ligne[1]),"BOURGEOIS")=0) or
+		(va_num_vue = 3 and STRING_INDEX@(UPPERCASE@(vl_ligne[1]),"BOURGEOIS")<>0) )
+		)
+		or LEN@( TRIM@(vl_ligne[1]) ) < 10
+		or STRING_INDEX@(UPPERCASE@(vl_ligne[1]),"MISE AU NEUTRE")<>0
+		or STRING_INDEX@(UPPERCASE@(vl_lib_tunnel),"TOULON") = 0
+	{
+		vl_taille2 = ARRAY_SIZE@(vl_ligne) -1
+		for j = 0 to vl_taille2
+			vm_Sce_Signalisation[vl_index,j]=TRIM@(TABS_TO_SPACES@(vl_ligne[j]))
+		next j
+		vl_index = vl_index + 1
+	}
+  }
+next i
+
+SET_SYSTEM_VAR@("Liste_Sequence",vm_Sce_Signalisation)
+
+vl_F_tpm = null
+for i = 1 to vl_index-1
+	vl_F_tpm[i] = vm_Sce_Signalisation[i,1] 
+	vl_F_seq[i] = vm_Sce_Signalisation[i]
+next i
+
+/*A Ouvertue de la liste des sequences */
+vl_fenetre_TEC = DB_LOAD@("ITMA_TEC_liste_sequence")
+vm_messages_acceptes[0] = COM_CANAL_FIN
+DB_ACCEPT_POKES@ (vl_fenetre_TEC, vm_messages_acceptes)
+
+/*A Positionnement de la fenetre & assignation de la fiche d'aide  
+*   ------------------------------------------------------------- */
+DB_XPOS@(vl_fenetre_TEC,COM_POS_X)
+DB_YPOS@(vl_fenetre_TEC, COM_POS_y_FEN)
+DEFINE_HELPFILE@("Liste des sequences", "./aid/ITMA_TEC_liste_sequence.aide")
+DB_HELP_TOPIC@(vl_fenetre_TEC,"Liste des sequences")
+
+if STRING_INDEX@(UPPERCASE@(vl_lib_tunnel),"TOULON") <> 0
+{
+	vl_xpos = DB_GET_WIDTH@(vl_fenetre_TEC)
+	vl_ypos = DB_GET_HEIGHT@(vl_fenetre_TEC)
+	vl_xpos = vl_xpos + 200
+	vl_ypos = vl_ypos + 250
+	DB_WIDTH@(vl_fenetre_TEC,vl_xpos)
+	DB_HEIGHT@(vl_fenetre_TEC,vl_ypos)
+}
+
+DB_DISPLAY_ONLY@(vl_fenetre_TEC,True)
+DB_DISPLAY@(vl_fenetre_TEC)
+DB_DISPLAY_ONLY@(vl_fenetre_TEC,False)
+
+DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre_TEC,"BL_sequence",True)
+DB_CTRL_STRINGS@(vl_fenetre_TEC,"BL_sequence",vl_F_tpm)
+DB_CTRL_GRAYED@(vl_fenetre_TEC,"BP_valider",True)
+
+if STRING_INDEX@(UPPERCASE@(vl_lib_tunnel),"TOULON") <> 0
+{
+	vl_pos = DB_CTRL_GET_SIZE@(vl_fenetre_TEC,"BL_sequence")
+	vl_xpos = vl_pos[2]
+	vl_ypos = vl_pos[3]
+	vl_xpos = vl_xpos + 30
+	vl_ypos = vl_ypos + 15
+	DB_CTRL_WIDTH@(vl_fenetre_TEC, "BL_sequence", vl_xpos)
+	DB_CTRL_HEIGHT@(vl_fenetre_TEC, "BL_sequence", vl_ypos)
+
+	vl_xpos = DB_CTRL_GET_XPOS@(vl_fenetre_TEC, "BP_valider")
+	vl_ypos = DB_CTRL_GET_YPOS@(vl_fenetre_TEC, "BP_valider")
+	vl_xpos = vl_xpos + 50
+	vl_ypos = vl_ypos + 220
+	DB_CTRL_XPOS@(vl_fenetre_TEC, "BP_valider", vl_xpos)
+	DB_CTRL_YPOS@(vl_fenetre_TEC, "BP_valider", vl_ypos)
+	
+	vl_xpos = DB_CTRL_GET_XPOS@(vl_fenetre_TEC, "BP_quitter")
+	vl_ypos = DB_CTRL_GET_YPOS@(vl_fenetre_TEC, "BP_quitter")
+	vl_xpos = vl_xpos + 70
+	vl_ypos = vl_ypos + 220
+	DB_CTRL_XPOS@(vl_fenetre_TEC, "BP_quitter", vl_xpos)
+	DB_CTRL_YPOS@(vl_fenetre_TEC, "BP_quitter", vl_ypos)
+		
+	vl_xpos = DB_CTRL_GET_XPOS@(vl_fenetre_TEC, "Help")
+	vl_ypos = DB_CTRL_GET_YPOS@(vl_fenetre_TEC, "Help")
+	vl_xpos = vl_xpos + 90
+	vl_ypos = vl_ypos + 220
+	DB_CTRL_XPOS@(vl_fenetre_TEC, "Help", vl_xpos)
+	DB_CTRL_YPOS@(vl_fenetre_TEC, "Help", vl_ypos)
+
+	'DB_CTRL_GET_XPOS@
+	'DB_CTRL_GET_YPOS@
+	'DB_CTRL_HORIZ_SCROLL@(vl_fenetre_TEC, "BL_sequence", True)
+	
+	'DB_CTRL_GET_HEIGHT@
+	'DB_CTRL_GET_SIZE@
+
+	'DB_CTRL_HEIGHT@
+	'DB_CTRL_WIDTH@
+	'DB_HEIGHT@
+	'DB_GET_HEIGHT@
+	'DB_WIDTH@@
+	'DB_GET_WIDTH@
+
+}
+
+/*A Boucle de capture des événements de la boite de dialogue  
+*   -------------------------------------------------------- */
+vl_fenetre_active = TRUE
+
+
+/*A tant que la fenetre est active */
+WHILE (vl_fenetre_active)
+
+	/* affichage de la liste */
+	DB_DISPLAY@(vl_fenetre_TEC)
+	vl_titre_fen = DB_GET_TITLE@(vm_fenetre_TTU)
+	''PROMOTE_DIALOG@(vl_titre_fen)
+
+	/*A capture de l'evenement dans la BD TCA */
+	vl_controle_sortie = DB_EXIT_CTRL@(vl_fenetre_TEC)
+
+	/*A si l'evenement n'est pas un poke & verrou = vrai */
+	if vl_controle_sortie<>"poke_" and SYSTEM_VAR@(vg_verrou)
+		/*A reset de l'evenement */
+		vl_controle_sortie = NULL 
+
+	/* selon l'evenement */
+	CASE OF vl_controle_sortie
+
+	/*A sur action valider */
+	CASE "BP_valider"
+
+		/*A retour de la sequence */
+		vl_fenetre_active=false
+
+	/*A sur action quitter */
+	CASE "BP_quitter"
+
+		/*A Fermeture de la fenetre */
+		vl_sequence[0] = -1
+		vl_fenetre_active=false
+
+	/*A sur action quitter */
+	CASE "BL_sequence"
+
+		/*A Capture du rang dans la liste des tunnels */
+		vl_rang = DB_CTRL_GET_VALUE@(vl_fenetre_TEC,"BL_sequence")
+
+		/*A Capture du libellé de la sequence choisie */
+		vm_seq_select = vl_F_tpm[vl_rang]
+		SET_SYSTEM_VAR@("sequence",vm_seq_select)
+		SET_SYSTEM_VAR@("NumSequence",vl_F_seq[vl_rang,0])
+
+		/*A si non existance d'une sequence pour cette selection */
+		if vl_F_seq[vl_rang,2]<1 
+		{
+			/*A griser le bouton valider */
+			DB_CTRL_GRAYED@(vl_fenetre_TEC,"BP_valider",True)
+		}
+		/*A sinon */
+		else
+		{
+			/*A MAJ de vl_sequence */
+		
+			vl_F_tpm = vl_F_seq[vl_rang]
+
+			''suppression des 2 premieres iterations
+			vl_F_tpm = ARRAY_DELETE@(vl_F_tpm,0)
+			vl_F_tpm = ARRAY_DELETE@(vl_F_tpm,0)
+
+			vl_sequence = vl_F_tpm
+
+
+			/*A trace de la sequence selectionné */
+			COM01_Trace(0,"Choix sequence : " ++ vm_seq_select ++ " ---> " ++
+					 vl_F_seq[vl_rang,0])
+
+			/*A dégriser le bouton valider */
+			DB_CTRL_GRAYED@(vl_fenetre_TEC,"BP_valider",False)
+			/*A Fermeture de la fenetre */
+			''RETURN(vl_sequence)
+			vl_fenetre_active=false
+		}		
+
+	/*A sur reception de poke */
+	CASE "poke_"
+	
+		/*A suivant le canal de reception de poke */
+		CASE OF DB_GET_POKE@(vl_fenetre_TEC)
+
+		/*A si poke de fin de canal : fermeture de fenetre */
+		CASE COM_CANAL_FIN
+			/*A la fenetre n'est plus active */
+			vl_fenetre_active = FALSE
+
+		ENDCASE
+
+	ENDCASE
+
+/*A fin tant que */
+WEND
+
+DB_CLOSE@(vl_fenetre_TEC)
+
+RETURN(vl_sequence)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Choisir le picto suivant pour le panneau désiré
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_pix_suivant_renov(va_num)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_num	: le N° du bouton
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   Clique sur un panneau dans le vue tunnel
+*
+* FONCTION
+*    Choisir le picto suivant pour le panneau désiré
+*
+---------------------------------------------------------------------------- */
+
+var	vl_titre
+var	vl_objet
+var i
+var	vl_trouve
+var vl_num_eqp
+var vl_num2
+var vl_num3
+var vl_icon
+var vl_xpos
+var vl_ypos
+var vl_tmp
+var vl_pos
+var vl_taille
+var tl_eqp
+var vl_index
+var vl_id_eqp
+
+if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION)) and NOT vm_mode_formation
+{
+		RETURN(COM_OK)
+}
+
+vl_objet = "BP_cmd" ++ va_num
+vl_trouve = false
+
+/*A dégriser le bouton 'BP_executer' */
+DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_executer",False)
+
+/*A MAJ du mode manuel sur le bouton 'BP_manuel' */
+'DB_CTRL_TITLE@(vm_fenetre_TTU,"BP_manuel","pix_manu")
+DB_CTRL_DISPLAY@(vm_fenetre_TTU,"BP_manuel",TRUE)
+DB_DESTROY_CTRL@(vm_fenetre_TTU,"BP_manuel")
+DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_manuel","pix_manu",POSX_BP_INDIVIDUEL,POSY_BP_INDIVIDUEL,0)
+DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_manuel",4)
+
+vl_tmp = NULL
+
+vl_num_eqp = vm_F_bouton[va_num,1]
+tl_eqp = ARRAY_COLUMN@(vm_Eqp_Signalisation, 0)
+vl_index = ARRAY_INDEX@(tl_eqp, vl_num_eqp)
+vl_tmp = vm_Eqp_Signalisation[vl_index]
+vl_id_eqp = vm_Eqp_Signalisation[va_num,3]
+
+vl_pos = vm_F_bouton[va_num,0] ''n° de position de l'icone
+vl_titre = vm_F_bouton[va_num,2] ''nom de l'icone
+
+vl_trouve = FALSE
+WHILE (NOT vl_trouve)
+
+	vl_pos = vl_pos + 1 ''incrementation de la position
+	/*********************************************/
+	/*** CAS PARTICULIER DES FAV               ***/
+	/*********************************************/
+	if UPPERCASE@(vl_tmp[vl_pos+14]) = "PIX_NOIR_SANS_TC_40_40"
+	{
+		/* on saute la position eteinte (picto noir) */
+		vl_pos = vl_pos + 1
+	}
+	
+	''verif du debordement
+	vl_taille = ARRAY_SIZE@(vl_tmp)-14
+	if vl_pos >= vl_taille
+	{
+		vl_pos = 0
+	}
+	''recuperation du nom de l'icone
+	vl_titre = vl_tmp[vl_pos+14]
+
+	'si le fichier pixel existet
+	if( FILE_EXISTS@(REP_CONFIG ++ "pic/" ++vl_titre++".im"))
+		vl_trouve = TRUE
+
+WEND
+
+vm_F_bouton[va_num,0]  = vl_pos ''n° de position de l'icone
+vm_F_bouton[va_num,2]  = vl_titre ''nom de l'icone
+
+/*A MAJ du bouton */
+'DB_CTRL_TITLE@(vm_fenetre_TTU,vl_objet,vl_titre)
+vl_icon 	= vl_titre	' le picto à afficher par defaut
+vl_xpos = vm_Eqp_Signalisation[va_num,5]	' la position X
+vl_ypos = vm_Eqp_Signalisation[va_num,6]	' la position Y
+DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_objet,FALSE)
+DB_DESTROY_CTRL@(vm_fenetre_TTU,vl_objet)
+
+' modif ABE du 25-09-2019 :  Traitement particulier des barrieres sur 2 voies de Toulon
+if (STRING_INDEX@(vl_icon,"baissee_SN_20_140") <> 0 )
+{
+	vl_ypos = vl_ypos - 100
+}
+
+DB_CREATE_CTRL@(vm_fenetre_TTU,3,vl_objet,vl_icon,vl_xpos,vl_ypos,0)
+DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,vl_objet,4)
+
+/*A MAJ du message status */
+vl_titre = "Status : Modification du panneau " ++ vm_F_bouton[va_num,12] ++ "-" ++ vm_F_bouton[va_num,4]
+DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status",vl_titre)
+
+/* modif specifique Toulon ABE du 04-11-2019 : gestion commande double pour eqp similaire */
+if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") <> 0
+{
+	
+	vl_num2 = 0
+	vl_num3 = 0
+	if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON S1") <> 0 and vm_num_vue = 2
+	{
+		'' R24 tunnel ( VL + VR ) PM 689 NE13S voie rapide
+		if vl_num_eqp = 18631 vl_num2 = vm_db_commande[1,2]
+		'' R24 tunnel ( VL + VR ) PM 689 NE13S voie lente
+		if vl_num_eqp = 20579 vl_num2 = vm_db_commande[1,1]
+
+		'' R24 tunnel ( VL + VR ) PM 1205 NE10S voie rapide
+		if vl_num_eqp = 18630 vl_num2 = vm_db_commande[2,2]
+		'' R24 tunnel ( VL + VR ) PM 1205 NE10S voie lente
+		if vl_num_eqp = 20578 vl_num2 = vm_db_commande[2,1]
+
+		'' R24 tunnel ( VL + VR ) PM 1630 NE8S voie rapide
+		if vl_num_eqp = 18629 vl_num2 = vm_db_commande[3,2]
+		'' R24 tunnel ( VL + VR ) PM 1630 NE8S voie lente
+		if vl_num_eqp = 20577 vl_num2 = vm_db_commande[3,1]
+
+		'' R24 tunnel ( VL + VR ) PM 2470 NE3S voie rapide
+		if vl_num_eqp = 18628 vl_num2 = vm_db_commande[4,2]
+		'' R24 tunnel ( VL + VR ) PM 2470 NE3S voie lente
+		if vl_num_eqp = 20576 vl_num2 = vm_db_commande[4,1]
+	}
+	if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON S2") <> 0 and vm_num_vue = 1
+	{
+		'' Feu flash / desc:FEU1/2 FFL7 VL num 95
+		if vl_num_eqp = 20511 vl_num2 = vm_db_commande[1,2]
+		'' Feu flash / desc:FEU1/2 FFL7 VR num 95
+		if vl_num_eqp = 20870 vl_num2 = vm_db_commande[1,1]
+		
+		'' Feu flash / desc:PMV1 FFL28 VL num 73
+		if vl_num_eqp = 20510 vl_num2 = vm_db_commande[2,2]
+		'' Feu flash / desc:PMV1 FFL28 VR num 73
+		if vl_num_eqp = 20869 vl_num2 = vm_db_commande[2,1]
+		
+		'' Feu R24 Tunnel / desc:R24-2 FRO36 VL num 67
+		if vl_num_eqp = 20506 vl_num2 = vm_db_commande[3,2]
+		'' Feu R24 Tunnel / desc:R24-2 FRO36 VR num 67
+		if vl_num_eqp = 20866 vl_num2 = vm_db_commande[3,1]
+		
+		'' Feu R24 Tunnel / desc:R24-1 VL-VR-HAUT FRO29 VL num 76
+		if vl_num_eqp = 20507 { vl_num2 = vm_db_commande[4,2] vl_num3 = vm_db_commande[4,3] }
+		'' Feu R24 Tunnel / desc:R24-1 VL-VR-HAUT FRO29 HAUT num 76
+		if vl_num_eqp = 20868 { vl_num2 = vm_db_commande[4,1] vl_num3 = vm_db_commande[4,3] }
+		'' Feu R24 Tunnel / desc:R24-1 VL-VR-HAUT FRO29 VR num 76
+		if vl_num_eqp = 20867 { vl_num2 = vm_db_commande[4,1] vl_num3 = vm_db_commande[4,2] }
+	}
+	if vl_num2 <> 0
+	{
+		vl_objet = "BP_cmd" ++ vl_num2
+		vl_tmp = NULL
+
+		vl_num_eqp = vm_F_bouton[vl_num2,1]
+		tl_eqp = ARRAY_COLUMN@(vm_Eqp_Signalisation, 0)
+		vl_id_eqp = vm_Eqp_Signalisation[vl_num2,3]
+		vl_index = ARRAY_INDEX@(tl_eqp, vl_num_eqp)
+		vl_tmp = vm_Eqp_Signalisation[vl_index]
+
+		vl_pos = vm_F_bouton[vl_num2,0] ''n° de position de l'icone
+		vl_titre = vm_F_bouton[vl_num2,2] ''nom de l'icone
+
+		vl_trouve = FALSE
+		WHILE (NOT vl_trouve)
+
+			vl_pos = vl_pos + 1 ''incrementation de la position
+
+			''verif du debordement
+			vl_taille = ARRAY_SIZE@(vl_tmp)-14
+			if vl_pos >= vl_taille
+			{
+				vl_pos = 0
+			}
+			''recuperation du nom de l'icone
+			vl_titre = vl_tmp[vl_pos+14]
+
+			'si le fichier pixel existe
+			if( FILE_EXISTS@(REP_CONFIG ++ "pic/" ++vl_titre++".im"))
+				vl_trouve = TRUE
+
+		WEND
+
+		vm_F_bouton[vl_num2,0]  = vl_pos ''n° de position de l'icone
+		vm_F_bouton[vl_num2,2]  = vl_titre ''nom de l'icone
+
+		/*A MAJ du bouton */
+		vl_icon 	= vl_titre	' le picto à afficher par defaut
+		vl_xpos = vm_Eqp_Signalisation[vl_num2,5]	' la position X
+		vl_ypos = vm_Eqp_Signalisation[vl_num2,6]	' la position Y
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_objet,FALSE)
+		DB_DESTROY_CTRL@(vm_fenetre_TTU,vl_objet)
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,vl_objet,vl_icon,vl_xpos,vl_ypos,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,vl_objet,4)
+	}	
+	if vl_num3 <> 0
+	{
+		vl_objet = "BP_cmd" ++ vl_num3
+		vl_tmp = NULL
+
+		vl_num_eqp = vm_F_bouton[vl_num3,1]
+		tl_eqp = ARRAY_COLUMN@(vm_Eqp_Signalisation, 0)
+		vl_id_eqp = vm_Eqp_Signalisation[vl_num3,3]
+		vl_index = ARRAY_INDEX@(tl_eqp, vl_num_eqp)
+		vl_tmp = vm_Eqp_Signalisation[vl_index]
+
+		vl_pos = vm_F_bouton[vl_num3,0] ''n° de position de l'icone
+		vl_titre = vm_F_bouton[vl_num3,2] ''nom de l'icone
+
+		vl_trouve = FALSE
+		WHILE (NOT vl_trouve)
+
+			vl_pos = vl_pos + 1 ''incrementation de la position
+
+			''verif du debordement
+			vl_taille = ARRAY_SIZE@(vl_tmp)-14
+			if vl_pos >= vl_taille
+			{
+				vl_pos = 0
+			}
+			''recuperation du nom de l'icone
+			vl_titre = vl_tmp[vl_pos+14]
+
+			'si le fichier pixel existe
+			if( FILE_EXISTS@(REP_CONFIG ++ "pic/" ++vl_titre++".im"))
+				vl_trouve = TRUE
+
+		WEND
+
+		vm_F_bouton[vl_num3,0]  = vl_pos ''n° de position de l'icone
+		vm_F_bouton[vl_num3,2]  = vl_titre ''nom de l'icone
+
+		/*A MAJ du bouton */
+		vl_icon 	= vl_titre	' le picto à afficher par defaut
+		vl_xpos = vm_Eqp_Signalisation[vl_num3,5]	' la position X
+		vl_ypos = vm_Eqp_Signalisation[vl_num3,6]	' la position Y
+		DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_objet,FALSE)
+		DB_DESTROY_CTRL@(vm_fenetre_TTU,vl_objet)
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,vl_objet,vl_icon,vl_xpos,vl_ypos,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,vl_objet,4)
+	}
+	
+}
+/*A retour OK */
+RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Choisir une sequence de commande de panneaux
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_pix_select_renov(va_num,va_pos)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_num	: le N° du bouton
+*	va_pos	: le N° du picto désiré ( 0 :  neutre )
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*
+* FONCTION
+*    Choisir une sequence de commande de panneaux
+*
+---------------------------------------------------------------------------- */
+
+var	vl_titre
+var	vl_objet
+var	i
+var	vl_trouve
+var	vl_icon
+var	vl_xpos
+var	vl_ypos
+
+/* modif ABE du 25-09-2019 : creation des objets BP commande : pas les barrieres manuelles sinon plantage !!*/
+vl_icon = vm_Eqp_Signalisation[va_num,15]  'le picto 1 à afficher
+if (STRING_INDEX@(vl_icon,"barr_manu") <> 0 )
+{
+	Return(COM_OK)
+}
+
+vl_objet = "BP_cmd" ++ va_num
+
+/*a si la position est entre 0 & 11 : modif ABE du 25-09-2019 : on passe a 25 avec toulon pour les PMV 1 ligne */
+if va_pos >=0 and va_pos<=25
+{
+	vl_titre =  vm_Eqp_Signalisation[va_num,va_pos+14]
+	vm_F_bouton[va_num,0] = va_pos+0
+	vm_F_bouton[va_num,2] = vl_titre
+
+	/*A MAJ du bouton */
+	vl_icon 	= vm_Eqp_Signalisation[va_num,va_pos+14]
+	vl_xpos 	= vm_Eqp_Signalisation[va_num,5]
+	vl_ypos 	= vm_Eqp_Signalisation[va_num,6]
+
+	' modif ABE du 25-09-2019 :  Traitement particulier des barrieres sur 2 voies de Toulon
+	if (STRING_INDEX@(vl_icon,"baissee_SN_20_140") <> 0 )
+	{
+		vl_ypos = vl_ypos - 100
+	}	
+	
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_objet,FALSE)
+	DB_DESTROY_CTRL@(vm_fenetre_TTU,vl_objet)
+	DB_CREATE_CTRL@(vm_fenetre_TTU,3,vl_objet,vl_icon,vl_xpos,vl_ypos,0)
+	DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,vl_objet,4)
+
+	/*A retour OK */
+	Return(COM_OK)
+}
+else
+{
+	Return(COM_NOK)
+}
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	MAJ du panneau dans la vue actuelle
+* 
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_MAJ_ID_renov(va_num,va_msg)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*	va_num	: le N° du panneau à modifier
+*	va_msg	: msg recu
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+* CODE RETOUR         : COM_OK
+*
+* CONDITION D'UTILISATION
+*   appel de cette procedure
+*
+* FONCTION
+*    MAJ du panneau dans la vue actuelle
+*
+---------------------------------------------------------------------------- */
+
+var	vl_picto, vl_picto_etat, vl_picto_mode
+var	vl_objet, vl_objet_etat, vl_objet_mode
+var	i
+var	vl_size
+var	vl_taille
+var	vl_icon
+var	vl_xpos
+var	vl_ypos
+var	vl_pos
+var	vl_etat
+var	vl_mode
+var	vl_numeqp
+var	vl_text
+
+/* utilisation des cst pour les defaut equipement
+XDC_NORMAL		0
+XDC_EQP_DEF_CRIT	3
+XDC_EQP_DEF_MAJEUR	2
+XDC_EQP_DEF_MINEUR	1
+XDC_EQP_HS		4
+vl_mess[2]	type panneau (SAE)
+vl_mess[3]	id panneau (SAE)
+vl_mess[4]	position panneau
+vl_mess[5]	etat defaut du panneau
+vl_mess[6]	mode local /distant du panneau
+*/
+
+
+/*A si le bouton existe */
+if vm_F_bouton[va_num,1] = ""
+	Return(COM_NOK)
+
+vl_numeqp = va_num
+vl_pos = va_msg[4]
+vl_etat =  va_msg[5]
+vl_mode =  va_msg[6]
+
+vl_xpos = vm_Eqp_Signalisation[vl_numeqp,5]
+vl_ypos = vm_Eqp_Signalisation[vl_numeqp,6]
+vl_icon = vm_Eqp_Signalisation[vl_numeqp,14]
+
+/* si c'est l'equipement specifique pour mode ventilation et eclairage */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "VEN_MODE") <> 0 or STRING_INDEX@(UPPERCASE@(vl_icon),  "ECL_MODE") <> 0 or STRING_INDEX@(UPPERCASE@(vl_icon),  "ECL_REGIME") <> 0 
+{	
+	ITMA_TTU_maj_BP_SIG(va_num,va_msg)
+	Return(COM_OK)
+}
+
+/* si c'est l'equipement specifique pour Bloquage des commandes IHM incendie si incendie dans l'autre sens */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "INCENDIE_AUTRE_SENS") <> 0
+{	
+	ITMA_TTU_maj_BP_SIG(va_num,va_msg)
+	Return(COM_OK)
+}
+
+/* si c'est un equipement de type specifique 
+ (gestion BP incendie...) 
+ on ne cree rien car ils sont dejà existants dans l'IHM */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "SCENARIO") <> 0
+{
+	ITMA_TTU_maj_BP_SIG(va_num,va_msg)
+	Return(COM_OK)
+}
+
+/* mode de l'equipement */
+vl_objet_mode = "BP_local" ++ vl_numeqp 
+if vl_mode = 0
+{
+	'mode distant
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_objet_mode,FALSE)
+}
+if vl_mode = 1
+{
+	'mode local
+	vl_picto_mode = vm_Eqp_Signalisation[va_num,12]
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_objet_mode,TRUE)
+}
+/* selon l'état de l'equipement */
+CASE OF vl_etat
+
+/*A etat normal */
+CASE XDC_EQP_DEF_CRIT
+	vl_text = "Panneau "++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]++" avec défaut critique !"
+	vl_picto_etat = vm_Eqp_Signalisation[va_num,7]
+CASE XDC_EQP_DEF_MAJEUR
+	vl_text = "Panneau "++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]++" avec défaut majeur !"
+	vl_picto_etat = vm_Eqp_Signalisation[va_num,8]
+
+CASE XDC_EQP_DEF_MINEUR
+	vl_text = "Panneau "++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]++" avec défaut mineur !"
+	vl_picto_etat = vm_Eqp_Signalisation[va_num,9]
+
+CASE XDC_EQP_HS
+	vl_text = "Panneau "++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]++" hors service !"
+	vl_picto_etat = vm_Eqp_Signalisation[va_num,10]
+
+CASE XDC_NORMAL
+	vl_text = "Réception état panneau " ++vm_F_bouton[vl_numeqp,12]++"-"++vm_F_bouton[vl_numeqp,4]
+	vl_picto_etat = vm_Eqp_Signalisation[va_num,11]
+
+ENDCASE
+
+if vm_Appel<>"ITMA_TPA" and STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON") = 0
+{
+	'' sur toulon on n'affiche pas les retour etats eqp : inutiles !
+    DB_CTRL_TITLE@( vm_fenetre_TTU,"Li_status",vl_text)
+}
+
+vl_objet_etat = "BP_cadre" ++ vl_numeqp 
+DB_DESTROY_CTRL@(vm_fenetre_TTU,vl_objet_etat)
+DB_CREATE_CTRL@(vm_fenetre_TTU, 6, vl_objet_etat, vl_picto_etat, vl_xpos-3, vl_ypos-280-3, 0)
+
+/*A construction du nom de l'objet vl_objet */
+vl_objet = "BP_panneau" ++ vl_numeqp
+
+/*A lecture du picto disponible à cette position dans vl_picto */
+vl_picto = vm_Eqp_Signalisation[vl_numeqp,vl_pos+14]
+
+/*A si le picto existe pour cette position : MAJ du bouton */
+if TRIM@(vl_picto) <>  ""
+{  
+	DB_DESTROY_CTRL@(vm_fenetre_TTU, vl_objet)
+	' modif ABE du 10-07-2019 :  Traitement particulier des barrieres sur 2 voies de Toulon
+	if (STRING_INDEX@(vl_picto,"baissee_SN_20_140") <> 0 )
+	{
+		vl_ypos = vl_ypos - 100
+	}		
+	DB_CREATE_CTRL@(vm_fenetre_TTU, 3, vl_objet, vl_picto, vl_xpos, vl_ypos-280, 0)
+	DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU, vl_objet, 4)
+	DB_CTRL_GRAYED@(vm_fenetre_TTU, vl_objet, True)
+}
+
+Return(COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Commander une sequence  
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Commande_Seq_Tunnel_renov(va_NumTube, va_Manuelle, va_NumSequence)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NumTube			:	numéro du tube
+*		va_Manuelle			:	le type manuel ou auto
+*		va_NumSequence		:	N° de la sequence
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TTU_pilotage_tunnel
+*
+* FONCTION
+*   		Commander le sequence d'une voie vers SYBASE.
+*
+---------------------------------------------------------------------------- */
+
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_Heure			' heure courante
+	var	vl_NumAction	' le N° d'action retournée par la base
+	var vl_poste      ' Le nom de la machine
+         VAR     vl_NomSite                      ' Nom du site
+ 
+    vl_poste = SYSTEM_VAR@("vg_numero_operateur")
+    
+       vl_NomSite = SYSTEM_VAR@("vg_nom_site")
+
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) AND
+	 NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+	{
+		ITMA_TTU_Acces_interdit("ITMA_TTU_Commande_Seq_Tunnel")
+		RETURN(COM_NOK)
+	}
+
+	vl_Heure = COM09_Date_Courante(TRUE)
+
+	/*A trace de l'appel de la procedure */
+	vm_text = COM09_Date_Courante()++" ---> Appel de la procedure 'XZAC100_Commande_Seq_SIG("++vl_poste++","++va_Manuelle++","++va_NumSequence++")'"
+	COM01_Trace(0,vm_text)
+
+	/*A parametrage de vl_parametres */
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = vm_NumEvt+0			' NumEvt
+	vl_parametres[0].output = FALSE
+	
+	vl_parametres[1].type = SYB#INT1_
+	vl_parametres[1].data = vm_CleEvt+0			' CléEvt
+	vl_parametres[1].output = FALSE
+	
+	vl_parametres[2].type = SYB#INT2_
+	vl_parametres[2].data = vl_poste+0		' Poste Opérateur
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type = SYB#INT1_
+	vl_parametres[3].data = 3			' TypeEqt = tube
+	vl_parametres[3].output = FALSE
+        
+	vl_parametres[4].type = SYB#INT2_
+	vl_parametres[4].data = va_NumTube+0			' NumEqt
+	vl_parametres[4].output = FALSE
+
+	vl_parametres[5].type = SYB#DATETIME_
+	vl_parametres[5].data = vl_heure				' Heure de lancement
+	vl_parametres[5].output = FALSE
+
+	vl_parametres[6].type = SYB#BIT_
+	vl_parametres[6].data = va_Manuelle				' Manu ou Auto
+	vl_parametres[6].output = FALSE
+	
+	vl_parametres[7].type = SYB#INT1_
+	vl_parametres[7].data = 0 '--vm_tunnel.Priorite				' Priorité
+	vl_parametres[7].output = FALSE
+
+	vl_parametres[8].type = SYB#INT4_
+	vl_parametres[8].data = XDC_DISTANCE_INCONNUE	' DistanceEvt
+	'--vl_parametres[8].data = vm_tunnel.DistanceEvt	' DistanceEvt
+	vl_parametres[8].output = FALSE
+
+	vl_parametres[9].type = SYB#INT1_
+	vl_parametres[9].data = va_NumSequence+0			' N° de la sequence
+	vl_parametres[9].output = FALSE
+
+	vl_parametres[10].type = SYB#INT4_
+	vl_parametres[10].data = NULL					' NumAction
+	vl_parametres[10].output = True
+
+        vl_parametres[11].type = SYB#CHAR_
+        vl_parametres[11].data = vl_NomSite                             ' Site local
+        vl_parametres[11].output = FALSE
+
+	IF COM05_SQL_Procedure(XZAC100_Commande_Seq_SIG, vl_parametres, vl_resultats, C_MODULE) <> COM_OK
+            RETURN (COM_NOK)
+	
+    vl_NumAction = vl_resultats.return_parameters[0]
+	RETURN (vl_NumAction)
+
+ENDMACRO
+
+
+
+/*X*/
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de commander un ou plusieurs  panneaux.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Pilote_panneau_renov(va_NumTube, va_TypesEq, va_NumEqt, va_Position)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NumTube		:	Numero tu tube
+*		va_TypesEq		:	La chaine des types des panneaux à piloter
+*		va_NumEqt		:	La chaine des panneaux à piloter
+*		va_Position		:	La chaine des positions à commander
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*
+* FONCTION :
+*	Permet de commander un ou plusieurs panneaux.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+
+	/*A trace de l'appel de procedure */
+	vm_text = COM09_Date_Courante()  
+	vm_text =  vm_text ++ " --> XZET01_Pilote_panneau "
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B num de commande pour retour. Non utilise ici */
+	vl_cmd[1]=11
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZET01  
+
+	/*B arguments */
+	vl_cmd[3]= va_NumTube ++ MTAR_CAR_SEPAR ++ va_TypesEq ++ MTAR_CAR_SEPAR ++ va_NumEqt ++ MTAR_CAR_SEPAR ++ va_Position ++ MTAR_CAR_SEPAR ++ 0
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émmission */
+	vl_text = COM09_Date_Courante() ++ " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[0]++ ","++vl_cmd[1]++","++vl_cmd[2]++","++vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+	
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner à l'état des panneaux.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Abt_Etat_Panneaux_renov(va_Abonnement, va_NumTube)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_Abonnement	:	Type d'abonnement (debut ou fin)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet de s'abonner à l'état des panneaux.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+	VAR vl_TypeEqt
+
+	vl_TypeEqt = XDC_EQT_TUBE
+
+	/*A trace de l'appel de procedure */
+	vm_text = COM09_Date_Courante()  
+	vm_text =  vm_text ++ " --> XZEA18_Abt_Etat_Panneaux "
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B Identifiant de la fonction signalisation */
+	'--vl_cmd[1]=MTTU_FCT_SIG
+	vl_cmd[1]=11
+	
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA18  
+
+	/*B arguments */
+	vl_cmd[3]= va_Abonnement ++ MTAR_CAR_SEPAR ++ vm_NomSite   ++ MTAR_CAR_SEPAR ++ vl_TypeEqt ++ MTAR_CAR_SEPAR ++ (va_NumTube+0) 
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émission */
+	vl_text = COM09_Date_Courante() ++ " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[0]++ ","++vl_cmd[1]++","++vl_cmd[2]++","++vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/*X*/
+/* ------------------------------------------------------------------------------
+* SERVICE RENDU :	Permet de s'abonner à l'état des sequences.
+*
+* -------------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Abt_Etat_Seq_Tunnel_renov(va_Abonnement, va_NumTube)
+
+/*-------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_Abonnement	:	Type d'abonnement (debut ou fin)
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION :
+*   ITMA_TCA_pilotage_camera
+*
+* FONCTION :
+*	Permet de s'abonner à l'état des sequences.
+* ------------------------------------------------------------------------------- */
+
+	VAR vl_cmd
+	VAR vl_text
+
+	/*A trace de l'appel de procedure */
+	vm_text = COM09_Date_Courante()  
+	vm_text =  vm_text ++ " --> XZEA23_Abt_Etat_Seq_Tunnel "
+	COM01_Trace(0,vm_text)
+
+	/*B preparation de la requete pour le coupleur */
+	vl_cmd[0]=MTAR_MSG_EXEC
+
+	/*B Identifiant de la fonction signalisation */
+	'--vl_cmd[1]=MTTU_FCT_SIG
+	vl_cmd[1]=11
+
+	/*B fonction a executer */
+	vl_cmd[2]=MTAR_FCT_XZEA23  
+
+	/*B arguments */
+	vl_cmd[3]= va_Abonnement ++ MTAR_CAR_SEPAR ++ vm_NomSite ++ MTAR_CAR_SEPAR ++ (va_NumTube+0) 
+
+
+	/*B envoi de la commande a la tache ITMA_TAR01 */
+	DB_SEND_POKE@(COM_CANAL_TAR01,vl_cmd)
+	
+	/*B trace de l'émission */
+	vl_text = COM09_Date_Courante() ++ " - DB_SEND_POKE@(COM_CANAL_TAR01," ++ vl_cmd[0]++ ","++vl_cmd[1]++","++vl_cmd[2]++","++vl_cmd[3] ++ ")"
+	COM01_Trace(0,vl_text)
+
+	/*B code retour OK */
+	RETURN(COM_OK)
+
+ENDMACRO
+
+
+
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU : creation generique des equipements	
+*
+*  ----------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TTU_creation_eqp_signalisation()
+var vl_taille
+var i
+var vl_num_eqp
+var vl_type_eqp
+var vl_idBdEqp
+var vl_numero
+var vl_icon
+var vl_xpos, vl_ypos, vl_xpos2, vl_ypos2
+var vl_color
+var vl_titre,vl_titre2,vl_titre3,vl_titre4
+var vl_iconpos1
+
+/*A Créer et positionner les panneaux */
+vl_color[0] = 255
+vl_color[1] = 0,0,0
+vl_color[0] = 1
+vl_color[1] = 255,255,255
+
+
+vm_F_bouton = null
+vl_taille = ARRAY_SIZE@(vm_Eqp_Signalisation) -1
+for i = 1 to vl_taille
+	vl_numero = i
+	vl_num_eqp = vm_Eqp_Signalisation[vl_numero,4]
+	vl_type_eqp = vm_Eqp_Signalisation[vl_numero,3]
+	vm_F_bouton[vl_numero,0]	= 0					' le n° du picto associé
+	vm_F_bouton[vl_numero,1]	= vm_Eqp_Signalisation[vl_numero,0] 'num eqt
+	vm_F_bouton[vl_numero,2]	= vm_Eqp_Signalisation[vl_numero,14] 'picto par defaut
+	vm_F_bouton[vl_numero,3]	= vm_Eqp_Signalisation[vl_numero,1]  'type (T ou E)
+	vm_F_bouton[vl_numero,4]	= vm_Eqp_Signalisation[vl_numero,4]  'n° eqt en base
+	vm_F_bouton[vl_numero,5]	= vm_Eqp_Signalisation[vl_numero,7] 'defaut critique
+	vm_F_bouton[vl_numero,6]	= vm_Eqp_Signalisation[vl_numero,8] 'defaut majeur
+	vm_F_bouton[vl_numero,7]	= vm_Eqp_Signalisation[vl_numero,9] 'defaut mineur
+	vm_F_bouton[vl_numero,8]	= vm_Eqp_Signalisation[vl_numero,10] 'hors service
+	vm_F_bouton[vl_numero,9]	= vm_Eqp_Signalisation[vl_numero,11] 'pas de defaut
+	vm_F_bouton[vl_numero,10] = vm_Eqp_Signalisation[vl_numero,12] 'mode local
+	vm_F_bouton[vl_numero,11] = vm_Eqp_Signalisation[vl_numero,13] 'mode distant
+	vm_F_bouton[vl_numero,12] = vm_Eqp_Signalisation[vl_numero,3]	'type equipement (SAE)
+
+	vl_icon 	= vm_Eqp_Signalisation[vl_numero,14]  'le picto à afficher par defaut
+	vl_iconpos1 = vm_Eqp_Signalisation[vl_numero,15]  'le picto 1 à afficher	
+	vl_xpos 	= vm_Eqp_Signalisation[vl_numero,5]	' la position X
+	vl_ypos 	= vm_Eqp_Signalisation[vl_numero,6]	' la position Y
+	vl_idBdEqp = vm_Eqp_Signalisation[vl_numero,0] 'num eqt
+
+	/* si c'est un equipement de type  BP scenario on 
+	 ne cree rien car ils sont dejà existants dans l'IHM */
+	if STRING_INDEX@(UPPERCASE@(vl_icon),  "SCENARIO")<> 0 or 
+		STRING_INDEX@(UPPERCASE@(vl_icon),  "INCENDIE_AUTRE_SENS") <> 0
+	{
+		GOTO SUIVANT
+	}
+	
+	/* creation des objets cadre et mode local */
+	vl_titre3 = "BP_cadre" ++ vl_numero
+	DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_titre3,	vm_Eqp_Signalisation[vl_numero,11],vl_xpos-3,vl_ypos - 280-3,0)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_titre3,FALSE)
+
+	'' positionner le mode local en fonction du type de picto
+	if STRING_INDEX@(vl_icon,"40_40") <> 0
+	{
+		vl_xpos2 = vl_xpos+40
+		vl_ypos2 = vl_ypos - 250
+	}
+	else
+	{
+		vl_xpos2 = vl_xpos+90
+		vl_ypos2 = vl_ypos - 270
+	}
+
+	'vl_xpos2 = vl_xpos-7
+	'vl_ypos2 = vl_ypos - 300
+
+	vl_titre4 = "BP_local" ++ vl_numero
+	DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_titre4,	vm_Eqp_Signalisation[vl_numero,12],vl_xpos2,vl_ypos2,0)
+	DB_CTRL_DISPLAY@(vm_fenetre_TTU,vl_titre4,FALSE)
+
+	/* creation des objets BP commande : pas les barrieres manuelles */
+	if (STRING_INDEX@(vl_iconpos1,"barr_manu") = 0 )
+	{
+		vl_titre 	= "BP_cmd" ++ vl_numero
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,vl_titre,vl_icon,vl_xpos,vl_ypos,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_cmd"++vl_numero,4)
+	}	
+	/* creation des objets BP etat */
+	vl_titre2 = "BP_panneau" ++ vl_numero
+	DB_CREATE_CTRL@(vm_fenetre_TTU,6,vl_titre2,vl_icon,vl_xpos,vl_ypos - 280,0)
+	DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_panneau"++vl_numero,4)
+	DB_CTRL_GRAYED@(vm_fenetre_TTU,"BP_panneau"++vl_numero,True)
+
+	/*!! Ajout des numeros de panneaux au dessus des cadres */
+  	vl_titre  = "BP_Lib_Pan" ++ vl_numero	' libelle panneau
+  	vl_titre2 = "BP_Lib_Cmd" ++ vl_numero	' libelle cmd panneau
+	if ( vl_num_eqp > 100000 ) 
+	{	vl_numero = vl_num_eqp - 1000	}
+	else
+	{	vl_numero = vl_num_eqp	}
+
+	if tm_affiche_repere = 1
+	{	
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,vl_titre,vl_type_eqp ++ "-"++ vl_numero,vl_xpos+9,vl_ypos-296,0)
+		DB_CTRL_WIDGET_COLOR@(vm_fenetre_TTU,vl_titre,vl_color)
+		DB_CTRL_FONT@(vm_fenetre_TTU, vl_titre,"-adobe-courier-bold-r-normal--10-100-75-75-m-65-iso8859-1")
+			/*-adobe-courier-bold-r-normal--15-140-75-75-m-150-iso8859-1*/		
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,vl_titre,True)
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,vl_titre2,vl_type_eqp ++ "-"++ vl_numero,vl_xpos+9,vl_ypos-16,0) 
+		DB_CTRL_WIDGET_COLOR@(vm_fenetre_TTU,vl_titre2,vl_color)
+		DB_CTRL_FONT@(vm_fenetre_TTU, vl_titre2,"-adobe-courier-bold-r-normal--10-100-75-75-m-65-iso8859-1")
+			/*-adobe-courier-bold-r-normal--14-100-75-75-m-150-iso8859-1")*/
+		DB_CTRL_GRAYED@(vm_fenetre_TTU,vl_titre2,True)
+	}
+	SUIVANT :
+	
+	/* modif specifique Toulon ABE du 04-11-2019 : gestion commande double pour eqp similaire */
+	if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON S1") <> 0 and vm_num_vue = 2
+	{
+		'' R24 tunnel ( VL + VR ) PM 689 NE13S voie rapide
+		if vl_idBdEqp = 18631 vm_db_commande[1,1] = i
+		'' R24 tunnel ( VL + VR ) PM 689 NE13S voie lente
+		if vl_idBdEqp = 20579 vm_db_commande[1,2] = i
+		
+		'' R24 tunnel ( VL + VR ) PM 1205 NE10S voie rapide
+		if vl_idBdEqp = 18630 vm_db_commande[2,1] = i
+		'' R24 tunnel ( VL + VR ) PM 1205 NE10S voie lente
+		if vl_idBdEqp = 20578 vm_db_commande[2,2] = i
+		
+		'' R24 tunnel ( VL + VR ) PM 1630 NE8S voie rapide
+		if vl_idBdEqp = 18629 vm_db_commande[3,1] = i
+		'' R24 tunnel ( VL + VR ) PM 1630 NE8S voie lente
+		if vl_idBdEqp = 20577 vm_db_commande[3,2] = i
+		
+		'' R24 tunnel ( VL + VR ) PM 2470 NE3S voie rapide
+		if vl_idBdEqp = 18628 vm_db_commande[4,1] = i
+		'' R24 tunnel ( VL + VR ) PM 2470 NE3S voie lente
+		if vl_idBdEqp = 20576 vm_db_commande[4,2] = i
+	}
+	if STRING_INDEX@(UPPERCASE@(vm_nom_tunnel),"TOULON S2") <> 0 and vm_num_vue = 1
+	{
+		'' Feu flash / desc:FEU1/2 FFL7 VL num 95
+		if vl_idBdEqp = 20511 vm_db_commande[1,1] = i
+		'' Feu flash / desc:FEU1/2 FFL7 VR num 95
+		if vl_idBdEqp = 20870 vm_db_commande[1,2] = i
+		
+		'' Feu flash / desc:PMV1 FFL28 VL num 73
+		if vl_idBdEqp = 20510 vm_db_commande[2,1] = i
+		'' Feu flash / desc:PMV1 FFL28 VR num 73
+		if vl_idBdEqp = 20869 vm_db_commande[2,2] = i
+		
+		'' Feu R24 Tunnel / desc:R24-2 FRO36 VL num 67
+		if vl_idBdEqp = 20506 vm_db_commande[3,1] = i
+		'' Feu R24 Tunnel / desc:R24-2 FRO36 VR num 67
+		if vl_idBdEqp = 20866 vm_db_commande[3,2] = i
+		
+		'' Feu R24 Tunnel / desc:R24-1 VL-VR-HAUT FRO29 VL num 76
+		if vl_idBdEqp = 20507 vm_db_commande[4,1] = i
+		'' Feu R24 Tunnel / desc:R24-1 VL-VR-HAUT FRO29 HAUT num 76
+		if vl_idBdEqp = 20868 vm_db_commande[4,2] = i
+		'' Feu R24 Tunnel / desc:R24-1 VL-VR-HAUT FRO29 VR num 76
+		if vl_idBdEqp = 20867 vm_db_commande[4,3] = i
+	}
+	
+next i
+
+
+RETURN
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	maj du libellé qui indique le scenario en cours
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TTU_maj_scenario_sig(va_scenario_en_cours)
+
+/*
+* ARGUMENTS EN ENTREE : 
+*		va_scenario_en_cours :	num scénario
+*
+*
+* ARGUMENTS EN SORTIE : 
+*
+* CONDITION D'UTILISATION
+*
+*
+---------------------------------------------------------------------------- */
+var i
+var vl_libelle
+
+if va_scenario_en_cours = 0 or va_scenario_en_cours = 154
+{	
+	DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status2","Aucun scénario en cours")
+	return
+}
+
+vm_Sce_Signalisation = SYSTEM_VAR@("Liste_Sequence")
+
+for i = 0 to ARRAY_SIZE@(vm_Sce_Signalisation)-1 
+if  va_scenario_en_cours = vm_Sce_Signalisation[i,0]
+{
+	vl_libelle = vm_Sce_Signalisation[i,1]
+	DB_CTRL_TITLE@(vm_fenetre_TTU,"Li_status2","Scénario en cours : " ++ vl_libelle)
+	break i
+}
+next i
+
+
+endmacro
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Indique la fin de la commande individuelle par l'operateur
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Fin_Cmd_Manu_Tunnel(va_NumAction,va_Validation,va_NumSequence)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NumAction		:	le numero de l'action
+*		va_Validation	:	Validation de l'operateur
+*		va_NumSequence	:	N° de la sequence
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TTU_pilotage_tunnel
+*
+* FONCTION
+*   		Indique la fin de la commande individuelle par l'operateur.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_Heure1			' heure courante
+	var	vl_Heure2			' heure courante
+        VAR     vl_NomSite                      ' Nom du site
+
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) AND
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+	{
+		ITMA_TTU_Acces_interdit("ITMA_TTU_Fin_Cmd_Manu_Tunnel")
+		RETURN(COM_NOK)
+	}
+
+
+	/*A si retour OK de l'operateur */
+	if va_Validation  = XDC_VRAI
+	{
+		vl_Heure1 = COM09_Date_Courante(TRUE)
+		vl_heure2 = 0
+	}
+	else
+	{
+		vl_Heure1 = 0
+		vl_Heure2 = COM09_Date_Courante(TRUE)
+	}
+
+        vl_NomSite = SYSTEM_VAR@("vg_nom_site")
+
+	/*A trace de l'appel de la procedure */
+	vm_text = COM09_Date_Courante()++" ---> Appel de la procedure 'XZAC110_Commande_Seq_SIG("++va_NumAction++","++vl_Heure1++","++vl_Heure2++","++va_NumSequence++")' "
+	COM01_Trace(0,vm_text)
+    
+	/*A parametrage de vl_parametres */
+	vl_parametres[0].type = SYB#INT4_
+	vl_parametres[0].data = va_NumAction+0
+	vl_parametres[0].output = FALSE
+	
+	vl_parametres[1].type = SYB#DATETIME_
+	vl_parametres[1].data = vl_Heure1
+	vl_parametres[1].output = FALSE
+
+	vl_parametres[2].type = SYB#DATETIME_
+	vl_parametres[2].data = vl_Heure2
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type = SYB#INT1_
+	vl_parametres[3].data = va_NumSequence+0
+	vl_parametres[3].output = FALSE
+
+        vl_parametres[4].type = SYB#CHAR_
+        vl_parametres[4].data = vl_NomSite                             ' Site local
+        vl_parametres[4].output = FALSE
+
+    IF COM05_SQL_Procedure (XZAC110_Commande_Seq_SIG,vl_parametres,vl_resultats,C_MODULE) <> COM_OK
+      RETURN (COM_NOK)
+
+	/*A retour OK */
+	RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Retourne un message à l'operateur et trace l'accès interdit
+*				à une macro.
+*
+* ----------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Acces_interdit(va_NomMacro)
+
+/*-----------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NomMacro	:	le nom de la macro interdite
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR	: COM_OK en cas d'execution correcte, COM_NOK sinon.
+
+* CONDITION D'UTILISATION :
+*   appel d'une macro avec les droits d'accès insuffisant.
+*
+* FONCTION :
+*	Retourne un message à l'operateur et trace l'accès interdit à une macro
+*---------------------------------------------------------------------------- */
+
+	/*A message d'info à l'opérateur */
+	var		vl_tptext			' zone de text tampon
+	var		vm_NomOperateur		' nom de l'operateur
+	
+	vm_NomOperateur = SYSTEM_VAR@(vg_operateur)
+	
+	vl_tptext = "L'utilisateur " ++vm_NomOperateur ++ " n'a pas les droits suffisants" ++ NUM_TO_STRING@(10) ++ "pour la fonction : " ++ va_NomMacro
+	info_message@(vl_tptext)
+
+	/*A trace de l'appel de procedure */
+	vl_tptext = COM09_Date_Courante()  
+	vl_tptext =  vl_tptext ++ " Accès Macro " ++ va_NomMacro ++ " refusé pour " ++ vm_NomOperateur
+	COM01_Trace(0,vl_tptext)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	Remet le tunnel à l'etat normal
+*
+* ---------------------------------------------------------------------------*/
+
+MACRO ITMA_TTU_Commande_Retour_Normal_SIG(va_NumEqt, va_Manuelle)
+
+/*------------------------------------------------------------------------------
+* ARGUMENTS EN ENTREE : 
+*		va_NumEqt	:	le numero d'équipement
+*		va_Manuelle	:	Le flag manuel ou automatique
+*
+* ARGUMENTS EN SORTIE : aucun
+*
+* CODE RETOUR		: COM_OK en cas d'execution correcte, COM_NOK sinon.
+*
+* CONDITION D'UTILISATION
+*   		ITMA_TTU_pilotage_tunnel
+*
+* FONCTION
+*   		Remet le tunnel à l'etat normal.
+*
+---------------------------------------------------------------------------- */
+
+	VAR FORMAT SQL_Procedure_Params@ vl_parametres
+	VAR FORMAT SQL_Procedure_Result@ vl_resultats
+
+	var	vl_heure			' heure courante
+
+	/*A test les droits d'acces à cette fonction */
+	if NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION_DISTRICT)) AND
+		NOT(COM04_Operateur_A_Le_Droit_De(XDC_FAM_EXPLOITATION))
+	{
+		ITMA_TTU_Acces_interdit("Commande_Fin_Tunnel")
+		RETURN(COM_NOK)
+	}
+
+	vl_Heure = COM09_Date_Courante(TRUE)
+	vm_District = SYSTEM_VAR@("vg_site")
+
+	/*A trace de l'appel de la procedure */
+	vm_text = COM09_Date_Courante()++" ---> Appel de la procedure 'XZAC631_Commande_Fin_Signalisation' "
+	COM01_Trace(0,vm_text)
+
+	/*A parametrage de vl_parametres */
+	vl_parametres[0].type = SYB#INT1_
+	vl_parametres[0].data = 3		/* type eqt : tube */
+	vl_parametres[0].output = FALSE
+
+	vl_parametres[1].type = SYB#INT4_
+	vl_parametres[1].data = va_NumEqt
+	vl_parametres[1].output = FALSE
+	
+	vl_parametres[2].type = SYB#INT4_
+	vl_parametres[2].data = vm_District
+	vl_parametres[2].output = FALSE
+
+	vl_parametres[3].type = SYB#CHAR_
+	vl_parametres[3].data = vl_heure
+	vl_parametres[3].output = FALSE
+
+	vl_parametres[4].type = SYB#INT4_
+	vl_parametres[4].data = va_Manuelle
+	vl_parametres[4].output = FALSE
+
+	vl_parametres[5].type = SYB#CHAR_                               ' Site local
+	vl_parametres[5].data = SYSTEM_VAR@(vg_nom_site)
+	vl_parametres[5].output = FALSE
+
+	if ( COM05_SQL_Procedure (XZAC631_Commande_Fin_Signalisation,vl_parametres,vl_resultats,C_MODULE) <> COM_OK )
+		RETURN (COM_NOK)
+
+	RETURN (COM_OK)
+
+ENDMACRO
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :	maj des BP  scénario incendie...
+*
+*  ----------------------------------------------------------------------------
+*/
+
+MACRO ITMA_TTU_maj_BP_SIG(va_num,va_msg)
+/*---------------------------------------------------------------------------- */
+var vl_numeqp
+var vl_pos
+var vl_picto
+var vl_icon
+var vl_libelle
+var vl_xpos
+var vl_ypos
+var vl_mess
+var tl_color, tl_color2
+
+/* on donne une couleur identique au fond à l'objet */
+tl_color[0] = 1
+tl_color[1] = 0,255,0
+tl_color[2] = "vert"
+
+tl_color2[0] = 1
+tl_color2[2] = "blanc"
+tl_color2[1] =244,244,228
+
+vl_numeqp = va_num
+vl_pos = va_msg[4]
+
+vl_icon = vm_Eqp_signalisation[vl_numeqp,14]
+
+/*A lecture du picto disponible à cette position dans vl_picto */
+vl_picto = vm_Eqp_signalisation[vl_numeqp,vl_pos+14]
+
+/* si c'est l'equipement specifique pour mode eclairage */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "ECL_REGIME") <> 0
+{	
+	vl_mess[2] = vl_picto + 0
+	ITMA_TTU_maj_regime_ecl(vm_fenetre_TTU, vl_mess, vm_Sce_Eclairage, vm_nom_tunnel)
+}
+
+/* si c'est l'equipement specifique pour mode eclairage */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "ECL_MODE_ENTREE_AUTO") <> 0
+{	
+	if UPPERCASE@(vl_picto) = "MANU"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFEAUTO", 		
+											"pix_manu_40_20",3,4)
+	}
+	if UPPERCASE@(vl_picto) = "AUTO"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFEAUTO", 		
+											"pix_auto_40_20",3,4)
+	}
+}
+
+/* si c'est l'equipement specifique pour mode eclairage */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "ECL_MODE_ENTREE_NOMI") <> 0
+{	
+	if UPPERCASE@(vl_picto) = "HORA"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFENOM", 		
+											"pix_horaire_40_20",3,4)
+	}
+	if UPPERCASE@(vl_picto) = "NOMI"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFENOM", 		
+											"pix_nominal_40_20",3,4)
+	}
+}
+
+/* si c'est l'equipement specifique pour mode eclairage */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "ECL_MODE_SORTIE_AUTO") <> 0
+{	
+	if UPPERCASE@(vl_picto) = "MANU"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFSAUTO", 		
+											"pix_manu_40_20",3,4)
+	}
+	if UPPERCASE@(vl_picto) = "AUTO"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFSAUTO", 		
+											"pix_auto_40_20",3,4)
+	}
+}
+
+/* si c'est l'equipement specifique pour mode eclairage */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "ECL_MODE_SORTIE_NOMI") <> 0
+{	
+	if UPPERCASE@(vl_picto) = "HORA"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFSNOM", 		
+											"pix_horaire_40_20",3,4)
+	}
+	if UPPERCASE@(vl_picto) = "NOMI"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageRFSNOM", 		
+											"pix_nominal_40_20",3,4)
+	}
+}
+
+/* si c'est l'equipement specifique pour mode eclairage */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "ECL_MODE_BASE_AUTO") <> 0
+{	
+	if UPPERCASE@(vl_picto) = "MANU"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageBASEAUTO", 		
+									"pix_manu_40_20",3,4)
+	}
+	if UPPERCASE@(vl_picto) = "AUTO"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageBASEAUTO", 		
+									"pix_auto_40_20",3,4)
+	}
+}
+
+/* si c'est l'equipement specifique pour mode eclairage */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "ECL_MODE_BASE_NOMI") <> 0
+{	
+	if UPPERCASE@(vl_picto) = "HORA"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageBASENOM", 		
+											"pix_horaire_40_20",3,4)
+	}
+	if UPPERCASE@(vl_picto) = "NOMI"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageBASENOM", 		
+											"pix_nominal_40_20",3,4)
+	}
+}
+
+/* si c'est l'equipement specifique pour mode eclairage */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "ECL_MODE_TREMIE_AUTO") <> 0
+{	
+	if UPPERCASE@(vl_picto) = "MANU"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageTREAUTO", 		
+											"pix_manu_40_20",3,4)
+	}
+	if UPPERCASE@(vl_picto) = "AUTO"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_eclairageTREAUTO", 		
+											"pix_auto_40_20",3,4)
+	}
+}
+
+/* si c'est l'equipement specifique pour mode ventilation */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "VEN_MODE_GEN") <> 0
+{	
+	if UPPERCASE@(vl_picto) = "MANU"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_ventilation", 		
+									"pix_manu_40_20",3,4)
+	}
+	if UPPERCASE@(vl_picto) = "AUTO"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_ventilation", 		
+									"pix_auto_40_20",3,4)
+	}
+}
+
+/* si c'est l'equipement specifique pour mode ventilation */
+if STRING_INDEX@(UPPERCASE@(vl_icon),  "VEN_MODE_ACC") <> 0
+{	
+	if UPPERCASE@(vl_picto) = "MANU"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_ventilation2", 		
+									"pix_manu_40_20",3,4)
+	}
+	if UPPERCASE@(vl_picto) = "AUTO"
+	{
+		ITMA_TTU_maj_aff_BP(vm_fenetre_TTU, "BP_mode_ventilation2", 		
+									"pix_auto_40_20",3,4)
+	}
+}
+
+/* gestion de l'equipement specifique pour Bloquage des commandes IHM incendie si incendie dans l'autre sens */
+if UPPERCASE@(vl_icon) = "INCENDIE_AUTRE_SENS"
+{
+	if UPPERCASE@(vl_picto) = "DEBUT_INCENDIE"
+	{
+		tm_incendie_autre_sens = 1
+	}
+	if UPPERCASE@(vl_picto) = "FIN_INCENDIE"
+	{
+		tm_incendie_autre_sens = 0
+	}
+}
+if UPPERCASE@(vl_icon) = "SCENARIO_INCENDIE"
+{
+	vl_xpos = DB_CTRL_GET_XPOS@(vm_fenetre_TTU, "BP_cde_incendie")
+	vl_ypos = DB_CTRL_GET_YPOS@(vm_fenetre_TTU, "BP_cde_incendie")
+	DB_DESTROY_CTRL@(vm_fenetre_TTU,"BP_cde_incendie")
+	if UPPERCASE@(vl_picto) = "PRESOMP_INCENDIE"
+	{
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_cde_incendie",
+					"pix_incendie_presomp_40_40",
+					vl_xpos,vl_ypos,0)
+	}	
+	if UPPERCASE@(vl_picto) = "DEBUT_INCENDIE"
+	{
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_cde_incendie",
+					"pix_incendie_debut_40_40",
+					vl_xpos,vl_ypos,0)
+	}
+	if UPPERCASE@(vl_picto) = "FIN_INCENDIE"
+	{
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_cde_incendie",
+					"pix_incendie_fin_40_40",
+					vl_xpos,vl_ypos,0)
+	}
+	DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_cde_incendie",4)
+	DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_cde_incendie",True)
+}
+
+endmacro
+
+
+/*---------------------------------------------------------------------------- */
+MACRO ITMA_TTU_ajout_fdp_sig(va_sens, va_vue)
+
+var vl_color
+
+if UPPERCASE@(va_sens) = "S1"
+{
+	if va_vue = 3
+	{		
+		/* partie haute */
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_actuel","pix_actuel",5,60,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_actuel",4)
+		DB_CTRL_HEIGHT@(vm_fenetre_TTU,"BP_actuel",66)
+		DB_CTRL_WIDTH@(vm_fenetre_TTU,"BP_actuel",36)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_actuel",True)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtSens2","",75,60,0)	
+		DB_CTRL_LABEL_FONT_WEIGHT@(vm_fenetre_TTU, "TxtSens2", 1)	
+		vl_color[0] = 1
+		vl_color[1] = 138, 43, 226
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens2", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens2", "Sud->")
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",90,105,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",300,105,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",510,105,0)		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_100_3",825,105,0)
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",90,185,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",300,185,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",600,185,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",90,265,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",300,265,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",600,265,0)
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK71.73",180,280,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK71.84",290,280,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK71.93",450,280,0)
+
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK72.03",575,280,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK72.09",675,280,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK72.17",775,280,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK72.35",875,280,0)
+		
+		'' separation haut bas doublée	
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",0,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",315,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",630,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre1","pix_barre_separation",0,340,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre2","pix_barre_separation",315,340,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre3","pix_barre_separation",630,340,0)
+	
+		/* partie basse */						
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_nouveau","pix_nouveau",5,345,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_nouveau",4)
+		DB_CTRL_HEIGHT@(vm_fenetre_TTU,"BP_nouveau",66)
+		DB_CTRL_WIDTH@(vm_fenetre_TTU,"BP_nouveau",36)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_nouveau",True)	
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtSens3","",75,345,0)	
+		DB_CTRL_LABEL_FONT_WEIGHT@(vm_fenetre_TTU, "TxtSens3", 1)	
+		vl_color[0] = 1
+		vl_color[1] = 138, 43, 226
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens3", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens3", "Sud->")
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",90,390,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",300,390,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",510,390,0)		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_100_3",825,390,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",90,470,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",300,470,0)		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",600,470,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",90,548,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",300,548,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",600,548,0)		
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK71.73",180,560,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK71.84",290,560,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK71.93",450,560,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK72.03",575,560,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK72.09",675,560,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK72.17",775,560,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtPK","PK72.35",875,560,0)
+		
+	}
+	if va_vue = 2
+	{		
+		/* partie haute */
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_actuel","pix_actuel",5,60,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_actuel",4)
+		DB_CTRL_HEIGHT@(vm_fenetre_TTU,"BP_actuel",66)
+		DB_CTRL_WIDTH@(vm_fenetre_TTU,"BP_actuel",36)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_actuel",True)
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtSens2","",75,60,0)	
+		DB_CTRL_LABEL_FONT_WEIGHT@(vm_fenetre_TTU, "TxtSens2", 1)	
+		vl_color[0] = 1
+		vl_color[1] = 138, 43, 226
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens2", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens2", "Sud->")
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",  0,105,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",150,105,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",450,105,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",700,105,0)
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",  0,185,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",300,185,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",600,185,0)
+ 		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",900,185,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",  0,265,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",150,265,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",450,265,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",700,265,0)
+        		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","16S",30,275,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","15S",110,275,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","14S",170,275,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","13S",255,310,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","12S",308,275,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","11S",380,275,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","10S",420,310,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","9S",460,275,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","8S",535,310,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","6Sb",610,275,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","5S",670,275,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","4S",700,275,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","3S",770,310,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","2S",840,275,0)
+		
+		'' separation haut bas doublée	
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",0,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",315,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",630,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre1","pix_barre_separation",0,340,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre2","pix_barre_separation",315,340,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre3","pix_barre_separation",630,340,0)
+		
+		/* partie basse */						
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_nouveau","pix_nouveau",5,345,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_nouveau",4)
+		DB_CTRL_HEIGHT@(vm_fenetre_TTU,"BP_nouveau",66)
+		DB_CTRL_WIDTH@(vm_fenetre_TTU,"BP_nouveau",36)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_nouveau",True)	
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtSens3","",75,345,0)	
+		DB_CTRL_LABEL_FONT_WEIGHT@(vm_fenetre_TTU, "TxtSens3", 1)	
+		vl_color[0] = 1
+		vl_color[1] = 138, 43, 226
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens3", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens3", "Sud->")
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",  0,390,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",150,390,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",450,390,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",700,390,0)
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",  0,470,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",300,470,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",600,470,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",900,470,0)
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",  0,548,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",150,548,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",450,548,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",700,548,0)				
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","16S",30,557,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","15S",110,557,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","14S",170,557,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","13S",255,590,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","12S",308,557,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","11S",379,557,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","10S",422,590,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","9S",460,557,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","8S",535,590,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","6Sb",610,557,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","5S",670,557,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","4S",700,557,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","3S",770,590,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","2S",840,557,0)		
+	}
+
+	if va_vue = 1
+	{		
+		/* partie haute */
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_actuel","pix_actuel",5,60,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_actuel",4)
+		DB_CTRL_HEIGHT@(vm_fenetre_TTU,"BP_actuel",66)
+		DB_CTRL_WIDTH@(vm_fenetre_TTU,"BP_actuel",36)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_actuel",True)
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtSens2","",75,60,0)	
+		DB_CTRL_LABEL_FONT_WEIGHT@(vm_fenetre_TTU, "TxtSens2", 1)	
+		vl_color[0] = 1
+		vl_color[1] = 138, 43, 226
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens2", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens2", "Sud->")
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",  0,107,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",150,107,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",450,107,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",730,107,0)
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",  0,165,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",300,165,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",600,165,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",900,165,0)      
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",  0,225,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",300,225,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",520,225,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",820,225,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",  0,285,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3", 148,285,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_diag_NS_25_25", 448,286,0)		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_20_3",470,285,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_20_3",510,285,0)
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK68.39",8,295,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK68.57",192,295,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK68.74",270,295,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK68.86",455,315,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK68.95",570,315,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK69.05",705,235,0)
+		
+		'' ABE le 10-02-2021 : ajout zone BRA pincement 
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","BRA pincement",887,266,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_150_3",868,216,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_20_3",975,216,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_3_50",868,235,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_3_20",868,218,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_150_3",868,278,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_20_3",975,278,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_3_50",989,235,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_3_20",989,218,0)		
+		
+		'' separation haut bas doublée	
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",0,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",315,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",630,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre1","pix_barre_separation",0,340,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre2","pix_barre_separation",315,340,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre3","pix_barre_separation",630,340,0)
+		
+		/* partie basse */						
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_nouveau","pix_nouveau",5,345,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_nouveau",4)
+		DB_CTRL_HEIGHT@(vm_fenetre_TTU,"BP_nouveau",66)
+		DB_CTRL_WIDTH@(vm_fenetre_TTU,"BP_nouveau",36)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_nouveau",True)	
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtSens3","",75,345,0)	
+		DB_CTRL_LABEL_FONT_WEIGHT@(vm_fenetre_TTU, "TxtSens3", 1)	
+		vl_color[0] = 1
+		vl_color[1] = 138, 43, 226
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens3", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens3", "Sud->")
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",  0,394,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",150,394,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",450,394,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",730,394,0)
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",  0,450,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",300,450,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",600,450,0)
+ 		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",900,450,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",  0,510,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",300,510,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",520,    510,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",820,     510,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",  0,   569,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3", 148,  569,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_diag_NS_25_25", 448,570,0)		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_20_3",470,     569,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_20_3",510,     569,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK68.39",8,580,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK68.57",192,580,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK68.74",270,580,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK68.86",455,600,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK68.95",570,600,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK69.05",705,520,0)		
+		
+		'' ABE le 10-02-2021 : ajout zone BRA pincement 
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","BRA pincement",887,546,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_150_3",868,494,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_20_3",975,494,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_3_50",868,515,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_3_20",868,498,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_150_3",868,558,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_20_3",975,558,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_3_50",989,515,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_3_20",989,498,0)
+		
+		
+	}
+}
+else
+{	
+	'' SENS 2
+
+	if va_vue = 3
+	{		
+		/* partie haute */
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_actuel","pix_actuel",925,60,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_actuel",4)
+		DB_CTRL_HEIGHT@(vm_fenetre_TTU,"BP_actuel",66)
+		DB_CTRL_WIDTH@(vm_fenetre_TTU,"BP_actuel",36)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_actuel",True)
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtSens2","",870,60,0)	
+		DB_CTRL_LABEL_FONT_WEIGHT@(vm_fenetre_TTU, "TxtSens2", 1)	
+		vl_color[0] = 1
+		vl_color[1] = 0, 0, 255
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens2", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens2", "<-Nord")
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_diag_NS_25_25", 225,99,0)		
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",243,117,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",500,117,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",700,117,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_100_3",12,175,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_diag_SN_25_25", 70,176,0)		
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",170,175,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",450,175,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",750,175,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",170,235,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",450,235,0)		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",750,235,0)
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_diag_SN_25_25", 177,297,0)		
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",195,295,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",500,295,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",700,295,0)
+		
+		'' separation haut bas doublée	
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",0,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",315,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",630,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre1","pix_barre_separation",0,340,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre2","pix_barre_separation",315,340,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre3","pix_barre_separation",630,340,0)
+
+		/* partie basse */
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_nouveau","pix_nouveau",925,345,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_nouveau",4)
+		DB_CTRL_HEIGHT@(vm_fenetre_TTU,"BP_nouveau",66)
+		DB_CTRL_WIDTH@(vm_fenetre_TTU,"BP_nouveau",36)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_nouveau",True)	
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtSens3","",870,345,0)	
+		DB_CTRL_LABEL_FONT_WEIGHT@(vm_fenetre_TTU, "TxtSens3", 1)	
+		vl_color[0] = 1
+		vl_color[1] = 0, 0, 255
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens3", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens3", "<-Nord")
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_diag_NS_25_25", 225,383,0)		
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",243,402,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",500,402,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",700,402,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_100_3",12,459,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_diag_SN_25_25", 70,461,0)		
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",170,460,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",450,460,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",750,460,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",170,520,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",450,520,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",750,520,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_diag_SN_25_25", 177,584,0)		
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",195,582,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",500,582,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",700,582,0)
+		
+	}
+	if va_vue = 2
+	{		
+	
+		/* partie haute */
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_actuel","pix_actuel",925,60,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_actuel",4)
+		DB_CTRL_HEIGHT@(vm_fenetre_TTU,"BP_actuel",66)
+		DB_CTRL_WIDTH@(vm_fenetre_TTU,"BP_actuel",36)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_actuel",True)
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtSens2","",870,60,0)	
+		DB_CTRL_LABEL_FONT_WEIGHT@(vm_fenetre_TTU, "TxtSens2", 1)	
+		vl_color[0] = 1
+		vl_color[1] = 0, 0, 255
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens2", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens2", "<-Nord")
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",  0,130,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",150,130,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",450,130,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",700,130,0)
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",  0,210,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",300,210,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",600,210,0)
+ 		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",900,210,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",  0,290,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",150,290,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",450,290,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",700,290,0)
+        		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","16N",30,110,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","15N",110,110,0)		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","14N",160,110,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","13N",240,80,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","12N",262,110,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","11N",334,110,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","10N",360,110,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","9N",440,80,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","8N",465,110,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","7N",530,110,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","6N",592,80,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","5N",680,110,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","4N",740,110,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","3N",820,110,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","2N",840,110,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","1N",910,110,0)
+		
+		'' separation haut bas doublée	
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",0,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",315,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",630,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre1","pix_barre_separation",0,340,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre2","pix_barre_separation",315,340,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre3","pix_barre_separation",630,340,0)
+		
+		/* partie basse */						
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_nouveau","pix_nouveau",925,345,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_nouveau",4)
+		DB_CTRL_HEIGHT@(vm_fenetre_TTU,"BP_nouveau",66)
+		DB_CTRL_WIDTH@(vm_fenetre_TTU,"BP_nouveau",36)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_nouveau",True)	
+
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtSens3","",870,345,0)	
+		DB_CTRL_LABEL_FONT_WEIGHT@(vm_fenetre_TTU, "TxtSens3", 1)	
+		vl_color[0] = 1
+		vl_color[1] = 0, 0, 255
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens3", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens3", "<-Nord")
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",  0,415,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",150,415,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",450,415,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",700,415,0)
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",  0,495,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",300,495,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",600,495,0)
+ 		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",900,495,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",  0,575,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",150,575,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",450,575,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"sepa1","pix_barre_400_3",700,575,0)				
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","16N",30,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","15N",110,395,0)		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","14N",160,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","13N",240,360,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","12N",262,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","11N",334,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","10N",360,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","9N",440,360,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","8N",465,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","7N",530,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","6N",592,360,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","5N",680,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","4N",740,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","3N",820,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","2N",840,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIN","1N",910,395,0)
+	}
+	if va_vue = 1
+	{		
+		/* partie haute */
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_actuel","pix_actuel",925,60,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_actuel",4)
+		DB_CTRL_HEIGHT@(vm_fenetre_TTU,"BP_actuel",66)
+		DB_CTRL_WIDTH@(vm_fenetre_TTU,"BP_actuel",36)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_actuel",True)
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtSens2","",870,60,0)	
+		DB_CTRL_LABEL_FONT_WEIGHT@(vm_fenetre_TTU, "TxtSens2", 1)	
+		vl_color[0] = 1
+		vl_color[1] = 0, 0, 255
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens2", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens2", "<-Nord")
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_20_3",375,107,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_20_3",410,107,0)	
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_diag_NS_25_25",428,89,0)		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",445,107,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",730,107,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",0,165,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",90,165,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",390,165,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",695,165,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_100_3",975,165,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",  0,225,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",300,225,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",600,225,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",900,225,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",  0,285,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",150,285,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",450,285,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",700,285,0)                				
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK72.35",180,295,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK72.38",280,308,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK72.42",360,295,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK72.51",555,295,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK00.01",667,263,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK00.10",800,295,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK00.37",915,295,0)
+		
+		'' separation haut bas doublée	
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",0,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",315,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre","pix_barre_separation",630,338,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre1","pix_barre_separation",0,340,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre2","pix_barre_separation",315,340,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"barre3","pix_barre_separation",630,340,0)
+		
+		/* partie basse */						
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,3,"BP_nouveau","pix_nouveau",925,345,0)
+		DB_CTRL_BUTTON_TYPE@(vm_fenetre_TTU,"BP_nouveau",4)
+		DB_CTRL_HEIGHT@(vm_fenetre_TTU,"BP_nouveau",66)
+		DB_CTRL_WIDTH@(vm_fenetre_TTU,"BP_nouveau",36)
+		DB_CTRL_RETURN_ON_CHANGE@(vm_fenetre_TTU,"BP_nouveau",True)	
+        
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtSens3","",870,345,0)	
+		DB_CTRL_LABEL_FONT_WEIGHT@(vm_fenetre_TTU, "TxtSens3", 1)	
+		vl_color[0] = 1
+		vl_color[1] = 0, 0, 255
+		DB_CTRL_LABEL_COLOR@(vm_fenetre_TTU, "TxtSens3", vl_color)					
+		DB_CTRL_TITLE@ (vm_fenetre_TTU, "TxtSens3", "<-Nord")
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_20_3",375,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_20_3",410,395,0)	
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_diag_NS_25_25",428,376,0)		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",445,395,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_150_3",730,395,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",0,450,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",90,450,0)		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",390,450,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",695,450,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_100_3",975,450,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",  0,510,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",300,510,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",600,510,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_hach_400_3",900,510,0)
+		
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",  0,570,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",150,570,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",450,570,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,6,"bar1","pix_barre_400_3",700,570,0)      
+				
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK72.35",180,580,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK72.38",280,590,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK72.42",360,580,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK72.51",555,580,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK00.01",667,547,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK00.10",800,580,0)
+		DB_CREATE_CTRL@(vm_fenetre_TTU,5,"TxtIS","PK00.37",915,580,0)				
+	}
+}
+return
+
+ENDMACRO
+

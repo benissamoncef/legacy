@@ -1,0 +1,469 @@
+/*E*/
+/* Fichier : $Id: ITMA_TES_Evenements_Strada.am,v 1.3 2007/02/27 16:06:59 gesconf Exp $      Release : $Revision: 1.3 $        Date : $Date: 2007/02/27 16:06:59 $
+-------------------------------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+-------------------------------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+-------------------------------------------------------------------------------
+* MODULE ITMA_TES * FICHIER ITMA_TES_Evenements_Strada.am
+-------------------------------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+*   Evt Strada.
+*
+*   Cf. DCG 2.4.46
+*
+-------------------------------------------------------------------------------
+* HISTORIQUE :
+*
+* C. Penot	04 Nov 1997 : Creation                                          V1.1
+* JPL		27 fev 2007 : Choix type FMC avec arg. de saisie de cause (DEM 624) 1.3
+* ------------------------------------------------------------------------------- */
+
+INCLUDE "dbase_.am"
+INCLUDE	"../inc/ITMA_COM.h"
+INCLUDE	"../inc/ITMA_TDO.h"
+INCLUDE	"../inc/ITMA_TAR.h"
+INCLUDE "../inc/itre_son_ax.h"
+INCLUDE "../../BASEDD/inc/xzae142sp.h"
+INCLUDE "../../BASEDD/inc/xzae143sp.h"
+INCLUDE	"../../XDMICG/inc/xzic_ax.h"
+INCLUDE	"../../XDMICG/inc/xdc_ax.h"
+INCLUDE	"../inc/ITMA_TFL.h"
+
+
+
+DEFINE	C_MODULE	"MTES"			' Nom du module
+
+
+
+/*A
+ * Noms des images digitalisees particularisant les evenements
+ * --------------------------------------------------------
+ */
+
+
+
+/*A
+ * Delai au dela duquel une alarme doit etre reveillee
+ * et frequence de scrutation des reveils d'alarmes
+ * ---------------------------------------------------
+ */
+
+DEFINE	C_DELAI_REVEIL	30
+DEFINE	C_FREQUENCE	5
+
+
+
+/*A
+ * Description du format des donnees affichees
+ * -------------------------------------------
+ */
+
+FORMAT	TES_Evenement
+	reference,					
+	type,				
+	date_debut,				
+	transmis				
+
+
+VAR FORMAT TES_Evenement tm_evenements		' Table des evenements affiches
+VAR	vm_l_picto				' Noms des pictogrammes
+
+VAR FORMAT TES_Evenement vm_t_info		' Table d'infos evenements internes
+VAR     vm_l_duree				' Liste des durees depuis reveil
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Visualisation de la Evt Strada.
+*  Sur reception d'un message ajout, suppression ou reveil Evenement dans la liste.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TES_Evenements_Strada (va_appelant)
+
+/*
+* ARGUMENTS EN ENTREE :
+*  va_appelant        : Nom de la macro Applix ayant invoque la presente.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : Indefini
+*
+* CONDITION D'UTILISATION
+*   Activation a l'initialisation du poste.
+*
+* FONCTION
+*   Se met en attente d'un signal (message d'une autre tache) de modification
+*   de la Evt Strada et sur occurrence du signal, lit et visualise les
+*   modifications.
+*   Ne termine que sur reception d'un message de fin.
+*
+---------------------------------------------------------------------------- */
+
+    	VAR     vl_fenetre_evenements			' Nom de la fenetre du module
+    	VAR     vl_objet_selecte				' L'objet courant de la fenetre
+   	VAR     vl_les_messages_acceptes		' Pour reception de signaux
+    	VAR     vl_la_fenetre_est_active
+	VAR     vl_installer_traitement_erreur
+
+ 	VAR     vl_message					' Message recu d'une autre tache
+
+    	VAR     vl_nb_evt					' Taille table des evenements
+    	VAR     vl_select					' Evenement selectee dans la table
+    	VAR     vl_libelle_Evenement			' Libelle fourni a MTFL
+
+  	VAR FORMAT COM_Localisation vl_local	' Localisation Evenement
+    	VAR     vl_Evenement_reveillee
+    	VAR     vl_statut
+    	VAR     i
+    	VAR     vl_cmd
+
+	VAR FORMAT SQL_Procedure_Params@        vl_Parametres
+	VAR FORMAT SQL_Procedure_Result@        vl_Resultats
+
+/*A
+ * Traitements en cas d'erreur durant l'initialisation :
+ * informer l'operateur, tracer l'erreur et abandonner
+ * -----------------------------------------------------
+ */
+
+ON ERROR {
+    ERROR_BOX@
+    COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+    RETURN
+}
+
+
+/*A
+ * Charger la fenetre "Evt Strada"
+ * --------------------------------------
+ */
+
+vl_fenetre_evenements = DB_LOAD@ ("ITMA_TES")
+DB_WINDOW_REMAIN@ (vl_fenetre_evenements, TRUE)
+
+'DB_XPOS@ (vl_fenetre_evenements, 1014)
+'DB_YPOS@ (vl_fenetre_evenements, 93)
+
+COM02_Attacher_Aide (vl_fenetre_evenements, "ITMA_TES_Evenements_Strada")
+
+
+/*A
+ * Mettre en place la reception des messages
+ * -----------------------------------------
+ */
+
+vl_les_messages_acceptes[0] = COM_CANAL_FIN
+
+vl_les_messages_acceptes[1] = COM_CANAL_MTES
+vl_les_messages_acceptes[2] = COM_CANAL_MTES_FIN
+vl_les_messages_acceptes[3] = COM_CANAL_MTES_MODIF
+DB_ACCEPT_POKES@ (vl_fenetre_evenements, vl_les_messages_acceptes)
+
+
+/*A
+ * Definir les caracteristiques (initiales) des objets graphiques
+ * --------------------------------------------------------------
+ */
+
+DB_TABLE_SET_MARKER_WIDTH@ (vl_fenetre_evenements, "TA_evenements", 23)
+DB_TABLE_ALLOW_COLUMN_RESIZING@ (vl_fenetre_evenements, "TA_evenements", FALSE)
+DB_CTRL_HORIZ_SCROLL@ (vl_fenetre_evenements, "TA_evenements", TRUE)
+DB_CTRL_RETURN_ON_CHANGE@ (vl_fenetre_evenements, "TA_evenements", TRUE)
+
+
+/*A
+ * Initialiser la visualisation (liste des evenements)
+ * ---------------------------------------------------
+ */
+
+IF TES_Init_Visualisation (vl_fenetre_evenements) <> COM_OK
+    RETURN
+
+/*A
+ * Traitements en cas d'erreur durant la visualisation :
+ * informer l'operateur, tracer l'erreur et continuer
+ * -----------------------------------------------------
+ */
+
+vl_installer_traitement_erreur = TRUE
+WHILE vl_installer_traitement_erreur
+    vl_installer_traitement_erreur = FALSE
+
+    ON ERROR {
+	ERROR_BOX@
+	COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+	vl_installer_traitement_erreur = TRUE
+    }
+WEND
+
+
+
+
+/*A
+ * Visualiser la fenetre tant que la tache
+ * n'est pas stoppee par le signal de fin
+ * ---------------------------------------
+ */
+
+vl_la_fenetre_est_active = TRUE
+
+WHILE vl_la_fenetre_est_active
+
+    	DB_DISPLAY@ (vl_fenetre_evenements)
+    
+	vl_objet_selecte = DB_EXIT_CTRL@(vl_fenetre_evenements)
+
+    	IF vl_objet_selecte <> "poke_"  AND  SYSTEM_VAR@ (vg_verrou)
+
+		vl_objet_selecte = NULL
+
+    	CASE OF vl_objet_selecte
+
+    		CASE "poke_"
+			'INFO_MESSAGE@("reception d'un poke")
+			CASE OF  DB_GET_POKE@ (vl_fenetre_evenements)
+
+				CASE COM_CANAL_FIN
+
+					vl_la_fenetre_est_active = FALSE
+
+				CASE COM_CANAL_MTES_MODIF
+					'INFO_MESSAGE@("poke MODIF")
+					TES_Init_Visualisation (vl_fenetre_evenements)
+
+			ENDCASE
+
+
+	   
+    /*A
+     * Sur selection dans la table, visualiser la fiche de l'Evenement choisie
+     * --------------------------------------------------------------------
+     */
+
+    			/* CASE "TA_evenement"
+	vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_evenements, "TA_evenement")
+
+	IF IS_ARRAY@ (vl_select) {
+	   vl_select = vl_select[0]
+	    vl_libelle_Evenement = tm_evenements[vl_select].type ++ "  " ++
+				tm_evenements[vl_select].equipement ++ "  " ++
+				tm_evenements[vl_select].localisation
+	    NEW_TASK@ ("ITMA_TFL_Fiche_Evenement", "ITMA_TES_Evenements_Strada", vm_t_info[vl_select], tm_evenements[vl_select].equipement) 
+
+	} */
+
+	CASE "BP_annuler"
+
+
+		vl_la_fenetre_est_active = FALSE
+
+	CASE "BP_transmettre"
+		vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_evenements, "TA_evenements")
+		vl_select = vl_select[0]
+		IF vl_select ++ "" <> "" {
+			if (tm_evenements[vl_select].transmis++""="")
+				PEND_FOR_NEW_TASK@("ITMA_TTR_Transmission_Alerte",
+						"ITMA_TES_Evenements_Strada",
+						COM09_Date_Courante(FALSE),
+						XDC_EQT_MAC,
+						8,	/*SPCI*/
+						38,	/*alerte strada*/
+						"Strada : "++tm_evenements[vl_select].reference++" "++
+								tm_evenements[vl_select].type
+							++" "++tm_evenements[vl_select].date_debut,
+						tm_evenements[vl_select].reference)
+
+			TES_Init_Visualisation (vl_fenetre_evenements)
+		}
+
+	CASE "BP_creation"
+
+		vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_evenements, "TA_evenements")
+		vl_select = vl_select[0]
+		IF vl_select ++ "" <> "" {
+			NEW_TASK@("TES_cree_fmc",tm_evenements[vl_select].reference)
+		}
+
+	CASE "BP_purger"
+		vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_evenements, "TA_evenements")
+
+	   	vl_select = vl_select[0]
+	IF vl_select ++ "" <> "" {
+	vl_parametres[0].type = SYB#CHAR_
+	vl_parametres[0].data = tm_evenements[vl_select].reference
+	vl_parametres[0].output = FALSE
+		IF COM05_SQL_Procedure (XZAE143_Purger_Evenement, 	vl_Parametres,vl_Resultats, C_MODULE) <> COM_OK {
+			INFO_MESSAGE@("Erreur d accès à la base")
+			RETURN (COM_NOK)
+		}
+		DB_TABLE_CLEAR_DATA@(vl_fenetre_evenements, "TA_evenements", 0, -1)
+
+		TES_Init_Visualisation (vl_fenetre_evenements)
+
+	}
+	else INFO_MESSAGE@("Sélectionnez un événement")
+
+	CASE "BP_synthese"
+
+		vl_select = DB_TABLE_GET_SELECTIONS@ (vl_fenetre_evenements, "TA_evenements")
+
+	   	vl_select = vl_select[0]
+	IF vl_select ++"" <> "" {
+'INFO_MESSAGE@("reference :" ++ tm_evenements[vl_select].reference)
+
+	PEND_FOR_NEW_TASK@("ITMA_TSS_Synthese_Strada", 
+					tm_evenements[vl_select].reference)
+	}
+
+	CASE "BP_aide"
+
+		INFO_MESSAGE@("L'aide n'est pas accessible")
+
+   ENDCASE
+WEND
+
+
+ENDMACRO
+
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  Initialise la visualisation.
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TES_Init_Visualisation (va_fenetre)
+
+/*
+* ARGUMENTS EN ENTREE :
+*   va_fenetre        : Id. de la fenetre a initialiser.
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TES_Evenements_Strada
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+
+	VAR     vl_t_titres				' Titres colonnes de la table
+	VAR	    vl_Indice
+	VAR     vl_nb_evt
+	VAR FORMAT COM_Localisation vl_local	' Localisation Evenement
+     VAR FORMAT SQL_Procedure_Params@        vl_Parametres
+	VAR FORMAT SQL_Procedure_Result@        vl_Resultats
+	VAR FORMAT TES_Evenement 	vl_Liste_Evenements
+
+
+/*A
+ * Definir les titres des colonnes de la table
+ * puis afficher les titres et une table vide
+ * -------------------------------------------
+ */
+
+vl_t_titres[0] = "Référence Evt",		150	' Titre colonne,taille en pixels
+vl_t_titres[1] = "Type",				150
+vl_t_titres[2] = "Date de début",		150
+vl_t_titres[3] = "Transmis à",		150
+
+
+DB_DISPLAY_ONLY@ (va_fenetre, TRUE)                     ' Pour avoir acces
+DB_DISPLAY@ (va_fenetre)                                '  a l'objet table
+
+/*A
+ * Rechercher des evenements du site
+ * ------------------------------
+ */
+vl_resultats=null
+tm_evenements=null
+IF COM05_SQL_Procedure (XZAE142_Liste_Evenements, 
+			vl_Parametres,vl_Resultats, C_MODULE) <> COM_OK
+{
+	INFO_MESSAGE@("Erreur d accès à la base")
+	RETURN (COM_NOK)
+}
+
+vl_Liste_Evenements = vl_Resultats.select_results[0]
+vl_nb_evt = ARRAY_SIZE@ (vl_Liste_Evenements)
+
+
+FOR vl_Indice=0 TO vl_nb_evt-1
+			
+	tm_evenements[vl_Indice].date_debut = vl_Liste_Evenements[vl_Indice][2]
+	tm_evenements[vl_Indice].type = vl_Liste_Evenements[vl_Indice][1]
+	tm_evenements[vl_Indice].reference = vl_Liste_Evenements[vl_Indice][0]
+	tm_evenements[vl_Indice].transmis = vl_Liste_Evenements[vl_Indice][4]
+		
+NEXT vl_Indice
+
+DB_TABLE_SET_DATA@(va_fenetre, "TA_evenements", tm_evenements, vl_t_titres, vm_l_picto)
+DB_DISPLAY_ONLY@ (va_fenetre, FALSE)
+
+RETURN (COM_OK)
+
+ENDMACRO
+
+
+/*X*/
+/* ----------------------------------------------------------------------------
+* SERVICE RENDU :
+*  procedure de creation de fiche main courante
+-------------------------------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO TES_cree_fmc (va_reference)
+
+
+/* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE : Aucun
+*
+*
+* CODE RETOUR         : COM_OK.
+*
+* CONDITION D'UTILISATION
+*   ITMA_TLL_Liste_Alertes
+*
+* FONCTION
+*   Initialise les valeurs a afficher et le fonctionnement general du module.
+*
+---------------------------------------------------------------------------- */
+VAR vl_typeEvt
+VAR vl_ficheCreee
+
+        vl_typeEvt=PEND_FOR_NEW_TASK@("ITMA_TMC_choix_type_fmc",
+                                                        "ITMA_TES_Evenement_Strada", TRUE)
+
+        IF (vl_typeEvt[0]<>null)
+        {
+              vl_ficheCreee=PEND_FOR_NEW_TASK@ ("ITMA_TMC_Fiche_Main_Courante",
+                                   "ITMA_TES_Evenement_Strada",
+                                        vl_typeEvt,
+                                         3,
+                                        XDC_FMC_ETAT_TRAI,
+					null,
+                                        va_reference)
+        }
+ENDMACRO 
+
+
+

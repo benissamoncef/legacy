@@ -1,0 +1,420 @@
+/*E*/
+/*Fichier :  $Id: ITMA_TMC_Lien_Fiche_Initiale.am,v 1.1 1998/03/06 10:00:40 gaborit Exp $      Release : $Revision: 1.1 $        Date : $Date: 1998/03/06 10:00:40 $
+------------------------------------------------------
+* STERIA *  PROJET MIGRAZUR
+------------------------------------------------------
+* SOUS-SYSTEME  GESIHM
+------------------------------------------------------
+* MODULE MTMC * FICHIER ITMA_TMC_achever_fiche.am
+------------------------------------------------------
+* DESCRIPTION DU MODULE :
+*
+* Achevenement des evenements.
+*
+*  Cf. DCG §2.4.52
+*
+------------------------------------------------------
+* HISTORIQUE :
+*
+* Torregrossa 19 dec 1997 : Creation (1583) 1.1
+------------------------------------------------------*/
+
+include	"dbase_.am"
+include "../inc/ITMA_COM.h"
+include "../inc/ITMA_TDO.h"
+include	"../../XDMICG/inc/xdc_ax.h"
+include	"../inc/ITMA_TAR.h"
+include	"../../XDMICG/inc/xzic_ax.h"
+include	"../inc/xzae75sp.h"
+include	"../../XDMICG/inc/xzaec_ax.h"
+include	"../inc/ITMA_TMC.h"
+
+
+
+define C_MODULE	"MTMC"
+define  C_FORMAT_INTITULE_FMC   "N%s %2s %10s %s %s"
+
+/*X*/
+/*------------------------------------------------------
+* SERVICE RENDU : 
+* Effectuer le lien avec une fmc initiale et une fmc degrade
+*
+------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Lien_Fiche_Initiale( FORMAT TMC_fmc va_fiche)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE :
+* aucun
+*
+* CODE RETOUR : 
+* aucun
+*
+*
+*
+---------------------------------------------------------*/
+VAR tl_data 
+VAR FORMAT TDO_Evt_Cause tl_liste
+VAR  vl_trouve, vl_indice
+VAR  tl_retour
+VAR FORMAT COM_Intitule_FMC vl_FMC_initiale
+VAR vl_installer_traitement_erreur
+VAR vl_fenetre, vl_Msg, tl_titres
+VAR vl_Libelle
+VAR vl_exit_value
+
+	/*A
+ 	* Traitements en cas d'erreur durant l'initialisation :
+  	* informer l'operateur, tracer l'erreur et abandonner
+   	* -----------------------------------------------------
+    	*/
+
+	ON ERROR {
+		ERROR_BOX@
+			COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+			tl_retour[0] = COM_NOK
+			RETURN (tl_retour)
+	}
+
+	MACRO_WINS_BUSY@
+
+	/*B on lance la tache de recherche d'evt en cours */
+	tl_data=PEND_FOR_NEW_TASK@("ITMA_COM_Liste_Causes", 
+						"ITMA_TMC_Fiche_Main_Courante")
+
+	/*A
+	 * Charger la fenetre 
+	 * ------------------
+	 */
+	vl_fenetre = DB_LOAD@ ("ITMA_TMC_Fiche_Initiale")
+	DB_XPOS@ (vl_fenetre, 518)
+	DB_YPOS@ (vl_fenetre, 626)
+
+	/*A activer la liste des fiches fmc */
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_FMC_Initiales",TRUE)
+	DB_TABLE_ALLOW_COLUMN_RESIZING@(vl_fenetre,"TA_FMC_Initiales",FALSE)
+	DB_CTRL_HORIZ_SCROLL@ (vl_fenetre, "TA_FMC_Initiales", FALSE)
+
+	DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+	DB_DISPLAY@(vl_fenetre)
+
+	tl_liste=tl_data[0]
+	/*B affiche la liste des evts a traiter*/
+	DB_CTRL_DISPLAY@(vl_fenetre,"TA_FMC_Initiales",TRUE)
+	DB_TABLE_SET_MARKER_WIDTH@(vl_fenetre, "TA_FMC_Initiales", 25)
+	DB_CTRL_RETURN_ON_CHANGE@(vl_fenetre,"TA_FMC_Initiales",TRUE)
+	tl_titres[0] = COM_CAUSE_NUMERO,COM_CAUSE_LONG_NUMERO
+	tl_titres[1] = COM_CAUSE_CLE,COM_CAUSE_LONG_CLE
+	tl_titres[2] = COM_CAUSE_TYPE,COM_CAUSE_LONG_TYPE
+	tl_titres[3] = COM_CAUSE_DATE,COM_CAUSE_LONG_DATE
+	tl_titres[4] = COM_CAUSE_LOCALISATION,COM_CAUSE_LONG_LOCALISATION
+	DB_TABLE_SET_DATA@(vl_fenetre,"TA_FMC_Initiales",tl_data[1],tl_titres)
+	DB_TABLE_MARKER_PIXMAPS@(vl_fenetre, "TA_FMC_Initiales", 0, tl_data[2])
+
+	/*A initialiser si deja une fmc initiale */
+	IF NOT IS_NULL@(va_fiche.num_fmc_init)
+	{
+
+		/* rechercher la position */
+		vl_trouve = FALSE
+		vl_indice = 0
+		WHILE (vl_trouve = FALSE AND vl_indice < ARRAY_SIZE@(tl_liste))
+			IF tl_liste[vl_indice].info_evt.IdFMC.numero = va_fiche.num_fmc_init and
+				tl_liste[vl_indice].info_evt.IdFMC.cle = va_fiche.cle_fmc_init
+			{
+
+				vl_fmc_initiale = tl_liste[vl_indice].info_evt
+				vl_Libelle=COM11_Libelle_FMC(tl_liste[vl_indice].info_evt)
+				DB_CTRL_TITLE@(vl_fenetre,"LI_FMC_Initiale",vl_Libelle)
+				vl_indice[0] = vl_indice
+
+       			DB_TABLE_SET_SELECTIONS@ (vl_fenetre, "TA_FMC_Initiales", vl_indice)
+
+				vl_indice = vl_indice[0]
+				vl_trouve = TRUE
+			}
+			ELSE
+				vl_indice=vl_indice+1
+		WEND
+	}
+
+	DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+
+	/*A
+ 	* Traitements en cas d'erreur durant la visualisation :
+  	* informer l'operateur et selon la nature et la gravite
+   	* de l'erreur la tracer ou non, continuer ou abandonner
+    	* -----------------------------------------------------
+     */
+
+	vl_installer_traitement_erreur = TRUE
+	WHILE vl_installer_traitement_erreur
+		vl_installer_traitement_erreur = FALSE
+
+		ON ERROR {
+		     ERROR_BOX@
+			     IF ERROR_NUMBER@() <> COM_ERR_DATE_INVAL  AND
+				ERROR_NUMBER@() <> COM_ERR_VAL_INVAL
+				COM01_Trace (COM_WARNING, COM03_Message_Erreur (C_MODULE))
+				vl_installer_traitement_erreur = TRUE
+		}
+	WEND
+
+	/*A  boucle infinie de traitement des evenements*/
+	WHILE 1
+	    /*A  afficher la fenetre*/
+		DB_DISPLAY_ONLY@(vl_fenetre,FALSE)
+	    	DB_DISPLAY@(vl_fenetre)
+		DB_DISPLAY_ONLY@(vl_fenetre,TRUE)
+
+	    /*A attente d'un evenement*/
+	    vl_exit_value=DB_EXIT_CTRL@(vl_fenetre)
+
+	    /*A  suivant l'evenement */
+	    CASE OF vl_exit_value
+
+	    	/*A appui sur le bouton quitter*/
+	    	CASE "BP_Annuler"
+			tl_retour[0] = COM_NOK
+		    /*A bye*/
+		    RETURN (tl_retour)
+
+		CASE "TA_FMC_Initiales"
+			vl_Fmc_Initiale = ITMA_TMC_Modif_Lien_Fiche_Initiale(vl_fenetre, va_fiche, tl_liste)
+
+		CASE "BP_Valider"
+			/* message de confirmation */
+			IF IS_NULL@(vl_Fmc_Initiale)
+				vl_Msg = "Confirmez-vous l'achévement de la FMC sans FMC initiale ?"
+			ELSE
+				vl_Msg = "Confirmez-vous l'achévement de la FMC suivi de   l'enrichissement de la FMC initiale "++ 
+						SUBSTRING@ (DB_CTRL_GET_TITLE@ (vl_fenetre, "LI_FMC_Initiale"),1,9)++ " ?"
+
+			/* confirmation de la suite du traitement */
+			IF (PEND_FOR_NEW_TASK@( "ITMA_TCF_Demande_Confirmation", vl_Msg) = XDC_OK)
+			{
+				IF (ITMA_TMC_Mise_En_Base_Fiche_Initiale(va_fiche, vl_Fmc_Initiale) = XDC_OK)
+				{
+					tl_retour[0] = COM_OK
+					tl_retour[1] = vl_Fmc_Initiale
+					RETURN (tl_retour)
+				}
+			}
+
+		CASE "BP_Effacer"
+			DB_CTRL_TITLE@(vl_Fenetre, "LI_FMC_Initiale","-")
+			vl_Fmc_Initiale = NULL
+
+	    ENDCASE
+
+	WEND
+														     
+ENDMACRO
+
+/*X*/
+/*------------------------------------------------------
+* SERVICE RENDU : 
+* Effectuer le lien avec une fmc initiale et une fmc degrade
+*
+------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Modif_Lien_Fiche_Initiale(va_fenetre, FORMAT TMC_fmc va_fiche, ta_liste)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE :
+* aucun
+*
+* CODE RETOUR : 
+* aucun
+*
+*
+*
+---------------------------------------------------------*/
+VAR vl_selection
+VAR FORMAT TDO_Evt_Cause tl_liste_fmc
+VAR FORMAT COM_Intitule_FMC	vl_Fmc_initiale
+VAR FORMAT TDO_Type_FMC     vl_les_types_FMC
+VAR vl_Libelle
+VAR vl_cr
+VAR vl_chaine
+VAR vl_numero,vl_type
+
+	/*A element selectionne dans la liste des causes*/
+	vl_selection = DB_TABLE_GET_SELECTIONS@(va_fenetre,"TA_FMC_Initiales")
+	vl_selection = vl_selection[0]
+	tl_liste_fmc=ta_liste
+
+	if tl_liste_fmc[vl_selection]=NULL
+	{
+		vl_Fmc_initiale=null
+		goto POS_FIN
+	}
+
+
+	/*B si c'est une fiche poste operateur*/
+	IF (tl_liste_fmc[vl_selection].info_evt.NumType = XZAEC_FMC_PosteOperateur)
+	{
+		/*B affiche un message*/
+		INFO_MESSAGE@("Une fiche opérateur ne peut pas être une FMC initiale")
+		vl_Fmc_initiale=null
+		goto POS_FIN
+	}
+	ELSE IF ( tl_liste_fmc[vl_selection].info_evt.IdFMC.numero = va_fiche.numero and 
+			tl_liste_fmc[vl_selection].info_evt.IdFMC.cle = 	va_fiche.cle)	
+	{
+		/*B affiche un message*/
+		INFO_MESSAGE@("La FMC ne peut pas être une FMC initiale")
+		vl_Fmc_initiale=null
+		goto POS_FIN
+	}
+
+	/*B recupere num et cle de l'evenement cause*/
+	vl_Fmc_initiale = tl_liste_fmc[vl_selection].info_evt
+
+	/*B je formatte le libelle de l'evenement */
+	vl_Libelle=COM11_Libelle_FMC(tl_liste_fmc[vl_selection].info_evt)
+	
+	/*B valuer le libelle fmc initiale */
+	DB_CTRL_TITLE@(va_fenetre, "LI_FMC_Initiale",vl_Libelle)
+
+POS_FIN:
+
+	/*B retour*/
+	RETURN (vl_Fmc_initiale)
+	
+ENDMACRO
+
+
+
+
+
+/*X*/
+/*------------------------------------------------------
+* SERVICE RENDU : 
+* Effectuer le lien avec une fmc initiale et une fmc degrade en base
+*
+------------------------------------------------------
+* SEQUENCE D'APPEL :
+*/
+
+MACRO ITMA_TMC_Mise_En_Base_Fiche_Initiale( FORMAT TMC_FMC va_fiche, FORMAT COM_Intitule_FMC va_Fmc_initiale)
+
+/*
+* ARGUMENTS EN ENTREE :
+*
+*
+* ARGUMENTS EN SORTIE :
+* aucun
+*
+* CODE RETOUR : 
+* aucun
+*
+*
+*
+---------------------------------------------------------*/
+VAR FORMAT sql_procedure_params@ param_in,vl_parametres
+var 	i
+var FORMAT sql_procedure_result@ vl_resultats
+var vl_msg
+var vl_retour
+
+	MACRO_WINS_BUSY@()
+	i=0
+
+	/*A preparation des parametres de la requete*/
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = va_fiche.numero
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = va_fiche.cle
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	IF (SYSTEM_VAR@(vg_surcharge)=TRUE)
+		vl_parametres[i].data = SYSTEM_VAR@(vg_numero_poste_surcharge)
+	ELSE
+		vl_parametres[i].data = SYSTEM_VAR@(vg_numero_poste)
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = va_Fmc_initiale.IdFMC.numero
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	vl_parametres[i].type = SYB#INT4_                       
+	vl_parametres[i].data = va_Fmc_initiale.IdFMC.cle
+	vl_parametres[i].output = FALSE
+	i=i+1
+
+	/*A execution de la requete sql*/
+	vl_retour=COM_OK
+	vl_retour = COM05_SQL_Procedure (XZAE75_Modif_FMC_Initiale,
+			vl_parametres, vl_resultats, C_MODULE)
+
+	if (vl_retour<>COM_OK)
+	{
+		CASE OF (vl_resultats.status)
+			CASE XDC_NOK
+				vl_msg="Evénement inexistant,site inconnu, ...."
+
+			CASE XDC_ARG_INV
+				vl_msg="Arguments invalides"
+
+			CASE XDC_PRC_INC
+				vl_msg="Procédure stockée inexistante"
+		ENDCASE
+
+		INFO_MESSAGE@(vl_msg)
+		 vl_retour=COM_NOK
+	}
+	ELSE IF (vl_resultats.status<>XDC_OK)
+	{
+		CASE OF vl_resultats.status
+
+			CASE XZAEC_FMC_PAS_ENR
+				vl_msg="Pas le droit d'enrichir la FMC"
+
+			CASE XZAEC_FMC_INIT_NON_AUTORISEE
+				vl_msg="FMC initiale non autorisée : site de la FMC initiale requis 43 ou "++va_fiche.cle
+
+			CASE XZAEC_FMC_INIT_INC
+				vl_msg="FMC initiale inexistante"
+
+			CASE XZAEC_FMC_INIT_DEG
+				vl_msg="FMC initiale liée : FMC incorrecte"
+
+			CASE XZAEC_FMC_DEG_ENCOURS
+				vl_msg="Evénement lié à une FMC dégradée en cours"
+
+			CASE XZAEC_FMC_INIT_INCOMP
+				vl_msg="FMC initiale incompatible avec cette FMC"
+
+			CASE XZAEC_FMC_INIT_PAS_ENR
+				vl_msg="Pas le droit d'enrichir la FMC initiale"
+		ENDCASE
+
+		INFO_MESSAGE@(vl_msg)
+		vl_retour=COM_NOK
+	}
+
+	RETURN  (vl_retour) 	
+	
+ENDMACRO
+
+
+
+
